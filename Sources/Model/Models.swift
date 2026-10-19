@@ -389,6 +389,9 @@ struct ProjectSnapshot: Equatable {
     var subtitleStyle: SubtitleStyle
     var audio: AudioSettings
     var canvas: CanvasSettings
+    var documentary = DocumentaryStyle()
+    var titleCards: [TitleCard] = []
+    var lowerThirds: [LowerThird] = []
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -401,13 +404,17 @@ final class EditorProject {
     var subtitleStyle = SubtitleStyle()
     var audio = AudioSettings()
     var canvas = CanvasSettings()
+    var documentary = DocumentaryStyle()
+    var titleCards: [TitleCard] = []
+    var lowerThirds: [LowerThird] = []
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
 
     func snapshot() -> ProjectSnapshot {
         ProjectSnapshot(clips: clips, subtitles: subtitles, subtitleStyle: subtitleStyle,
-                        audio: audio, canvas: canvas)
+                        audio: audio, canvas: canvas, documentary: documentary,
+                        titleCards: titleCards, lowerThirds: lowerThirds)
     }
 
     // MARK: タイムライン計算

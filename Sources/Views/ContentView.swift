@@ -1,27 +1,41 @@
 import SwiftUI
+import UIKit
 import PhotosUI
 import AVFoundation
+import Combine
 
+/// メイン画面(CapCut 風:上部バー/プレビュー/再生操作/タイムライン/下部ツールバー)
 struct ContentView: View {
     @State private var project = EditorProject()
+    @State private var didRestore = false
     @State private var player = PlayerController()
-    @State private var selection: UUID?
+    @State private var history = EditorHistory()
+    @State private var timeline = TimelineState()
+    @State private var selection: EditorSelection?
+
+    @State private var activePanel: EditorPanel?
+    @State private var activeSheet: EditorSheet?
+
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var isImporting = false
     @State private var importDone = 0
     @State private var importTotal = 0
-    @State private var alertMessage: String?
-    @State private var activeSheet: ContentSheet?
 
-    enum ContentSheet: Identifiable, Hashable {
-        case editClip(UUID)
+    @State private var alertMessage: String?
+    @State private var showNewProjectConfirm = false
+    @State private var isKeyboardVisible = false
+
+    enum EditorSheet: Identifiable, Hashable {
+        case clipDetail(UUID)
+        case multicam(UUID)
         case subtitles
         case audio
         case export
 
         var id: String {
             switch self {
-            case .editClip(let clipID): return "edit-\(clipID.uuidString)"
+            case .clipDetail(let clipID): return "detail-\(clipID.uuidString)"
+            case .multicam(let clipID): return "multicam-\(clipID.uuidString)"
             case .subtitles: return "subtitles"
             case .audio: return "audio"
             case .export: return "export"
@@ -30,23 +44,22 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                topBar
+                ExportProgressBanner()
                 if project.isEmpty {
                     emptyState
                 } else {
                     editor
                 }
             }
-            .navigationTitle("動画エディタ")
-            .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                ExportProgressBanner()
-            }
-            .overlay {
-                if isImporting {
-                    importOverlay
-                }
+
+            if isImporting {
+                importOverlay
             }
         }
         .preferredColorScheme(.dark)
@@ -58,23 +71,134 @@ struct ContentView: View {
         }
         .onChange(of: project.snapshot()) { _, newSnapshot in
             player.update(with: newSnapshot)
+            ProjectStore.scheduleSave(newSnapshot)
         }
-        .onChange(of: project.clips.map { $0.id }) { _, ids in
-            if let current = selection, !ids.contains(current) {
+        .onChange(of: selectionExists) { _, exists in
+            if !exists {
                 selection = nil
             }
         }
+        .onChange(of: selection) { _, newValue in
+            if let panel = activePanel, !panel.isCompatible(with: newValue) {
+                activePanel = nil
+            }
+        }
+        .onChange(of: project.isEmpty) { _, isEmpty in
+            if isEmpty {
+                activePanel = nil
+                selection = nil
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            isKeyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            isKeyboardVisible = false
+        }
         .onAppear {
+            if !didRestore {
+                didRestore = true
+                if let saved = ProjectStore.load(), !saved.isEmpty {
+                    project.restore(saved)
+                    Task { await reloadThumbnails() }
+                }
+            }
             player.update(with: project.snapshot())
         }
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
+        }
+        .confirmationDialog("新しいプロジェクトを始めますか?",
+                            isPresented: $showNewProjectConfirm,
+                            titleVisibility: .visible) {
+            Button("編集中の内容を破棄", role: .destructive) {
+                startNewProject()
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("現在のクリップ・字幕・BGM はすべて消え、元に戻せません。")
         }
         .alert("お知らせ", isPresented: alertIsPresented) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(alertMessage ?? "")
         }
+    }
+
+    // MARK: - 上部バー
+
+    private var topBar: some View {
+        HStack(spacing: 18) {
+            Menu {
+                Button(role: .destructive) {
+                    showNewProjectConfirm = true
+                } label: {
+                    Label("新規プロジェクト", systemImage: "doc.badge.plus")
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("新規")
+
+            Spacer()
+
+            Button {
+                EditorHaptics.tap()
+                activePanel = nil
+                history.undo(project)
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .opacity(history.canUndo ? 1 : 0.3)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!history.canUndo)
+            .accessibilityLabel("元に戻す")
+
+            Button {
+                EditorHaptics.tap()
+                activePanel = nil
+                history.redo(project)
+            } label: {
+                Image(systemName: "arrow.uturn.forward")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .opacity(history.canRedo ? 1 : 0.3)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!history.canRedo)
+            .accessibilityLabel("やり直す")
+
+            Spacer()
+
+            Button {
+                EditorHaptics.tap()
+                player.pause()
+                activePanel = nil
+                activeSheet = .export
+            } label: {
+                Text("書き出し")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 7)
+                    .background(Color.accentColor, in: Capsule())
+                    .opacity(project.isEmpty ? 0.4 : 1)
+            }
+            .buttonStyle(.plain)
+            .disabled(project.isEmpty)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 48)
     }
 
     // MARK: - 空の状態
@@ -107,115 +231,289 @@ struct ContentView: View {
     // MARK: - 編集画面
 
     private var editor: some View {
-        VStack(spacing: 8) {
-            PreviewView(player: player)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            transportRow
-                .padding(.horizontal)
-            scrubber
-                .padding(.horizontal)
-            TimelineView(project: project, player: player, selection: $selection)
-                .frame(height: 96)
-            Divider()
-            toolbarRow
-                .padding(.bottom, 4)
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                PreviewView(player: player)
+                    .frame(maxWidth: .infinity, minHeight: 100, maxHeight: max(100, geo.size.height * 0.45))
+                    .background(Color.black)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        player.togglePlay()
+                    }
+                    .layoutPriority(1)
+
+                if !isKeyboardVisible {
+                    transportRow
+                        .padding(.horizontal, 16)
+                        .frame(height: 44)
+
+                    TimelineView(project: project, player: player, history: history,
+                                 timeline: timeline, selection: $selection)
+                        .frame(height: 200)
+                        .overlay(alignment: .trailing) {
+                            addClipButton
+                                .padding(.trailing, 8)
+                        }
+                }
+
+                Spacer(minLength: 0)
+
+                bottomArea
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
     }
 
     private var transportRow: some View {
-        HStack(spacing: 24) {
-            Button {
-                player.seek(to: max(0, player.currentTime - 5))
-            } label: {
-                Image(systemName: "gobackward.5")
-                    .font(.title2)
+        ZStack {
+            HStack {
+                Text("\(EditorTimeFormat.short(player.currentTime)) / \(EditorTimeFormat.short(player.duration))")
+                    .font(.system(size: 13))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.white.opacity(0.85))
+                Spacer()
             }
+
             Button {
+                EditorHaptics.tap()
                 player.togglePlay()
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title)
-                    .frame(width: 36)
+                    .font(.system(size: 26))
+                    .foregroundStyle(.white)
+                    .frame(width: 52, height: 44)
+                    .contentShape(Rectangle())
             }
-            Button {
-                player.seek(to: min(player.duration, player.currentTime + 5))
-            } label: {
-                Image(systemName: "goforward.5")
-                    .font(.title2)
-            }
-            Spacer()
-            Text("\(MediaTimeText.mmss(player.currentTime)) / \(MediaTimeText.mmss(player.duration))")
-                .font(.callout)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .disabled(player.duration <= 0)
+            .accessibilityLabel(player.isPlaying ? "一時停止" : "再生")
         }
-        .foregroundStyle(.white)
     }
 
-    private var scrubber: some View {
-        let upper = max(player.duration, 0.01)
-        return Slider(
-            value: Binding<Double>(
-                get: { min(max(player.currentTime, 0), upper) },
-                set: { newValue in player.seek(to: newValue) }
-            ),
-            in: 0...upper
-        )
-        .disabled(player.duration <= 0)
+    private var addClipButton: some View {
+        PhotosPicker(selection: $pickerItems,
+                     maxSelectionCount: nil,
+                     selectionBehavior: .ordered,
+                     matching: .videos,
+                     preferredItemEncoding: .current) {
+            Image(systemName: "plus")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 36, height: 36)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
+                .shadow(color: Color.black.opacity(0.4), radius: 4)
+        }
+        .buttonStyle(.plain)
+        .disabled(isImporting)
+        .accessibilityLabel("動画を追加")
     }
 
-    private var toolbarRow: some View {
-        HStack(spacing: 0) {
-            PhotosPicker(selection: $pickerItems,
-                         maxSelectionCount: nil,
-                         selectionBehavior: .ordered,
-                         matching: .videos,
-                         preferredItemEncoding: .current) {
-                toolLabel("追加", systemImage: "plus.rectangle.on.rectangle")
-            }
-            .disabled(isImporting)
+    // MARK: - 下部(ツールバー or パネル)
 
-            toolButton("編集", systemImage: "slider.horizontal.3", disabled: editTargetID == nil) {
-                if let clipID = editTargetID {
-                    selection = clipID
-                    activeSheet = .editClip(clipID)
+    private var bottomArea: some View {
+        ZStack(alignment: .bottom) {
+            if let panel = activePanel {
+                EditorPanelContainer(title: panel.title, height: panel.height, onClose: {
+                    activePanel = nil
+                }) {
+                    panelContent(panel)
                 }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                EditorToolbar(items: toolbarItems,
+                              onBack: backAction,
+                              pickerItems: $pickerItems)
+                    .transition(.opacity)
             }
-            toolButton("分割", systemImage: "scissors") {
-                splitAtPlayhead()
+        }
+        .animation(.easeInOut(duration: 0.22), value: activePanel)
+    }
+
+    /// 選択中なら「←」で選択解除
+    private var backAction: (() -> Void)? {
+        guard selection != nil else { return nil }
+        return { selection = nil }
+    }
+
+    @ViewBuilder
+    private func panelContent(_ panel: EditorPanel) -> some View {
+        switch panel {
+        case .speed(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorSpeedPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
             }
-            toolButton("字幕", systemImage: "captions.bubble") {
+        case .volume(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorVolumePanel(project: project, clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .filter(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorFilterPanel(project: project, clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .textEdit(let cueID):
+            if let cue = project.subtitleBinding(id: cueID) {
+                EditorTextEditPanel(cue: cue)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .subtitleStyle:
+            EditorSubtitleStylePanel(project: project)
+        case .aspect:
+            EditorAspectPanel(project: project)
+        case .bgmVolume:
+            EditorBGMVolumePanel(project: project)
+        }
+    }
+
+    // MARK: - ツールバー項目
+
+    private var toolbarItems: [EditorToolItem] {
+        guard let current = selection else { return rootItems }
+        switch current {
+        case .clip(let clipID):
+            return clipItems(clipID)
+        case .subtitle(let cueID):
+            return subtitleItems(cueID)
+        case .bgm:
+            return bgmItems
+        }
+    }
+
+    private var rootItems: [EditorToolItem] {
+        let target = clipIDAtPlayhead
+        return [
+            EditorToolItem("編集", systemImage: "scissors", enabled: target != nil) {
+                if let target {
+                    selection = .clip(target)
+                }
+            },
+            EditorToolItem("音声", systemImage: "music.note") {
+                history.record(project)
+                activeSheet = .audio
+            },
+            EditorToolItem("テキスト", systemImage: "textformat") {
+                addSubtitleAtPlayhead()
+            },
+            EditorToolItem("自動字幕", systemImage: "captions.bubble") {
+                history.record(project)
+                activeSheet = .subtitles
+            },
+            EditorToolItem("フィルタ", systemImage: "camera.filters", enabled: target != nil) {
+                if let target {
+                    selection = .clip(target)
+                    openPanel(.filter(target))
+                }
+            },
+            EditorToolItem("比率", systemImage: "aspectratio") {
+                openPanel(.aspect)
+            },
+            EditorToolItem.addMedia("追加", systemImage: "plus.rectangle.on.rectangle", enabled: !isImporting)
+        ]
+    }
+
+    private func clipItems(_ clipID: UUID) -> [EditorToolItem] {
+        [
+            EditorToolItem("分割", systemImage: "square.split.2x1") {
+                splitClip(clipID)
+            },
+            EditorToolItem("速度", systemImage: "speedometer") {
+                openPanel(.speed(clipID))
+            },
+            EditorToolItem("音量", systemImage: "speaker.wave.2") {
+                openPanel(.volume(clipID))
+            },
+            EditorToolItem("フィルタ", systemImage: "camera.filters") {
+                openPanel(.filter(clipID))
+            },
+            EditorToolItem("複製", systemImage: "plus.square.on.square") {
+                history.record(project)
+                project.duplicateClip(id: clipID)
+            },
+            EditorToolItem("削除", systemImage: "trash", destructive: true) {
+                history.record(project)
+                selection = nil
+                project.removeClip(id: clipID)
+            },
+            EditorToolItem("マルチカメラ", systemImage: "camera.on.rectangle") {
+                history.record(project)
+                activeSheet = .multicam(clipID)
+            },
+            EditorToolItem("詳細", systemImage: "slider.horizontal.3") {
+                history.record(project)
+                activeSheet = .clipDetail(clipID)
+            }
+        ]
+    }
+
+    private func subtitleItems(_ cueID: UUID) -> [EditorToolItem] {
+        [
+            EditorToolItem("テキスト編集", systemImage: "pencil") {
+                openPanel(.textEdit(cueID))
+            },
+            EditorToolItem("スタイル", systemImage: "textformat.size") {
+                openPanel(.subtitleStyle)
+            },
+            EditorToolItem("削除", systemImage: "trash", destructive: true) {
+                history.record(project)
+                selection = nil
+                project.removeSubtitle(id: cueID)
+            },
+            EditorToolItem("自動字幕", systemImage: "captions.bubble") {
+                history.record(project)
                 activeSheet = .subtitles
             }
-            toolButton("BGM", systemImage: "music.note") {
+        ]
+    }
+
+    private var bgmItems: [EditorToolItem] {
+        [
+            EditorToolItem("音量", systemImage: "speaker.wave.2") {
+                openPanel(.bgmVolume)
+            },
+            EditorToolItem("置き換え", systemImage: "arrow.triangle.2.circlepath") {
+                history.record(project)
                 activeSheet = .audio
+            },
+            EditorToolItem("削除", systemImage: "trash", destructive: true) {
+                history.record(project)
+                selection = nil
+                project.audio.bgmURL = nil
+                project.audio.bgmName = nil
             }
-            toolButton("書き出し", systemImage: "square.and.arrow.up") {
-                player.pause()
-                activeSheet = .export
-            }
-        }
+        ]
     }
 
-    private func toolLabel(_ title: String, systemImage: String) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .frame(height: 24)
-            Text(title)
-                .font(.caption2)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-    }
+    // MARK: - シート
 
-    private func toolButton(_ title: String, systemImage: String, disabled: Bool = false,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            toolLabel(title, systemImage: systemImage)
+    @ViewBuilder
+    private func sheetContent(for sheet: EditorSheet) -> some View {
+        switch sheet {
+        case .clipDetail(let clipID):
+            NavigationStack {
+                ClipEditorView(project: project, player: player, clipID: clipID)
+            }
+        case .multicam(let clipID):
+            NavigationStack {
+                MulticamEditorView(project: project, player: player, clipID: clipID)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完了") { activeSheet = nil }
+                        }
+                    }
+            }
+        case .subtitles:
+            SubtitleEditorView(project: project, player: player)
+        case .audio:
+            AudioSettingsView(project: project)
+        case .export:
+            ExportView(project: project)
         }
-        .disabled(disabled)
     }
 
     private var importOverlay: some View {
@@ -234,24 +532,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - シート
-
-    @ViewBuilder
-    private func sheetContent(for sheet: ContentSheet) -> some View {
-        switch sheet {
-        case .editClip(let clipID):
-            NavigationStack {
-                ClipEditorView(project: project, player: player, clipID: clipID)
-            }
-        case .subtitles:
-            SubtitleEditorView(project: project, player: player)
-        case .audio:
-            AudioSettingsView(project: project)
-        case .export:
-            ExportView(project: project)
-        }
-    }
-
     private var alertIsPresented: Binding<Bool> {
         Binding<Bool>(
             get: { alertMessage != nil },
@@ -261,27 +541,82 @@ struct ContentView: View {
         )
     }
 
-    // MARK: - 操作
+    // MARK: - 状態
 
-    /// 編集対象:選択中のクリップ、なければ再生位置のクリップ
-    private var editTargetID: UUID? {
-        if let current = selection, project.index(of: current) != nil {
-            return current
+    /// 選択中の対象がまだ存在するか(削除・元に戻すで消えたら選択解除する)
+    private var selectionExists: Bool {
+        guard let current = selection else { return true }
+        switch current {
+        case .clip(let clipID):
+            return project.index(of: clipID) != nil
+        case .subtitle(let cueID):
+            return project.subtitles.contains(where: { $0.id == cueID })
+        case .bgm:
+            return project.audio.bgmURL != nil
         }
-        if let location = project.locate(timelineTime: player.currentTime),
-           location.index < project.clips.count {
-            return project.clips[location.index].id
-        }
-        return nil
     }
 
-    private func splitAtPlayhead() {
+    /// 再生位置にあるクリップ
+    private var clipIDAtPlayhead: UUID? {
+        guard let location = project.locate(timelineTime: player.currentTime),
+              location.index < project.clips.count else { return nil }
+        return project.clips[location.index].id
+    }
+
+    // MARK: - 操作
+
+    /// パネルを開く。開く直前の状態を 1 回だけ記録し、パネル内の変更を 1 回の「元に戻す」で戻せるようにする
+    private func openPanel(_ panel: EditorPanel) {
+        history.record(project)
+        activePanel = panel
+    }
+
+    private func addSubtitleAtPlayhead() {
+        history.record(project)
+        let cue = project.addSubtitle(at: player.currentTime)
+        selection = .subtitle(cue.id)
+    }
+
+    private func splitClip(_ clipID: UUID) {
         guard let location = project.locate(timelineTime: player.currentTime),
               location.index < project.clips.count else { return }
         let clip = project.clips[location.index]
-        let succeeded = project.splitClip(id: clip.id, atSourceTime: location.sourceTime)
-        if !succeeded {
+        guard clip.id == clipID else {
+            alertMessage = "再生位置(中央の白い線)を選択中のクリップの上に合わせてから分割してください。"
+            return
+        }
+        let minimum = 0.2
+        guard location.sourceTime > clip.startTime + minimum,
+              location.sourceTime < clip.endTime - minimum else {
             alertMessage = "クリップの端に近すぎるため分割できません。端から0.2秒以上離れた位置で分割してください。"
+            return
+        }
+        history.record(project)
+        project.splitClip(id: clipID, atSourceTime: location.sourceTime)
+    }
+
+    private func startNewProject() {
+        player.pause()
+        activePanel = nil
+        activeSheet = nil
+        selection = nil
+        project.restore(ProjectSnapshot(clips: [],
+                                        subtitles: [],
+                                        subtitleStyle: SubtitleStyle(),
+                                        audio: AudioSettings(),
+                                        canvas: CanvasSettings()))
+        history.clear()
+        ProjectStore.deleteSaved()
+        player.seek(to: 0)
+    }
+
+    /// 復元したクリップのサムネイルを読み直す(保存ファイルには画像を含めないため)
+    private func reloadThumbnails() async {
+        for clip in project.clips where clip.thumbnail == nil {
+            let image = await MediaStore.thumbnail(for: clip.url, at: clip.startTime, maxPixel: 240)
+            if let i = project.index(of: clip.id) {
+                project.clips[i].thumbnail = image
+            }
         }
     }
 
@@ -290,14 +625,16 @@ struct ContentView: View {
         importTotal = items.count
         importDone = 0
         var failures: [String] = []
+        var recorded = false
         for item in items {
             do {
                 if let movie = try await item.loadTransferable(type: PickedMovie.self) {
                     let clip = try await MediaStore.makeClip(from: movie.url)
-                    project.clips.append(clip)
-                    if selection == nil {
-                        selection = clip.id
+                    if !recorded {
+                        history.record(project)
+                        recorded = true
                     }
+                    project.clips.append(clip)
                 } else {
                     failures.append("動画データを取得できませんでした。")
                 }

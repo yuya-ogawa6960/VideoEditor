@@ -5,6 +5,7 @@ import CoreImage
 // =====================================================================
 // FilterEngine: FilterSettings → CoreImage 処理
 // プレビュー・書き出し(VideoCompositor)とフィルタ一覧のサムネイルで共通利用する。
+// 色作りは FilterLUT(手続き生成の 3D LUT)で行うため、サムネイルと動画は同じ見た目になる。
 // =====================================================================
 
 /// CIContext を一度だけ生成して共有する(GPU / CPU)。
@@ -40,19 +41,10 @@ enum FilterEngine {
         let extent = image.extent
         var output = image
 
-        // 1. プリセット(強度でブレンド)
+        // 1. プリセット(LUT。強度で元画像とブレンド)
         if settings.preset != .none && settings.intensity > 0 {
             let filtered = presetImage(settings.preset, image: image)
-            let intensity = min(max(settings.intensity, 0), 1)
-            if intensity >= 0.999 {
-                output = filtered
-            } else {
-                // time 0 = 元画像, 1 = フィルタ後
-                output = image.applyingFilter("CIDissolveTransition", parameters: [
-                    kCIInputTargetImageKey: filtered,
-                    kCIInputTimeKey: NSNumber(value: intensity)
-                ])
-            }
+            output = blend(original: image, filtered: filtered, intensity: settings.intensity)
         }
 
         // 2. 明るさ / コントラスト / 彩度
@@ -69,8 +61,33 @@ enum FilterEngine {
         return output.cropped(to: extent)
     }
 
+    /// 作品全体のルック(LookPreset)を適用。intensity 0...1 で元画像とブレンド。
+    /// 透明部分(fit 時の余白など)は透明のまま保たれる。
+    static func applyLook(_ look: LookPreset, intensity: Double, to image: CIImage) -> CIImage {
+        guard look != .none, intensity > 0, let cube = FilterLUT.cube(for: look) else { return image }
+        let extent = image.extent
+        let graded = FilterLUT.apply(cube, to: image)
+        let output = blend(original: image, filtered: graded, intensity: intensity)
+        if extent.isInfinite || extent.isEmpty { return output }
+        return output.cropped(to: extent)
+    }
+
     /// フィルタ選択 UI 用のサムネイル
     static func preview(_ image: UIImage, settings: FilterSettings) -> UIImage? {
+        renderPreview(image) { apply(settings, to: $0) }
+    }
+
+    /// ルック選択 UI 用のサムネイル(クリップのフィルタ → ルックの順。書き出しと同じ処理)
+    static func previewLook(_ image: UIImage, look: LookPreset, intensity: Double = 1,
+                            settings: FilterSettings = FilterSettings()) -> UIImage? {
+        renderPreview(image) { input in
+            applyLook(look, intensity: intensity, to: apply(settings, to: input))
+        }
+    }
+
+    // MARK: - 内部
+
+    private static func renderPreview(_ image: UIImage, _ process: (CIImage) -> CIImage) -> UIImage? {
         let input: CIImage
         if let cg = image.cgImage {
             input = CIImage(cgImage: cg).oriented(filterEngineOrientation(image.imageOrientation))
@@ -82,78 +99,49 @@ enum FilterEngine {
         // 原点を (0,0) に揃える
         let normalized = input.transformed(by: CGAffineTransform(translationX: -input.extent.origin.x,
                                                                   y: -input.extent.origin.y))
-        let output = apply(settings, to: normalized)
+        let output = process(normalized)
         let rect = normalized.extent
         guard !rect.isEmpty, !rect.isInfinite else { return nil }
         guard let cg = FilterEngineContexts.current.createCGImage(output, from: rect) else { return nil }
         return UIImage(cgImage: cg, scale: image.scale, orientation: .up)
     }
 
+    /// intensity 0 = 元画像, 1 = フィルタ後
+    private static func blend(original: CIImage, filtered: CIImage, intensity: Double) -> CIImage {
+        let t = min(max(intensity, 0), 1)
+        if t >= 0.999 { return filtered }
+        if t <= 0.001 { return original }
+        return original.applyingFilter("CIDissolveTransition", parameters: [
+            kCIInputTargetImageKey: filtered,
+            kCIInputTimeKey: NSNumber(value: t)
+        ])
+    }
+
     // MARK: - プリセット
 
     private static func presetImage(_ preset: FilterPreset, image: CIImage) -> CIImage {
+        guard let cube = FilterLUT.cube(for: preset) else { return image }
         let extent = image.extent
-        let result: CIImage
-        switch preset {
-        case .none:
-            return image
-        case .mono:
-            result = image.applyingFilter("CIPhotoEffectMono", parameters: [:])
-        case .noir:
-            result = image.applyingFilter("CIPhotoEffectNoir", parameters: [:])
-        case .chrome:
-            result = image.applyingFilter("CIPhotoEffectChrome", parameters: [:])
-        case .fade:
-            result = image.applyingFilter("CIPhotoEffectFade", parameters: [:])
-        case .instant:
-            result = image.applyingFilter("CIPhotoEffectInstant", parameters: [:])
-        case .process:
-            result = image.applyingFilter("CIPhotoEffectProcess", parameters: [:])
-        case .transfer:
-            result = image.applyingFilter("CIPhotoEffectTransfer", parameters: [:])
-        case .tonal:
-            result = image.applyingFilter("CIPhotoEffectTonal", parameters: [:])
-        case .sepia:
-            result = image.applyingFilter("CISepiaTone", parameters: [
-                kCIInputIntensityKey: NSNumber(value: 1.0)
-            ])
-        case .vivid:
-            result = image
-                .applyingFilter("CIVibrance", parameters: ["inputAmount": NSNumber(value: 0.6)])
-                .applyingFilter("CIColorControls", parameters: [
-                    kCIInputSaturationKey: NSNumber(value: 1.3),
-                    kCIInputContrastKey: NSNumber(value: 1.06),
-                    kCIInputBrightnessKey: NSNumber(value: 0.0)
-                ])
-        case .cool:
-            // 撮影時の光源を低い色温度とみなして補正 → 青寄り
-            result = image.applyingFilter("CITemperatureAndTint", parameters: [
-                "inputNeutral": CIVector(x: 5000, y: 0),
-                "inputTargetNeutral": CIVector(x: 6500, y: 0)
-            ])
-        case .warm:
-            // 撮影時の光源を高い色温度とみなして補正 → 暖色寄り
-            result = image.applyingFilter("CITemperatureAndTint", parameters: [
-                "inputNeutral": CIVector(x: 8500, y: 0),
-                "inputTargetNeutral": CIVector(x: 6500, y: 0)
-            ])
-        case .vignette:
+        var result = FilterLUT.apply(cube, to: image)
+
+        if preset == .vignette {
             if extent.isInfinite || extent.isEmpty {
-                result = image.applyingFilter("CIVignette", parameters: [
-                    kCIInputIntensityKey: NSNumber(value: 1.0),
+                result = result.applyingFilter("CIVignette", parameters: [
+                    kCIInputIntensityKey: NSNumber(value: 0.8),
                     kCIInputRadiusKey: NSNumber(value: 1.5)
                 ])
             } else {
                 // 画像サイズに依存しないよう、ピクセル単位で指定できる CIVignetteEffect を使う
                 let center = CIVector(x: extent.midX, y: extent.midY)
                 let radius = hypot(extent.width, extent.height) * 0.5 * 0.85
-                result = image.applyingFilter("CIVignetteEffect", parameters: [
+                result = result.applyingFilter("CIVignetteEffect", parameters: [
                     kCIInputCenterKey: center,
                     kCIInputRadiusKey: NSNumber(value: Double(radius)),
-                    kCIInputIntensityKey: NSNumber(value: 0.9)
+                    kCIInputIntensityKey: NSNumber(value: 0.75)
                 ])
             }
         }
+
         if extent.isInfinite || extent.isEmpty { return result }
         return result.cropped(to: extent)
     }

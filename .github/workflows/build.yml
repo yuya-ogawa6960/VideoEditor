@@ -21,6 +21,15 @@ jobs:
           if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST/Contents/Developer"; fi
           xcodebuild -version
 
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}-${{ github.sha }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}-
+            deriveddata-${{ runner.os }}-
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
