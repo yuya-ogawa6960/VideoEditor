@@ -21,6 +21,24 @@ enum EditorPanel: Hashable {
     case titleCard(UUID)
     /// テロップ 1 件の編集(+一覧)
     case lowerThird(UUID)
+    /// クリップの J カット / L カット(音声の先出し・後残し)
+    case jlCut(UUID)
+    /// クリップの色調整(露出・色温度など)
+    case colorAdjust(UUID)
+    /// オーバーレイの配置(プリセット・位置・サイズ・不透明度・フェード)
+    case overlayPlacement(UUID)
+    /// オーバーレイのケン・バーンズ(ゆっくりしたズーム / パン)
+    case overlayKenBurns(UUID)
+    /// オーバーレイ(動画)の音量
+    case overlayVolume(UUID)
+    /// オーバーレイ(動画)の速度
+    case overlaySpeed(UUID)
+    /// オーバーレイのフィルタ
+    case overlayFilter(UUID)
+    /// ナレーション 1 件の音量
+    case narrationVolume(UUID)
+    /// ナレーションの録音(ルートツールバーから開く)
+    case narrationRecord
 
     var title: String {
         switch self {
@@ -34,13 +52,25 @@ enum EditorPanel: Hashable {
         case .documentary: return "ドキュメンタリー"
         case .titleCard: return "章タイトル"
         case .lowerThird: return "テロップ"
+        case .jlCut: return "Jカット / Lカット"
+        case .colorAdjust: return "色調整"
+        case .overlayPlacement: return "配置"
+        case .overlayKenBurns: return "ケン・バーンズ"
+        case .overlayVolume: return "オーバーレイの音量"
+        case .overlaySpeed: return "オーバーレイの速度"
+        case .overlayFilter: return "オーバーレイのフィルタ"
+        case .narrationVolume: return "ナレーションの音量"
+        case .narrationRecord: return "ナレーション録音"
         }
     }
 
     var height: CGFloat {
         switch self {
-        case .filter: return 300
+        case .filter, .overlayFilter: return 300
         case .documentary, .titleCard, .lowerThird: return 300
+        case .colorAdjust, .overlayPlacement: return 320
+        case .overlayKenBurns, .narrationRecord: return 280
+        case .jlCut: return 250
         default: return 220
         }
     }
@@ -48,7 +78,7 @@ enum EditorPanel: Hashable {
     /// 選択状態が変わったときにこのパネルを開いたままにしてよいか
     func isCompatible(with selection: EditorSelection?) -> Bool {
         switch self {
-        case .speed(let id), .volume(let id), .filter(let id):
+        case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id):
             return selection == .clip(id)
         case .textEdit(let id):
             return selection == .subtitle(id)
@@ -58,7 +88,12 @@ enum EditorPanel: Hashable {
             return true
         case .bgmVolume:
             return selection == .bgm
-        case .documentary, .titleCard, .lowerThird:
+        case .overlayPlacement(let id), .overlayKenBurns(let id), .overlayVolume(let id),
+             .overlaySpeed(let id), .overlayFilter(let id):
+            return selection == .overlay(id)
+        case .narrationVolume(let id):
+            return selection == .narration(id)
+        case .documentary, .titleCard, .lowerThird, .narrationRecord:
             // ルート(何も選択していない)ツールバーから開くパネル
             return selection == nil
         }
@@ -293,6 +328,126 @@ struct EditorFilterPanel: View {
                          onApplyToAll: {
                              project.applyFilterToAllClips(clip.filter)
                          })
+    }
+}
+
+// MARK: - J カット / L カット(クリップ)
+
+struct EditorJLCutPanel: View {
+    @Binding var clip: Clip
+
+    private func seconds(_ value: Double) -> String {
+        String(format: "%.1f 秒", value)
+    }
+
+    /// 元素材の先頭より前の音は取れないため、J カットで実際に使える最大秒数
+    private var availableLeadIn: Double { max(0, clip.startTime) }
+    /// 元素材の末尾より後の音は取れないため、L カットで実際に使える最大秒数
+    private var availableTailOut: Double { max(0, clip.duration - clip.endTime) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Jカットは音声を映像より先に出し、Lカットは映像が切り替わった後も音声を残すつなぎ方です。会話や街の音が自然につながります。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                EditorSliderRow(title: "音を先に出す(J)",
+                                value: $clip.audio.audioLeadIn,
+                                range: 0...3,
+                                display: seconds(clip.audio.audioLeadIn))
+                if clip.audio.audioLeadIn > availableLeadIn + 0.001 {
+                    Text("※ 素材の先頭より前の音はないため、実際には最大 \(seconds(availableLeadIn)) になります")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                EditorSliderRow(title: "音を後に残す(L)",
+                                value: $clip.audio.audioTailOut,
+                                range: 0...3,
+                                display: seconds(clip.audio.audioTailOut))
+                if clip.audio.audioTailOut > availableTailOut + 0.001 {
+                    Text("※ 素材の末尾より後の音はないため、実際には最大 \(seconds(availableTailOut)) になります")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack {
+                if !clip.hasAudio {
+                    Text("このクリップには音声がありません")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                EditorChip(title: "リセット", isSelected: false) {
+                    clip.audio.audioLeadIn = 0
+                    clip.audio.audioTailOut = 0
+                }
+                .disabled(!clip.audio.hasSplitEdit)
+                .opacity(clip.audio.hasSplitEdit ? 1 : 0.4)
+            }
+        }
+        .padding(.top, 6)
+    }
+}
+
+// MARK: - 色調整(クリップ)
+
+struct EditorColorAdjustPanel: View {
+    @Binding var clip: Clip
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("フィルタ: \(clip.filter.preset.displayName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                EditorChip(title: "リセット", isSelected: false) {
+                    clip.filter.adjustments = ColorAdjustments()
+                }
+                .disabled(clip.filter.adjustments.isIdentity)
+                .opacity(clip.filter.adjustments.isIdentity ? 0.4 : 1)
+            }
+
+            EditorSliderRow(title: "露出",
+                            value: $clip.filter.adjustments.exposure,
+                            range: -2...2,
+                            display: String(format: "%+.2f EV", clip.filter.adjustments.exposure))
+            EditorSliderRow(title: "明るさ",
+                            value: $clip.filter.adjustments.brightness,
+                            range: -0.5...0.5,
+                            display: String(format: "%+.2f", clip.filter.adjustments.brightness))
+            EditorSliderRow(title: "コントラスト",
+                            value: $clip.filter.adjustments.contrast,
+                            range: 0.5...1.5,
+                            display: String(format: "%.2f", clip.filter.adjustments.contrast))
+            EditorSliderRow(title: "彩度",
+                            value: $clip.filter.adjustments.saturation,
+                            range: 0...2,
+                            display: String(format: "%.2f", clip.filter.adjustments.saturation))
+            EditorSliderRow(title: "色温度(− 青い / + 暖かい)",
+                            value: $clip.filter.adjustments.temperature,
+                            range: -1...1,
+                            display: String(format: "%+.2f", clip.filter.adjustments.temperature))
+            EditorSliderRow(title: "ハイライト",
+                            value: $clip.filter.adjustments.highlights,
+                            range: -1...1,
+                            display: String(format: "%+.2f", clip.filter.adjustments.highlights))
+            EditorSliderRow(title: "シャドウ",
+                            value: $clip.filter.adjustments.shadows,
+                            range: -1...1,
+                            display: String(format: "%+.2f", clip.filter.adjustments.shadows))
+            EditorSliderRow(title: "シャープネス",
+                            value: $clip.filter.adjustments.sharpness,
+                            range: 0...1,
+                            display: String(format: "%.2f", clip.filter.adjustments.sharpness))
+        }
+        .padding(.top, 6)
     }
 }
 

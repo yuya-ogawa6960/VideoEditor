@@ -10,6 +10,18 @@ enum EditorSelection: Hashable {
     case clip(UUID)
     case subtitle(UUID)
     case bgm
+    case overlay(UUID)
+    case narration(UUID)
+
+    var overlayID: UUID? {
+        if case .overlay(let id) = self { return id }
+        return nil
+    }
+
+    var narrationID: UUID? {
+        if case .narration(let id) = self { return id }
+        return nil
+    }
 
     var clipID: UUID? {
         if case .clip(let id) = self { return id }
@@ -89,5 +101,6 @@ extension EditorProject {
         titleCards = snapshot.titleCards
         lowerThirds = snapshot.lowerThirds
         overlays = snapshot.overlays
+        narration = snapshot.narration
     }
 }

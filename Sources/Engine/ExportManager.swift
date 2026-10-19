@@ -1,6 +1,8 @@
 import Foundation
 import AVFoundation
 import CoreMedia
+import CoreVideo
+import VideoToolbox
 import UIKit
 import Photos
 import UserNotifications
@@ -10,9 +12,11 @@ import Observation
 // =====================================================================
 // 動画の書き出し。
 //
-// パイプライン: AVAssetReader(合成) → AVAssetWriter(.mp4)
+// パイプライン: AVAssetReader(合成) → AVAssetWriter(.mp4 / .mov)
 //   映像: AVAssetReaderVideoCompositionOutput(32BGRA, カスタムコンポジタ) → H.264 / HEVC
-//   音声: AVAssetReaderAudioMixOutput(LPCM, .spectral) → AAC 48kHz 2ch 192kbps
+//         (preserveHDR + HEVC のときは HLG 10bit を試し、失敗したら SDR に自動で戻す)
+//   音声: AVAssetReaderAudioMixOutput(LPCM, .spectral) → AAC 48kHz 2ch(canvas.audioBitrateKbps)
+//   書き出し後に出力ファイルを開き直し、長さと映像トラックの有無を検証する。
 //
 // バックグラウンド:
 //   - 書き出し全体を UIApplication.beginBackgroundTask で包む。
@@ -172,18 +176,25 @@ final class ExportManager {
     // MARK: - Export flow (background)
 
     private func runExport(snapshot: ProjectSnapshot, saveToPhotos: Bool) async {
+        let canvas = snapshot.canvas
         let outputURL: URL
         do {
-            outputURL = try Self.makeOutputURL()
+            outputURL = try Self.makeOutputURL(fileExtension: StorageEstimator.fileExtension(for: snapshot))
         } catch {
             let message = "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)"
             await MainActor.run { self.finishFailed(message, outputURL: nil) }
             return
         }
 
+        // 字幕を焼き込まない設定なら、書き出し用の構成からだけ字幕を外す(章タイトル・テロップは残る)
+        var buildSnapshot = snapshot
+        if !canvas.burnInSubtitles {
+            buildSnapshot.subtitles = []
+        }
+
         let built: BuiltComposition
         do {
-            built = try await CompositionBuilder.build(snapshot, purpose: .export)
+            built = try await CompositionBuilder.build(buildSnapshot, purpose: .export)
         } catch {
             let message = "映像の構成に失敗しました: \(error.localizedDescription)"
             await MainActor.run {
@@ -200,7 +211,10 @@ final class ExportManager {
                                       outputURL: outputURL,
                                       videoBitrate: StorageEstimator.videoBitrate(for: snapshot),
                                       preferHEVC: StorageEstimator.usesHEVC(for: snapshot),
-                                      frameRate: max(1, snapshot.canvas.frameRate),
+                                      frameRate: max(1, canvas.frameRate),
+                                      audioBitrate: StorageEstimator.audioBitrate(for: snapshot),
+                                      fileType: Self.fileType(for: canvas.fileFormat),
+                                      preserveHDR: canvas.preserveHDR,
                                       onProgress: { [weak self] value in
                                           self?.pipelineReportedProgress(value)
                                       })
@@ -221,6 +235,14 @@ final class ExportManager {
 
         switch outcome {
         case .completed:
+            let fellBackToSDR = pipeline.didFallBackToSDR
+
+            // 書き出したファイルを開き直して検証(長さ・映像トラック)。失敗してもファイルは残す
+            if let problem = await Self.verifyOutput(outputURL, expectedDuration: built.duration.seconds) {
+                await MainActor.run { self.finishVerificationFailed(problem, outputURL: outputURL) }
+                return
+            }
+
             var saved = false
             var photoError: Error?
             if saveToPhotos {
@@ -234,7 +256,8 @@ final class ExportManager {
             let savedResult = saved
             let photoErrorResult = photoError
             await MainActor.run {
-                self.finishSucceeded(outputURL: outputURL, saved: savedResult, photoError: photoErrorResult)
+                self.finishSucceeded(outputURL: outputURL, saved: savedResult, photoError: photoErrorResult,
+                                     fellBackToSDR: fellBackToSDR)
             }
         case .cancelled:
             await MainActor.run { self.finishCancelled(outputURL: outputURL) }
@@ -244,12 +267,45 @@ final class ExportManager {
         }
     }
 
+    /// 出力ファイルを AVURLAsset で開き、長さ(許容 0.5 秒)と映像トラックの有無を確認する。問題があれば日本語の説明を返す
+    private static func verifyOutput(_ url: URL, expectedDuration: Double) async -> String? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return "書き出した動画のファイルが見つかりません"
+        }
+        let asset = AVURLAsset(url: url)
+        do {
+            let duration = try await asset.load(.duration)
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            guard !videoTracks.isEmpty else {
+                return "書き出した動画に映像トラックがありません"
+            }
+            let actual = duration.seconds
+            guard actual.isFinite else {
+                return "書き出した動画の長さを読み取れませんでした"
+            }
+            if expectedDuration.isFinite, expectedDuration > 0, abs(actual - expectedDuration) > 0.5 {
+                return String(format: "書き出した動画の長さが一致しません(出力 %.1f 秒 / 想定 %.1f 秒)", actual, expectedDuration)
+            }
+            return nil
+        } catch {
+            return "書き出した動画を確認できませんでした: \(error.localizedDescription)"
+        }
+    }
+
+    private static func fileType(for format: ExportFileFormat) -> AVFileType {
+        switch format {
+        case .mp4: return .mp4
+        case .mov: return .mov
+        }
+    }
+
     // MARK: - Finish (main)
 
     private static let backgroundLimitMessage = "バックグラウンドの時間制限で中断しました。アプリを開いたまま再度書き出してください"
+    private static let sdrFallbackNote = "HDRで書き出せなかったためSDRで書き出しました"
 
     @MainActor
-    private func finishSucceeded(outputURL: URL, saved: Bool, photoError: Error?) {
+    private func finishSucceeded(outputURL: URL, saved: Bool, photoError: Error?, fellBackToSDR: Bool = false) {
         currentPipeline = nil
         lastOutputURL = outputURL
         progress = 1
@@ -263,11 +319,28 @@ final class ExportManager {
         } else {
             statusText = "書き出し完了"
         }
+        if fellBackToSDR {
+            statusText += "(\(Self.sdrFallbackNote))"
+        }
         if AppLifecycle.shared.isInBackground {
             Self.postLocalNotification(title: "書き出し完了",
                                        body: saved ? "動画を書き出して写真に保存しました" : "動画の書き出しが完了しました")
         }
         endBackgroundWork(success: true)
+    }
+
+    /// 書き出し自体は終わったが検証に通らなかった。ファイルは残し、lastOutputURL からたどれるようにする
+    @MainActor
+    private func finishVerificationFailed(_ message: String, outputURL: URL) {
+        currentPipeline = nil
+        lastOutputURL = outputURL
+        isRunning = false
+        state = .failed(message)
+        statusText = message
+        if AppLifecycle.shared.isInBackground {
+            Self.postLocalNotification(title: "書き出しに問題があります", body: message)
+        }
+        endBackgroundWork(success: false)
     }
 
     @MainActor
@@ -473,11 +546,12 @@ final class ExportManager {
         return directory
     }
 
-    private static func makeOutputURL() throws -> URL {
+    private static func makeOutputURL(fileExtension: String = "mp4") throws -> URL {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd_HHmmss"
-        let url = try exportsDirectory().appendingPathComponent("VideoEditor_\(formatter.string(from: Date())).mp4")
+        let ext = fileExtension.isEmpty ? "mp4" : fileExtension
+        let url = try exportsDirectory().appendingPathComponent("VideoEditor_\(formatter.string(from: Date())).\(ext)")
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
@@ -503,6 +577,8 @@ enum ExportPipelineError: LocalizedError {
     case cannotAddWriterInput
     case readerFailed
     case writerFailed
+    /// HDR(HLG 10bit)の設定が受け付けられなかった(SDR で再試行する)
+    case hdrUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -511,6 +587,7 @@ enum ExportPipelineError: LocalizedError {
         case .cannotAddWriterInput: return "書き出しの設定に失敗しました"
         case .readerFailed: return "映像の読み込みに失敗しました"
         case .writerFailed: return "ファイルの書き込みに失敗しました"
+        case .hdrUnavailable: return "HDR(HLG 10bit)では書き出せませんでした"
         }
     }
 }
@@ -533,22 +610,36 @@ final class ExportPipeline {
     private let videoBitrate: Int
     private let preferHEVC: Bool
     private let frameRate: Int
+    private let audioBitrate: Int
+    private let fileType: AVFileType
+    private let preserveHDR: Bool
     private let onProgress: (Double) -> Void
 
     private let lock = NSLock()
     private var cancelled = false
     private var activeReader: AVAssetReader?
+    private var fellBackToSDR = false
 
     private let videoQueue = DispatchQueue(label: "com.personal.videoeditor.export.video", qos: .userInitiated)
     private let audioQueue = DispatchQueue(label: "com.personal.videoeditor.export.audio", qos: .userInitiated)
 
-    init(built: BuiltComposition, outputURL: URL, videoBitrate: Int, preferHEVC: Bool, frameRate: Int,
+    init(built: BuiltComposition,
+         outputURL: URL,
+         videoBitrate: Int,
+         preferHEVC: Bool,
+         frameRate: Int,
+         audioBitrate: Int = StorageEstimator.audioBitrate,
+         fileType: AVFileType = .mp4,
+         preserveHDR: Bool = false,
          onProgress: @escaping (Double) -> Void) {
         self.built = built
         self.outputURL = outputURL
         self.videoBitrate = videoBitrate
         self.preferHEVC = preferHEVC
         self.frameRate = frameRate
+        self.audioBitrate = max(32_000, audioBitrate)
+        self.fileType = fileType
+        self.preserveHDR = preserveHDR
         self.onProgress = onProgress
     }
 
@@ -556,6 +647,13 @@ final class ExportPipeline {
         lock.lock()
         defer { lock.unlock() }
         return cancelled
+    }
+
+    /// HDR を試みたが受け付けられず、SDR で書き出したか
+    var didFallBackToSDR: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return fellBackToSDR
     }
 
     /// どのスレッドからでも呼べる。読み込みを止め、各ループが終了したら writer をキャンセルする。
@@ -569,7 +667,21 @@ final class ExportPipeline {
 
     func run() async -> Outcome {
         do {
-            return try await runThrowing()
+            if preserveHDR && preferHEVC {
+                // HLG 10bit を試す。設定が通らない・途中で失敗した場合は SDR でやり直す
+                do {
+                    return try await runThrowing(hdr: true)
+                } catch {
+                    if isCancelled { return .cancelled }
+                    lock.lock()
+                    fellBackToSDR = true
+                    activeReader = nil
+                    lock.unlock()
+                    try? FileManager.default.removeItem(at: outputURL)
+                    onProgress(0)
+                }
+            }
+            return try await runThrowing(hdr: false)
         } catch {
             return isCancelled ? .cancelled : .failed(error)
         }
@@ -589,7 +701,7 @@ final class ExportPipeline {
         ]
     }
 
-    private static var writerAudioSettings: [String: Any] {
+    private var writerAudioSettings: [String: Any] {
         var layout = AudioChannelLayout()
         layout.mChannelLayoutTag = kAudioChannelLayoutTag_Stereo
         let layoutData = Data(bytes: &layout, count: MemoryLayout<AudioChannelLayout>.size)
@@ -597,12 +709,13 @@ final class ExportPipeline {
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 48_000,
             AVNumberOfChannelsKey: 2,
-            AVEncoderBitRateKey: StorageEstimator.audioBitrate,
+            AVEncoderBitRateKey: audioBitrate,
             AVChannelLayoutKey: layoutData
         ]
     }
 
-    private func videoSettings(hevc: Bool) -> [String: Any] {
+    /// 映像の出力設定。hdr のときは HEVC Main10 + HLG(BT.2020)の色情報を付ける
+    private func videoSettings(hevc: Bool, hdr: Bool) -> [String: Any] {
         var compression: [String: Any] = [
             AVVideoAverageBitRateKey: videoBitrate,
             AVVideoExpectedSourceFrameRateKey: frameRate,
@@ -610,21 +723,31 @@ final class ExportPipeline {
         ]
         if !hevc {
             compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        } else if hdr {
+            compression[AVVideoProfileLevelKey] = kVTProfileLevel_HEVC_Main10_AutoLevel as String
         }
         let width = max(2, Int(built.renderSize.width.rounded()))
         let height = max(2, Int(built.renderSize.height.rounded()))
         let codec: AVVideoCodecType = hevc ? .hevc : .h264
-        return [
+        var settings: [String: Any] = [
             AVVideoCodecKey: codec.rawValue,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: compression
         ]
+        if hevc && hdr {
+            settings[AVVideoColorPropertiesKey] = [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_2020,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_2100_HLG,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_2020
+            ]
+        }
+        return settings
     }
 
     // MARK: Run
 
-    private func runThrowing() async throws -> Outcome {
+    private func runThrowing(hdr: Bool) async throws -> Outcome {
         if isCancelled { return .cancelled }
 
         let asset: AVAsset = built.composition
@@ -635,22 +758,58 @@ final class ExportPipeline {
         let durationSeconds = built.duration.seconds
         let validDuration = durationSeconds.isFinite && durationSeconds > 0
 
+        // Writer(HDR の設定が通るかを先に確かめる。ファイルは startWriting まで作られない)
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
+        writer.shouldOptimizeForNetworkUse = true
+
+        var settings = videoSettings(hevc: preferHEVC, hdr: hdr)
+        if hdr {
+            guard writer.canApply(outputSettings: settings, forMediaType: .video) else {
+                throw ExportPipelineError.hdrUnavailable
+            }
+        } else if preferHEVC && !writer.canApply(outputSettings: settings, forMediaType: .video) {
+            settings = videoSettings(hevc: false, hdr: false)
+        }
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        videoInput.expectsMediaDataInRealTime = false
+        guard writer.canAdd(videoInput) else {
+            throw hdr ? ExportPipelineError.hdrUnavailable : ExportPipelineError.cannotAddWriterInput
+        }
+        writer.add(videoInput)
+
+        var audioInput: AVAssetWriterInput?
+        if !audioTracks.isEmpty {
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: writerAudioSettings)
+            input.expectsMediaDataInRealTime = false
+            guard writer.canAdd(input) else { throw ExportPipelineError.cannotAddWriterInput }
+            writer.add(input)
+            audioInput = input
+        }
+
         // Reader
         let reader = try AVAssetReader(asset: asset)
         if validDuration {
             reader.timeRange = CMTimeRange(start: .zero, duration: built.duration)
         }
 
+        let readerPixelFormat: OSType = hdr
+            ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            : kCVPixelFormatType_32BGRA
         let videoOutput = AVAssetReaderVideoCompositionOutput(
             videoTracks: videoTracks,
-            videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+            videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: readerPixelFormat])
         videoOutput.videoComposition = built.videoComposition
         videoOutput.alwaysCopiesSampleData = false
-        guard reader.canAdd(videoOutput) else { throw ExportPipelineError.cannotAddReaderOutput }
+        guard reader.canAdd(videoOutput) else {
+            throw hdr ? ExportPipelineError.hdrUnavailable : ExportPipelineError.cannotAddReaderOutput
+        }
         reader.add(videoOutput)
 
         var audioOutput: AVAssetReaderAudioMixOutput?
-        if !audioTracks.isEmpty {
+        if audioInput != nil {
             let output = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: Self.readerAudioSettings)
             output.audioMix = built.audioMix
             output.audioTimePitchAlgorithm = .spectral
@@ -658,28 +817,6 @@ final class ExportPipeline {
             guard reader.canAdd(output) else { throw ExportPipelineError.cannotAddReaderOutput }
             reader.add(output)
             audioOutput = output
-        }
-
-        // Writer
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
-        writer.shouldOptimizeForNetworkUse = true
-
-        var settings = videoSettings(hevc: preferHEVC)
-        if preferHEVC && !writer.canApply(outputSettings: settings, forMediaType: .video) {
-            settings = videoSettings(hevc: false)
-        }
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
-        videoInput.expectsMediaDataInRealTime = false
-        guard writer.canAdd(videoInput) else { throw ExportPipelineError.cannotAddWriterInput }
-        writer.add(videoInput)
-
-        var audioInput: AVAssetWriterInput?
-        if audioOutput != nil {
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: Self.writerAudioSettings)
-            input.expectsMediaDataInRealTime = false
-            guard writer.canAdd(input) else { throw ExportPipelineError.cannotAddWriterInput }
-            writer.add(input)
-            audioInput = input
         }
 
         // Start

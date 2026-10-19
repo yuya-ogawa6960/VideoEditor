@@ -13,8 +13,12 @@ struct StorageEstimate {
 }
 
 enum StorageEstimator {
-    /// AAC 音声ビットレート(bps)
+    /// AAC 音声ビットレートの既定値(bps)。プロジェクトごとの値は audioBitrate(for:)
     static let audioBitrate: Int = 192_000
+    /// 手動ビットレートの範囲(Mbps)
+    static let manualBitrateRangeMbps: ClosedRange<Double> = 1...200
+    /// 音声ビットレートの範囲(kbps)
+    static let audioBitrateRangeKbps: ClosedRange<Int> = 32...320
     /// 作業用の安全マージン(200 MB)
     static let safetyMarginBytes: Int64 = 200 * 1024 * 1024
 
@@ -36,19 +40,36 @@ enum StorageEstimator {
         return 0
     }
 
-    /// 書き出しサイズ(短辺 2160 以上なら HEVC)
+    /// 書き出しサイズ
     static func exportRenderSize(for snapshot: ProjectSnapshot) -> CGSize {
         CompositionBuilder.renderSize(for: snapshot, purpose: .export)
     }
 
-    /// 短辺が 2160 以上(4K)なら HEVC で書き出す
-    static func usesHEVC(for snapshot: ProjectSnapshot) -> Bool {
-        let size = exportRenderSize(for: snapshot)
-        return min(size.width, size.height) >= 2159.5
+    /// 実際に使うコーデック(.auto は短辺 2160 以上なら HEVC、それ以外は H.264)
+    static func resolvedCodec(for snapshot: ProjectSnapshot) -> ExportCodec {
+        switch snapshot.canvas.codec {
+        case .h264:
+            return .h264
+        case .hevc:
+            return .hevc
+        case .auto:
+            let size = exportRenderSize(for: snapshot)
+            return min(size.width, size.height) >= 2159.5 ? .hevc : .h264
+        }
     }
 
-    /// 映像ビットレート(bps)。画質設定の 1080p 基準値を書き出し画素数に比例させて換算する。
+    /// HEVC で書き出すか(canvas.codec を反映)
+    static func usesHEVC(for snapshot: ProjectSnapshot) -> Bool {
+        resolvedCodec(for: snapshot) == .hevc
+    }
+
+    /// 映像ビットレート(bps)。canvas.bitrateMbps があればそれを 1...200 Mbps に収めて使う。
+    /// なければ画質設定の 1080p 基準値を書き出し画素数に比例させて換算する。
     static func videoBitrate(for snapshot: ProjectSnapshot) -> Int {
+        if let manual = snapshot.canvas.bitrateMbps, manual.isFinite, manual > 0 {
+            let mbps = min(max(manual, manualBitrateRangeMbps.lowerBound), manualBitrateRangeMbps.upperBound)
+            return Int((mbps * 1_000_000).rounded())
+        }
         let size = exportRenderSize(for: snapshot)
         let pixels = max(1, Double(size.width) * Double(size.height))
         let reference = 1920.0 * 1080.0
@@ -60,9 +81,21 @@ enum StorageEstimator {
         return Int(bitrate.rounded())
     }
 
+    /// 音声ビットレート(bps)。canvas.audioBitrateKbps を 32...320 kbps に収める
+    static func audioBitrate(for snapshot: ProjectSnapshot) -> Int {
+        let kbps = min(max(snapshot.canvas.audioBitrateKbps, audioBitrateRangeKbps.lowerBound),
+                       audioBitrateRangeKbps.upperBound)
+        return kbps * 1000
+    }
+
+    /// 出力ファイルの拡張子("mp4" / "mov")
+    static func fileExtension(for snapshot: ProjectSnapshot) -> String {
+        snapshot.canvas.fileFormat.rawValue
+    }
+
     static func estimate(for snapshot: ProjectSnapshot) -> StorageEstimate {
         let duration = max(0, snapshot.totalDuration)
-        let totalBitrate = Double(videoBitrate(for: snapshot) + audioBitrate)
+        let totalBitrate = Double(videoBitrate(for: snapshot) + audioBitrate(for: snapshot))
         let estimated = totalBitrate * duration / 8.0 * 1.05
         let estimatedBytes = Int64(estimated.rounded(.up))
         let required = Int64((Double(estimatedBytes) * 1.2).rounded(.up)) + safetyMarginBytes

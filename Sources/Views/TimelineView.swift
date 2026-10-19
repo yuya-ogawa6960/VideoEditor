@@ -5,12 +5,18 @@ import QuartzCore
 /// CapCut 風タイムライン。
 /// 中央に固定された白い再生位置の下を、トラックが横にスクロールする。
 /// スクロール位置 = 時刻 × pointsPerSecond(ScrollView は使わず、ドラッグ + 慣性を自前で処理)。
+///
+/// トラック(上から): 目盛り / 重ね合わせ(Bロール・ワイプ・写真) / 映像(+ J/L カットの音声バー) /
+/// 字幕 / BGM / ナレーション
 struct TimelineView: View {
     let project: EditorProject
     let player: PlayerController
     let history: EditorHistory
     let timeline: TimelineState
     @Binding var selection: EditorSelection?
+
+    /// タイムライン全体の高さ(画面側はこの値で frame を固定する)
+    static let totalHeight: CGFloat = TimelineMetrics.totalHeight
 
     init(project: EditorProject, player: PlayerController, history: EditorHistory,
          timeline: TimelineState, selection: Binding<EditorSelection?>) {
@@ -47,10 +53,12 @@ struct TimelineView: View {
         let total = project.totalDuration
         let subtitles = project.subtitles
         let audio = project.audio
+        let overlays = project.overlays
+        let narration = project.narration
 
         GeometryReader { geo in
             content(width: geo.size.width, time: time, pps: pps, total: total,
-                    subtitles: subtitles, audio: audio)
+                    subtitles: subtitles, audio: audio, overlays: overlays, narration: narration)
         }
         .frame(height: TimelineMetrics.totalHeight)
         .background(TimelineMetrics.background)
@@ -72,7 +80,8 @@ struct TimelineView: View {
 
     @ViewBuilder
     private func content(width: CGFloat, time: Double, pps: CGFloat, total: Double,
-                         subtitles: [SubtitleCue], audio: AudioSettings) -> some View {
+                         subtitles: [SubtitleCue], audio: AudioSettings,
+                         overlays: [OverlayClip], narration: [NarrationClip]) -> some View {
         // タイムライン 0 秒の画面 x 座標
         let originX = width / 2 - CGFloat(time) * pps
 
@@ -87,9 +96,11 @@ struct TimelineView: View {
                 TimelineRulerView(originX: originX, pointsPerSecond: pps, totalDuration: total)
                     .frame(width: width, height: TimelineMetrics.rulerHeight)
                     .allowsHitTesting(false)
+                overlayTrack(width: width, originX: originX, pps: pps, overlays: overlays)
                 videoTrack(width: width, originX: originX, pps: pps)
                 subtitleTrack(width: width, originX: originX, pps: pps, subtitles: subtitles)
                 audioTrack(width: width, originX: originX, pps: pps, total: total, audio: audio)
+                narrationTrack(width: width, originX: originX, pps: pps, narration: narration)
             }
             .padding(.top, TimelineMetrics.topPadding)
 
@@ -104,12 +115,101 @@ struct TimelineView: View {
         .simultaneousGesture(zoomGesture)
     }
 
+    // MARK: - 重ね合わせトラック
+
+    private func overlayItems(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                              overlays: [OverlayClip]) -> [TimelineOverlayItem] {
+        var result: [TimelineOverlayItem] = []
+        // 開始順に見て、空いているレーンを割り当てる(重なりの深さ)
+        let ordered = overlays.enumerated().sorted { a, b in
+            if a.element.start != b.element.start { return a.element.start < b.element.start }
+            return a.offset < b.offset
+        }
+        var laneEnds: [Double] = []
+        for entry in ordered {
+            let overlay = entry.element
+            let depth: Int
+            if let free = laneEnds.firstIndex(where: { $0 <= overlay.start + 0.0005 }) {
+                laneEnds[free] = overlay.end
+                depth = free
+            } else {
+                laneEnds.append(overlay.end)
+                depth = laneEnds.count - 1
+            }
+            let x = originX + CGFloat(overlay.start) * pps
+            let w = max(CGFloat(overlay.duration) * pps, 6)
+            guard let span = TimelineMetrics.visibleSpan(x: x, width: w, viewWidth: width) else { continue }
+            let labelX = TimelineMetrics.stickyLabelX(trueX: x, visibleX: span.x,
+                                                      visibleWidth: span.width, labelWidth: 70)
+            result.append(TimelineOverlayItem(id: overlay.id, overlay: overlay, screenX: x, width: w,
+                                              visibleX: span.x, visibleWidth: span.width,
+                                              labelX: labelX, depth: depth))
+        }
+        return result
+    }
+
+    private func overlayTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                              overlays: [OverlayClip]) -> some View {
+        let h = TimelineMetrics.overlayHeight
+        let hw = TimelineMetrics.subtitleHandleWidth
+        let items = overlayItems(width: width, originX: originX, pps: pps, overlays: overlays)
+        let selectedID: UUID? = selection?.overlayID
+        let selectedItem: TimelineOverlayItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
+
+        return ZStack(alignment: .topLeading) {
+            if overlays.isEmpty {
+                Text("+ Bロール・写真を重ねる")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.35))
+                    .frame(height: h)
+                    .offset(x: max(originX + 8, 8))
+                    .allowsHitTesting(false)
+            }
+
+            ForEach(items) { item in
+                let isSel = item.id == selectedID
+                let inset = TimelineMetrics.overlayInset(depth: item.depth)
+                TimelineOverlayBar(overlay: item.overlay,
+                                   labelX: item.labelX,
+                                   visibleWidth: item.visibleWidth,
+                                   height: max(8, h - inset),
+                                   isSelected: isSel)
+                    .offset(x: item.visibleX, y: inset)
+                    .onTapGesture {
+                        selection = .overlay(item.id)
+                    }
+                    .gesture(overlayMoveGesture(id: item.id), including: isSel ? .all : .subviews)
+                    .zIndex(isSel ? 10 : Double(item.depth))
+            }
+
+            if let sel = selectedItem {
+                let inset = TimelineMetrics.overlayInset(depth: sel.depth)
+                TimelineTrimHandle()
+                    .frame(width: hw, height: max(8, h - inset))
+                    .offset(x: sel.screenX - hw, y: inset)
+                    .gesture(overlayTrimGesture(id: sel.id, leading: true))
+                    .zIndex(20)
+                TimelineTrimHandle()
+                    .frame(width: hw, height: max(8, h - inset))
+                    .offset(x: sel.screenX + sel.width, y: inset)
+                    .gesture(overlayTrimGesture(id: sel.id, leading: false))
+                    .zIndex(20)
+            }
+        }
+        .frame(width: width, height: h, alignment: .topLeading)
+    }
+
     // MARK: - 映像トラック
 
-    private func clipItems(width: CGFloat, originX: CGFloat, pps: CGFloat) -> [TimelineClipItem] {
+    /// 見えているクリップの配置と、J/L カットの音声バー(レーン内ローカル座標)
+    private func clipItems(width: CGFloat, originX: CGFloat,
+                           pps: CGFloat) -> (items: [TimelineClipItem], splitBars: [CGRect]) {
         var result: [TimelineClipItem] = []
+        var bars: [CGRect] = []
         let shiftIndex: Int? = leftTrimClipID.flatMap { project.index(of: $0) }
         let gap = TimelineMetrics.clipGap
+        let margin = TimelineMetrics.cullMargin
+        let laneH = TimelineMetrics.splitAudioLaneHeight
         var t = 0.0
         for (i, clip) in project.clips.enumerated() {
             let fullWidth = CGFloat(clip.outputDuration) * pps
@@ -125,17 +225,32 @@ struct TimelineView: View {
             }
             let screenX = originX + contentX + gap / 2
             let w = max(fullWidth - gap, 1)
+
+            // J カット / L カット: 音声はクリップの前後にはみ出す(lead / tail はタイムライン秒)
+            if clip.hasAudio, !clip.isMuted, clip.audio.hasSplitEdit {
+                let lead = CGFloat(max(0, clip.audio.audioLeadIn)) * pps
+                let tail = CGFloat(max(0, clip.audio.audioTailOut)) * pps
+                let barX = screenX - lead
+                let barW = w + lead + tail
+                if barX.isFinite, barW.isFinite, barX < width + margin, barX + barW > -margin {
+                    bars.append(CGRect(x: barX, y: 0, width: barW, height: laneH))
+                }
+            }
+
             guard let span = TimelineMetrics.visibleSpan(x: screenX, width: w, viewWidth: width) else { continue }
             result.append(TimelineClipItem(id: clip.id, clip: clip, screenX: screenX, width: w,
                                            visibleX: span.x, visibleWidth: span.width, isLifted: lifted))
         }
-        return result
+        return (result, bars)
     }
 
     private func videoTrack(width: CGFloat, originX: CGFloat, pps: CGFloat) -> some View {
         let h = TimelineMetrics.videoHeight
+        let lane = TimelineMetrics.splitAudioLaneHeight
         let hw = TimelineMetrics.handleWidth
-        let items = clipItems(width: width, originX: originX, pps: pps)
+        let layout = clipItems(width: width, originX: originX, pps: pps)
+        let items = layout.items
+        let splitBars = layout.splitBars
         let selectedClipID: UUID? = selection?.clipID
         let selectedItem: TimelineClipItem? = (reorderClipID == nil && selectedClipID != nil)
             ? items.first(where: { $0.id == selectedClipID })
@@ -169,6 +284,13 @@ struct TimelineView: View {
                     .zIndex(item.isLifted ? 10 : (item.id == selectedClipID ? 1 : 0))
             }
 
+            if !splitBars.isEmpty {
+                TimelineSplitAudioLane(bars: splitBars)
+                    .frame(width: width, height: lane)
+                    .offset(y: h)
+                    .zIndex(5)
+            }
+
             if let sel = selectedItem {
                 TimelineTrimHandle()
                     .frame(width: hw, height: h)
@@ -182,7 +304,7 @@ struct TimelineView: View {
                     .zIndex(20)
             }
         }
-        .frame(width: width, height: h, alignment: .topLeading)
+        .frame(width: width, height: h + lane, alignment: .topLeading)
     }
 
     // MARK: - 字幕トラック
@@ -256,12 +378,18 @@ struct TimelineView: View {
         return ZStack(alignment: .topLeading) {
             if hasBGM {
                 if let span {
+                    // 見えている範囲のタイムライン秒(BGM は 0 秒から始まりループする)
+                    let visibleStart = Double((span.x - originX) / pps)
+                    let visibleEnd = Double((span.x + span.width - originX) / pps)
                     TimelineAudioBar(name: name,
                                      labelX: TimelineMetrics.stickyLabelX(trueX: originX, visibleX: span.x,
                                                                          visibleWidth: span.width, labelWidth: 80),
                                      visibleWidth: span.width,
                                      height: h,
-                                     isSelected: isSelected)
+                                     isSelected: isSelected,
+                                     waveformURL: audio.bgmURL,
+                                     visibleStartTime: visibleStart,
+                                     visibleEndTime: visibleEnd)
                         .offset(x: span.x)
                         .onTapGesture {
                             selection = .bgm
@@ -274,6 +402,75 @@ struct TimelineView: View {
                     .frame(height: h)
                     .offset(x: max(originX + 8, 8))
                     .allowsHitTesting(false)
+            }
+        }
+        .frame(width: width, height: h, alignment: .topLeading)
+    }
+
+    // MARK: - ナレーショントラック
+
+    private func narrationItems(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                                narration: [NarrationClip]) -> [TimelineNarrationItem] {
+        var result: [TimelineNarrationItem] = []
+        for clip in narration {
+            let x = originX + CGFloat(clip.start) * pps
+            let w = max(CGFloat(clip.duration) * pps, 6)
+            guard let span = TimelineMetrics.visibleSpan(x: x, width: w, viewWidth: width) else { continue }
+            let labelX = TimelineMetrics.stickyLabelX(trueX: x, visibleX: span.x,
+                                                      visibleWidth: span.width, labelWidth: 60)
+            result.append(TimelineNarrationItem(id: clip.id, clip: clip, screenX: x, width: w,
+                                                visibleX: span.x, visibleWidth: span.width, labelX: labelX))
+        }
+        return result
+    }
+
+    private func narrationTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                                narration: [NarrationClip]) -> some View {
+        let h = TimelineMetrics.narrationHeight
+        let hw = TimelineMetrics.subtitleHandleWidth
+        let items = narrationItems(width: width, originX: originX, pps: pps, narration: narration)
+        let selectedID: UUID? = selection?.narrationID
+        let selectedItem: TimelineNarrationItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
+
+        return ZStack(alignment: .topLeading) {
+            if narration.isEmpty {
+                Text("+ ナレーションを録音")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.35))
+                    .frame(height: h)
+                    .offset(x: max(originX + 8, 8))
+                    .allowsHitTesting(false)
+            }
+
+            ForEach(items) { item in
+                let isSel = item.id == selectedID
+                TimelineNarrationBar(clip: item.clip,
+                                     screenX: item.screenX,
+                                     visibleX: item.visibleX,
+                                     visibleWidth: item.visibleWidth,
+                                     pointsPerSecond: pps,
+                                     labelX: item.labelX,
+                                     height: h,
+                                     isSelected: isSel)
+                    .offset(x: item.visibleX)
+                    .onTapGesture {
+                        selection = .narration(item.id)
+                    }
+                    .gesture(narrationMoveGesture(id: item.id), including: isSel ? .all : .subviews)
+                    .zIndex(isSel ? 1 : 0)
+            }
+
+            if let sel = selectedItem {
+                TimelineTrimHandle()
+                    .frame(width: hw, height: h)
+                    .offset(x: sel.screenX - hw)
+                    .gesture(narrationTrimGesture(id: sel.id, leading: true))
+                    .zIndex(20)
+                TimelineTrimHandle()
+                    .frame(width: hw, height: h)
+                    .offset(x: sel.screenX + sel.width)
+                    .gesture(narrationTrimGesture(id: sel.id, leading: false))
+                    .zIndex(20)
             }
         }
         .frame(width: width, height: h, alignment: .topLeading)
@@ -476,6 +673,10 @@ struct TimelineView: View {
                 reorderClipID = nil
                 reorderTranslation = 0
             }
+        case .moveOverlay, .trimOverlay:
+            project.sortOverlays()
+        case .moveNarration, .trimNarration:
+            project.sortNarration()
         }
     }
 
@@ -664,6 +865,171 @@ struct TimelineView: View {
             if abs(project.subtitles[i].start - newStart) > 0.0001 {
                 project.subtitles[i].start = newStart
                 project.subtitles[i].end = newStart + length
+            }
+        default:
+            break
+        }
+    }
+
+    // MARK: - 重ね合わせの移動・長さ変更
+
+    private func overlayMoveGesture(id: UUID) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
+            .updating($editGestureActive) { _, state, _ in
+                state = true
+            }
+            .onChanged { value in
+                if interaction.edit == nil {
+                    guard let overlay = project.overlays.first(where: { $0.id == id }) else { return }
+                    beginEdit(.moveOverlay(id: id, originalStart: overlay.start))
+                }
+                applyOverlayEdit(translation: value.translation.width)
+            }
+            .onEnded { _ in
+                finishEdit()
+            }
+    }
+
+    private func overlayTrimGesture(id: UUID, leading: Bool) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .updating($editGestureActive) { _, state, _ in
+                state = true
+            }
+            .onChanged { value in
+                if interaction.edit == nil {
+                    guard let overlay = project.overlays.first(where: { $0.id == id }) else { return }
+                    beginEdit(.trimOverlay(id: id, leading: leading, original: overlay))
+                }
+                applyOverlayEdit(translation: value.translation.width)
+            }
+            .onEnded { _ in
+                finishEdit()
+            }
+    }
+
+    private func applyOverlayEdit(translation: CGFloat) {
+        let pps = max(timeline.pointsPerSecond, 0.0001)
+        let delta = Double(translation) / pps
+        let minimumLength = 0.3
+        switch interaction.edit {
+        case let .moveOverlay(id, originalStart)?:
+            guard let i = project.overlays.firstIndex(where: { $0.id == id }) else { return }
+            let length = max(0, project.overlays[i].duration)
+            let upperStart = max(0, max(project.totalDuration, originalStart + length) - length)
+            let newStart = min(max(0, originalStart + delta), upperStart)
+            if abs(project.overlays[i].start - newStart) > 0.0001 {
+                project.overlays[i].start = newStart
+            }
+        case let .trimOverlay(id, leading, original)?:
+            guard let i = project.overlays.firstIndex(where: { $0.id == id }) else { return }
+            var updated = original
+            if leading {
+                // 左端: 開始を動かし終了は固定。動画は素材上の開始位置も一緒にずらす(表示内容がずれない)
+                let speed = max(original.speed, 0.01)
+                var lowerStart = 0.0
+                if !original.isImage {
+                    lowerStart = max(lowerStart, original.start - original.sourceStart / speed)
+                }
+                let upperStart = max(lowerStart, original.end - minimumLength)
+                let newStart = min(max(lowerStart, original.start + delta), upperStart)
+                updated.start = newStart
+                updated.duration = max(0.1, original.end - newStart)
+                if !original.isImage {
+                    updated.sourceStart = max(0, original.sourceStart + (newStart - original.start) * speed)
+                }
+            } else {
+                // 右端: 長さだけ変える。動画は素材の残り長さまで
+                let upperEnd = max(project.totalDuration, original.end)
+                var maxLength = max(minimumLength, upperEnd - original.start)
+                if !original.isImage {
+                    maxLength = min(maxLength, max(minimumLength, original.maxDuration))
+                }
+                updated.duration = min(max(minimumLength, original.duration + delta), maxLength)
+            }
+            if project.overlays[i] != updated {
+                project.overlays[i] = updated
+            }
+        default:
+            break
+        }
+    }
+
+    // MARK: - ナレーションの移動・長さ変更
+
+    private func narrationMoveGesture(id: UUID) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
+            .updating($editGestureActive) { _, state, _ in
+                state = true
+            }
+            .onChanged { value in
+                if interaction.edit == nil {
+                    guard let clip = project.narration.first(where: { $0.id == id }) else { return }
+                    beginEdit(.moveNarration(id: id, originalStart: clip.start))
+                }
+                applyNarrationEdit(translation: value.translation.width)
+            }
+            .onEnded { _ in
+                finishEdit()
+            }
+    }
+
+    private func narrationTrimGesture(id: UUID, leading: Bool) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .updating($editGestureActive) { _, state, _ in
+                state = true
+            }
+            .onChanged { value in
+                if interaction.edit == nil {
+                    guard let clip = project.narration.first(where: { $0.id == id }) else { return }
+                    beginEdit(.trimNarration(id: id, leading: leading, original: clip))
+                }
+                applyNarrationEdit(translation: value.translation.width)
+            }
+            .onEnded { _ in
+                finishEdit()
+            }
+    }
+
+    private func applyNarrationEdit(translation: CGFloat) {
+        let pps = max(timeline.pointsPerSecond, 0.0001)
+        let delta = Double(translation) / pps
+        let minimumLength = 0.3
+        switch interaction.edit {
+        case let .moveNarration(id, originalStart)?:
+            guard let i = project.narration.firstIndex(where: { $0.id == id }) else { return }
+            let length = max(0, project.narration[i].duration)
+            let upperStart = max(0, max(project.totalDuration, originalStart + length) - length)
+            let newStart = min(max(0, originalStart + delta), upperStart)
+            if abs(project.narration[i].start - newStart) > 0.0001 {
+                project.narration[i].start = newStart
+            }
+        case let .trimNarration(id, leading, original)?:
+            guard let i = project.narration.firstIndex(where: { $0.id == id }) else { return }
+            var updated = original
+            if leading {
+                // 左端: 開始を動かし終了は固定。音声ファイル上の開始位置も同じだけずらす
+                let lowerStart = max(0, original.start - original.sourceStart)
+                let upperStart = max(lowerStart, original.end - minimumLength)
+                let newStart = min(max(lowerStart, original.start + delta), upperStart)
+                updated.start = newStart
+                updated.sourceStart = max(0, original.sourceStart + (newStart - original.start))
+                updated.duration = max(0.1, original.end - newStart)
+            } else {
+                // 右端: 長さだけ変える。音声ファイルの長さが分かればそこまで、分からなければ元の終了位置まで
+                let upperEnd = max(project.totalDuration, original.end)
+                var maxLength = max(minimumLength, upperEnd - original.start)
+                let fileDuration = TimelineWaveformCache.shared.cached(for: original.url)?.duration ?? 0
+                let sourceLimit: Double
+                if fileDuration > 0 {
+                    sourceLimit = max(minimumLength, fileDuration - original.sourceStart)
+                } else {
+                    sourceLimit = max(minimumLength, original.sourceEnd - original.sourceStart)
+                }
+                maxLength = min(maxLength, sourceLimit)
+                updated.duration = min(max(minimumLength, original.duration + delta), maxLength)
+            }
+            if project.narration[i] != updated {
+                project.narration[i] = updated
             }
         default:
             break

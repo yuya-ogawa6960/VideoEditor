@@ -50,8 +50,21 @@ struct ColorAdjustments: Equatable {
     var contrast: Double = 1
     /// 0 ... 2 (1 = 変更なし)
     var saturation: Double = 1
+    /// -2 ... 2 EV (0 = 変更なし)
+    var exposure: Double = 0
+    /// -1 ... 1 (0 = 変更なし、負で青く、正で暖かく)
+    var temperature: Double = 0
+    /// -1 ... 1 (0 = 変更なし、負で明部を抑える)
+    var highlights: Double = 0
+    /// -1 ... 1 (0 = 変更なし、正で暗部を持ち上げる)
+    var shadows: Double = 0
+    /// 0 ... 1 (0 = 変更なし)
+    var sharpness: Double = 0
 
-    var isIdentity: Bool { brightness == 0 && contrast == 1 && saturation == 1 }
+    var isIdentity: Bool {
+        brightness == 0 && contrast == 1 && saturation == 1 && exposure == 0 && temperature == 0
+            && highlights == 0 && shadows == 0 && sharpness == 0
+    }
 }
 
 struct FilterSettings: Equatable {
@@ -146,6 +159,8 @@ struct Clip: Identifiable, Equatable {
     var filter: FilterSettings
     var multicam: MulticamInfo
     var isMuted: Bool
+    /// 音量そろえのゲイン、Jカット・Lカット(AudioTrackModels.swift)
+    var audio: ClipAudioSettings
 
     init(id: UUID = UUID(), url: URL, duration: Double, naturalSize: CGSize,
          preferredTransform: CGAffineTransform, hasAudio: Bool, thumbnail: UIImage?, name: String) {
@@ -163,6 +178,7 @@ struct Clip: Identifiable, Equatable {
         self.filter = FilterSettings()
         self.multicam = MulticamInfo()
         self.isMuted = false
+        self.audio = ClipAudioSettings()
     }
 
     /// トリミング後の長さ(元素材の秒)
@@ -183,6 +199,7 @@ struct Clip: Identifiable, Equatable {
         copy.filter = filter
         copy.multicam = multicam
         copy.isMuted = isMuted
+        copy.audio = audio
         return copy
     }
 
@@ -194,6 +211,7 @@ struct Clip: Identifiable, Equatable {
             && lhs.filter == rhs.filter
             && lhs.multicam == rhs.multicam
             && lhs.isMuted == rhs.isMuted
+            && lhs.audio == rhs.audio
             && lhs.name == rhs.name
     }
 }
@@ -378,6 +396,34 @@ struct CanvasSettings: Equatable {
     var resolution: ResolutionCap = .fhd1080
     var quality: ExportQuality = .standard
     var frameRate: Int = 30
+    /// 書き出しの詳細設定
+    var codec: ExportCodec = .auto
+    /// nil = quality から自動。手動指定は Mbps
+    var bitrateMbps: Double? = nil
+    var audioBitrateKbps: Int = 192
+    var fileFormat: ExportFileFormat = .mp4
+    /// HDR(HLG 10bit)のまま書き出す(素材が HDR のときのみ有効)
+    var preserveHDR: Bool = false
+    /// 字幕を映像に焼き込む(false なら字幕は映像に入れず SRT 用)
+    var burnInSubtitles: Bool = true
+}
+
+enum ExportCodec: String, CaseIterable, Identifiable {
+    case auto, h264, hevc
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .auto: return "自動"
+        case .h264: return "H.264(互換性重視)"
+        case .hevc: return "HEVC(高画質・小容量)"
+        }
+    }
+}
+
+enum ExportFileFormat: String, CaseIterable, Identifiable {
+    case mp4, mov
+    var id: String { rawValue }
+    var displayName: String { rawValue.uppercased() }
 }
 
 // MARK: - プロジェクト
@@ -394,6 +440,8 @@ struct ProjectSnapshot: Equatable {
     var lowerThirds: [LowerThird] = []
     /// Bロール・ワイプ・写真などの重ね合わせ(メイン映像の上に描く)
     var overlays: [OverlayClip] = []
+    /// ナレーション(録音した音声)のトラック
+    var narration: [NarrationClip] = []
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -411,6 +459,8 @@ final class EditorProject {
     var lowerThirds: [LowerThird] = []
     /// Bロール・ワイプ・写真などの重ね合わせ(メイン映像の上に描く)
     var overlays: [OverlayClip] = []
+    /// ナレーション(録音した音声)のトラック
+    var narration: [NarrationClip] = []
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -418,7 +468,7 @@ final class EditorProject {
     func snapshot() -> ProjectSnapshot {
         ProjectSnapshot(clips: clips, subtitles: subtitles, subtitleStyle: subtitleStyle,
                         audio: audio, canvas: canvas, documentary: documentary,
-                        titleCards: titleCards, lowerThirds: lowerThirds, overlays: overlays)
+                        titleCards: titleCards, lowerThirds: lowerThirds, overlays: overlays, narration: narration)
     }
 
     // MARK: タイムライン計算
@@ -546,5 +596,28 @@ extension EditorProject {
 
     func sortOverlays() {
         overlays.sort { $0.start < $1.start }
+    }
+}
+
+// MARK: - ナレーションの操作
+
+extension EditorProject {
+    func narrationBinding(id: UUID) -> Binding<NarrationClip>? {
+        guard let initial = narration.first(where: { $0.id == id }) else { return nil }
+        return Binding(
+            get: { [weak self] in self?.narration.first(where: { $0.id == id }) ?? initial },
+            set: { [weak self] newValue in
+                guard let self, let i = self.narration.firstIndex(where: { $0.id == id }) else { return }
+                self.narration[i] = newValue
+            }
+        )
+    }
+
+    func removeNarration(id: UUID) {
+        narration.removeAll { $0.id == id }
+    }
+
+    func sortNarration() {
+        narration.sort { $0.start < $1.start }
     }
 }

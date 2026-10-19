@@ -387,6 +387,12 @@ private struct StoredFilter: Codable {
     var brightness: Double
     var contrast: Double
     var saturation: Double
+    // 以下は後から追加した項目(旧ファイルにはないので省略可能、既定値 0)
+    var exposure: Double?
+    var temperature: Double?
+    var highlights: Double?
+    var shadows: Double?
+    var sharpness: Double?
 
     init(_ f: FilterSettings) {
         preset = f.preset.rawValue
@@ -394,13 +400,27 @@ private struct StoredFilter: Codable {
         brightness = f.adjustments.brightness
         contrast = f.adjustments.contrast
         saturation = f.adjustments.saturation
+        exposure = f.adjustments.exposure
+        temperature = f.adjustments.temperature
+        highlights = f.adjustments.highlights
+        shadows = f.adjustments.shadows
+        sharpness = f.adjustments.sharpness
     }
 
     var value: FilterSettings {
         var f = FilterSettings()
         f.preset = FilterPreset(rawValue: preset) ?? .none
         f.intensity = intensity
-        f.adjustments = ColorAdjustments(brightness: brightness, contrast: contrast, saturation: saturation)
+        var a = ColorAdjustments()
+        a.brightness = brightness
+        a.contrast = contrast
+        a.saturation = saturation
+        a.exposure = exposure ?? 0
+        a.temperature = temperature ?? 0
+        a.highlights = highlights ?? 0
+        a.shadows = shadows ?? 0
+        a.sharpness = sharpness ?? 0
+        f.adjustments = a
         return f
     }
 }
@@ -453,6 +473,10 @@ private struct StoredClip: Codable {
     var isMuted: Bool
     var angles: [StoredAngle]
     var switches: [StoredSwitch]
+    // クリップ音声設定(ClipAudioSettings)。後から追加したので省略可能
+    var audioGain: Float?
+    var audioLeadIn: Double?
+    var audioTailOut: Double?
 }
 
 private struct StoredCue: Codable {
@@ -537,12 +561,46 @@ private struct StoredOverlay: Codable {
     }
 }
 
+/// ナレーション(録音した音声)。素材はファイル名だけを保存する
+private struct StoredNarration: Codable {
+    var id: UUID
+    var file: String
+    var name: String
+    var start: Double
+    var sourceStart: Double
+    var duration: Double
+    var volume: Float
+    var gain: Float
+
+    init(_ n: NarrationClip) {
+        id = n.id
+        file = n.url.lastPathComponent
+        name = n.name
+        start = n.start
+        sourceStart = n.sourceStart
+        duration = n.duration
+        volume = n.volume
+        gain = n.gain
+    }
+
+    /// 音声ファイルが消えていれば nil
+    func makeNarration() -> NarrationClip? {
+        guard let url = ProjectStore.resolveMedia(file) else { return nil }
+        var n = NarrationClip(id: id, url: url, name: name, start: start, duration: duration)
+        n.sourceStart = sourceStart
+        n.volume = volume
+        n.gain = gain
+        return n
+    }
+}
+
 private struct ProjectFile: Codable {
     var version = 1
     var documentary: StoredDocumentary?
     var titleCards: [StoredTitleCard]?
     var lowerThirds: [StoredLowerThird]?
     var overlays: [StoredOverlay]?
+    var narration: [StoredNarration]?
     var clips: [StoredClip]
     var subtitles: [StoredCue]
     var subtitlePosition: String
@@ -560,6 +618,13 @@ private struct ProjectFile: Codable {
     var resolution: String
     var quality: String
     var frameRate: Int
+    // 書き出しの詳細設定(後から追加したので省略可能、既定値は CanvasSettings と同じ)
+    var codec: String?
+    var bitrateMbps: Double?
+    var audioBitrateKbps: Int?
+    var fileFormat: String?
+    var preserveHDR: Bool?
+    var burnInSubtitles: Bool?
 
     init(snapshot s: ProjectSnapshot) {
         clips = s.clips.map { c in
@@ -574,7 +639,10 @@ private struct ProjectFile: Codable {
                                 width: Double(a.naturalSize.width), height: Double(a.naturalSize.height),
                                 transform: StoredTransform(a.preferredTransform), name: a.name, offset: a.offset)
                 },
-                switches: c.multicam.switches.map { StoredSwitch(id: $0.id, time: $0.time, angle: $0.angle) }
+                switches: c.multicam.switches.map { StoredSwitch(id: $0.id, time: $0.time, angle: $0.angle) },
+                audioGain: c.audio.gain,
+                audioLeadIn: c.audio.audioLeadIn,
+                audioTailOut: c.audio.audioTailOut
             )
         }
         subtitles = s.subtitles.map { StoredCue(id: $0.id, start: $0.start, end: $0.end, text: $0.text, translatedText: $0.translatedText) }
@@ -593,10 +661,17 @@ private struct ProjectFile: Codable {
         resolution = s.canvas.resolution.rawValue
         quality = s.canvas.quality.rawValue
         frameRate = s.canvas.frameRate
+        codec = s.canvas.codec.rawValue
+        bitrateMbps = s.canvas.bitrateMbps
+        audioBitrateKbps = s.canvas.audioBitrateKbps
+        fileFormat = s.canvas.fileFormat.rawValue
+        preserveHDR = s.canvas.preserveHDR
+        burnInSubtitles = s.canvas.burnInSubtitles
         documentary = StoredDocumentary(s.documentary)
         titleCards = s.titleCards.map { StoredTitleCard(id: $0.id, start: $0.start, duration: $0.duration, heading: $0.heading, title: $0.title, opaqueBackground: $0.opaqueBackground) }
         lowerThirds = s.lowerThirds.map { StoredLowerThird(id: $0.id, kind: $0.kind.rawValue, start: $0.start, duration: $0.duration, primary: $0.primary, secondary: $0.secondary) }
         overlays = s.overlays.map { StoredOverlay($0) }
+        narration = s.narration.map { StoredNarration($0) }
     }
 
     func makeSnapshot() -> ProjectSnapshot {
@@ -611,6 +686,11 @@ private struct ProjectFile: Codable {
             clip.speed = sc.speed
             clip.filter = sc.filter.value
             clip.isMuted = sc.isMuted
+            var clipAudio = ClipAudioSettings()
+            clipAudio.gain = sc.audioGain ?? 1
+            clipAudio.audioLeadIn = sc.audioLeadIn ?? 0
+            clipAudio.audioTailOut = sc.audioTailOut ?? 0
+            clip.audio = clipAudio
             var info = MulticamInfo()
             info.angles = sc.angles.compactMap { sa in
                 guard let aurl = ProjectStore.resolveMedia(sa.file) else { return nil }
@@ -648,6 +728,13 @@ private struct ProjectFile: Codable {
         canvas.resolution = ResolutionCap(rawValue: resolution) ?? .fhd1080
         canvas.quality = ExportQuality(rawValue: quality) ?? .standard
         canvas.frameRate = frameRate
+        let defaults = CanvasSettings()
+        canvas.codec = codec.flatMap { ExportCodec(rawValue: $0) } ?? defaults.codec
+        canvas.bitrateMbps = bitrateMbps
+        canvas.audioBitrateKbps = audioBitrateKbps ?? defaults.audioBitrateKbps
+        canvas.fileFormat = fileFormat.flatMap { ExportFileFormat(rawValue: $0) } ?? defaults.fileFormat
+        canvas.preserveHDR = preserveHDR ?? defaults.preserveHDR
+        canvas.burnInSubtitles = burnInSubtitles ?? defaults.burnInSubtitles
 
         return ProjectSnapshot(
             clips: restoredClips,
@@ -656,7 +743,8 @@ private struct ProjectFile: Codable {
             documentary: documentary?.value ?? DocumentaryStyle(),
             titleCards: (titleCards ?? []).map { TitleCard(id: $0.id, start: $0.start, duration: $0.duration, heading: $0.heading, title: $0.title, opaqueBackground: $0.opaqueBackground) },
             lowerThirds: (lowerThirds ?? []).map { LowerThird(id: $0.id, kind: CaptionKind(rawValue: $0.kind) ?? .nameplate, start: $0.start, duration: $0.duration, primary: $0.primary, secondary: $0.secondary) },
-            overlays: (overlays ?? []).compactMap { $0.makeOverlay() })
+            overlays: (overlays ?? []).compactMap { $0.makeOverlay() },
+            narration: (narration ?? []).compactMap { $0.makeNarration() })
     }
 }
 

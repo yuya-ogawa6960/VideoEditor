@@ -3,6 +3,7 @@ import UIKit
 import PhotosUI
 import AVFoundation
 import Combine
+import UniformTypeIdentifiers
 
 /// メイン画面(CapCut 風:上部バー/プレビュー/再生操作/タイムライン/下部ツールバー)
 struct ContentView: View {
@@ -26,12 +27,19 @@ struct ContentView: View {
     @State private var activeSheet: EditorSheet?
 
     @State private var pickerItems: [PhotosPickerItem] = []
+    /// 「オーバーレイ」で選んだ動画・写真
+    @State private var overlayPickerItems: [PhotosPickerItem] = []
     @State private var isImporting = false
     @State private var importDone = 0
     @State private var importTotal = 0
 
     @State private var alertMessage: String?
     @State private var showClearProjectConfirm = false
+    @State private var showSilenceCutConfirm = false
+    @State private var showNormalizeConfirm = false
+    /// 無音カット・音量そろえの進捗(nil なら実行中でない)
+    @State private var audioToolProgress: AudioToolProgress?
+    @State private var audioToolTask: Task<Void, Never>?
     @State private var isKeyboardVisible = false
 
     init(projectID: UUID, onClose: @escaping () -> Void) {
@@ -75,6 +83,12 @@ struct ContentView: View {
             if isImporting {
                 importOverlay
             }
+
+            if let progress = audioToolProgress {
+                AudioToolProgressOverlay(progress: progress) {
+                    audioToolTask?.cancel()
+                }
+            }
         }
         .preferredColorScheme(.dark)
         .onChange(of: pickerItems) { _, newItems in
@@ -82,6 +96,12 @@ struct ContentView: View {
             let items = newItems
             pickerItems = []
             Task { await importItems(items) }
+        }
+        .onChange(of: overlayPickerItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            let items = newItems
+            overlayPickerItems = []
+            Task { await importOverlayItems(items) }
         }
         .onChange(of: project.snapshot()) { _, newSnapshot in
             player.update(with: newSnapshot)
@@ -138,7 +158,7 @@ struct ContentView: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("このプロジェクトのクリップ・字幕・BGM はすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
+            Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーションはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
         .alert("お知らせ", isPresented: alertIsPresented) {
             Button("OK", role: .cancel) {}
@@ -276,7 +296,7 @@ struct ContentView: View {
 
                     TimelineView(project: project, player: player, history: history,
                                  timeline: timeline, selection: $selection)
-                        .frame(height: 200)
+                        .frame(height: TimelineView.totalHeight)
                         .overlay(alignment: .trailing) {
                             addClipButton
                                 .padding(.trailing, 8)
@@ -349,11 +369,33 @@ struct ContentView: View {
             } else {
                 EditorToolbar(items: toolbarItems,
                               onBack: backAction,
-                              pickerItems: $pickerItems)
+                              pickerItems: $pickerItems,
+                              overlayPickerItems: $overlayPickerItems)
                     .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.22), value: activePanel)
+        .confirmationDialog("無音部分を自動で詰めます(全クリップ)",
+                            isPresented: $showSilenceCutConfirm,
+                            titleVisibility: .visible) {
+            Button("無音カットを実行") {
+                startSilenceCut()
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("音声のあるクリップごとに 0.6 秒以上の無音を検出し、その部分を取り除いてクリップを分割します。「元に戻す」で戻せます。")
+        }
+        .confirmationDialog("全クリップとナレーションの音量をそろえます",
+                            isPresented: $showNormalizeConfirm,
+                            titleVisibility: .visible) {
+            Button("音量そろえを実行") {
+                startNormalize(clipIDs: project.clips.map { $0.id },
+                               narrationIDs: project.narration.map { $0.id })
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("各クリップとナレーションのラウドネスを測り、-16 LUFS を目安に音量をそろえます。「元に戻す」で戻せます。")
+        }
     }
 
     /// 選択中なら「←」で選択解除
@@ -409,6 +451,59 @@ struct ContentView: View {
                                   item: lowerThirdBinding(id: itemID),
                                   onSelect: { id in activePanel = .lowerThird(id) },
                                   onDelete: { id in deleteLowerThird(id) })
+        case .jlCut(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorJLCutPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .colorAdjust(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorColorAdjustPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlayPlacement(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayPlacementPanel(project: project, overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlayKenBurns(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayKenBurnsPanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlayVolume(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayVolumePanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlaySpeed(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlaySpeedPanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlayFilter(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayFilterPanel(project: project, overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .narrationVolume(let narrationID):
+            if let narration = project.narrationBinding(id: narrationID) {
+                EditorNarrationVolumePanel(narration: narration)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .narrationRecord:
+            EditorNarrationRecordPanel(project: project,
+                                       player: player,
+                                       history: history,
+                                       onRecorded: { id in selection = .narration(id) })
         }
     }
 
@@ -452,7 +547,16 @@ struct ContentView: View {
             return subtitleItems(cueID)
         case .bgm:
             return bgmItems
+        case .overlay(let overlayID):
+            return overlayItems(overlayID)
+        case .narration(let narrationID):
+            return narrationItems(narrationID)
         }
+    }
+
+    /// 音声トラックを持つクリップがあるか(無音カット・音量そろえの有効条件)
+    private var hasAudioClips: Bool {
+        project.clips.contains(where: { $0.hasAudio })
     }
 
     private var rootItems: [EditorToolItem] {
@@ -478,6 +582,17 @@ struct ContentView: View {
             },
             EditorToolItem("テロップ", systemImage: "person.text.rectangle") {
                 addLowerThirdAtPlayhead()
+            },
+            EditorToolItem.addOverlay("オーバーレイ", systemImage: "photo.on.rectangle", enabled: !isImporting),
+            EditorToolItem("ナレーション", systemImage: "mic") {
+                openPanel(.narrationRecord)
+            },
+            EditorToolItem("無音カット", systemImage: "waveform.slash", enabled: hasAudioClips) {
+                showSilenceCutConfirm = true
+            },
+            EditorToolItem("音量そろえ", systemImage: "speaker.wave.2",
+                           enabled: hasAudioClips || !project.narration.isEmpty) {
+                showNormalizeConfirm = true
             },
             EditorToolItem("自動字幕", systemImage: "captions.bubble") {
                 history.record(project)
@@ -510,6 +625,12 @@ struct ContentView: View {
             EditorToolItem("フィルタ", systemImage: "camera.filters") {
                 openPanel(.filter(clipID))
             },
+            EditorToolItem("色調整", systemImage: "circle.lefthalf.filled") {
+                openPanel(.colorAdjust(clipID))
+            },
+            EditorToolItem("Jカット/Lカット", systemImage: "waveform.path") {
+                openPanel(.jlCut(clipID))
+            },
             EditorToolItem("複製", systemImage: "plus.square.on.square") {
                 history.record(project)
                 project.duplicateClip(id: clipID)
@@ -526,6 +647,54 @@ struct ContentView: View {
             EditorToolItem("詳細", systemImage: "slider.horizontal.3") {
                 history.record(project)
                 activeSheet = .clipDetail(clipID)
+            }
+        ]
+    }
+
+    private func overlayItems(_ overlayID: UUID) -> [EditorToolItem] {
+        let isImage = project.overlays.first(where: { $0.id == overlayID })?.isImage ?? false
+        var items: [EditorToolItem] = [
+            EditorToolItem("配置", systemImage: "rectangle.on.rectangle") {
+                openPanel(.overlayPlacement(overlayID))
+            },
+            EditorToolItem("ケン・バーンズ", systemImage: "arrow.up.left.and.arrow.down.right") {
+                openPanel(.overlayKenBurns(overlayID))
+            }
+        ]
+        if !isImage {
+            items.append(EditorToolItem("音量", systemImage: "speaker.wave.2") {
+                openPanel(.overlayVolume(overlayID))
+            })
+            items.append(EditorToolItem("速度", systemImage: "speedometer") {
+                openPanel(.overlaySpeed(overlayID))
+            })
+        }
+        items.append(EditorToolItem("フィルタ", systemImage: "camera.filters") {
+            openPanel(.overlayFilter(overlayID))
+        })
+        items.append(EditorToolItem("複製", systemImage: "plus.square.on.square") {
+            duplicateOverlay(overlayID)
+        })
+        items.append(EditorToolItem("削除", systemImage: "trash", destructive: true) {
+            history.record(project)
+            selection = nil
+            project.removeOverlay(id: overlayID)
+        })
+        return items
+    }
+
+    private func narrationItems(_ narrationID: UUID) -> [EditorToolItem] {
+        [
+            EditorToolItem("音量", systemImage: "speaker.wave.2") {
+                openPanel(.narrationVolume(narrationID))
+            },
+            EditorToolItem("音量そろえ", systemImage: "waveform") {
+                startNormalize(clipIDs: [], narrationIDs: [narrationID])
+            },
+            EditorToolItem("削除", systemImage: "trash", destructive: true) {
+                history.record(project)
+                selection = nil
+                project.removeNarration(id: narrationID)
             }
         ]
     }
@@ -632,6 +801,10 @@ struct ContentView: View {
             return project.subtitles.contains(where: { $0.id == cueID })
         case .bgm:
             return project.audio.bgmURL != nil
+        case .overlay(let overlayID):
+            return project.overlays.contains(where: { $0.id == overlayID })
+        case .narration(let narrationID):
+            return project.narration.contains(where: { $0.id == narrationID })
         }
     }
 
@@ -702,6 +875,273 @@ struct ContentView: View {
         } else {
             activePanel = nil
         }
+    }
+
+    // MARK: オーバーレイ
+
+    /// 選択中のオーバーレイを複製して直後に置き、複製を選択する
+    private func duplicateOverlay(_ overlayID: UUID) {
+        guard let i = project.overlays.firstIndex(where: { $0.id == overlayID }) else { return }
+        history.record(project)
+        let original = project.overlays[i]
+        var copy = original.duplicated()
+        copy.start = original.end
+        project.overlays.insert(copy, at: i + 1)
+        project.sortOverlays()
+        selection = .overlay(copy.id)
+    }
+
+    /// PhotosPicker で選んだ動画・写真をオーバーレイとして再生位置に追加する
+    @MainActor
+    private func importOverlayItems(_ items: [PhotosPickerItem]) async {
+        isImporting = true
+        importTotal = items.count
+        importDone = 0
+        var failures: [String] = []
+        var recorded = false
+        var lastAdded: UUID?
+        for item in items {
+            do {
+                var overlay: OverlayClip?
+                let looksLikeMovie = item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) })
+                if looksLikeMovie, let movie = try? await item.loadTransferable(type: PickedMovie.self) {
+                    var video = try await MediaStore.makeOverlay(fromVideo: movie.url)
+                    OverlayPreset.bRollFull.apply(to: &video)
+                    overlay = video
+                } else if let photo = try await item.loadTransferable(type: PickedPhoto.self) {
+                    var image = try MediaStore.makeImageOverlay(from: photo.url)
+                    image.duration = 4
+                    image.kenBurns = KenBurns.zoomIn
+                    overlay = image
+                } else if let movie = try await item.loadTransferable(type: PickedMovie.self) {
+                    // 種類が判定できなかった場合の保険
+                    var video = try await MediaStore.makeOverlay(fromVideo: movie.url)
+                    OverlayPreset.bRollFull.apply(to: &video)
+                    overlay = video
+                }
+                guard var added = overlay else {
+                    failures.append("動画・写真のデータを取得できませんでした。")
+                    importDone += 1
+                    continue
+                }
+                added.start = max(0, player.currentTime)
+                if !recorded {
+                    history.record(project)
+                    recorded = true
+                }
+                project.overlays.append(added)
+                project.sortOverlays()
+                lastAdded = added.id
+            } catch {
+                failures.append(error.localizedDescription)
+            }
+            importDone += 1
+        }
+        isImporting = false
+        if let lastAdded {
+            selection = .overlay(lastAdded)
+            // 履歴は追加前に記録済みなので openPanel は使わない
+            activePanel = .overlayPlacement(lastAdded)
+        }
+        if !failures.isEmpty {
+            alertMessage = "\(failures.count)件の素材を読み込めませんでした。\n" + failures.joined(separator: "\n")
+        }
+    }
+
+    // MARK: 無音カット
+
+    private func startSilenceCut() {
+        audioToolTask?.cancel()
+        audioToolTask = Task { @MainActor in
+            await runSilenceCut()
+            audioToolTask = nil
+        }
+    }
+
+    /// 音声のある(ミュートでない)全クリップから無音部分を取り除き、残す範囲ごとにクリップを分割する
+    @MainActor
+    private func runSilenceCut() async {
+        let targets = project.clips.filter { $0.hasAudio && !$0.isMuted }
+        guard !targets.isEmpty else {
+            alertMessage = "音声のあるクリップがありません。"
+            return
+        }
+        player.pause()
+        audioToolProgress = AudioToolProgress(title: "無音を検出中", done: 0, total: targets.count)
+
+        var kept: [UUID: [(start: Double, end: Double)]] = [:]
+        var failures: [String] = []
+        var cancelled = false
+        for (i, clip) in targets.enumerated() {
+            if Task.isCancelled {
+                cancelled = true
+                break
+            }
+            do {
+                kept[clip.id] = try await AudioAnalysis.keptRanges(for: clip)
+            } catch is CancellationError {
+                cancelled = true
+                break
+            } catch {
+                failures.append("\(clip.name): \(error.localizedDescription)")
+            }
+            audioToolProgress?.done = i + 1
+        }
+        audioToolProgress = nil
+        if cancelled {
+            alertMessage = "無音カットをキャンセルしました。"
+            return
+        }
+
+        // 残す範囲ごとにクリップを組み立て直す(最初の範囲は元の ID を保つ)
+        let tolerance = 0.01
+        var newClips: [Clip] = []
+        var removedCount = 0
+        var removedOutputSeconds = 0.0
+        for clip in project.clips {
+            guard let ranges = kept[clip.id], !ranges.isEmpty else {
+                newClips.append(clip)
+                continue
+            }
+            var gaps = max(0, ranges.count - 1)
+            if let first = ranges.first, first.start > clip.startTime + tolerance { gaps += 1 }
+            if let last = ranges.last, last.end < clip.endTime - tolerance { gaps += 1 }
+            guard gaps > 0 else {
+                newClips.append(clip)
+                continue
+            }
+            let keptSource = ranges.reduce(0.0) { $0 + max(0, $1.end - $1.start) }
+            removedOutputSeconds += max(0, clip.trimmedDuration - keptSource) / max(clip.speed, 0.01)
+            removedCount += gaps
+            for (j, range) in ranges.enumerated() {
+                var piece = (j == 0) ? clip : clip.duplicated()
+                piece.startTime = range.start
+                piece.endTime = range.end
+                newClips.append(piece)
+            }
+        }
+
+        guard removedCount > 0 else {
+            var message = "無音部分は見つかりませんでした。"
+            if !failures.isEmpty {
+                message += "\n解析できなかったクリップ:\n" + failures.joined(separator: "\n")
+            }
+            alertMessage = message
+            return
+        }
+
+        history.record(project)
+        project.clips = newClips
+        var message = "\(removedCount) か所、合計 \(String(format: "%.1f", removedOutputSeconds)) 秒を削除しました。"
+        if !failures.isEmpty {
+            message += "\n解析できなかったクリップ:\n" + failures.joined(separator: "\n")
+        }
+        alertMessage = message
+    }
+
+    // MARK: 音量そろえ
+
+    private func startNormalize(clipIDs: [UUID], narrationIDs: [UUID]) {
+        audioToolTask?.cancel()
+        audioToolTask = Task { @MainActor in
+            await runNormalize(clipIDs: clipIDs, narrationIDs: narrationIDs)
+            audioToolTask = nil
+        }
+    }
+
+    /// 指定したクリップ・ナレーションのラウドネスを測り、-16 LUFS を目安にゲインを設定する
+    @MainActor
+    private func runNormalize(clipIDs: [UUID], narrationIDs: [UUID]) async {
+        let clipTargets = project.clips.filter { clipIDs.contains($0.id) && $0.hasAudio }
+        let narrationTargets = project.narration.filter { narrationIDs.contains($0.id) }
+        let total = clipTargets.count + narrationTargets.count
+        guard total > 0 else {
+            alertMessage = "音声のあるクリップやナレーションがありません。"
+            return
+        }
+        player.pause()
+        audioToolProgress = AudioToolProgress(title: "音量を測定中", done: 0, total: total)
+
+        var clipGains: [UUID: Float] = [:]
+        var narrationGains: [UUID: Float] = [:]
+        var failures: [String] = []
+        var cancelled = false
+        var done = 0
+
+        for clip in clipTargets {
+            if Task.isCancelled {
+                cancelled = true
+                break
+            }
+            do {
+                let measurement = try await LoudnessAnalyzer.measure(url: clip.url,
+                                                                     start: clip.startTime,
+                                                                     end: clip.endTime)
+                clipGains[clip.id] = LoudnessAnalyzer.normalizationGain(for: measurement)
+            } catch is CancellationError {
+                cancelled = true
+                break
+            } catch {
+                failures.append("\(clip.name): \(error.localizedDescription)")
+            }
+            done += 1
+            audioToolProgress?.done = done
+        }
+
+        if !cancelled {
+            for item in narrationTargets {
+                if Task.isCancelled {
+                    cancelled = true
+                    break
+                }
+                do {
+                    let measurement = try await LoudnessAnalyzer.measure(url: item.url,
+                                                                         start: item.sourceStart,
+                                                                         end: item.sourceEnd)
+                    narrationGains[item.id] = LoudnessAnalyzer.normalizationGain(for: measurement)
+                } catch is CancellationError {
+                    cancelled = true
+                    break
+                } catch {
+                    failures.append("\(item.name): \(error.localizedDescription)")
+                }
+                done += 1
+                audioToolProgress?.done = done
+            }
+        }
+
+        audioToolProgress = nil
+        if cancelled {
+            alertMessage = "音量そろえをキャンセルしました。"
+            return
+        }
+        guard !clipGains.isEmpty || !narrationGains.isEmpty else {
+            alertMessage = "音量を測定できませんでした。\n" + failures.joined(separator: "\n")
+            return
+        }
+
+        history.record(project)
+        var clips = project.clips
+        for i in clips.indices {
+            if let gain = clipGains[clips[i].id] {
+                clips[i].audio.gain = gain
+            }
+        }
+        project.clips = clips
+        var narration = project.narration
+        for i in narration.indices {
+            if let gain = narrationGains[narration[i].id] {
+                narration[i].gain = gain
+            }
+        }
+        project.narration = narration
+
+        let count = clipGains.count + narrationGains.count
+        var message = "\(count) 件の音量をそろえました(目安 -16 LUFS)。"
+        if !failures.isEmpty {
+            message += "\n測定できなかった素材:\n" + failures.joined(separator: "\n")
+        }
+        alertMessage = message
     }
 
     private func splitClip(_ clipID: UUID) {
@@ -776,6 +1216,7 @@ struct ContentView: View {
     }
 
     /// 復元したクリップのサムネイルを読み直す(保存ファイルには画像を含めないため)
+    @MainActor
     private func reloadThumbnails() async {
         for clip in project.clips where clip.thumbnail == nil {
             let image = await MediaStore.thumbnail(for: clip.url, at: clip.startTime, maxPixel: 240)
@@ -785,6 +1226,7 @@ struct ContentView: View {
         }
     }
 
+    @MainActor
     private func importItems(_ items: [PhotosPickerItem]) async {
         isImporting = true
         importTotal = items.count

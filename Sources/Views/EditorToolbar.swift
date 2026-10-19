@@ -20,6 +20,8 @@ struct EditorToolItem: Identifiable {
         case action(() -> Void)
         /// 動画を追加する PhotosPicker
         case addMedia
+        /// 動画・写真を選んでオーバーレイ(Bロール / ワイプ / 写真)として追加する PhotosPicker
+        case addOverlay
     }
 
     let id: String
@@ -39,17 +41,22 @@ struct EditorToolItem: Identifiable {
         self.kind = .action(action)
     }
 
-    private init(addMediaTitle title: String, systemImage: String, enabled: Bool) {
+    private init(pickerTitle title: String, systemImage: String, enabled: Bool, kind: Kind) {
         self.id = title
         self.title = title
         self.systemImage = systemImage
         self.isDestructive = false
         self.isEnabled = enabled
-        self.kind = .addMedia
+        self.kind = kind
     }
 
     static func addMedia(_ title: String, systemImage: String, enabled: Bool = true) -> EditorToolItem {
-        EditorToolItem(addMediaTitle: title, systemImage: systemImage, enabled: enabled)
+        EditorToolItem(pickerTitle: title, systemImage: systemImage, enabled: enabled, kind: .addMedia)
+    }
+
+    /// 動画と写真の両方を選べるオーバーレイ追加ボタン
+    static func addOverlay(_ title: String, systemImage: String, enabled: Bool = true) -> EditorToolItem {
+        EditorToolItem(pickerTitle: title, systemImage: systemImage, enabled: enabled, kind: .addOverlay)
     }
 }
 
@@ -57,7 +64,10 @@ struct EditorToolbar: View {
     let items: [EditorToolItem]
     /// nil 以外なら先頭に「←」(選択解除)を表示
     let onBack: (() -> Void)?
+    /// 「追加」(メインの動画)で選ばれた項目
     @Binding var pickerItems: [PhotosPickerItem]
+    /// 「オーバーレイ」(動画・写真)で選ばれた項目
+    @Binding var overlayPickerItems: [PhotosPickerItem]
 
     var body: some View {
         HStack(spacing: 0) {
@@ -111,6 +121,16 @@ struct EditorToolbar: View {
                          maxSelectionCount: nil,
                          selectionBehavior: .ordered,
                          matching: .videos,
+                         preferredItemEncoding: .current) {
+                label(item)
+            }
+            .buttonStyle(.plain)
+            .disabled(!item.isEnabled)
+        case .addOverlay:
+            PhotosPicker(selection: $overlayPickerItems,
+                         maxSelectionCount: nil,
+                         selectionBehavior: .ordered,
+                         matching: .any(of: [.videos, .images]),
                          preferredItemEncoding: .current) {
                 label(item)
             }

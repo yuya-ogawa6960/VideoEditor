@@ -13,12 +13,12 @@ concurrency:
 
 jobs:
   build:
-    # Apple Silicon ランナーが混雑して取得できないことがあるため、Intel ランナーでも並行してビルドする。
-    # どちらか先に成功した方の Artifact を使えばよい。
+    # Apple Silicon ランナー(macos-latest)は混雑で 15 分待っても取得できないことが続いたため、
+    # 空いている Intel ランナーだけでビルドする(3〜4 分で完了)。iPhone 向けの arm64 バイナリは Intel 上でも作れる。
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, macos-15-intel]
+        os: [macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout

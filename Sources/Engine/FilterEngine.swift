@@ -47,18 +47,73 @@ enum FilterEngine {
             output = blend(original: image, filtered: filtered, intensity: settings.intensity)
         }
 
-        // 2. 明るさ / コントラスト / 彩度
+        // 2. 明るさ / コントラスト / 彩度 → 3. 露出 / 色温度 / ハイライト・シャドウ / シャープネス
         let adj = settings.adjustments
         if !adj.isIdentity {
-            output = output.applyingFilter("CIColorControls", parameters: [
-                kCIInputBrightnessKey: NSNumber(value: adj.brightness),
-                kCIInputContrastKey: NSNumber(value: adj.contrast),
-                kCIInputSaturationKey: NSNumber(value: adj.saturation)
-            ])
+            output = applyAdjustments(adj, to: output)
         }
 
         if extent.isInfinite || extent.isEmpty { return output }
         return output.cropped(to: extent)
+    }
+
+    /// 色調整(ColorAdjustments)だけを適用する。順序: 基本の CIColorControls → 露出 → 色温度
+    /// → ハイライト・シャドウ → シャープネス
+    static func applyAdjustments(_ adj: ColorAdjustments, to image: CIImage) -> CIImage {
+        if adj.isIdentity { return image }
+        var output = image
+
+        let highlights = clamp(adj.highlights, -1, 1)
+        let shadows = clamp(adj.shadows, -1, 1)
+
+        // 基本: 明るさ / コントラスト / 彩度(正のハイライトは明るさを少し足して表現する)
+        let brightness = adj.brightness + 0.05 * max(0, highlights)
+        if brightness != 0 || adj.contrast != 1 || adj.saturation != 1 {
+            output = output.applyingFilter("CIColorControls", parameters: [
+                kCIInputBrightnessKey: NSNumber(value: brightness),
+                kCIInputContrastKey: NSNumber(value: max(0, adj.contrast)),
+                kCIInputSaturationKey: NSNumber(value: max(0, adj.saturation))
+            ])
+        }
+
+        // 露出(EV)
+        if adj.exposure != 0 {
+            output = output.applyingFilter("CIExposureAdjust", parameters: [
+                kCIInputEVKey: NSNumber(value: clamp(adj.exposure, -4, 4))
+            ])
+        }
+
+        // 色温度(負で青く、正で暖かく)
+        if adj.temperature != 0 {
+            let target = 6500 + clamp(adj.temperature, -1, 1) * 2500
+            output = output.applyingFilter("CITemperatureAndTint", parameters: [
+                "inputNeutral": CIVector(x: 6500, y: 0),
+                "inputTargetNeutral": CIVector(x: CGFloat(target), y: 0)
+            ])
+        }
+
+        // ハイライト(負で明部を抑える: 1 → 0.3)/ シャドウ(正で暗部を持ち上げる)
+        if highlights < 0 || shadows != 0 {
+            let highlightAmount = 1 - max(0, -highlights) * 0.7
+            output = output.applyingFilter("CIHighlightShadowAdjust", parameters: [
+                "inputHighlightAmount": NSNumber(value: highlightAmount),
+                "inputShadowAmount": NSNumber(value: shadows),
+                "inputRadius": NSNumber(value: 0)
+            ])
+        }
+
+        // シャープネス
+        if adj.sharpness > 0 {
+            output = output.applyingFilter("CISharpenLuminance", parameters: [
+                kCIInputSharpnessKey: NSNumber(value: clamp(adj.sharpness, 0, 1) * 1.5)
+            ])
+        }
+        return output
+    }
+
+    private static func clamp(_ value: Double, _ lower: Double, _ upper: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(max(value, lower), upper)
     }
 
     /// 作品全体のルック(LookPreset)を適用。intensity 0...1 で元画像とブレンド。

@@ -23,6 +23,88 @@ struct VideoCompositorSubtitle {
     let lines: [String]
 }
 
+/// メイン映像の上に重ねる Bロール / ワイプ / 写真(コンポジタ命令に渡すプレーンデータ)
+/// 時刻はすべて出力タイムライン上の秒。
+struct VideoCompositorOverlay {
+    let id: UUID
+    /// 動画オーバーレイのコンポジショントラック。写真(または挿入できなかった動画)は nil
+    let trackID: CMPersistentTrackID?
+    let isImage: Bool
+    let url: URL
+    let naturalSize: CGSize
+    let preferredTransform: CGAffineTransform
+    let start: Double
+    let duration: Double
+    let speed: Double
+    let sourceStart: Double
+    let frame: NormalizedRect
+    let fit: OverlayFit
+    let opacity: Double
+    let cornerRadius: Double
+    let kenBurns: KenBurns
+    let filter: FilterSettings
+    let fadeIn: Double
+    let fadeOut: Double
+
+    init(overlay: OverlayClip, trackID: CMPersistentTrackID?, preferredTransform: CGAffineTransform? = nil) {
+        self.id = overlay.id
+        self.trackID = trackID
+        self.isImage = overlay.isImage
+        self.url = overlay.url
+        self.naturalSize = overlay.naturalSize
+        self.preferredTransform = preferredTransform ?? overlay.preferredTransform
+        self.start = overlay.start
+        self.duration = overlay.duration
+        self.speed = max(overlay.speed, 0.01)
+        self.sourceStart = overlay.sourceStart
+        self.frame = overlay.frame.clamped()
+        self.fit = overlay.fit
+        self.opacity = min(max(overlay.opacity, 0), 1)
+        self.cornerRadius = min(max(overlay.cornerRadius, 0), 0.5)
+        self.kenBurns = overlay.kenBurns
+        self.filter = overlay.filter
+        self.fadeIn = max(0, overlay.fadeIn)
+        self.fadeOut = max(0, overlay.fadeOut)
+    }
+
+    var end: Double { start + duration }
+
+    /// 動画を描くために必要なソーストラックか(写真は不要)
+    var needsSourceFrame: Bool { !isImage && trackID != nil }
+
+    func contains(timelineTime time: Double) -> Bool {
+        time >= start && time < end
+    }
+
+    func intersects(_ range: CMTimeRange) -> Bool {
+        let rs = range.start.seconds
+        let re = range.end.seconds
+        guard rs.isFinite, re.isFinite else { return true }
+        return end > rs && start < re
+    }
+
+    /// 進行度 0...1(Ken Burns 用)
+    func progress(at time: Double) -> Double {
+        guard duration > 0 else { return 0 }
+        return min(max((time - start) / duration, 0), 1)
+    }
+
+    /// フェードを含む不透明度(OverlayClip.effectiveOpacity と同じ計算)
+    func effectiveOpacity(at time: Double) -> Double {
+        guard duration > 0 else { return 0 }
+        let local = time - start
+        guard local >= 0, local <= duration else { return 0 }
+        var factor = 1.0
+        if fadeIn > 0, local < fadeIn {
+            factor = min(factor, local / fadeIn)
+        }
+        if fadeOut > 0, duration - local < fadeOut {
+            factor = min(factor, (duration - local) / fadeOut)
+        }
+        return max(0, min(1, factor)) * opacity
+    }
+}
+
 /// 1クリップ分の描画指示(プレーンデータのみ保持)
 final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionProtocol, @unchecked Sendable {
     // AVVideoCompositionInstructionProtocol
@@ -43,6 +125,8 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
     let renderSize: CGSize
     /// ドキュメンタリー風の仕上げ(作品全体で共通)
     let documentary: DocumentaryRenderInfo
+    /// この区間に重なる Bロール / ワイプ / 写真(開始時刻順)
+    let mediaOverlays: [VideoCompositorOverlay]
 
     init(timeRange: CMTimeRange,
          mainTrackID: CMPersistentTrackID,
@@ -53,7 +137,8 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
          subtitleStyle: SubtitleStyle,
          scaling: ScalingMode,
          renderSize: CGSize,
-         documentary: DocumentaryRenderInfo = .empty) {
+         documentary: DocumentaryRenderInfo = .empty,
+         mediaOverlays: [VideoCompositorOverlay] = []) {
         self.timeRange = timeRange
         self.mainTrackID = mainTrackID
         self.mainTransform = mainTransform
@@ -64,10 +149,16 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
         self.scaling = scaling
         self.renderSize = renderSize
         self.documentary = documentary
+        self.mediaOverlays = mediaOverlays
 
         var ids: [CMPersistentTrackID] = [mainTrackID]
         for seg in angleSegments where !ids.contains(seg.trackID) {
             ids.append(seg.trackID)
+        }
+        for overlay in mediaOverlays {
+            if let trackID = overlay.trackID, overlay.intersects(timeRange), !ids.contains(trackID) {
+                ids.append(trackID)
+            }
         }
         self.requiredSourceTrackIDs = ids.map { NSNumber(value: $0) }
         super.init()
@@ -84,7 +175,8 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
                                    subtitleStyle: subtitleStyle,
                                    scaling: scaling,
                                    renderSize: renderSize,
-                                   documentary: documentary)
+                                   documentary: documentary,
+                                   mediaOverlays: mediaOverlays)
     }
 
     /// 同じ内容でドキュメンタリー情報だけ差し替えたコピー
@@ -98,7 +190,24 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
                                    subtitleStyle: subtitleStyle,
                                    scaling: scaling,
                                    renderSize: renderSize,
-                                   documentary: info)
+                                   documentary: info,
+                                   mediaOverlays: mediaOverlays)
+    }
+
+    /// 同じ内容でオーバーレイだけ差し替えたコピー(この区間に重なるものだけを保持する)
+    func withMediaOverlays(_ overlays: [VideoCompositorOverlay]) -> VideoCompositorInstruction {
+        let relevant = overlays.filter { $0.intersects(timeRange) }
+        return VideoCompositorInstruction(timeRange: timeRange,
+                                          mainTrackID: mainTrackID,
+                                          mainTransform: mainTransform,
+                                          angleSegments: angleSegments,
+                                          filter: filter,
+                                          subtitles: subtitles,
+                                          subtitleStyle: subtitleStyle,
+                                          scaling: scaling,
+                                          renderSize: renderSize,
+                                          documentary: documentary,
+                                          mediaOverlays: relevant)
     }
 
     func angleSegment(at time: CMTime) -> VideoCompositorAngleSegment? {
@@ -214,6 +323,15 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                 // 全体のルック(余白は透明のままなので黒帯は黒のまま)
                 placed = DocumentaryRenderer.applyLook(placed, info: documentary)
                 frame = placed.composited(over: frame)
+            }
+
+            // Bロール / ワイプ / 写真(メイン映像とルックの後、質感・テロップ・字幕・黒帯・フェードの前)
+            if !instruction.mediaOverlays.isEmpty {
+                frame = OverlayRenderer.draw(instruction.mediaOverlays,
+                                             over: frame,
+                                             time: seconds,
+                                             request: request,
+                                             canvasSize: size)
             }
 
             // 周辺減光 → フィルム粒子 → 章タイトル / テロップ

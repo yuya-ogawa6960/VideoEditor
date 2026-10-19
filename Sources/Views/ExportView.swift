@@ -100,14 +100,21 @@ struct ExportView: View {
     @State private var isSavingToPhotos: Bool = false
     @State private var alertTitle: String = ""
     @State private var alertMessage: String?
+    @State private var showAdvanced: Bool = false
 
     private var exporter: ExportManager { ExportManager.shared }
+
+    /// 選べるフレームレート(23.976 / 29.97 はそれぞれ 24 / 30 に丸める)
+    private let frameRates: [Int] = [24, 25, 30, 50, 60]
+    /// 選べる音声ビットレート(kbps)
+    private let audioBitrates: [Int] = [128, 192, 256, 320]
 
     var body: some View {
         NavigationStack {
             Form {
                 presetSection
                 customSection
+                advancedSection
                 infoSection
                 storageSection
                 exportSection
@@ -201,16 +208,133 @@ struct ExportView: View {
                     Text(q.displayName).tag(q)
                 }
             }
-            Picker("フレームレート", selection: $project.canvas.frameRate) {
-                Text("24fps").tag(24)
-                Text("30fps").tag(30)
-                Text("60fps").tag(60)
-            }
-            .pickerStyle(.segmented)
         } header: {
-            Text("詳細設定")
+            Text("出力設定")
         }
         .disabled(exporter.isRunning)
+    }
+
+    // MARK: 詳細設定
+
+    /// 画質・解像度・コーデックから自動で決まる映像ビットレート(Mbps)。
+    /// 書き出しエンジン(StorageEstimator.videoBitrate)と同じ計算を、手動指定なしの状態で行う
+    private var autoBitrateMbps: Int {
+        var snapshot = project.snapshot()
+        snapshot.canvas.bitrateMbps = nil
+        let bps = Double(StorageEstimator.videoBitrate(for: snapshot))
+        let mbps = (bps / 1_000_000).rounded()
+        return Int(min(max(mbps, 2), 100))
+    }
+
+    /// 手動ビットレートのオン / オフ(nil = 自動)
+    private var manualBitrateBinding: Binding<Bool> {
+        Binding<Bool>(
+            get: { project.canvas.bitrateMbps != nil },
+            set: { manual in
+                if manual {
+                    if project.canvas.bitrateMbps == nil {
+                        project.canvas.bitrateMbps = Double(autoBitrateMbps)
+                    }
+                } else {
+                    project.canvas.bitrateMbps = nil
+                }
+            }
+        )
+    }
+
+    private var bitrateSliderBinding: Binding<Double> {
+        Binding<Double>(
+            get: { min(max(project.canvas.bitrateMbps ?? Double(autoBitrateMbps), 2), 100) },
+            set: { newValue in
+                project.canvas.bitrateMbps = min(max(newValue.rounded(), 2), 100)
+            }
+        )
+    }
+
+    /// HDR を維持できるコーデックか(H.264 は 8bit のみ)
+    private var hdrAvailable: Bool {
+        project.canvas.codec != .h264
+    }
+
+    private var advancedSection: some View {
+        Section {
+            DisclosureGroup("詳細設定", isExpanded: $showAdvanced) {
+                Picker("コーデック", selection: $project.canvas.codec) {
+                    ForEach(ExportCodec.allCases) { codec in
+                        Text(codec.displayName).tag(codec)
+                    }
+                }
+
+                Toggle("ビットレートを手動で指定", isOn: manualBitrateBinding)
+
+                if let mbps = project.canvas.bitrateMbps {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("映像ビットレート")
+                            Spacer()
+                            Text("\(Int(mbps.rounded())) Mbps")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        Slider(value: bitrateSliderBinding, in: 2...100, step: 1)
+                        HStack {
+                            Text("2")
+                            Spacer()
+                            Text("100 Mbps")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                } else {
+                    LabeledContent("映像ビットレート", value: "自動(約 \(autoBitrateMbps) Mbps)")
+                }
+
+                Picker("音声ビットレート", selection: $project.canvas.audioBitrateKbps) {
+                    ForEach(audioBitrates, id: \.self) { kbps in
+                        Text("\(kbps) kbps").tag(kbps)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ファイル形式")
+                    Picker("ファイル形式", selection: $project.canvas.fileFormat) {
+                        ForEach(ExportFileFormat.allCases) { format in
+                            Text(format.displayName).tag(format)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("フレームレート")
+                    Picker("フレームレート", selection: $project.canvas.frameRate) {
+                        ForEach(frameRates, id: \.self) { fps in
+                            Text("\(fps)").tag(fps)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text("23.976 fps / 29.97 fps の素材はそれぞれ 24 / 30 fps に丸めて書き出します。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Toggle("HDR を維持", isOn: $project.canvas.preserveHDR)
+                    .disabled(!hdrAvailable)
+
+                Toggle("字幕を映像に焼き込む", isOn: $project.canvas.burnInSubtitles)
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("HDR の維持はコーデックが HEVC または自動のときだけ選べます。素材が HDR でない場合や端末が対応していない場合は SDR で書き出します。")
+                Text("字幕の焼き込みをオフにすると、字幕は映像に入りません(SRT として別に書き出す用途向け)。")
+            }
+        }
+        .disabled(exporter.isRunning)
+        .onChange(of: project.canvas.codec) { _, codec in
+            if codec == .h264, project.canvas.preserveHDR {
+                project.canvas.preserveHDR = false
+            }
+        }
     }
 
     // MARK: 情報
