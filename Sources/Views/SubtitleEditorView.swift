@@ -283,8 +283,16 @@ struct SubtitleEditorView: View {
         } header: {
             Text("自動文字起こし")
         } footer: {
-            Text("今の方式: (AppSettings.shared.transcriptionEngine.displayName)。AI仕上げ: (AppSettings.shared.polishSubtitles ? SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: AppSettings.shared)) : "オフ")。方式は設定から変えられます。")
+            Text(transcriptionFooterText)
         }
+    }
+
+    private var transcriptionFooterText: String {
+        let settings = AppSettings.shared
+        let polish = settings.polishSubtitles
+            ? SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: settings))
+            : "オフ"
+        return "今の方式: " + settings.transcriptionEngine.displayName + "。AI仕上げ: " + polish + "。方式は設定から変えられます。"
     }
 
     private func startTranscription() {
