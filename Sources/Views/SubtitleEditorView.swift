@@ -637,7 +637,7 @@ struct SubtitleEditorView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $project.subtitleStyle.sizeRatio, in: 0.03...0.10)
+                Slider(value: $project.subtitleStyle.sizeRatio, in: 0.02...0.08)
             }
 
             Toggle("背景を付ける", isOn: $project.subtitleStyle.hasBackground)
@@ -1056,8 +1056,9 @@ enum SubtitleFontCatalog {
     }
 
     static let builtIn: [Option] = [
-        Option(id: "", label: "システム(標準)"),
-        Option(id: "HiraginoSans-W6", label: "ヒラギノ角ゴ W6"),
+        Option(id: "", label: "ヒラギノ角ゴ W3(標準・映画字幕風)"),
+        Option(id: "HiraginoSans-W6", label: "ヒラギノ角ゴ W6(太め)"),
+        Option(id: "HiraMinProN-W3", label: "ヒラギノ明朝 W3(上品)"),
         Option(id: "HiraMinProN-W6", label: "ヒラギノ明朝 W6"),
         Option(id: "HiraMaruProN-W4", label: "ヒラギノ丸ゴ W4"),
         Option(id: "Noteworthy-Bold", label: "Noteworthy(ノート風)"),

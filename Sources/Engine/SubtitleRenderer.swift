@@ -176,7 +176,11 @@ enum SubtitleRenderer {
         if let name = style.fontName, !name.isEmpty, let custom = UIFont(name: name, size: size) {
             return custom
         }
-        return UIFont.systemFont(ofSize: size, weight: .bold)
+        // 既定は映画字幕のような細めの角ゴシック(太いシステム書体は野暮ったく見えるため)
+        if let hiragino = UIFont(name: "HiraginoSans-W3", size: size) {
+            return hiragino
+        }
+        return UIFont.systemFont(ofSize: size, weight: .medium)
     }
 
     private static func outlineAttributes(font: UIFont, color: UIColor, outlineWidth: CGFloat,
@@ -239,7 +243,9 @@ enum SubtitleRenderer {
         let canvasH = renderSize.height
         let template = style.template
         let ratio = min(max(style.sizeRatio, 0.01), 0.3)
-        var fontSize = max(8, (ratio * canvasW).rounded())
+        // 画面の短い辺を基準にする(横長の 4K で字幕が大きくなりすぎないように)
+        let baseSide: CGFloat = min(canvasW, canvasH)
+        var fontSize = max(8, (ratio * baseSide).rounded())
         if template == .outlineBig { fontSize = (fontSize * 1.25).rounded() }
         let font = subtitleFont(for: style, size: fontSize)
 
@@ -259,7 +265,8 @@ enum SubtitleRenderer {
         let highlight = UIColor(hex: style.highlightColorHex) ?? UIColor(red: 1, green: 0.84, blue: 0.29, alpha: 1)
 
         // 縁取りの太さ(背景ありなら無し。outlineBig は常に太く)
-        var outlineWidth: CGFloat = style.hasBackground ? 0 : max(2, (fontSize * 0.08).rounded())
+        // 縁取りは髪の毛ほどの細さにして、代わりに柔らかい影で読みやすくする
+        var outlineWidth: CGFloat = style.hasBackground ? 0 : max(1, (fontSize * 0.03).rounded())
         if template == .outlineBig { outlineWidth = max(3, (fontSize * 0.14).rounded()) }
 
         // 1 行目(タイプライターなら途中まで)と残りの行
@@ -314,6 +321,12 @@ enum SubtitleRenderer {
 
         let uiImage = renderer.image { context in
             let cg = context.cgContext
+            if !style.hasBackground && template != .outlineBig {
+                let shadowColor: UIColor = isDarkText ? UIColor.white.withAlphaComponent(0.6) : UIColor.black.withAlphaComponent(0.75)
+                let shadowOffset = CGSize(width: 0, height: fontSize * 0.04)
+                let shadowBlur: CGFloat = fontSize * 0.18
+                cg.setShadow(offset: shadowOffset, blur: shadowBlur, color: shadowColor.cgColor)
+            }
             if style.hasBackground {
                 let bgColor: UIColor = isDarkText
                     ? UIColor(white: 1.0, alpha: 0.7)

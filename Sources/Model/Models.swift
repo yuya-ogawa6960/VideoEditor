@@ -310,8 +310,8 @@ enum SubtitleDisplayMode: String, CaseIterable, Identifiable {
 struct SubtitleStyle: Equatable {
     var position: SubtitlePosition = .bottom
     var color: SubtitleColor = .white
-    /// 出力映像の幅に対する文字サイズ比(0.03 ... 0.10)。既定はシネマ風
-    var sizeRatio: CGFloat = 0.038
+    /// 出力映像の短い辺に対する文字サイズ比(0.02 ... 0.08)。既定はシネマ風
+    var sizeRatio: CGFloat = 0.034
     var hasBackground: Bool = false
     var displayMode: SubtitleDisplayMode = .original
     /// 字幕テンプレート(カラオケ風など)。words が無い cue では plain と同じ描画
