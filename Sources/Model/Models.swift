@@ -583,8 +583,21 @@ final class EditorProject {
         )
     }
 
+    /// クリップを削除し、その区間にあった字幕などの部品も一緒に消して後ろを詰める
+    /// (TimelineRipple.swift)。最後のクリップを消したときは部品をすべて消す。
     func removeClip(id: UUID) {
+        guard index(of: id) != nil else { return }
+        let range = outputRange(ofClip: id)
+        let oldTotal = CompositionBuilder.totalDuration(for: snapshot())
         clips.removeAll { $0.id == id }
+        if clips.isEmpty {
+            clearTimelineItems()
+            return
+        }
+        guard let range else { return }
+        let newTotal = CompositionBuilder.totalDuration(for: snapshot())
+        let removed = max(0, min(oldTotal - newTotal, range.end - range.start))
+        removeTimelineRange(from: range.start, to: range.start + removed)
     }
 
     func duplicateClip(id: UUID) {
