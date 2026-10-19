@@ -140,8 +140,11 @@ struct EditorToolbar: View {
 
     /// セルのおおよその幅(ラベルの文字数から推定)
     private func estimatedWidth(of items: [EditorToolItem]) -> CGFloat {
-        let cells = items.reduce(CGFloat(0)) { partial, item in
-            partial + max(62, CGFloat(item.title.count) * 11.5 + 8) + 2
+        var cells: CGFloat = 0
+        for item in items {
+            let textWidth: CGFloat = CGFloat(item.title.count) * 11.5 + 8
+            let cellWidth: CGFloat = max(62, textWidth)
+            cells += cellWidth + 2
         }
         return cells + 12
     }

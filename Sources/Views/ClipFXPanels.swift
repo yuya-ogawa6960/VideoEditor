@@ -219,7 +219,7 @@ struct EditorClipAnimationPanel: View {
                     }
                 }
                 EditorSliderRow(title: "インの長さ",
-                                value: $clip.animation.inDuration,
+                                value: Binding(get: { clip.animation.inDuration }, set: { clip.animation.inDuration = $0 }),
                                 range: 0.1...2.0,
                                 display: clipFXSeconds(clip.animation.inDuration))
                     .disabled(clip.animation.inType == .none)
@@ -239,7 +239,7 @@ struct EditorClipAnimationPanel: View {
                     }
                 }
                 EditorSliderRow(title: "アウトの長さ",
-                                value: $clip.animation.outDuration,
+                                value: Binding(get: { clip.animation.outDuration }, set: { clip.animation.outDuration = $0 }),
                                 range: 0.1...2.0,
                                 display: clipFXSeconds(clip.animation.outDuration))
                     .disabled(clip.animation.outType == .none)
