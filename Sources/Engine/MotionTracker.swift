@@ -61,7 +61,7 @@ enum MotionTracker {
                 state.consecutiveFailures += 1
                 return state.consecutiveFailures < 3
             }
-            guard let observation = state.request.results?.first else {
+            guard let observation = state.request.results?.first as? VNDetectedObjectObservation else {
                 state.consecutiveFailures += 1
                 return state.consecutiveFailures < 3
             }
