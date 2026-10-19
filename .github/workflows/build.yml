@@ -13,7 +13,13 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-latest
+    # Apple Silicon ランナーが混雑して取得できないことがあるため、Intel ランナーでも並行してビルドする。
+    # どちらか先に成功した方の Artifact を使えばよい。
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,10 +35,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}-${{ github.sha }}
+          key: deriveddata-${{ matrix.os }}-${{ hashFiles('project.yml') }}-${{ github.sha }}
           restore-keys: |
-            deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}-
-            deriveddata-${{ runner.os }}-
+            deriveddata-${{ matrix.os }}-${{ hashFiles('project.yml') }}-
+            deriveddata-${{ matrix.os }}-
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -69,6 +75,6 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: VideoEditor-ipa
+          name: VideoEditor-ipa-${{ matrix.os }}
           path: VideoEditor.ipa
           retention-days: 30

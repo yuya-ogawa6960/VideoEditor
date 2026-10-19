@@ -6,8 +6,17 @@ import Combine
 
 /// メイン画面(CapCut 風:上部バー/プレビュー/再生操作/タイムライン/下部ツールバー)
 struct ContentView: View {
+    /// 編集するプロジェクト(ProjectLibrary の ID)。保存先はこの ID のフォルダ
+    let projectID: UUID
+    /// 一覧へ戻るときに呼ぶ(保存を終えてから呼ばれる)
+    let onClose: () -> Void
+
     @State private var project = EditorProject()
     @State private var didRestore = false
+    /// 開いた直後に復元した内容。復元による最初の変化は保存しない(保存済みの内容と同じ)
+    @State private var restoredSnapshot: ProjectSnapshot?
+    /// 開いてから 1 回でも編集したか(一覧の更新日時を動かすかどうか)
+    @State private var isDirty = false
     @State private var player = PlayerController()
     @State private var history = EditorHistory()
     @State private var timeline = TimelineState()
@@ -22,8 +31,13 @@ struct ContentView: View {
     @State private var importTotal = 0
 
     @State private var alertMessage: String?
-    @State private var showNewProjectConfirm = false
+    @State private var showClearProjectConfirm = false
     @State private var isKeyboardVisible = false
+
+    init(projectID: UUID, onClose: @escaping () -> Void) {
+        self.projectID = projectID
+        self.onClose = onClose
+    }
 
     enum EditorSheet: Identifiable, Hashable {
         case clipDetail(UUID)
@@ -71,7 +85,12 @@ struct ContentView: View {
         }
         .onChange(of: project.snapshot()) { _, newSnapshot in
             player.update(with: newSnapshot)
-            ProjectStore.scheduleSave(newSnapshot)
+            if let restored = restoredSnapshot {
+                // 開いた直後の復元による変化は保存しない(内容は保存済みのものと同じ)
+                restoredSnapshot = nil
+                if restored == newSnapshot { return }
+            }
+            persist(newSnapshot)
         }
         .onChange(of: selectionExists) { _, exists in
             if !exists {
@@ -98,9 +117,12 @@ struct ContentView: View {
         .onAppear {
             if !didRestore {
                 didRestore = true
-                if let saved = ProjectStore.load(), !saved.isEmpty {
+                if let saved = ProjectStore.load(projectID: projectID) {
                     project.restore(saved)
-                    Task { await reloadThumbnails() }
+                    restoredSnapshot = project.snapshot()
+                    if !saved.isEmpty {
+                        Task { await reloadThumbnails() }
+                    }
                 }
             }
             player.update(with: project.snapshot())
@@ -108,15 +130,15 @@ struct ContentView: View {
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
         }
-        .confirmationDialog("新しいプロジェクトを始めますか?",
-                            isPresented: $showNewProjectConfirm,
+        .confirmationDialog("このプロジェクトを空にしますか?",
+                            isPresented: $showClearProjectConfirm,
                             titleVisibility: .visible) {
-            Button("編集中の内容を破棄", role: .destructive) {
-                startNewProject()
+            Button("編集中の内容をすべて削除", role: .destructive) {
+                clearProject()
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("現在のクリップ・字幕・BGM はすべて消え、元に戻せません。")
+            Text("このプロジェクトのクリップ・字幕・BGM はすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
         .alert("お知らせ", isPresented: alertIsPresented) {
             Button("OK", role: .cancel) {}
@@ -130,10 +152,15 @@ struct ContentView: View {
     private var topBar: some View {
         HStack(spacing: 18) {
             Menu {
-                Button(role: .destructive) {
-                    showNewProjectConfirm = true
+                Button {
+                    closeProject()
                 } label: {
-                    Label("新規プロジェクト", systemImage: "doc.badge.plus")
+                    Label("プロジェクト一覧へ戻る", systemImage: "square.grid.2x2")
+                }
+                Button(role: .destructive) {
+                    showClearProjectConfirm = true
+                } label: {
+                    Label("このプロジェクトを空にする", systemImage: "trash")
                 }
             } label: {
                 Image(systemName: "xmark")
@@ -142,7 +169,7 @@ struct ContentView: View {
                     .frame(width: 36, height: 36)
                     .contentShape(Rectangle())
             }
-            .accessibilityLabel("新規")
+            .accessibilityLabel("閉じる")
 
             Spacer()
 
@@ -695,7 +722,46 @@ struct ContentView: View {
         project.splitClip(id: clipID, atSourceTime: location.sourceTime)
     }
 
-    private func startNewProject() {
+    // MARK: 保存 / プロジェクトの切り替え
+
+    /// 変更内容を保存し、一覧のメタデータとサムネイルを更新する(書き込みはまとめて行われる)
+    private func persist(_ snapshot: ProjectSnapshot) {
+        isDirty = true
+        ProjectStore.scheduleSave(snapshot, projectID: projectID)
+        ProjectLibrary.shared.touch(id: projectID,
+                                    duration: snapshot.totalDuration,
+                                    clipCount: snapshot.clips.count)
+        if let image = snapshot.clips.first?.thumbnail {
+            ProjectStore.scheduleThumbnail(image, projectID: projectID)
+        } else if snapshot.clips.isEmpty {
+            ProjectStore.deleteThumbnail(projectID: projectID)
+        }
+    }
+
+    /// いま保存してからプロジェクト一覧へ戻る
+    private func closeProject() {
+        player.pause()
+        activePanel = nil
+        activeSheet = nil
+        selection = nil
+        let snapshot = project.snapshot()
+        ProjectStore.saveNow(snapshot, projectID: projectID)
+        if snapshot.clips.isEmpty {
+            ProjectStore.deleteThumbnail(projectID: projectID)
+        } else if let image = snapshot.clips.first?.thumbnail {
+            ProjectStore.saveThumbnail(image, projectID: projectID)
+        }
+        if isDirty {
+            ProjectLibrary.shared.touch(id: projectID,
+                                        duration: snapshot.totalDuration,
+                                        clipCount: snapshot.clips.count)
+        }
+        ProjectLibrary.shared.flush()
+        onClose()
+    }
+
+    /// このプロジェクトの内容をすべて消す(一覧からは消さない)。空になった内容は onChange 経由で保存される
+    private func clearProject() {
         player.pause()
         activePanel = nil
         activeSheet = nil
@@ -706,7 +772,6 @@ struct ContentView: View {
                                         audio: AudioSettings(),
                                         canvas: CanvasSettings()))
         history.clear()
-        ProjectStore.deleteSaved()
         player.seek(to: 0)
     }
 

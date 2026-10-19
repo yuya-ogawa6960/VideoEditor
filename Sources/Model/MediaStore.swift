@@ -4,12 +4,14 @@ import UIKit
 import SwiftUI
 import CoreTransferable
 import UniformTypeIdentifiers
+import ImageIO
 
 // MARK: - エラー
 
 enum MediaStoreError: LocalizedError {
     case noVideoTrack(String)
     case invalidDuration(String)
+    case unreadableImage(String)
 
     var errorDescription: String? {
         switch self {
@@ -17,6 +19,8 @@ enum MediaStoreError: LocalizedError {
             return "「\(name)」には映像トラックがありません。動画ファイルを選んでください。"
         case .invalidDuration(let name):
             return "「\(name)」の長さを読み取れませんでした。"
+        case .unreadableImage(let name):
+            return "「\(name)」を画像として読み込めませんでした。JPEG / PNG / HEIC などの写真を選んでください。"
         }
     }
 }
@@ -60,6 +64,11 @@ enum MediaStore {
 
     /// 保存名から UUID 接頭辞と拡張子を除いた表示名
     static func displayName(for url: URL) -> String {
+        displayName(for: url, fallback: "動画")
+    }
+
+    /// 保存名から UUID 接頭辞と拡張子を除いた表示名(空のときは fallback)
+    static func displayName(for url: URL, fallback: String) -> String {
         var name = url.deletingPathExtension().lastPathComponent
         // 先頭の "UUID(36文字)_" を取り除く
         if name.count > 37 {
@@ -69,7 +78,14 @@ enum MediaStore {
                 name = String(name[name.index(after: separatorIndex)...])
             }
         }
-        return name.isEmpty ? "動画" : name
+        return name.isEmpty ? fallback : name
+    }
+
+    /// 拡張子から画像ファイルかどうかを判定(jpg / png / heic など)
+    static func isImageFile(_ url: URL) -> Bool {
+        let ext = url.pathExtension
+        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return false }
+        return type.conforms(to: .image)
     }
 
     private struct MediaStoreAssetInfo {
@@ -140,6 +156,94 @@ enum MediaStore {
             return nil
         }
     }
+
+    // MARK: - オーバーレイ(Bロール / ワイプ / 写真)
+
+    /// 写真オーバーレイの標準の長さ(秒)
+    static let defaultImageOverlayDuration: Double = 4
+    /// 写真の「素材の長さ」として使う十分大きい値(秒)
+    static let imageSourceDuration: Double = 3600
+
+    /// 動画ファイルからオーバーレイを作る(mediaDirectory 内のファイルを想定)
+    static func makeOverlay(fromVideo url: URL) async throws -> OverlayClip {
+        let info = try await loadInfo(for: url)
+        var overlay = OverlayClip(url: url,
+                                  isImage: false,
+                                  name: displayName(for: url),
+                                  naturalSize: info.naturalSize,
+                                  preferredTransform: info.preferredTransform,
+                                  sourceDuration: info.duration,
+                                  start: 0,
+                                  duration: info.duration)
+        overlay.volume = 0
+        return overlay
+    }
+
+    /// 画像ファイルからオーバーレイを作る。読めない場合は nil
+    static func makeOverlay(fromImage url: URL) -> OverlayClip? {
+        guard let size = imagePixelSize(of: url) else { return nil }
+        var overlay = OverlayClip(url: url,
+                                  isImage: true,
+                                  name: displayName(for: url, fallback: "写真"),
+                                  naturalSize: size,
+                                  preferredTransform: .identity,
+                                  sourceDuration: imageSourceDuration,
+                                  start: 0,
+                                  duration: defaultImageOverlayDuration)
+        overlay.speed = 1
+        overlay.volume = 0
+        return overlay
+    }
+
+    /// makeOverlay(fromImage:) の throws 版(読めない場合は日本語のエラー)
+    static func makeImageOverlay(from url: URL) throws -> OverlayClip {
+        guard let overlay = makeOverlay(fromImage: url) else {
+            throw MediaStoreError.unreadableImage(displayName(for: url, fallback: "写真"))
+        }
+        return overlay
+    }
+
+    /// 画像の表示上のピクセルサイズ(EXIF の向きを反映)。読めない場合は nil
+    static func imagePixelSize(of url: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              CGImageSourceGetCount(source) > 0,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+              width > 0, height > 0 else {
+            return nil
+        }
+        let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        // 5...8 は 90 度回転(幅と高さが入れ替わる)
+        if orientation >= 5 && orientation <= 8 {
+            return CGSize(width: height, height: width)
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    /// 画像のサムネイル(向きを反映、長辺 maxPixel 以下に縮小)。読めない場合は nil
+    static func makeImageClipThumbnail(url: URL, maxPixel: CGFloat) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              CGImageSourceGetCount(source) > 0 else {
+            return nil
+        }
+        let maxSize = Int(max(1, maxPixel.rounded()))
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxSize
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    /// 画像を長辺 maxPixel 以下に縮小して読み込む(コンポジタ用。向きを反映済み)
+    static func loadImage(url: URL, maxPixel: CGFloat) -> CGImage? {
+        makeImageClipThumbnail(url: url, maxPixel: maxPixel)?.cgImage
+    }
 }
 
 // MARK: - PhotosPicker からの受け取り
@@ -155,6 +259,43 @@ struct PickedMovie: Transferable {
             let copied = try MediaStore.copyIntoMediaDirectory(received.file)
             return PickedMovie(url: copied)
         }
+    }
+}
+
+/// PhotosPicker の写真を受け取る(受け取ったファイルを元の拡張子のまま mediaDirectory にコピー)
+///
+/// ファイルとして受け取れない場合は Data として受け取り jpg として保存する。
+struct PickedPhoto: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .image) { photo in
+            SentTransferredFile(photo.url)
+        } importing: { received in
+            let copied = try PickedPhoto.copyIntoMediaDirectory(received.file)
+            return PickedPhoto(url: copied)
+        }
+        DataRepresentation(importedContentType: .image) { data in
+            let written = try PickedPhoto.writeData(data, preferredExtension: "jpg")
+            return PickedPhoto(url: written)
+        }
+    }
+
+    /// 元の拡張子を保ってコピー(拡張子がない場合は jpg)
+    private static func copyIntoMediaDirectory(_ file: URL) throws -> URL {
+        let ext = file.pathExtension.isEmpty ? "jpg" : file.pathExtension
+        var baseName = file.deletingPathExtension().lastPathComponent
+        if baseName.isEmpty { baseName = "photo" }
+        let destination = MediaStore.uniqueDestination(forFileName: "\(baseName).\(ext)")
+        try FileManager.default.copyItem(at: file, to: destination)
+        return destination
+    }
+
+    /// Data を mediaDirectory に書き出す
+    private static func writeData(_ data: Data, preferredExtension: String) throws -> URL {
+        let destination = MediaStore.uniqueDestination(forFileName: "photo.\(preferredExtension)")
+        try data.write(to: destination, options: .atomic)
+        return destination
     }
 }
 

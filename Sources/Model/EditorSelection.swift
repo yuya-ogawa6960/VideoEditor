@@ -88,5 +88,6 @@ extension EditorProject {
         documentary = snapshot.documentary
         titleCards = snapshot.titleCards
         lowerThirds = snapshot.lowerThirds
+        overlays = snapshot.overlays
     }
 }

@@ -392,6 +392,8 @@ struct ProjectSnapshot: Equatable {
     var documentary = DocumentaryStyle()
     var titleCards: [TitleCard] = []
     var lowerThirds: [LowerThird] = []
+    /// Bロール・ワイプ・写真などの重ね合わせ(メイン映像の上に描く)
+    var overlays: [OverlayClip] = []
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -407,6 +409,8 @@ final class EditorProject {
     var documentary = DocumentaryStyle()
     var titleCards: [TitleCard] = []
     var lowerThirds: [LowerThird] = []
+    /// Bロール・ワイプ・写真などの重ね合わせ(メイン映像の上に描く)
+    var overlays: [OverlayClip] = []
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -414,7 +418,7 @@ final class EditorProject {
     func snapshot() -> ProjectSnapshot {
         ProjectSnapshot(clips: clips, subtitles: subtitles, subtitleStyle: subtitleStyle,
                         audio: audio, canvas: canvas, documentary: documentary,
-                        titleCards: titleCards, lowerThirds: lowerThirds)
+                        titleCards: titleCards, lowerThirds: lowerThirds, overlays: overlays)
     }
 
     // MARK: タイムライン計算
@@ -519,5 +523,28 @@ final class EditorProject {
                 self.subtitles[i] = newValue
             }
         )
+    }
+}
+
+// MARK: - 重ね合わせの操作
+
+extension EditorProject {
+    func overlayBinding(id: UUID) -> Binding<OverlayClip>? {
+        guard let initial = overlays.first(where: { $0.id == id }) else { return nil }
+        return Binding(
+            get: { [weak self] in self?.overlays.first(where: { $0.id == id }) ?? initial },
+            set: { [weak self] newValue in
+                guard let self, let i = self.overlays.firstIndex(where: { $0.id == id }) else { return }
+                self.overlays[i] = newValue
+            }
+        )
+    }
+
+    func removeOverlay(id: UUID) {
+        overlays.removeAll { $0.id == id }
+    }
+
+    func sortOverlays() {
+        overlays.sort { $0.start < $1.start }
     }
 }

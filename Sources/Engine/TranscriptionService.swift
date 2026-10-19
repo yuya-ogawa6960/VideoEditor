@@ -4,9 +4,14 @@ import Speech
 import Observation
 
 // =====================================================================
-// 自動文字起こし(SFSpeechRecognizer)
-// 各クリップのトリミング範囲の音声を ≤50 秒のチャンクに切り出して認識し、
-// 単語のタイムスタンプから字幕(出力タイムライン秒)を組み立てる。
+// 自動文字起こし
+//
+// - iOS 26 以降: SpeechAnalyzer + SpeechTranscriber(句読点付き・単語ごとの時刻)で
+//   クリップ全体を一度に認識する。モデル未導入なら自動ダウンロード、失敗時は従来方式へ。
+// - iOS 18〜25: SFSpeechRecognizer(addsPunctuation)で ≤50 秒のチャンクに分けて認識。
+//
+// どちらの経路でも「クリップ全体の時刻付きトークン列」を作ってから
+// SubtitleSegmenter で文・文節単位に区切る(チャンク境界で文が切れない)。
 // =====================================================================
 
 enum TranscriptionLanguage: String, CaseIterable, Identifiable {
@@ -59,7 +64,7 @@ enum TranscriptionError: LocalizedError {
     }
 }
 
-/// 認識結果の1単語(チャンク先頭からの秒)
+/// SFSpeech の認識結果の1単語(チャンク先頭からの秒)
 private struct TranscriptionWord {
     var text: String
     var start: Double
@@ -67,14 +72,22 @@ private struct TranscriptionWord {
     var end: Double { start + duration }
 }
 
-/// 認識対象の音声チャンク
-private struct TranscriptionChunk {
+/// 元素材上の音声範囲(秒)
+private struct SourceRange {
+    let start: Double
+    let end: Double
+    var length: Double { max(0, end - start) }
+}
+
+/// 1クリップ分の認識ジョブ
+private struct ClipJob {
     let clip: Clip
     /// クリップの出力タイムライン上の開始時刻
     let clipTimelineStart: Double
-    /// 元素材上の範囲
-    let sourceStart: Double
-    let sourceEnd: Double
+    /// SFSpeech 用のチャンク(元素材上の秒)。進捗の単位にも使う
+    let chunks: [SourceRange]
+
+    var clipTimelineEnd: Double { clipTimelineStart + clip.outputDuration }
 }
 
 /// continuation の二重 resume 防止
@@ -97,12 +110,8 @@ final class TranscriptionService {
     private(set) var progress: Double = 0
     private(set) var statusText: String = ""
 
-    /// 1チャンクの最大長(秒)
+    /// SFSpeech 経路の 1チャンクの最大長(秒)
     private static let chunkLength: Double = 50
-    /// 1字幕の最大長(秒)
-    private static let maxCueDuration: Double = 3.5
-    /// 単語間の無音がこれを超えたら字幕を区切る(秒)
-    private static let maxGap: Double = 0.8
 
     private let lock = NSLock()
     @ObservationIgnored private var busy = false
@@ -131,7 +140,9 @@ final class TranscriptionService {
     }
 
     /// 出力タイムライン秒の字幕を返す(トリミング・速度・クリップ順を反映、ミュートクリップは除外)
-    func transcribe(snapshot: ProjectSnapshot, language: TranscriptionLanguage) async throws -> [SubtitleCue] {
+    /// - Parameter removeFillers: 「あのー」「えーと」「um」などのフィラーや吃音を字幕から除く(既定 true)
+    func transcribe(snapshot: ProjectSnapshot, language: TranscriptionLanguage,
+                    removeFillers: Bool = true) async throws -> [SubtitleCue] {
         lock.lock()
         if busy {
             lock.unlock()
@@ -144,7 +155,7 @@ final class TranscriptionService {
         await updateUI(running: true, progress: 0, status: "準備中…")
 
         let work = Task<[SubtitleCue], Error> {
-            try await self.performTranscription(snapshot: snapshot, language: language)
+            try await self.performTranscription(snapshot: snapshot, language: language, removeFillers: removeFillers)
         }
         lock.lock()
         runningWork = work
@@ -181,74 +192,101 @@ final class TranscriptionService {
     // MARK: - 本体
 
     private func performTranscription(snapshot: ProjectSnapshot,
-                                      language: TranscriptionLanguage) async throws -> [SubtitleCue] {
+                                      language: TranscriptionLanguage,
+                                      removeFillers: Bool) async throws -> [SubtitleCue] {
         // 権限
         if SFSpeechRecognizer.authorizationStatus() != .authorized {
             let granted = await requestAuthorization()
             guard granted else { throw TranscriptionError.notAuthorized }
         }
 
-        // 認識器
-        guard let recognizer = SFSpeechRecognizer(locale: language.locale) else {
-            throw TranscriptionError.recognizerUnavailable(language.displayName)
-        }
-        guard recognizer.isAvailable else {
-            throw TranscriptionError.recognizerUnavailable(language.displayName)
-        }
-
-        // チャンク分割
-        let chunks = Self.makeChunks(for: snapshot)
-        guard !chunks.isEmpty else { throw TranscriptionError.noAudioClips }
+        // クリップごとのジョブ
+        let jobs = Self.makeJobs(for: snapshot)
+        guard !jobs.isEmpty else { throw TranscriptionError.noAudioClips }
+        let totalUnits = max(1, jobs.reduce(0) { $0 + $1.chunks.count })
+        var doneUnits = 0
 
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("Transcription-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
+        // 従来の認識器は必要になったときだけ作る
+        var legacyRecognizer: SFSpeechRecognizer?
+
         var cues: [SubtitleCue] = []
-        let total = chunks.count
 
-        for (index, chunk) in chunks.enumerated() {
-            try checkCancelled()
-            await updateUI(progress: Double(index) / Double(total),
-                           status: "文字起こし中 \(index + 1)/\(total)")
-
-            let fileURL = tempDir.appendingPathComponent("chunk-\(index).m4a")
-            try await exportAudio(from: chunk.clip.url, start: chunk.sourceStart, end: chunk.sourceEnd, to: fileURL)
+        for job in jobs {
             try checkCancelled()
 
-            var words = try await recognize(fileURL: fileURL, recognizer: recognizer)
-            try? FileManager.default.removeItem(at: fileURL)
+            // 元素材上の秒で揃えたトークン列
+            var sourceTokens: [TimedToken]? = nil
+
+            #if compiler(>=6.2)
+            if #available(iOS 26.0, *) {
+                sourceTokens = try await recognizeClipWithAnalyzer(job: job, language: language, tempDir: tempDir,
+                                                                   doneUnits: doneUnits, totalUnits: totalUnits)
+            }
+            #endif
+
+            if sourceTokens == nil {
+                if legacyRecognizer == nil {
+                    guard let recognizer = SFSpeechRecognizer(locale: language.locale), recognizer.isAvailable else {
+                        throw TranscriptionError.recognizerUnavailable(language.displayName)
+                    }
+                    legacyRecognizer = recognizer
+                }
+                sourceTokens = try await recognizeClipWithSFSpeech(job: job, recognizer: legacyRecognizer!, tempDir: tempDir,
+                                                                   doneUnits: doneUnits, totalUnits: totalUnits)
+            }
+            doneUnits += job.chunks.count
             try checkCancelled()
 
-            words = Self.fixMissingTimestamps(words, chunkDuration: chunk.sourceEnd - chunk.sourceStart)
-            let groups = Self.groupWords(words, language: language)
-            cues.append(contentsOf: Self.makeCues(from: groups, chunk: chunk, language: language))
+            // 元素材時刻 → 出力タイムライン時刻 に変換してから文単位に区切る
+            let timelineTokens = Self.mapToTimeline(sourceTokens ?? [], job: job)
+            var segmenter = SubtitleSegmenter(language: language, removeFillers: removeFillers)
+            segmenter.hardEnd = job.clipTimelineEnd
+            cues.append(contentsOf: segmenter.segment(timelineTokens))
 
-            await updateUI(progress: Double(index + 1) / Double(total), status: nil)
+            await updateUI(progress: Double(doneUnits) / Double(totalUnits), status: nil)
         }
 
         return Self.finalize(cues)
     }
 
-    private static func makeChunks(for snapshot: ProjectSnapshot) -> [TranscriptionChunk] {
-        var chunks: [TranscriptionChunk] = []
+    private static func makeJobs(for snapshot: ProjectSnapshot) -> [ClipJob] {
+        var jobs: [ClipJob] = []
         var timelineStart = 0.0
         for clip in snapshot.clips {
             let clipStart = timelineStart
             timelineStart += clip.outputDuration
             guard clip.hasAudio, !clip.isMuted, clip.trimmedDuration >= 0.3 else { continue }
+            var chunks: [SourceRange] = []
             var s = clip.startTime
             while s < clip.endTime - 0.05 {
                 let e = min(s + chunkLength, clip.endTime)
                 if e - s >= 0.3 {
-                    chunks.append(TranscriptionChunk(clip: clip, clipTimelineStart: clipStart,
-                                                     sourceStart: s, sourceEnd: e))
+                    chunks.append(SourceRange(start: s, end: e))
                 }
                 s = e
             }
+            guard !chunks.isEmpty else { continue }
+            jobs.append(ClipJob(clip: clip, clipTimelineStart: clipStart, chunks: chunks))
         }
-        return chunks
+        return jobs
+    }
+
+    /// 元素材上の秒 → 出力タイムライン上の秒(トリミング・速度を反映)
+    private static func mapToTimeline(_ tokens: [TimedToken], job: ClipJob) -> [TimedToken] {
+        let clip = job.clip
+        let speed = max(clip.speed, 0.01)
+        func convert(_ source: Double) -> Double {
+            let clamped = min(max(source, clip.startTime), clip.endTime)
+            return job.clipTimelineStart + (clamped - clip.startTime) / speed
+        }
+        return tokens.map { token in
+            TimedToken(text: token.text, start: convert(token.start), end: convert(token.end))
+        }
     }
 
     // MARK: - 音声切り出し
@@ -276,7 +314,152 @@ final class TranscriptionService {
         }
     }
 
-    // MARK: - 音声認識
+    // MARK: - iOS 26+: SpeechAnalyzer / SpeechTranscriber
+
+    #if compiler(>=6.2)
+    /// クリップ全体を SpeechAnalyzer で認識し、元素材上の秒のトークン列を返す。
+    /// 利用不可・モデル導入失敗・認識エラーのときは nil(呼び出し側が従来方式へ切り替える)。
+    @available(iOS 26.0, *)
+    private func recognizeClipWithAnalyzer(job: ClipJob, language: TranscriptionLanguage, tempDir: URL,
+                                           doneUnits: Int, totalUnits: Int) async throws -> [TimedToken]? {
+        let locale = language.locale
+        let supported = await SpeechTranscriber.supportedLocales
+        guard supported.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) else {
+            return nil
+        }
+
+        let transcriber = SpeechTranscriber(locale: locale,
+                                            transcriptionOptions: [],
+                                            reportingOptions: [],
+                                            attributeOptions: [.audioTimeRange])
+
+        // 言語モデルの確認・導入
+        do {
+            if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+                await updateUI(status: "音声認識モデルをダウンロード中…")
+                try await request.downloadAndInstall()
+            }
+        } catch {
+            if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            return nil
+        }
+        try checkCancelled()
+
+        let clip = job.clip
+        await updateUI(progress: Double(doneUnits) / Double(totalUnits),
+                       status: "文字起こし中 \(doneUnits + 1)/\(totalUnits)")
+
+        let fileURL = tempDir.appendingPathComponent("clip-\(clip.id.uuidString).m4a")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try await exportAudio(from: clip.url, start: clip.startTime, end: clip.endTime, to: fileURL)
+        try checkCancelled()
+
+        let clipLength = max(0.001, clip.trimmedDuration)
+        let unitCount = Double(job.chunks.count)
+
+        do {
+            let audioFile = try AVAudioFile(forReading: fileURL)
+            let analyzer = SpeechAnalyzer(modules: [transcriber])
+
+            // 結果の収集は解析開始前に始めておく
+            let collector = Task<[TimedToken], Error> { [weak self] in
+                var tokens: [TimedToken] = []
+                for try await result in transcriber.results {
+                    let newTokens = TranscriptionService.tokens(from: result.text)
+                    tokens.append(contentsOf: newTokens)
+                    if let self, let lastEnd = newTokens.last?.end {
+                        let fraction = min(max(lastEnd / clipLength, 0), 1)
+                        let value = (Double(doneUnits) + fraction * unitCount) / Double(totalUnits)
+                        await self.updateUI(progress: value, status: nil)
+                    }
+                }
+                return tokens
+            }
+
+            do {
+                if let lastSample = try await analyzer.analyzeSequence(from: audioFile) {
+                    try await analyzer.finalizeAndFinish(through: lastSample)
+                } else {
+                    await analyzer.cancelAndFinishNow()
+                }
+            } catch {
+                collector.cancel()
+                await analyzer.cancelAndFinishNow()
+                throw error
+            }
+
+            let fileTokens = try await collector.value
+            // ファイル先頭 = clip.startTime
+            return fileTokens.map { token in
+                TimedToken(text: token.text, start: clip.startTime + token.start, end: clip.startTime + token.end)
+            }
+        } catch {
+            if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            return nil
+        }
+    }
+
+    /// AttributedString の run ごとの audioTimeRange からトークンを組み立てる
+    @available(iOS 26.0, *)
+    private static func tokens(from text: AttributedString) -> [TimedToken] {
+        var tokens: [TimedToken] = []
+        var pendingPrefix = ""
+        for run in text.runs {
+            let piece = String(text[run.range].characters)
+            guard !piece.isEmpty else { continue }
+            if let timeRange = run.audioTimeRange,
+               timeRange.start.seconds.isFinite, timeRange.end.seconds.isFinite {
+                let start = max(0, timeRange.start.seconds)
+                let end = max(start, timeRange.end.seconds)
+                tokens.append(TimedToken(text: pendingPrefix + piece, start: start, end: end))
+                pendingPrefix = ""
+            } else {
+                // 時刻のない run(句読点・空白など)は前のトークンに付ける
+                if tokens.isEmpty {
+                    pendingPrefix += piece
+                } else {
+                    tokens[tokens.count - 1].text += piece
+                }
+            }
+        }
+        if !pendingPrefix.isEmpty, !tokens.isEmpty {
+            tokens[0].text = pendingPrefix + tokens[0].text
+        }
+        return tokens
+    }
+    #endif
+
+    // MARK: - iOS 18〜25: SFSpeechRecognizer(チャンク認識)
+
+    /// クリップをチャンクごとに認識し、元素材上の秒に揃えたトークン列(クリップ全体)を返す
+    private func recognizeClipWithSFSpeech(job: ClipJob, recognizer: SFSpeechRecognizer, tempDir: URL,
+                                           doneUnits: Int, totalUnits: Int) async throws -> [TimedToken] {
+        var tokens: [TimedToken] = []
+        for (index, chunk) in job.chunks.enumerated() {
+            try checkCancelled()
+            let unit = doneUnits + index
+            await updateUI(progress: Double(unit) / Double(totalUnits),
+                           status: "文字起こし中 \(unit + 1)/\(totalUnits)")
+
+            let fileURL = tempDir.appendingPathComponent("chunk-\(job.clip.id.uuidString)-\(index).m4a")
+            try await exportAudio(from: job.clip.url, start: chunk.start, end: chunk.end, to: fileURL)
+            try checkCancelled()
+
+            var words = try await recognize(fileURL: fileURL, recognizer: recognizer)
+            try? FileManager.default.removeItem(at: fileURL)
+            try checkCancelled()
+
+            words = Self.fixMissingTimestamps(words, chunkDuration: chunk.length)
+            for word in words {
+                let text = word.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { continue }
+                tokens.append(TimedToken(text: text, start: chunk.start + word.start, end: chunk.start + word.end))
+            }
+
+            await updateUI(progress: Double(unit + 1) / Double(totalUnits), status: nil)
+        }
+        return tokens
+    }
 
     private func recognize(fileURL: URL, recognizer: SFSpeechRecognizer) async throws -> [TranscriptionWord] {
         let request = SFSpeechURLRecognitionRequest(url: fileURL)
@@ -336,8 +519,6 @@ final class TranscriptionService {
         return message.contains("no speech") || message.contains("retry")
     }
 
-    // MARK: - 字幕の組み立て
-
     /// タイムスタンプが全て 0 の場合(稀にある)は文字数比でチャンク内に均等配置する
     private static func fixMissingTimestamps(_ words: [TranscriptionWord], chunkDuration: Double) -> [TranscriptionWord] {
         guard words.count > 1,
@@ -352,113 +533,14 @@ final class TranscriptionService {
         }
     }
 
-    private static let sentenceEnders: Set<Character> = ["。", "！", "？", "!", "?", ".", "…"]
-    private static let clauseEnders: Set<Character> = ["、", ",", "，", ";", ":"]
+    // MARK: - 仕上げ
 
-    private static func groupWords(_ words: [TranscriptionWord], language: TranscriptionLanguage) -> [[TranscriptionWord]] {
-        let isJapanese = language == .japanese
-        let limit = isJapanese ? 20 : 8
-        var groups: [[TranscriptionWord]] = []
-        var current: [TranscriptionWord] = []
-
-        func measure(_ list: [TranscriptionWord]) -> Int {
-            isJapanese ? joinText(list, language: language).count : list.count
-        }
-
-        for raw in words {
-            let text = raw.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-            var word = raw
-            word.text = text
-
-            if let first = current.first, let last = current.last {
-                let gap = word.start - last.end
-                let tooLong = word.end - first.start > maxCueDuration
-                let tooManyChars = isJapanese && measure(current) + text.count > limit + 2
-                if gap > maxGap || tooLong || tooManyChars {
-                    groups.append(current)
-                    current = []
-                }
-            }
-
-            current.append(word)
-
-            let length = measure(current)
-            let lastChar = text.last
-            let endsSentence = lastChar.map { sentenceEnders.contains($0) } ?? false
-            let endsClause = lastChar.map { clauseEnders.contains($0) } ?? false
-            if endsSentence || length >= limit || (endsClause && length >= limit / 2) {
-                groups.append(current)
-                current = []
-            }
-        }
-        if !current.isEmpty { groups.append(current) }
-        return groups
-    }
-
-    /// 日本語はスペースなし(英数字どうしの間のみスペース)、英語はスペース区切り
-    private static func joinText(_ words: [TranscriptionWord], language: TranscriptionLanguage) -> String {
-        if language == .english {
-            return words.map { $0.text }.joined(separator: " ")
-        }
-        var result = ""
-        for word in words {
-            if let prev = result.last, let next = word.text.first,
-               isASCIIAlphanumeric(prev), isASCIIAlphanumeric(next) {
-                result.append(" ")
-            }
-            result.append(word.text)
-        }
-        return result
-    }
-
-    private static func isASCIIAlphanumeric(_ c: Character) -> Bool {
-        guard c.isASCII else { return false }
-        return c.isLetter || c.isNumber
-    }
-
-    private static func makeCues(from groups: [[TranscriptionWord]], chunk: TranscriptionChunk,
-                                 language: TranscriptionLanguage) -> [SubtitleCue] {
-        let clip = chunk.clip
-        let speed = max(clip.speed, 0.01)
-        let clipTimelineEnd = chunk.clipTimelineStart + clip.outputDuration
-
-        // チャンク内時刻 → 元素材時刻 → 出力タイムライン時刻
-        func toTimeline(_ local: Double) -> Double {
-            let source = chunk.sourceStart + local
-            let clamped = min(max(source, clip.startTime), clip.endTime)
-            return chunk.clipTimelineStart + (clamped - clip.startTime) / speed
-        }
-
-        var cues: [SubtitleCue] = []
-        for group in groups {
-            guard let first = group.first, let last = group.last else { continue }
-            var text = joinText(group, language: language)
-            if language == .japanese {
-                while let c = text.last, c == "。" || c == "、" {
-                    text.removeLast()
-                }
-            }
-            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-
-            let start = toTimeline(first.start)
-            var end = toTimeline(last.end)
-            if end - start < 0.6 {
-                end = min(start + 0.6, clipTimelineEnd)
-            }
-            guard end > start else { continue }
-            cues.append(SubtitleCue(start: start, end: end, text: text))
-        }
-        return cues
-    }
-
-    /// 時刻順に並べ、重なりを解消する
+    /// 時刻順に並べ、クリップをまたぐ重なりを解消する
     private static func finalize(_ cues: [SubtitleCue]) -> [SubtitleCue] {
         var sorted = cues.sorted { $0.start < $1.start }
         if sorted.count > 1 {
-            for i in 0..<(sorted.count - 1) where sorted[i].end > sorted[i + 1].start {
-                sorted[i].end = max(sorted[i].start + 0.1, sorted[i + 1].start)
+            for i in 0..<(sorted.count - 1) where sorted[i].end > sorted[i + 1].start - 0.05 {
+                sorted[i].end = max(sorted[i].start + 0.2, sorted[i + 1].start - 0.05)
             }
         }
         return sorted

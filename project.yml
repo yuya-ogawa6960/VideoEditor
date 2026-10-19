@@ -38,6 +38,7 @@ targets:
         NSPhotoLibraryUsageDescription: 編集する動画を選ぶために写真ライブラリを使用します。
         NSPhotoLibraryAddUsageDescription: 書き出した動画を保存するために写真ライブラリを使用します。
         NSSpeechRecognitionUsageDescription: 動画の音声から字幕を自動作成するために音声認識を使用します。
+        NSMicrophoneUsageDescription: ナレーションを録音するためにマイクを使用します。
         UIBackgroundModes:
           - processing
         BGTaskSchedulerPermittedIdentifiers:
