@@ -41,6 +41,8 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
     let subtitleStyle: SubtitleStyle
     let scaling: ScalingMode
     let renderSize: CGSize
+    /// ドキュメンタリー風の仕上げ(作品全体で共通)
+    let documentary: DocumentaryRenderInfo
 
     init(timeRange: CMTimeRange,
          mainTrackID: CMPersistentTrackID,
@@ -50,7 +52,8 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
          subtitles: [VideoCompositorSubtitle],
          subtitleStyle: SubtitleStyle,
          scaling: ScalingMode,
-         renderSize: CGSize) {
+         renderSize: CGSize,
+         documentary: DocumentaryRenderInfo = .empty) {
         self.timeRange = timeRange
         self.mainTrackID = mainTrackID
         self.mainTransform = mainTransform
@@ -60,6 +63,7 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
         self.subtitleStyle = subtitleStyle
         self.scaling = scaling
         self.renderSize = renderSize
+        self.documentary = documentary
 
         var ids: [CMPersistentTrackID] = [mainTrackID]
         for seg in angleSegments where !ids.contains(seg.trackID) {
@@ -79,7 +83,22 @@ final class VideoCompositorInstruction: NSObject, AVVideoCompositionInstructionP
                                    subtitles: subtitles,
                                    subtitleStyle: subtitleStyle,
                                    scaling: scaling,
-                                   renderSize: renderSize)
+                                   renderSize: renderSize,
+                                   documentary: documentary)
+    }
+
+    /// 同じ内容でドキュメンタリー情報だけ差し替えたコピー
+    func withDocumentary(_ info: DocumentaryRenderInfo) -> VideoCompositorInstruction {
+        VideoCompositorInstruction(timeRange: timeRange,
+                                   mainTrackID: mainTrackID,
+                                   mainTransform: mainTransform,
+                                   angleSegments: angleSegments,
+                                   filter: filter,
+                                   subtitles: subtitles,
+                                   subtitleStyle: subtitleStyle,
+                                   scaling: scaling,
+                                   renderSize: renderSize,
+                                   documentary: info)
     }
 
     func angleSegment(at time: CMTime) -> VideoCompositorAngleSegment? {
@@ -171,6 +190,8 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
         if let instruction = request.videoCompositionInstruction as? VideoCompositorInstruction {
             let time = request.compositionTime
+            let seconds = time.seconds
+            let documentary = instruction.documentary
 
             // ソース選択: アングル区間ならアングルトラック、フレームが無ければメインにフォールバック
             var sourceBuffer: CVPixelBuffer? = nil
@@ -189,19 +210,38 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                 var image = CIImage(cvPixelBuffer: sourceBuffer)
                 image = Self.oriented(image, transform: transform)
                 image = FilterEngine.apply(instruction.filter, to: image)
-                let placed = Self.place(image, canvasSize: size, scaling: instruction.scaling)
+                var placed = Self.place(image, canvasSize: size, scaling: instruction.scaling)
+                // 全体のルック(余白は透明のままなので黒帯は黒のまま)
+                placed = DocumentaryRenderer.applyLook(placed, info: documentary)
                 frame = placed.composited(over: frame)
             }
 
-            // 字幕
-            let seconds = time.seconds
+            // 周辺減光 → フィルム粒子 → 章タイトル / テロップ
+            frame = DocumentaryRenderer.applyTexture(frame, time: seconds, info: documentary, canvasSize: size)
+            frame = DocumentaryRenderer.applyOverlays(frame, time: seconds, info: documentary, canvasSize: size)
+
+            // 字幕(シネスコ黒帯があるときは映像部分の内側へずらす)
+            let bar = DocumentaryRenderer.letterboxBarHeight(canvasSize: size, style: documentary.style)
             for subtitle in instruction.subtitles where seconds >= subtitle.start && seconds < subtitle.end {
-                if let subImage = SubtitleRenderer.image(lines: subtitle.lines,
+                if var subImage = SubtitleRenderer.image(lines: subtitle.lines,
                                                          style: instruction.subtitleStyle,
                                                          renderSize: size) {
+                    if bar > 0 {
+                        switch instruction.subtitleStyle.position {
+                        case .bottom:
+                            subImage = subImage.transformed(by: CGAffineTransform(translationX: 0, y: bar))
+                        case .top:
+                            subImage = subImage.transformed(by: CGAffineTransform(translationX: 0, y: -bar))
+                        case .center:
+                            break
+                        }
+                    }
                     frame = subImage.composited(over: frame)
                 }
             }
+
+            // シネスコ黒帯 → 黒フェード
+            frame = DocumentaryRenderer.applyFinish(frame, time: seconds, info: documentary, canvasSize: size)
         }
 
         frame = frame.cropped(to: canvas)

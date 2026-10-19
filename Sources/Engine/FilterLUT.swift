@@ -83,8 +83,8 @@ enum FilterLUT {
     /// 全 LUT をバックグラウンドで事前生成(任意。初回表示のもたつきを避けたいときに呼ぶ)
     static func prewarm() {
         DispatchQueue.global(qos: .utility).async {
-            for preset in FilterPreset.allCases { _ = cube(for: preset) }
-            for look in LookPreset.allCases { _ = cube(for: look) }
+            for preset in FilterPreset.allCases { _ = FilterLUT.cube(for: preset) }
+            for look in LookPreset.allCases { _ = FilterLUT.cube(for: look) }
         }
     }
 

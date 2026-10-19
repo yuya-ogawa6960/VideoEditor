@@ -368,7 +368,50 @@ struct ContentView: View {
             EditorAspectPanel(project: project)
         case .bgmVolume:
             EditorBGMVolumePanel(project: project)
+        case .documentary:
+            EditorDocumentaryPanel(project: project)
+        case .titleCard(let cardID):
+            EditorTitleCardPanel(project: project,
+                                 player: player,
+                                 card: titleCardBinding(id: cardID),
+                                 onSelect: { id in activePanel = .titleCard(id) },
+                                 onDelete: { id in deleteTitleCard(id) })
+        case .lowerThird(let itemID):
+            EditorLowerThirdPanel(project: project,
+                                  player: player,
+                                  item: lowerThirdBinding(id: itemID),
+                                  onSelect: { id in activePanel = .lowerThird(id) },
+                                  onDelete: { id in deleteLowerThird(id) })
         }
+    }
+
+    // MARK: - 章タイトル / テロップ の Binding
+
+    /// 指定 ID の章タイトルへの Binding(見つからなければ nil)。
+    /// 途中で消えても落ちないよう、見つからない場合は最後に見た値を返す
+    private func titleCardBinding(id: UUID) -> Binding<TitleCard>? {
+        guard let initial = project.titleCards.first(where: { $0.id == id }) else { return nil }
+        let project = self.project
+        return Binding<TitleCard>(
+            get: { project.titleCards.first(where: { $0.id == id }) ?? initial },
+            set: { newValue in
+                guard let i = project.titleCards.firstIndex(where: { $0.id == id }) else { return }
+                project.titleCards[i] = newValue
+            }
+        )
+    }
+
+    /// 指定 ID のテロップへの Binding(見つからなければ nil)
+    private func lowerThirdBinding(id: UUID) -> Binding<LowerThird>? {
+        guard let initial = project.lowerThirds.first(where: { $0.id == id }) else { return nil }
+        let project = self.project
+        return Binding<LowerThird>(
+            get: { project.lowerThirds.first(where: { $0.id == id }) ?? initial },
+            set: { newValue in
+                guard let i = project.lowerThirds.firstIndex(where: { $0.id == id }) else { return }
+                project.lowerThirds[i] = newValue
+            }
+        )
     }
 
     // MARK: - ツールバー項目
@@ -399,6 +442,15 @@ struct ContentView: View {
             },
             EditorToolItem("テキスト", systemImage: "textformat") {
                 addSubtitleAtPlayhead()
+            },
+            EditorToolItem("ドキュメンタリー", systemImage: "film.stack") {
+                openPanel(.documentary)
+            },
+            EditorToolItem("章タイトル", systemImage: "text.below.photo") {
+                addTitleCardAtPlayhead()
+            },
+            EditorToolItem("テロップ", systemImage: "person.text.rectangle") {
+                addLowerThirdAtPlayhead()
             },
             EditorToolItem("自動字幕", systemImage: "captions.bubble") {
                 history.record(project)
@@ -575,6 +627,54 @@ struct ContentView: View {
         history.record(project)
         let cue = project.addSubtitle(at: player.currentTime)
         selection = .subtitle(cue.id)
+    }
+
+    // MARK: 章タイトル / テロップ
+
+    /// 再生位置に章タイトルを追加して編集パネルを開く
+    private func addTitleCardAtPlayhead() {
+        history.record(project)
+        let n = project.titleCards.count + 1
+        let card = TitleCard(start: max(0, player.currentTime),
+                             heading: "第\(n)章",
+                             title: "タイトル")
+        project.titleCards.append(card)
+        selection = nil
+        activePanel = .titleCard(card.id)
+    }
+
+    /// 再生位置にテロップ(ネームプレート)を追加して編集パネルを開く
+    private func addLowerThirdAtPlayhead() {
+        history.record(project)
+        let item = LowerThird(kind: .nameplate,
+                              start: max(0, player.currentTime),
+                              primary: "名前",
+                              secondary: "肩書き")
+        project.lowerThirds.append(item)
+        selection = nil
+        activePanel = .lowerThird(item.id)
+    }
+
+    /// 章タイトルを削除。残りがあれば次のカードの編集に切り替え、なければパネルを閉じる
+    private func deleteTitleCard(_ cardID: UUID) {
+        history.record(project)
+        project.titleCards.removeAll { $0.id == cardID }
+        if let next = project.titleCards.sorted(by: { $0.start < $1.start }).first {
+            activePanel = .titleCard(next.id)
+        } else {
+            activePanel = nil
+        }
+    }
+
+    /// テロップを削除。残りがあれば次のテロップの編集に切り替え、なければパネルを閉じる
+    private func deleteLowerThird(_ itemID: UUID) {
+        history.record(project)
+        project.lowerThirds.removeAll { $0.id == itemID }
+        if let next = project.lowerThirds.sorted(by: { $0.start < $1.start }).first {
+            activePanel = .lowerThird(next.id)
+        } else {
+            activePanel = nil
+        }
     }
 
     private func splitClip(_ clipID: UUID) {

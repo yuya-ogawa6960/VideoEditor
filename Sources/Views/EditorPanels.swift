@@ -15,6 +15,12 @@ enum EditorPanel: Hashable {
     case subtitleStyle
     case aspect
     case bgmVolume
+    /// ドキュメンタリー風の全体演出
+    case documentary
+    /// 章タイトル 1 件の編集(+一覧)
+    case titleCard(UUID)
+    /// テロップ 1 件の編集(+一覧)
+    case lowerThird(UUID)
 
     var title: String {
         switch self {
@@ -25,12 +31,16 @@ enum EditorPanel: Hashable {
         case .subtitleStyle: return "字幕スタイル"
         case .aspect: return "比率"
         case .bgmVolume: return "BGM 音量"
+        case .documentary: return "ドキュメンタリー"
+        case .titleCard: return "章タイトル"
+        case .lowerThird: return "テロップ"
         }
     }
 
     var height: CGFloat {
         switch self {
         case .filter: return 300
+        case .documentary, .titleCard, .lowerThird: return 300
         default: return 220
         }
     }
@@ -48,6 +58,9 @@ enum EditorPanel: Hashable {
             return true
         case .bgmVolume:
             return selection == .bgm
+        case .documentary, .titleCard, .lowerThird:
+            // ルート(何も選択していない)ツールバーから開くパネル
+            return selection == nil
         }
     }
 }

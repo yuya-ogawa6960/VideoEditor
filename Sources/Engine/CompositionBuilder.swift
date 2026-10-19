@@ -87,6 +87,7 @@ enum CompositionBuilder {
         var angleTracks: [AVMutableCompositionTrack] = []
         var nextAngleTrackIndex = 0
         var instructions: [VideoCompositorInstruction] = []
+        var clipBoundaries: [Double] = []
         var cursor = CMTime.zero
 
         // アングル素材の読み込みキャッシュ
@@ -250,6 +251,9 @@ enum CompositionBuilder {
                 }
             }
 
+            if !instructions.isEmpty {
+                clipBoundaries.append(clipOutRange.start.seconds)
+            }
             instructions.append(VideoCompositorInstruction(
                 timeRange: clipOutRange,
                 mainTrackID: mainVideoTrack.trackID,
@@ -266,6 +270,20 @@ enum CompositionBuilder {
 
         guard !instructions.isEmpty, cursor > .zero else { throw CompositionBuilderError.noVideo }
         let totalDuration = cursor
+
+        // --- ドキュメンタリー風の仕上げ(全命令で共通のプレーンデータ)
+        let totalSeconds = totalDuration.seconds
+        let documentaryInfo = DocumentaryRenderInfo(
+            style: snapshot.documentary,
+            titleCards: snapshot.titleCards
+                .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
+                .sorted { $0.start < $1.start },
+            lowerThirds: snapshot.lowerThirds
+                .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
+                .sorted { $0.start < $1.start },
+            totalDuration: totalSeconds,
+            clipBoundaries: clipBoundaries)
+        instructions = instructions.map { $0.withDocumentary(documentaryInfo) }
 
         // --- BGM(ループして全体長に合わせる)
         var audioParameters: [AVMutableAudioMixInputParameters] = []
@@ -302,14 +320,27 @@ enum CompositionBuilder {
                     if t > .zero {
                         let volume = snapshot.audio.bgmVolume
                         let params = AVMutableAudioMixInputParameters(track: bgmTrack)
-                        params.setVolume(volume, at: .zero)
-                        if snapshot.audio.bgmFadeOut {
-                            let fade = CMTime(value: 2 * Int64(timescale), timescale: timescale)
-                            let fadeLength = totalDuration > fade ? fade : totalDuration
-                            let fadeStart = totalDuration - fadeLength
-                            if fadeLength > .zero {
-                                params.setVolumeRamp(fromStartVolume: volume, toEndVolume: 0,
-                                                     timeRange: CMTimeRange(start: fadeStart, duration: fadeLength))
+                        let duckIntervals: [(start: Double, end: Double)] = snapshot.documentary.autoDucking
+                            ? compositionDuckIntervals(snapshot.subtitles, total: totalSeconds)
+                            : []
+                        if !duckIntervals.isEmpty {
+                            // 字幕(=話している区間)の間だけ BGM を下げる
+                            compositionApplyBGMEnvelope(params,
+                                                        volume: volume,
+                                                        duckLevel: snapshot.documentary.duckingLevel,
+                                                        intervals: duckIntervals,
+                                                        total: totalSeconds,
+                                                        fadeOut: snapshot.audio.bgmFadeOut)
+                        } else {
+                            params.setVolume(volume, at: .zero)
+                            if snapshot.audio.bgmFadeOut {
+                                let fade = CMTime(value: 2 * Int64(timescale), timescale: timescale)
+                                let fadeLength = totalDuration > fade ? fade : totalDuration
+                                let fadeStart = totalDuration - fadeLength
+                                if fadeLength > .zero {
+                                    params.setVolumeRamp(fromStartVolume: volume, toEndVolume: 0,
+                                                         timeRange: CMTimeRange(start: fadeStart, duration: fadeLength))
+                                }
                             }
                         }
                         audioParameters.append(params)
@@ -347,6 +378,93 @@ enum CompositionBuilder {
                                 audioMix: audioMix,
                                 renderSize: size,
                                 duration: finalDuration)
+    }
+
+    // MARK: - オートダッキング
+
+    /// 字幕区間を [0, total] に収め、0.6 秒未満の隙間は結合する
+    private static func compositionDuckIntervals(_ cues: [SubtitleCue], total: Double) -> [(start: Double, end: Double)] {
+        guard total > 0 else { return [] }
+        let sorted = cues
+            .filter { $0.end > $0.start && $0.end > 0 && $0.start < total }
+            .sorted { $0.start < $1.start }
+        var result: [(start: Double, end: Double)] = []
+        for cue in sorted {
+            let s = max(0, cue.start)
+            let e = min(total, cue.end)
+            guard e > s else { continue }
+            if let last = result.last, s - last.end < 0.6 {
+                result[result.count - 1] = (start: last.start, end: max(last.end, e))
+            } else {
+                result.append((start: s, end: e))
+            }
+        }
+        return result
+    }
+
+    /// ダッキング(0.3 秒のランプ)と最後のフェードアウトを、重ならない連続ランプとして設定する
+    private static func compositionApplyBGMEnvelope(_ params: AVMutableAudioMixInputParameters,
+                                                    volume: Float,
+                                                    duckLevel: Float,
+                                                    intervals: [(start: Double, end: Double)],
+                                                    total: Double,
+                                                    fadeOut: Bool) {
+        let ramp = 0.3
+        let ducked = volume * min(max(duckLevel, 0), 1)
+        let fadeLength = fadeOut ? min(2.0, total) : 0
+        let fadeStart = total - fadeLength
+
+        // ダッキングのみを反映した音量
+        func duckedVolume(_ t: Double) -> Float {
+            var v = volume
+            for iv in intervals {
+                if t >= iv.start && t <= iv.end { return ducked }
+                if t < iv.start && t > iv.start - ramp {
+                    let p = Float((iv.start - t) / ramp)
+                    v = min(v, ducked + (volume - ducked) * p)
+                } else if t > iv.end && t < iv.end + ramp {
+                    let p = Float((t - iv.end) / ramp)
+                    v = min(v, ducked + (volume - ducked) * p)
+                }
+            }
+            return v
+        }
+        // フェードアウトも掛けた最終音量
+        func finalVolume(_ t: Double) -> Float {
+            var v = duckedVolume(t)
+            if fadeLength > 0 && t > fadeStart {
+                v *= Float(max(0, (total - t) / fadeLength))
+            }
+            return v
+        }
+
+        var candidates: [Double] = [0, total]
+        for iv in intervals {
+            candidates.append(iv.start - ramp)
+            candidates.append(iv.start)
+            candidates.append(iv.end)
+            candidates.append(iv.end + ramp)
+        }
+        if fadeLength > 0 { candidates.append(fadeStart) }
+        let clampedTimes = candidates.map { min(max($0, 0), total) }.sorted()
+        var points: [Double] = []
+        for t in clampedTimes {
+            if let last = points.last, t - last < 0.002 { continue }
+            points.append(t)
+        }
+
+        params.setVolume(finalVolume(0), at: .zero)
+        guard points.count >= 2 else { return }
+        for i in 0..<(points.count - 1) {
+            let a = points[i]
+            let b = points[i + 1]
+            let start = CMTime(seconds: a, preferredTimescale: timescale)
+            let end = CMTime(seconds: b, preferredTimescale: timescale)
+            guard end > start else { continue }
+            params.setVolumeRamp(fromStartVolume: finalVolume(a),
+                                 toEndVolume: finalVolume(b),
+                                 timeRange: CMTimeRange(start: start, end: end))
+        }
     }
 
     // MARK: - ヘルパー
