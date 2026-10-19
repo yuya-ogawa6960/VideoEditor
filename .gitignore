@@ -1,0 +1,15 @@
+# XcodeGen が生成するもの
+*.xcodeproj
+*.xcworkspace
+Info.plist
+
+# ビルド成果物
+build/
+output/
+Payload/
+*.ipa
+DerivedData/
+
+# OS
+.DS_Store
+Thumbs.db
