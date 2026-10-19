@@ -99,6 +99,8 @@ struct SubtitleEditorView: View {
     @State private var transcriptionTask: Task<Void, Never>?
 
     @State private var translationRequest: TranslationRequest?
+    /// AI 翻訳(SubtitlePolisher.translate)の実行中タスク
+    @State private var aiTranslationTask: Task<Void, Never>?
 
     @State private var editingCueID: UUID?
 
@@ -123,7 +125,11 @@ struct SubtitleEditorView: View {
     }
 
     private var isTranslating: Bool {
-        translationRequest != nil
+        translationRequest != nil || aiTranslationTask != nil
+    }
+
+    private var isAITranslating: Bool {
+        aiTranslationTask != nil
     }
 
     private var currentCueID: UUID? {
@@ -203,6 +209,7 @@ struct SubtitleEditorView: View {
         }
         .onDisappear {
             cancelTranscription()
+            cancelAITranslation()
         }
     }
 
@@ -354,7 +361,18 @@ struct SubtitleEditorView: View {
 
     private var translationSection: some View {
         Section {
-            if isTranslating {
+            if isAITranslating {
+                HStack(spacing: 12) {
+                    ProgressView()
+                    Text("AI で翻訳中…")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("キャンセル", role: .destructive) {
+                        cancelAITranslation()
+                    }
+                    .buttonStyle(.borderless)
+                }
+            } else if isTranslating {
                 HStack(spacing: 12) {
                     ProgressView()
                     Text("翻訳中…")
@@ -375,11 +393,71 @@ struct SubtitleEditorView: View {
                 }
                 .disabled(project.subtitles.isEmpty || isTranscribing)
             }
+
+            if !isTranslating {
+                Button {
+                    startAITranslation()
+                } label: {
+                    Label(selectedLanguage == .english ? "AIで日本語に翻訳(文脈を見て自然に)" : "AIで翻訳(文脈を見て自然に)",
+                          systemImage: "sparkles")
+                }
+                .disabled(project.subtitles.isEmpty || isTranscribing)
+            }
         } header: {
             Text("翻訳")
         } footer: {
-            Text("原文の言語は「自動文字起こし」の言語設定を使います。初回は翻訳用の言語データのダウンロードを求められることがあります。")
+            Text(translationFooterText)
         }
+    }
+
+    private var translationFooterText: String {
+        let engine = SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: AppSettings.shared))
+        return "原文の言語は「自動文字起こし」の言語設定を使います。初回は翻訳用の言語データのダウンロードを求められることがあります。"
+            + "「AIで翻訳」は前後の字幕も読んで自然な訳にします(いまの AI: " + engine + ")。"
+    }
+
+    // MARK: AI 翻訳(SubtitlePolisher)
+
+    private func startAITranslation() {
+        guard aiTranslationTask == nil, !project.subtitles.isEmpty else { return }
+        let cues = project.subtitles
+        let language = selectedLanguage
+        let toEnglish = (language != .english)
+        aiTranslationTask = Task { @MainActor in
+            let result = await SubtitlePolisher.translate(cues, from: language, toEnglish: toEnglish,
+                                                          settings: AppSettings.shared)
+            if Task.isCancelled {
+                aiTranslationTask = nil
+                return
+            }
+            aiTranslationTask = nil
+            guard let result else {
+                let detail = SubtitlePolisher.lastErrorMessage
+                    ?? "AI 仕上げのエンジンが使えません。「文字起こしの方式とAI仕上げ」で Apple Intelligence か OpenAI の API キーを設定してください。"
+                showAlert(title: "AI翻訳できませんでした", message: detail)
+                return
+            }
+            // 翻訳中に字幕が変わっていても ID で突き合わせる
+            var updated = project.subtitles
+            var count = 0
+            for translated in result {
+                guard let text = translated.translatedText, !text.isEmpty,
+                      let i = updated.firstIndex(where: { $0.id == translated.id }) else { continue }
+                if updated[i].translatedText != text {
+                    updated[i].translatedText = text
+                    count += 1
+                }
+            }
+            project.subtitles = updated
+            exportURL = nil
+            showAlert(title: "AI翻訳完了",
+                      message: "\(count) 件の字幕を翻訳しました。表示を「英訳」または「両方」にすると映像に表示されます。")
+        }
+    }
+
+    private func cancelAITranslation() {
+        aiTranslationTask?.cancel()
+        aiTranslationTask = nil
     }
 
     // MARK: 字幕ファイル(SRT)
@@ -637,7 +715,7 @@ struct SubtitleEditorView: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $project.subtitleStyle.sizeRatio, in: 0.03...0.10)
+                Slider(value: $project.subtitleStyle.sizeRatio, in: 0.02...0.08)
             }
 
             Toggle("背景を付ける", isOn: $project.subtitleStyle.hasBackground)
@@ -1056,8 +1134,9 @@ enum SubtitleFontCatalog {
     }
 
     static let builtIn: [Option] = [
-        Option(id: "", label: "システム(標準)"),
-        Option(id: "HiraginoSans-W6", label: "ヒラギノ角ゴ W6"),
+        Option(id: "", label: "ヒラギノ角ゴ W3(標準・映画字幕風)"),
+        Option(id: "HiraginoSans-W6", label: "ヒラギノ角ゴ W6(太め)"),
+        Option(id: "HiraMinProN-W3", label: "ヒラギノ明朝 W3(上品)"),
         Option(id: "HiraMinProN-W6", label: "ヒラギノ明朝 W6"),
         Option(id: "HiraMaruProN-W4", label: "ヒラギノ丸ゴ W4"),
         Option(id: "Noteworthy-Bold", label: "Noteworthy(ノート風)"),

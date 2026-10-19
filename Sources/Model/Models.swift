@@ -179,6 +179,16 @@ struct Clip: Identifiable, Equatable {
     var reversedURL: URL?
     /// 静止画クリップ(写真・フリーズフレーム)。設定時は url は無視され、この画像を表示する。hasAudio は false
     var stillImageURL: URL?
+    /// マスク(Phase4Models.swift)
+    var mask: MaskSettings
+    /// 自動リフレーム(人物追尾)の解析結果
+    var reframe: ReframeTrack
+    /// 手ぶれ補正の解析結果
+    var stabilization: StabilizationTrack
+    /// ノイズ除去・美肌・簡易高画質化
+    var enhance: ClipEnhancements
+    /// 静止画クリップの 3D ズーム(奥行き情報がある写真のみ)
+    var parallax: DepthParallax
 
     init(id: UUID = UUID(), url: URL, duration: Double, naturalSize: CGSize,
          preferredTransform: CGAffineTransform, hasAudio: Bool, thumbnail: UIImage?, name: String) {
@@ -204,6 +214,11 @@ struct Clip: Identifiable, Equatable {
         self.isReversed = false
         self.reversedURL = nil
         self.stillImageURL = nil
+        self.mask = MaskSettings()
+        self.reframe = ReframeTrack()
+        self.stabilization = StabilizationTrack()
+        self.enhance = ClipEnhancements()
+        self.parallax = DepthParallax()
     }
 
     /// トリミング後の長さ(元素材の秒)
@@ -236,6 +251,11 @@ struct Clip: Identifiable, Equatable {
         copy.isReversed = isReversed
         copy.reversedURL = reversedURL
         copy.stillImageURL = stillImageURL
+        copy.mask = mask
+        copy.reframe = reframe
+        copy.stabilization = stabilization
+        copy.enhance = enhance
+        copy.parallax = parallax
         return copy
     }
 
@@ -255,6 +275,11 @@ struct Clip: Identifiable, Equatable {
             && lhs.isReversed == rhs.isReversed
             && lhs.reversedURL == rhs.reversedURL
             && lhs.stillImageURL == rhs.stillImageURL
+            && lhs.mask == rhs.mask
+            && lhs.reframe == rhs.reframe
+            && lhs.stabilization == rhs.stabilization
+            && lhs.enhance == rhs.enhance
+            && lhs.parallax == rhs.parallax
             && lhs.name == rhs.name
     }
 }
@@ -310,8 +335,8 @@ enum SubtitleDisplayMode: String, CaseIterable, Identifiable {
 struct SubtitleStyle: Equatable {
     var position: SubtitlePosition = .bottom
     var color: SubtitleColor = .white
-    /// 出力映像の幅に対する文字サイズ比(0.03 ... 0.10)。既定はシネマ風
-    var sizeRatio: CGFloat = 0.038
+    /// 出力映像の短い辺に対する文字サイズ比(0.02 ... 0.08)。既定はシネマ風
+    var sizeRatio: CGFloat = 0.034
     var hasBackground: Bool = false
     var displayMode: SubtitleDisplayMode = .original
     /// 字幕テンプレート(カラオケ風など)。words が無い cue では plain と同じ描画
@@ -583,8 +608,22 @@ final class EditorProject {
         )
     }
 
+    /// クリップを削除し、その区間にあった字幕などの部品も一緒に消して後ろを詰める
+    /// (TimelineRipple.swift)。最後のクリップを消したときは部品をすべて消す。
     func removeClip(id: UUID) {
+        guard index(of: id) != nil else { return }
+        let range = outputRange(ofClip: id)
+        let oldTotal = CompositionBuilder.totalDuration(for: snapshot())
         clips.removeAll { $0.id == id }
+        if clips.isEmpty {
+            clearTimelineItems()
+            return
+        }
+        guard let range else { return }
+        let newTotal = CompositionBuilder.totalDuration(for: snapshot())
+        // トランジションの重なりがあるので、実際に短くなった長さを使う
+        let removed = max(0, min(oldTotal - newTotal, range.end - range.start))
+        removeTimelineRange(from: range.start, to: range.start + removed)
     }
 
     func duplicateClip(id: UUID) {

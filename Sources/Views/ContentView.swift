@@ -54,6 +54,15 @@ struct ContentView: View {
     @State private var drawingColorHex = "#FF4D4D"
     @State private var drawingWidth: Double = 0.012
 
+    /// 第4弾: 長い解析(リフレーム・手ぶれ・トラッキング・テンプレート)の進捗とキャンセル
+    @State private var analysis = EditorAnalysisRunner()
+    /// 第4弾: トラッキング(プレビューで囲んだ四角 → キーフレーム)の状態
+    @State private var tracking = EditorTrackingController()
+    /// 「スライドショー」で選んだ写真
+    @State private var slideshowPickerItems: [PhotosPickerItem] = []
+    /// スライドショー用に読み込んだ写真(アプリ内コピー)
+    @State private var slideshowImages: [URL] = []
+
     init(projectID: UUID, onClose: @escaping () -> Void) {
         self.projectID = projectID
         self.onClose = onClose
@@ -71,6 +80,12 @@ struct ContentView: View {
         case coverMaker
         /// 前回の書き出しと比較
         case compare
+        /// おまかせ編集(第4弾)
+        case autoEdit
+        /// 写真からスライドショー(第4弾。写真は slideshowImages)
+        case slideshow
+        /// AI 台本(第4弾)
+        case scriptWriter
 
         var id: String {
             switch self {
@@ -82,6 +97,9 @@ struct ContentView: View {
             case .scopes(let clipID): return "scopes-\(clipID.uuidString)"
             case .coverMaker: return "cover"
             case .compare: return "compare"
+            case .autoEdit: return "autoEdit"
+            case .slideshow: return "slideshow"
+            case .scriptWriter: return "scriptWriter"
             }
         }
     }
@@ -116,6 +134,12 @@ struct ContentView: View {
                     mediaToolTask?.cancel()
                 }
             }
+
+            if let progress = analysis.progress {
+                ClipFXProgressOverlay(progress: progress) {
+                    analysis.cancel()
+                }
+            }
         }
         .preferredColorScheme(.dark)
         .onChange(of: pickerItems) { _, newItems in
@@ -123,6 +147,12 @@ struct ContentView: View {
             let items = newItems
             pickerItems = []
             Task { await importItems(items) }
+        }
+        .onChange(of: slideshowPickerItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            let items = newItems
+            slideshowPickerItems = []
+            Task { await importSlideshowItems(items) }
         }
         .onChange(of: overlayPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
@@ -319,6 +349,34 @@ struct ContentView: View {
 
     private var isDrawingNew: Bool { activePanel == .drawingCanvas }
 
+    /// マスクのパネルを開いている間は、プレビュー上でマスクの中心・大きさ・角度を操作できる
+    private var previewMaskTarget: PreviewMaskTarget? {
+        switch activePanel {
+        case .mask(let clipID): return .clip(clipID)
+        case .overlayMask(let overlayID): return .overlay(overlayID)
+        default: return nil
+        }
+    }
+
+    /// トラッキングのパネルを開いている間は、プレビュー上で対象を囲む四角を描ける
+    private var previewRectSelection: PreviewRectSelection? {
+        let target: EditorTrackingTarget
+        switch activePanel {
+        case .textTracking(let textID): target = .text(textID)
+        case .overlayTracking(let overlayID): target = .overlay(overlayID)
+        default: return nil
+        }
+        let project = self.project
+        let player = self.player
+        let history = self.history
+        let analysis = self.analysis
+        let tracking = self.tracking
+        return PreviewRectSelection { rect in
+            tracking.track(rect: rect, target: target, project: project, player: player,
+                           history: history, analysis: analysis)
+        }
+    }
+
     private var editor: some View {
         GeometryReader { geo in
             VStack(spacing: 0) {
@@ -330,14 +388,19 @@ struct ContentView: View {
                                               colorHex: drawingColorHex,
                                               width: drawingWidth)
                         } else {
-                            PreviewGestureOverlay(project: project, history: history, selection: selection)
+                            PreviewGestureOverlay(project: project,
+                                                  history: history,
+                                                  selection: selection,
+                                                  maskTarget: previewMaskTarget,
+                                                  rectSelection: previewRectSelection)
                         }
                     }
                     .frame(maxWidth: .infinity, minHeight: 100, maxHeight: max(100, geo.size.height * 0.45))
                     .background(Color.black)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if !isDrawingNew {
+                        // 手書き中・トラッキングの範囲選択中はタップで再生しない
+                        if !isDrawingNew && previewRectSelection == nil {
                             player.togglePlay()
                         }
                     }
@@ -426,7 +489,8 @@ struct ContentView: View {
                               pickerItems: $pickerItems,
                               overlayPickerItems: $overlayPickerItems,
                               replacePickerItem: $replacePickerItem,
-                              extractAudioPickerItem: $extractAudioPickerItem)
+                              extractAudioPickerItem: $extractAudioPickerItem,
+                              slideshowPickerItems: $slideshowPickerItems)
                     .transition(.opacity)
             }
         }
@@ -744,6 +808,76 @@ struct ContentView: View {
                                     player: player,
                                     history: history,
                                     onAdded: { id in selection = .narration(id) })
+
+        // ---- 第4弾: クリップ ----
+        case .mask(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorClipMaskPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .autoReframe(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorAutoReframePanel(project: project, clip: clip, analysis: analysis)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .stabilize(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorStabilizePanel(clip: clip, analysis: analysis)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .enhance(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorEnhancePanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .parallax(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorClipParallaxPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+
+        // ---- 第4弾: オーバーレイ ----
+        case .overlayMask(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayMaskPanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlayParallax(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayParallaxPanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+
+        // ---- 第4弾: トラッキング ----
+        case .textTracking(let textID):
+            EditorTrackingPanel(project: project,
+                                player: player,
+                                history: history,
+                                analysis: analysis,
+                                controller: tracking,
+                                target: .text(textID))
+        case .overlayTracking(let overlayID):
+            EditorTrackingPanel(project: project,
+                                player: player,
+                                history: history,
+                                analysis: analysis,
+                                controller: tracking,
+                                target: .overlay(overlayID))
+
+        // ---- 第4弾: ルート ----
+        case .autoEditTemplates:
+            EditorAutoEditTemplatePanel(project: project,
+                                        player: player,
+                                        history: history,
+                                        analysis: analysis,
+                                        onApplied: { afterProjectReplaced() })
         }
     }
 
@@ -812,6 +946,21 @@ struct ContentView: View {
                 if let target {
                     selection = .clip(target)
                 }
+            },
+            EditorToolItem("おまかせ編集", systemImage: "wand.and.stars", enabled: !analysis.isRunning) {
+                player.pause()
+                activePanel = nil
+                activeSheet = .autoEdit
+            },
+            EditorToolItem("テンプレート", systemImage: "square.grid.2x2", enabled: !analysis.isRunning) {
+                openPanel(.autoEditTemplates)
+            },
+            EditorToolItem.addSlideshow("スライドショー", systemImage: "photo.stack",
+                                        enabled: !isImporting && !analysis.isRunning),
+            EditorToolItem("AI台本", systemImage: "text.badge.star") {
+                player.pause()
+                activePanel = nil
+                activeSheet = .scriptWriter
             },
             EditorToolItem("音声", systemImage: "music.note") {
                 history.record(project)
@@ -944,6 +1093,21 @@ struct ContentView: View {
             EditorToolItem("切り抜き/回転", systemImage: "crop.rotate") {
                 openPanel(.geometry(clipID))
             },
+            EditorToolItem("マスク", systemImage: "circle.dashed") {
+                openPanel(.mask(clipID))
+            },
+            EditorToolItem("自動リフレーム", systemImage: "person.crop.rectangle", enabled: !isStill) {
+                openPanel(.autoReframe(clipID))
+            },
+            EditorToolItem("手ぶれ補正", systemImage: "camera.metering.center.weighted", enabled: !isStill) {
+                openPanel(.stabilize(clipID))
+            },
+            EditorToolItem("画質", systemImage: "sparkles.tv") {
+                openPanel(.enhance(clipID))
+            },
+            EditorToolItem("3Dズーム", systemImage: "cube.transparent", enabled: isStill) {
+                openPanel(.parallax(clipID))
+            },
             EditorToolItem(isReversed ? "逆再生を解除" : "逆再生",
                            systemImage: isReversed ? "arrow.uturn.backward.circle.fill" : "arrow.uturn.backward.circle",
                            enabled: !isStill && !busy) {
@@ -997,9 +1161,19 @@ struct ContentView: View {
             },
             EditorToolItem("ケン・バーンズ", systemImage: "arrow.up.left.and.arrow.down.right") {
                 openPanel(.overlayKenBurns(overlayID))
+            },
+            EditorToolItem("マスク", systemImage: "circle.dashed") {
+                openPanel(.overlayMask(overlayID))
+            },
+            EditorToolItem("トラッキング", systemImage: "scope") {
+                openPanel(.overlayTracking(overlayID))
             }
         ]
-        if !isImage {
+        if isImage {
+            items.append(EditorToolItem("3Dズーム", systemImage: "cube.transparent") {
+                openPanel(.overlayParallax(overlayID))
+            })
+        } else {
             items.append(EditorToolItem("音量", systemImage: "speaker.wave.2") {
                 openPanel(.overlayVolume(overlayID))
             })
@@ -1096,6 +1270,9 @@ struct ContentView: View {
             EditorToolItem("キーフレーム", systemImage: "diamond") {
                 openPanel(.textKeyframes(textID))
             },
+            EditorToolItem("トラッキング", systemImage: "scope") {
+                openPanel(.textTracking(textID))
+            },
             EditorToolItem("複製", systemImage: "plus.square.on.square") {
                 duplicateText(textID)
             },
@@ -1169,7 +1346,64 @@ struct ContentView: View {
             CoverMakerView(project: project)
         case .compare:
             CompareView(project: project, player: player)
+        case .autoEdit:
+            AutoEditSheetView(project: project,
+                              player: player,
+                              history: history,
+                              onApplied: { afterProjectReplaced() })
+        case .slideshow:
+            SlideshowSheetView(images: slideshowImages,
+                               project: project,
+                               player: player,
+                               history: history,
+                               onApplied: { afterProjectReplaced() })
+        case .scriptWriter:
+            ScriptWriterSheetView(project: project,
+                                  player: player,
+                                  history: history,
+                                  onNarrationAdded: { id in selection = .narration(id) })
         }
+    }
+
+    /// おまかせ編集・テンプレート・スライドショーでプロジェクトを置き換えた後の後始末
+    private func afterProjectReplaced() {
+        selection = nil
+        if activePanel != .autoEditTemplates {
+            activePanel = nil
+        }
+        Task { await reloadThumbnails() }
+    }
+
+    /// PhotosPicker で選んだ写真をアプリ内にコピーして、スライドショーの設定シートを開く
+    @MainActor
+    private func importSlideshowItems(_ items: [PhotosPickerItem]) async {
+        isImporting = true
+        importTotal = items.count
+        importDone = 0
+        var urls: [URL] = []
+        var failures = 0
+        for item in items {
+            do {
+                if let photo = try await item.loadTransferable(type: PickedPhoto.self) {
+                    urls.append(photo.url)
+                } else {
+                    failures += 1
+                }
+            } catch {
+                failures += 1
+            }
+            importDone += 1
+        }
+        isImporting = false
+        if urls.isEmpty {
+            alertMessage = failures > 0 ? "写真を読み込めませんでした(\(failures) 枚)。" : "写真を読み込めませんでした。"
+            return
+        }
+        // 一部だけ失敗したときはシートと同時にアラートを出さず、読み込めた写真で進める
+        player.pause()
+        activePanel = nil
+        slideshowImages = urls
+        activeSheet = .slideshow
     }
 
     private var importOverlay: some View {
@@ -1625,6 +1859,9 @@ struct ContentView: View {
             replaced.animation = old.animation
             replaced.geometry = old.geometry
             replaced.speedCurve = old.speedCurve
+            // 素材に依存しない設定は引き継ぐ(リフレーム・手ぶれ補正の解析結果は素材ごとなので引き継がない)
+            replaced.mask = old.mask
+            replaced.enhance = old.enhance
             history.record(project)
             project.clips[i] = replaced
             importDone = 1
@@ -1902,6 +2139,7 @@ struct ContentView: View {
     private func closeProject() {
         player.pause()
         mediaToolTask?.cancel()
+        analysis.cancel()
         activePanel = nil
         activeSheet = nil
         selection = nil
@@ -1925,6 +2163,7 @@ struct ContentView: View {
     private func clearProject() {
         player.pause()
         mediaToolTask?.cancel()
+        analysis.cancel()
         activePanel = nil
         activeSheet = nil
         selection = nil

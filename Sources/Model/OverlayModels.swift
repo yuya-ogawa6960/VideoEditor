@@ -157,6 +157,10 @@ struct OverlayClip: Identifiable, Equatable {
     var keyframes: [Keyframe] = []
     /// 乗算・スクリーンなどのブレンド(CoreImage のフィルター名。nil = 通常)
     var blendMode: String? = nil
+    /// マスク(Phase4Models.swift)
+    var mask: MaskSettings = MaskSettings()
+    /// 写真の 3D ズーム(奥行き情報がある場合)
+    var parallax: DepthParallax = DepthParallax()
 
     init(id: UUID = UUID(),
          url: URL,
@@ -256,6 +260,8 @@ struct OverlayClip: Identifiable, Equatable {
             && lhs.fadeIn == rhs.fadeIn
             && lhs.keyframes == rhs.keyframes
             && lhs.blendMode == rhs.blendMode
+            && lhs.mask == rhs.mask
+            && lhs.parallax == rhs.parallax
             && lhs.fadeOut == rhs.fadeOut
     }
 }

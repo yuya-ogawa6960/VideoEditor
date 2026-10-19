@@ -10,7 +10,23 @@ import UIKit
 // を直接変えられる。履歴はジェスチャーの開始時に 1 回だけ記録し、
 // 書き込みは 1 秒間に 30 回まで(最後の値は必ず書く)。
 // 点線の枠の部分だけがタッチを受け取り、それ以外はプレビューのタップ(再生/停止)に通す。
+//
+// 第4弾の追加モード:
+//   maskTarget    → マスクパネルを開いている間、マスクの形を点線で出し、
+//                   ドラッグで中心 / ピンチで大きさ / 回転で角度を変える
+//   rectSelection → トラッキングの対象を囲む四角をドラッグで描く(完了時に正規化矩形を返す)
 // =====================================================================
+
+/// マスクの中心をプレビュー上で動かす対象
+enum PreviewMaskTarget: Equatable {
+    case clip(UUID)
+    case overlay(UUID)
+}
+
+/// 四角の範囲選択(トラッキングの対象を囲む)。完了時にキャンバス正規化座標(左上原点)で返す
+struct PreviewRectSelection {
+    let onComplete: (NormalizedRect) -> Void
+}
 
 /// ジェスチャー中の状態(再描画を起こさないよう class で持つ)
 final class PreviewGestureSession {
@@ -24,6 +40,9 @@ final class PreviewGestureSession {
     var startScale = 1.0
     var startRotation = 0.0
     var startFrame = NormalizedRect.full
+    // マスク用(短辺比率)
+    var startMaskWidth = 0.6
+    var startMaskHeight = 0.6
 
     // ジェスチャーの生の値と、その基準(別のジェスチャーが終わったときに合わせ直す)
     var rawDrag = CGSize.zero
@@ -63,8 +82,14 @@ struct PreviewGestureOverlay: View {
     let project: EditorProject
     let history: EditorHistory
     let selection: EditorSelection?
+    /// 設定するとマスクの中心・大きさ・角度をプレビュー上で操作するモードになる
+    var maskTarget: PreviewMaskTarget? = nil
+    /// 設定すると四角の範囲選択モードになる(通常の枠は出さない)
+    var rectSelection: PreviewRectSelection? = nil
 
     @State private var session = PreviewGestureSession()
+    /// 範囲選択中の四角(ビュー座標)
+    @State private var dragRect: CGRect? = nil
 
     /// 1 秒間に 30 回まで
     private static let minWriteInterval: CFAbsoluteTime = 1.0 / 30.0
@@ -73,7 +98,11 @@ struct PreviewGestureOverlay: View {
         GeometryReader { geo in
             let size = geo.size
             ZStack(alignment: .topLeading) {
-                if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
+                if let rectSelection {
+                    rectSelectionLayer(rectSelection, size: size)
+                } else if let maskTarget {
+                    maskLayer(maskTarget, size: size)
+                } else if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
                     textFrame(binding, size: size)
                 } else if let id = selection?.overlayID, let binding = project.overlayBinding(id: id) {
                     overlayFrame(binding, size: size)
@@ -81,6 +110,257 @@ struct PreviewGestureOverlay: View {
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
+    }
+
+    // MARK: - 範囲選択(トラッキング)
+
+    private static func rect(from a: CGPoint, to b: CGPoint, in size: CGSize) -> CGRect {
+        let x0 = min(max(min(a.x, b.x), 0), size.width)
+        let x1 = min(max(max(a.x, b.x), 0), size.width)
+        let y0 = min(max(min(a.y, b.y), 0), size.height)
+        let y1 = min(max(max(a.y, b.y), 0), size.height)
+        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+    }
+
+    private func rectSelectionLayer(_ selectionMode: PreviewRectSelection, size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            // 全面でタッチを受ける(ほぼ透明)
+            Color.white.opacity(0.001)
+
+            if let r = dragRect {
+                Rectangle()
+                    .fill(Color.yellow.opacity(0.15))
+                    .overlay { Rectangle().stroke(Color.yellow, lineWidth: 2) }
+                    .frame(width: max(r.width, 1), height: max(r.height, 1))
+                    .offset(x: r.minX, y: r.minY)
+                    .allowsHitTesting(false)
+            }
+
+            Text("追いかけたい対象を囲むようにドラッグ")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.6), in: Capsule())
+                .padding(8)
+                .allowsHitTesting(false)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 3, coordinateSpace: .local)
+                .onChanged { value in
+                    dragRect = Self.rect(from: value.startLocation, to: value.location, in: size)
+                }
+                .onEnded { value in
+                    let r = Self.rect(from: value.startLocation, to: value.location, in: size)
+                    dragRect = nil
+                    guard r.width >= 8, r.height >= 8, size.width > 0, size.height > 0 else { return }
+                    let normalized = NormalizedRect(x: Double(r.minX / size.width),
+                                                    y: Double(r.minY / size.height),
+                                                    width: Double(r.width / size.width),
+                                                    height: Double(r.height / size.height)).clamped()
+                    selectionMode.onComplete(normalized)
+                }
+        )
+    }
+
+    // MARK: - マスク
+
+    @ViewBuilder
+    private func maskLayer(_ target: PreviewMaskTarget, size: CGSize) -> some View {
+        switch target {
+        case .clip(let id):
+            if let clipBinding = project.clipBinding(id: id) {
+                let maskBinding = Binding<MaskSettings>(
+                    get: { clipBinding.wrappedValue.mask },
+                    set: { newValue in
+                        var clip = clipBinding.wrappedValue
+                        clip.mask = newValue
+                        clipBinding.wrappedValue = clip
+                    }
+                )
+                maskFrame(maskBinding, container: CGRect(origin: .zero, size: size))
+            }
+        case .overlay(let id):
+            if let overlayBinding = project.overlayBinding(id: id) {
+                let maskBinding = Binding<MaskSettings>(
+                    get: { overlayBinding.wrappedValue.mask },
+                    set: { newValue in
+                        var overlay = overlayBinding.wrappedValue
+                        overlay.mask = newValue
+                        overlayBinding.wrappedValue = overlay
+                    }
+                )
+                // オーバーレイのマスクはそのオーバーレイの枠の中で考える
+                maskFrame(maskBinding, container: overlayBinding.wrappedValue.frame.rect(in: size))
+            }
+        }
+    }
+
+    /// マスクの点線の大きさ(ビュー座標)。直線・帯は横長のバーで表す
+    private static func maskFrameSize(_ mask: MaskSettings, short: CGFloat) -> CGSize {
+        switch mask.shape {
+        case .linear:
+            return CGSize(width: short * 1.6, height: 10)
+        case .mirror:
+            return CGSize(width: short * 1.6, height: max(CGFloat(mask.height) * short, 10))
+        default:
+            return CGSize(width: max(CGFloat(mask.width) * short, 24),
+                          height: max(CGFloat(mask.height) * short, 24))
+        }
+    }
+
+    /// マスクの形の点線(container はマスク座標の基準になる矩形、ビュー座標)
+    @ViewBuilder
+    private func maskFrame(_ binding: Binding<MaskSettings>, container: CGRect) -> some View {
+        let mask = binding.wrappedValue
+        if mask.shape != .none {
+            let short = max(min(container.width, container.height), 1)
+            let center = CGPoint(x: container.minX + CGFloat(mask.center.x) * container.width,
+                                 y: container.minY + CGFloat(mask.center.y) * container.height)
+            let frameSize = Self.maskFrameSize(mask, short: short)
+            maskShapeView(mask, size: frameSize, short: short)
+                .frame(width: frameSize.width, height: frameSize.height)
+                .contentShape(Rectangle())
+                .gesture(maskGesture(binding, container: container))
+                .rotationEffect(.degrees(mask.rotation))
+                .position(center)
+        }
+    }
+
+    private var maskBadge: some View {
+        Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.black)
+            .padding(3)
+            .background(Color.white.opacity(0.9), in: Circle())
+    }
+
+    @ViewBuilder
+    private func maskShapeView(_ mask: MaskSettings, size: CGSize, short: CGFloat) -> some View {
+        let style = StrokeStyle(lineWidth: 1.5, dash: [6, 4])
+        let tint = Color.white.opacity(0.9)
+        switch mask.shape {
+        case .circle:
+            Ellipse()
+                .stroke(style: style)
+                .foregroundStyle(tint)
+                .background { Ellipse().fill(Color.white.opacity(0.001)) }
+                .overlay { maskBadge }
+        case .roundedRectangle:
+            RoundedRectangle(cornerRadius: min(CGFloat(mask.cornerRadius) * short, min(size.width, size.height) / 2))
+                .stroke(style: style)
+                .foregroundStyle(tint)
+                .background { Color.white.opacity(0.001) }
+                .overlay { maskBadge }
+        case .linear:
+            Rectangle()
+                .fill(Color.white.opacity(0.35))
+                .overlay { maskBadge }
+        default:
+            Rectangle()
+                .stroke(style: style)
+                .foregroundStyle(tint)
+                .background { Color.white.opacity(0.001) }
+                .overlay { maskBadge }
+        }
+    }
+
+    private func beginIfNeeded(mask: MaskSettings) {
+        guard !session.isActive else { return }
+        history.record(project)
+        session.startCenter = mask.center
+        session.startMaskWidth = mask.width
+        session.startMaskHeight = mask.height
+        session.startRotation = mask.rotation
+        session.resetDeltas()
+        session.lastWrite = 0
+        session.isActive = true
+    }
+
+    private func endGesture(mask: MaskSettings, cleanup: () -> Void) {
+        session.startCenter = mask.center
+        session.startMaskWidth = mask.width
+        session.startMaskHeight = mask.height
+        session.startRotation = mask.rotation
+        session.rebase()
+        cleanup()
+        if !session.anyActive {
+            session.isActive = false
+        }
+    }
+
+    private func applyMask(_ binding: Binding<MaskSettings>, container: CGRect, force: Bool) {
+        let now = CFAbsoluteTimeGetCurrent()
+        if !force, now - session.lastWrite < Self.minWriteInterval { return }
+        session.lastWrite = now
+
+        var mask = binding.wrappedValue
+        let d = session.effectiveDrag
+        let cx = session.startCenter.x + Double(d.width / max(container.width, 1))
+        let cy = session.startCenter.y + Double(d.height / max(container.height, 1))
+        mask.center = NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25))
+        let m = Double(session.effectiveMagnify)
+        mask.width = min(max(session.startMaskWidth * m, 0.05), 3)
+        mask.height = min(max(session.startMaskHeight * m, 0.05), 3)
+        var rotation = (session.startRotation + session.effectiveRotate).truncatingRemainder(dividingBy: 360)
+        if rotation > 180 { rotation -= 360 }
+        if rotation < -180 { rotation += 360 }
+        mask.rotation = rotation
+        binding.wrappedValue = mask
+    }
+
+    private func maskGesture(_ binding: Binding<MaskSettings>, container: CGRect) -> some Gesture {
+        let drag = DragGesture(minimumDistance: 2, coordinateSpace: .global)
+            .onChanged { value in
+                beginIfNeeded(mask: binding.wrappedValue)
+                session.dragActive = true
+                session.rawDrag = value.translation
+                applyMask(binding, container: container, force: false)
+            }
+            .onEnded { _ in
+                applyMask(binding, container: container, force: true)
+                endGesture(mask: binding.wrappedValue) {
+                    session.rawDrag = .zero
+                    session.baseDrag = .zero
+                    session.dragActive = false
+                }
+            }
+
+        let magnify = MagnifyGesture()
+            .onChanged { value in
+                beginIfNeeded(mask: binding.wrappedValue)
+                session.magnifyActive = true
+                session.rawMagnify = value.magnification
+                applyMask(binding, container: container, force: false)
+            }
+            .onEnded { _ in
+                applyMask(binding, container: container, force: true)
+                endGesture(mask: binding.wrappedValue) {
+                    session.rawMagnify = 1
+                    session.baseMagnify = 1
+                    session.magnifyActive = false
+                }
+            }
+
+        let rotate = RotateGesture()
+            .onChanged { value in
+                beginIfNeeded(mask: binding.wrappedValue)
+                session.rotateActive = true
+                session.rawRotate = value.rotation.degrees
+                applyMask(binding, container: container, force: false)
+            }
+            .onEnded { _ in
+                applyMask(binding, container: container, force: true)
+                endGesture(mask: binding.wrappedValue) {
+                    session.rawRotate = 0
+                    session.baseRotate = 0
+                    session.rotateActive = false
+                }
+            }
+
+        return drag.simultaneously(with: magnify).simultaneously(with: rotate)
     }
 
     // MARK: - 枠

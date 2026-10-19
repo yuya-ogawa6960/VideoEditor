@@ -19,6 +19,8 @@ import CoreVideo
 //   コンポジタは画像(静止画)または黒を描く。
 // 逆再生: reversedURL を素材として使う(範囲は duration − endTime ... duration − startTime)。
 // 音声エフェクト: AudioEffectsRenderer.cachedProcessedURL(for:effects:) が返す処理済みファイルを使う。
+// 第4弾: 各層にマスク / 自動リフレーム / 手ぶれ補正 / 画質補正 / 3D ズームの設定をプレーン値で渡す。
+//   速度区間に素材上の開始秒(sourceStart)を持たせ、コンポジタが出力時刻 → 元素材上の秒を求める。
 // =====================================================================
 
 enum RenderPurpose { case preview, export }
@@ -213,7 +215,13 @@ enum CompositionBuilder {
                                                              speedSegments: [],
                                                              smoothSlow: false,
                                                              start: placement.start,
-                                                             end: placement.end)
+                                                             end: placement.end,
+                                                             mask: clip.mask,
+                                                             reframe: ReframeTrack(),
+                                                             stabilization: StabilizationTrack(),
+                                                             enhance: clip.enhance,
+                                                             parallax: clip.parallax,
+                                                             reversedSourceDuration: nil)
                 pictureCount += 1
                 continue
             }
@@ -434,11 +442,20 @@ enum CompositionBuilder {
                 geometry: clip.geometry,
                 animation: clip.animation,
                 speedSegments: plan.map {
-                    VideoCompositorSpeedSegment(start: $0.outRange.start.seconds, end: $0.outRange.end.seconds, speed: $0.speed)
+                    VideoCompositorSpeedSegment(start: $0.outRange.start.seconds,
+                                                end: $0.outRange.end.seconds,
+                                                speed: $0.speed,
+                                                sourceStart: $0.sourceRange.start.seconds)
                 },
                 smoothSlow: clip.speedCurve.enabled && clip.speedCurve.smoothSlow,
                 start: placement.start,
-                end: placement.end)
+                end: placement.end,
+                mask: clip.mask,
+                reframe: clip.reframe,
+                stabilization: clip.stabilization,
+                enhance: clip.enhance,
+                parallax: DepthParallax(),
+                reversedSourceDuration: reversedActive ? clip.duration : nil)
             pictureCount += 1
         }
 

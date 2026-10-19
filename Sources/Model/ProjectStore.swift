@@ -18,6 +18,9 @@ import UIKit
 // 切り抜き、速度カーブ、逆再生、静止画、HSL/LUT、字幕テンプレート、単語タイミング、
 // 音声エフェクト、キーフレーム、テキスト、手書き、マーカー、透かし、サムネ設定)は
 // すべて省略可能で、旧ファイル(version 1)はそのまま読み込める。
+// 第4弾で増えた項目(マスク、自動リフレーム、手ぶれ補正、画質補正、3D ズーム)も省略可能
+// (version は 2 のまま)。解析結果のサンプル列は [[Double]] の行(数値だけの配列)で
+// 小さく保存する(リフレーム: [time, x, y, confidence]、手ぶれ: [time, dx, dy, rotation])。
 // 字幕スタイルと出力設定は StoredSubtitleStyle / StoredCanvas にまとめた
 // (PresetStore も同じ Codable を使う)。旧ファイルの平らな項目からも復元する。
 // =====================================================================
@@ -1064,6 +1067,162 @@ private struct StoredAudioEffects: Codable {
     }
 }
 
+// MARK: 第4弾(マスク・リフレーム・手ぶれ補正・画質・3D ズーム)
+
+/// JSON に書けない値(NaN / 無限大)を 0 にし、小数 5 桁に丸めてファイルを小さくする
+private func compactNumber(_ v: Double) -> Double {
+    guard v.isFinite else { return 0 }
+    let scaled: Double = v * 100000
+    return scaled.rounded() / 100000
+}
+
+/// マスク(クリップ・オーバーレイ共通)
+private struct StoredMask: Codable {
+    var shape: String
+    var center: StoredPoint
+    var width: Double
+    var height: Double
+    var rotation: Double
+    var feather: Double
+    var inverted: Bool
+    var cornerRadius: Double
+
+    init(_ m: MaskSettings) {
+        shape = m.shape.rawValue
+        center = StoredPoint(m.center)
+        width = m.width
+        height = m.height
+        rotation = m.rotation
+        feather = m.feather
+        inverted = m.inverted
+        cornerRadius = m.cornerRadius
+    }
+
+    var value: MaskSettings {
+        let defaults = MaskSettings()
+        var m = MaskSettings()
+        m.shape = MaskShape(rawValue: shape) ?? MaskShape.none
+        m.center = center.value
+        m.width = width > 0 ? width : defaults.width
+        m.height = height > 0 ? height : defaults.height
+        m.rotation = rotation
+        m.feather = feather >= 0 ? feather : defaults.feather
+        m.inverted = inverted
+        m.cornerRadius = cornerRadius >= 0 ? cornerRadius : defaults.cornerRadius
+        return m
+    }
+}
+
+/// 自動リフレーム。samples の各行は [time, x, y, confidence]
+private struct StoredReframe: Codable {
+    var enabled: Bool
+    var smoothing: Double
+    var zoom: Double
+    var samples: [[Double]]
+
+    init(_ t: ReframeTrack) {
+        enabled = t.enabled
+        smoothing = t.smoothing
+        zoom = t.zoom
+        samples = t.samples.map { (s: ReframeSample) -> [Double] in
+            [compactNumber(s.time), compactNumber(s.center.x), compactNumber(s.center.y), compactNumber(s.confidence)]
+        }
+    }
+
+    var value: ReframeTrack {
+        let defaults = ReframeTrack()
+        var t = ReframeTrack()
+        t.enabled = enabled
+        t.smoothing = smoothing.isFinite ? min(max(smoothing, 0), 1) : defaults.smoothing
+        t.zoom = (zoom.isFinite && zoom > 0) ? zoom : defaults.zoom
+        var restored: [ReframeSample] = []
+        restored.reserveCapacity(samples.count)
+        for row in samples where row.count >= 4 {
+            let point = NormalizedPoint(x: row[1], y: row[2])
+            restored.append(ReframeSample(time: row[0], center: point, confidence: row[3]))
+        }
+        restored.sort { $0.time < $1.time }
+        t.samples = restored
+        return t
+    }
+}
+
+/// 手ぶれ補正。samples の各行は [time, dx, dy, rotation]
+private struct StoredStabilization: Codable {
+    var enabled: Bool
+    var strength: Double
+    var cropZoom: Double
+    var samples: [[Double]]
+
+    init(_ t: StabilizationTrack) {
+        enabled = t.enabled
+        strength = t.strength
+        cropZoom = t.cropZoom
+        samples = t.samples.map { (s: StabilizationSample) -> [Double] in
+            [compactNumber(s.time), compactNumber(s.dx), compactNumber(s.dy), compactNumber(s.rotation)]
+        }
+    }
+
+    var value: StabilizationTrack {
+        let defaults = StabilizationTrack()
+        var t = StabilizationTrack()
+        t.enabled = enabled
+        t.strength = strength.isFinite ? min(max(strength, 0), 1) : defaults.strength
+        t.cropZoom = (cropZoom.isFinite && cropZoom >= 1) ? cropZoom : defaults.cropZoom
+        var restored: [StabilizationSample] = []
+        restored.reserveCapacity(samples.count)
+        for row in samples where row.count >= 4 {
+            restored.append(StabilizationSample(time: row[0], dx: row[1], dy: row[2], rotation: row[3]))
+        }
+        restored.sort { $0.time < $1.time }
+        t.samples = restored
+        return t
+    }
+}
+
+/// ノイズ除去・美肌・簡易高画質化
+private struct StoredEnhance: Codable {
+    var denoise: Double
+    var retouch: Double
+    var sharpenUpscale: Double
+
+    init(_ e: ClipEnhancements) {
+        denoise = e.denoise
+        retouch = e.retouch
+        sharpenUpscale = e.sharpenUpscale
+    }
+
+    var value: ClipEnhancements {
+        var e = ClipEnhancements()
+        e.denoise = denoise.isFinite ? min(max(denoise, 0), 1) : 0
+        e.retouch = retouch.isFinite ? min(max(retouch, 0), 1) : 0
+        e.sharpenUpscale = sharpenUpscale.isFinite ? min(max(sharpenUpscale, 0), 1) : 0
+        return e
+    }
+}
+
+/// 写真の 3D ズーム(クリップ・オーバーレイ共通)
+private struct StoredParallax: Codable {
+    var enabled: Bool
+    var strength: Double
+    var direction: String
+
+    init(_ p: DepthParallax) {
+        enabled = p.enabled
+        strength = p.strength
+        direction = p.direction.rawValue
+    }
+
+    var value: DepthParallax {
+        let defaults = DepthParallax()
+        var p = DepthParallax()
+        p.enabled = enabled
+        p.strength = strength.isFinite ? min(max(strength, 0), 1) : defaults.strength
+        p.direction = ParallaxDirection(rawValue: direction) ?? defaults.direction
+        return p
+    }
+}
+
 private struct StoredClip: Codable {
     var id: UUID
     var file: String
@@ -1093,6 +1252,12 @@ private struct StoredClip: Codable {
     var isReversed: Bool?
     var reversedFile: String?
     var stillImageFile: String?
+    // 第4弾(すべて省略可能)
+    var mask: StoredMask?
+    var reframe: StoredReframe?
+    var stabilization: StoredStabilization?
+    var enhance: StoredEnhance?
+    var parallax: StoredParallax?
 
     init(_ c: Clip) {
         id = c.id
@@ -1125,6 +1290,11 @@ private struct StoredClip: Codable {
         isReversed = c.isReversed
         reversedFile = c.reversedURL?.lastPathComponent
         stillImageFile = c.stillImageURL?.lastPathComponent
+        mask = StoredMask(c.mask)
+        reframe = StoredReframe(c.reframe)
+        stabilization = StoredStabilization(c.stabilization)
+        enhance = StoredEnhance(c.enhance)
+        parallax = StoredParallax(c.parallax)
     }
 
     /// 素材ファイル(静止画クリップなら画像)が消えていれば nil
@@ -1179,6 +1349,11 @@ private struct StoredClip: Codable {
             clip.isReversed = false
         }
         clip.stillImageURL = stillURL
+        clip.mask = mask?.value ?? MaskSettings()
+        clip.reframe = reframe?.value ?? ReframeTrack()
+        clip.stabilization = stabilization?.value ?? StabilizationTrack()
+        clip.enhance = enhance?.value ?? ClipEnhancements()
+        clip.parallax = parallax?.value ?? DepthParallax()
         return clip
     }
 }
@@ -1242,6 +1417,9 @@ private struct StoredOverlay: Codable {
     // 第3弾(省略可能)
     var keyframes: [StoredKeyframe]?
     var blendMode: String?
+    // 第4弾(省略可能)
+    var mask: StoredMask?
+    var parallax: StoredParallax?
 
     init(_ o: OverlayClip) {
         id = o.id
@@ -1269,6 +1447,8 @@ private struct StoredOverlay: Codable {
         fadeOut = o.fadeOut
         keyframes = o.keyframes.map { StoredKeyframe($0) }
         blendMode = o.blendMode
+        mask = StoredMask(o.mask)
+        parallax = StoredParallax(o.parallax)
     }
 
     /// 素材ファイルが消えていれば nil
@@ -1291,6 +1471,8 @@ private struct StoredOverlay: Codable {
         o.fadeOut = fadeOut
         o.keyframes = (keyframes ?? []).map { $0.value }
         o.blendMode = blendMode
+        o.mask = mask?.value ?? MaskSettings()
+        o.parallax = parallax?.value ?? DepthParallax()
         return o
     }
 }

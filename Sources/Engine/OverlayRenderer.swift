@@ -60,8 +60,15 @@ enum OverlayRenderer {
         let sourceExtent = image.extent
         guard sourceExtent.width >= 1, sourceExtent.height >= 1, !sourceExtent.isInfinite else { return nil }
 
-        // 1. Ken Burns(ソース画像上の表示範囲。左上原点 → 左下原点)
-        if overlay.kenBurns.enabled {
+        // 1. 写真の 3D ズーム(奥行き)。有効なら Ken Burns の代わりに使う
+        if overlay.isImage, overlay.parallax.enabled {
+            let depth = DepthParallaxRenderer.depth(for: overlay.url)
+            image = DepthParallaxRenderer.render(image: image,
+                                                 depth: depth,
+                                                 parallax: overlay.parallax,
+                                                 progress: overlay.progress(at: time))
+        } else if overlay.kenBurns.enabled {
+            // 1'. Ken Burns(ソース画像上の表示範囲。左上原点 → 左下原点)
             let crop = overlay.kenBurns.crop(at: overlay.progress(at: time)).clamped()
             if !crop.isFull {
                 let cropRect = GeometryMath.rect(topLeft: crop, in: sourceExtent.size)
@@ -116,6 +123,11 @@ enum OverlayRenderer {
             placed = placed.applyingFilter("CISourceInCompositing", parameters: [
                 kCIInputBackgroundImageKey: positionedMask
             ]).cropped(to: frameRect)
+        }
+
+        // 4'. マスク(枠を基準にした形で切り抜く。回転の前なので枠と一緒に回る)
+        if overlay.mask.isActive {
+            placed = MaskRenderer.apply(overlay.mask, to: placed, frameRect: frameRect)
         }
 
         // 5. 回転(枠の中心まわり)
@@ -180,10 +192,15 @@ enum OverlayRenderer {
 
     /// 写真を読み込みサイズ(キャンバス長辺の 1.5 倍、最大 4096)で一度だけ読み込む
     static func cachedImage(url: URL, canvasSize: CGSize) -> CIImage? {
-        let maxPixel = loadPixelSize(canvasSize: canvasSize)
-        let key = "\(url.path)|\(maxPixel)" as NSString
+        cachedImage(url: url, maxPixel: loadPixelSize(canvasSize: canvasSize))
+    }
+
+    /// 写真を長辺 maxPixel 以下(向き反映済み)で一度だけ読み込む(url + maxPixel ごとにキャッシュ)
+    static func cachedImage(url: URL, maxPixel: Int) -> CIImage? {
+        let pixel = max(16, min(8192, maxPixel))
+        let key = "\(url.path)|\(pixel)" as NSString
         if let cached = imageCache.object(forKey: key) { return cached }
-        guard let cg = MediaStore.loadImage(url: url, maxPixel: CGFloat(maxPixel)) else { return nil }
+        guard let cg = MediaStore.loadImage(url: url, maxPixel: CGFloat(pixel)) else { return nil }
         let image = CIImage(cgImage: cg)
         imageCache.setObject(image, forKey: key)
         return image

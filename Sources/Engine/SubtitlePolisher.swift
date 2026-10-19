@@ -145,6 +145,38 @@ enum SubtitlePolisher {
         return count > 0 ? result : nil
     }
 
+    /// 文章(字幕をつないだものなど)を日本語 2〜3 文に要約する。
+    /// エンジンが無い / 失敗したときは nil(例外は投げない)
+    static func summarize(_ text: String, settings: AppSettings) async -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let engine = resolveEngine(settings: settings)
+        guard engine != .none else { return nil }
+        setLastError(nil)
+
+        let limit = (engine == .onDevice) ? 2500 : 12000
+        let body = trimmed.count > limit ? String(trimmed.prefix(limit)) : trimmed
+        let instructions = """
+        あなたは動画の内容を短く伝える編集者です。与えられた文章(動画の字幕をつないだもの)を、日本語で 2〜3 文(合計 120 文字以内)に要約します。
+        - 事実関係を変えない。文章に無い情報は足さない
+        - 出力は JSON オブジェクトのみ。形式: {"summary":"要約"}
+        """
+        let prompt = "次の文章を要約してください。\n\n" + body
+        guard let raw = await generate(engine: engine, instructions: instructions, prompt: prompt,
+                                       apiKey: settings.openAIKey) else { return nil }
+        if Task.isCancelled { return nil }
+        if let object = extractJSON(raw) as? [String: Any] {
+            for key in ["summary", "text", "result", "output"] {
+                if let value = object[key] as? String {
+                    let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !cleaned.isEmpty { return cleaned }
+                }
+            }
+        }
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
     // MARK: - プロンプト
 
     private static func polishInstructions(language: TranscriptionLanguage) -> String {
@@ -370,7 +402,9 @@ enum SubtitlePolisher {
         return nil
     }
 
-    private static func extractJSON(_ raw: String) -> Any? {
+    /// 応答テキストから JSON(オブジェクトか配列)を取り出す。コードフェンスや前後の説明文があっても可。
+    /// ScriptWriter など他の AI 機能からも使う
+    static func extractJSON(_ raw: String) -> Any? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("```") {
             if let firstNewline = text.firstIndex(of: "\n") {

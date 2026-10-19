@@ -27,6 +27,8 @@ struct EditorToolItem: Identifiable {
         case replaceMedia
         /// 動画から音声だけを取り出してナレーションにする PhotosPicker(動画 1 本)
         case extractAudio
+        /// 写真を複数選んでスライドショーを作る PhotosPicker(第4弾)
+        case addSlideshow
     }
 
     let id: String
@@ -73,6 +75,11 @@ struct EditorToolItem: Identifiable {
     static func extractAudio(_ title: String, systemImage: String, enabled: Bool = true) -> EditorToolItem {
         EditorToolItem(pickerTitle: title, systemImage: systemImage, enabled: enabled, kind: .extractAudio)
     }
+
+    /// 写真を複数選んでスライドショーを作るボタン
+    static func addSlideshow(_ title: String, systemImage: String, enabled: Bool = true) -> EditorToolItem {
+        EditorToolItem(pickerTitle: title, systemImage: systemImage, enabled: enabled, kind: .addSlideshow)
+    }
 }
 
 struct EditorToolbar: View {
@@ -87,6 +94,8 @@ struct EditorToolbar: View {
     @Binding var replacePickerItem: PhotosPickerItem?
     /// 「音声抽出」で選ばれた動画
     @Binding var extractAudioPickerItem: PhotosPickerItem?
+    /// 「スライドショー」で選ばれた写真
+    @Binding var slideshowPickerItems: [PhotosPickerItem]
 
     /// 右端(親指側)に寄せる、よく使う項目
     private static let priorityTitles: [String] = ["テキスト", "削除", "分割"]
@@ -206,6 +215,16 @@ struct EditorToolbar: View {
         case .extractAudio:
             PhotosPicker(selection: $extractAudioPickerItem,
                          matching: .videos,
+                         preferredItemEncoding: .current) {
+                label(item)
+            }
+            .buttonStyle(.plain)
+            .disabled(!item.isEnabled)
+        case .addSlideshow:
+            PhotosPicker(selection: $slideshowPickerItems,
+                         maxSelectionCount: nil,
+                         selectionBehavior: .ordered,
+                         matching: .images,
                          preferredItemEncoding: .current) {
                 label(item)
             }

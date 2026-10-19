@@ -230,6 +230,29 @@ enum FilterEngine {
         }
     }
 
+    /// 「画質」パネル用のサムネイル(ノイズ除去 → 美肌 → フィルタ → 簡易高画質化。コンポジタと同じ順)
+    static func previewEnhance(_ image: UIImage, enhance: ClipEnhancements,
+                               settings: FilterSettings = FilterSettings()) -> UIImage? {
+        renderPreview(image) { input in
+            var output = EnhanceFilters.applyPreFilters(enhance, to: input)
+            output = apply(settings, to: output)
+            if enhance.sharpenUpscale > 0.001 {
+                output = EnhanceFilters.sharpen(output, amount: enhance.sharpenUpscale, upscaled: false)
+            }
+            return output
+        }
+    }
+
+    /// 「マスク」パネル用のサムネイル(キャンバス比率の画像にマスクを掛ける。外は黒)
+    static func previewMask(_ image: UIImage, mask: MaskSettings) -> UIImage? {
+        renderPreview(image) { input in
+            let extent = input.extent
+            guard mask.isActive, !extent.isInfinite, !extent.isEmpty else { return input }
+            let black = CIImage(color: CIColor.black).cropped(to: extent)
+            return MaskRenderer.apply(mask, to: input, canvasSize: extent.size).composited(over: black)
+        }
+    }
+
     // MARK: - 内部
 
     private static func renderPreview(_ image: UIImage, _ process: (CIImage) -> CIImage) -> UIImage? {

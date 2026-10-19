@@ -97,6 +97,30 @@ enum EditorPanel: Hashable {
     case formatKit
     case textToSpeech
 
+    // ---- 第4弾: クリップ ----
+    /// マスク(形・大きさ・ぼかし。中心はプレビュー上でドラッグ)
+    case mask(UUID)
+    /// 自動リフレーム(人物追尾の解析と設定)
+    case autoReframe(UUID)
+    /// 手ぶれ補正(解析と強さ)
+    case stabilize(UUID)
+    /// 画質(ノイズ除去・美肌・簡易高画質化)
+    case enhance(UUID)
+    /// 静止画クリップの 3D ズーム(奥行き視差)
+    case parallax(UUID)
+
+    // ---- 第4弾: オーバーレイ ----
+    case overlayMask(UUID)
+    case overlayParallax(UUID)
+
+    // ---- 第4弾: トラッキング(プレビューで対象を囲む → キーフレーム) ----
+    case textTracking(UUID)
+    case overlayTracking(UUID)
+
+    // ---- 第4弾: ルート ----
+    /// おまかせ編集のテンプレート一覧
+    case autoEditTemplates
+
     var title: String {
         switch self {
         case .speed: return "速度"
@@ -144,6 +168,13 @@ enum EditorPanel: Hashable {
         case .watermark: return "透かし"
         case .formatKit: return "フォーマット"
         case .textToSpeech: return "読み上げ"
+        case .mask, .overlayMask: return "マスク"
+        case .autoReframe: return "自動リフレーム"
+        case .stabilize: return "手ぶれ補正"
+        case .enhance: return "画質"
+        case .parallax, .overlayParallax: return "3Dズーム"
+        case .textTracking, .overlayTracking: return "トラッキング"
+        case .autoEditTemplates: return "テンプレート"
         }
     }
 
@@ -154,11 +185,14 @@ enum EditorPanel: Hashable {
         case .colorAdjust, .overlayPlacement: return 320
         case .overlayKenBurns, .narrationRecord: return 280
         case .jlCut: return 250
-        case .textStyle, .formatKit: return 360
+        case .textStyle, .formatKit, .autoEditTemplates: return 360
+        case .mask, .overlayMask: return 340
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
-             .overlayKeyframes, .watermark, .textToSpeech, .sticker, .captionTemplate: return 320
+             .overlayKeyframes, .watermark, .textToSpeech, .sticker, .captionTemplate,
+             .autoReframe, .enhance: return 320
         case .transition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
-             .narrationEffects, .drawingStyle, .drawingCanvas: return 280
+             .narrationEffects, .drawingStyle, .drawingCanvas,
+             .stabilize, .parallax, .overlayParallax, .textTracking, .overlayTracking: return 280
         default: return 220
         }
     }
@@ -168,7 +202,8 @@ enum EditorPanel: Hashable {
         switch self {
         case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id),
              .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
-             .audioEffects(let id), .beatDetect(let id), .hsl(let id), .lut(let id), .colorMatch(let id):
+             .audioEffects(let id), .beatDetect(let id), .hsl(let id), .lut(let id), .colorMatch(let id),
+             .mask(let id), .autoReframe(let id), .stabilize(let id), .enhance(let id), .parallax(let id):
             return selection == .clip(id)
         case .textEdit(let id):
             return selection == .subtitle(id)
@@ -179,11 +214,13 @@ enum EditorPanel: Hashable {
         case .bgmVolume:
             return selection == .bgm
         case .overlayPlacement(let id), .overlayKenBurns(let id), .overlayVolume(let id),
-             .overlaySpeed(let id), .overlayFilter(let id), .overlayKeyframes(let id), .overlayBlend(let id):
+             .overlaySpeed(let id), .overlayFilter(let id), .overlayKeyframes(let id), .overlayBlend(let id),
+             .overlayMask(let id), .overlayParallax(let id), .overlayTracking(let id):
             return selection == .overlay(id)
         case .narrationVolume(let id), .narrationEffects(let id):
             return selection == .narration(id)
-        case .textStyle(let id), .textAnimation(let id), .textPlacement(let id), .textKeyframes(let id):
+        case .textStyle(let id), .textAnimation(let id), .textPlacement(let id), .textKeyframes(let id),
+             .textTracking(let id):
             return selection == .text(id)
         case .drawingStyle(let id), .drawingTiming(let id):
             return selection == .drawing(id)
@@ -193,7 +230,7 @@ enum EditorPanel: Hashable {
             // ルートからも、クリップ選択中(選択範囲を保存)からも開ける
             return selection == nil || selection?.clipID != nil
         case .documentary, .titleCard, .lowerThird, .narrationRecord,
-             .sticker, .drawingCanvas, .watermark, .textToSpeech:
+             .sticker, .drawingCanvas, .watermark, .textToSpeech, .autoEditTemplates:
             // ルート(何も選択していない)ツールバーから開くパネル
             return selection == nil
         }
