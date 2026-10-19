@@ -29,6 +29,10 @@ struct ContentView: View {
     @State private var pickerItems: [PhotosPickerItem] = []
     /// 「オーバーレイ」で選んだ動画・写真
     @State private var overlayPickerItems: [PhotosPickerItem] = []
+    /// 「置き換え」で選んだ動画
+    @State private var replacePickerItem: PhotosPickerItem?
+    /// 「音声抽出」で選んだ動画
+    @State private var extractAudioPickerItem: PhotosPickerItem?
     @State private var isImporting = false
     @State private var importDone = 0
     @State private var importTotal = 0
@@ -40,7 +44,15 @@ struct ContentView: View {
     /// 無音カット・音量そろえの進捗(nil なら実行中でない)
     @State private var audioToolProgress: AudioToolProgress?
     @State private var audioToolTask: Task<Void, Never>?
+    /// 逆再生の作成・フリーズフレーム・音声抽出の進捗(nil なら実行中でない)
+    @State private var mediaToolProgress: ClipFXProgress?
+    @State private var mediaToolTask: Task<Void, Never>?
     @State private var isKeyboardVisible = false
+
+    /// 手書き(新規作成中)の下書き
+    @State private var draftStrokes: [DrawingStroke] = []
+    @State private var drawingColorHex = "#FF4D4D"
+    @State private var drawingWidth: Double = 0.012
 
     init(projectID: UUID, onClose: @escaping () -> Void) {
         self.projectID = projectID
@@ -53,6 +65,12 @@ struct ContentView: View {
         case subtitles
         case audio
         case export
+        /// スコープ(ヒストグラム・波形)
+        case scopes(UUID)
+        /// サムネ(カバー画像)作成
+        case coverMaker
+        /// 前回の書き出しと比較
+        case compare
 
         var id: String {
             switch self {
@@ -61,6 +79,9 @@ struct ContentView: View {
             case .subtitles: return "subtitles"
             case .audio: return "audio"
             case .export: return "export"
+            case .scopes(let clipID): return "scopes-\(clipID.uuidString)"
+            case .coverMaker: return "cover"
+            case .compare: return "compare"
             }
         }
     }
@@ -89,6 +110,12 @@ struct ContentView: View {
                     audioToolTask?.cancel()
                 }
             }
+
+            if let progress = mediaToolProgress {
+                ClipFXProgressOverlay(progress: progress) {
+                    mediaToolTask?.cancel()
+                }
+            }
         }
         .preferredColorScheme(.dark)
         .onChange(of: pickerItems) { _, newItems in
@@ -102,6 +129,17 @@ struct ContentView: View {
             let items = newItems
             overlayPickerItems = []
             Task { await importOverlayItems(items) }
+        }
+        .onChange(of: replacePickerItem) { _, newItem in
+            guard let item = newItem else { return }
+            replacePickerItem = nil
+            guard let clipID = selection?.clipID else { return }
+            Task { await replaceClip(clipID, with: item) }
+        }
+        .onChange(of: extractAudioPickerItem) { _, newItem in
+            guard let item = newItem else { return }
+            extractAudioPickerItem = nil
+            Task { await extractAudio(from: item) }
         }
         .onChange(of: project.snapshot()) { _, newSnapshot in
             player.update(with: newSnapshot)
@@ -135,6 +173,8 @@ struct ContentView: View {
             isKeyboardVisible = false
         }
         .onAppear {
+            // 読み込んだフォントをテキスト描画の前に登録しておく(起動時にも呼ばれるが、念のため)
+            MediaTools.registerStoredFonts()
             if !didRestore {
                 didRestore = true
                 if let saved = ProjectStore.load(projectID: projectID) {
@@ -158,7 +198,7 @@ struct ContentView: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーションはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
+            Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーション・テキスト・手書き・マーカーはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
         .alert("お知らせ", isPresented: alertIsPresented) {
             Button("OK", role: .cancel) {}
@@ -277,15 +317,29 @@ struct ContentView: View {
 
     // MARK: - 編集画面
 
+    private var isDrawingNew: Bool { activePanel == .drawingCanvas }
+
     private var editor: some View {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 PreviewView(player: player)
+                    .overlay {
+                        // 映像の表示領域(アスペクトフィット後)にぴったり重なる
+                        if isDrawingNew {
+                            DrawingCanvasView(strokes: $draftStrokes,
+                                              colorHex: drawingColorHex,
+                                              width: drawingWidth)
+                        } else {
+                            PreviewGestureOverlay(project: project, history: history, selection: selection)
+                        }
+                    }
                     .frame(maxWidth: .infinity, minHeight: 100, maxHeight: max(100, geo.size.height * 0.45))
                     .background(Color.black)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        player.togglePlay()
+                        if !isDrawingNew {
+                            player.togglePlay()
+                        }
                     }
                     .layoutPriority(1)
 
@@ -361,7 +415,7 @@ struct ContentView: View {
         ZStack(alignment: .bottom) {
             if let panel = activePanel {
                 EditorPanelContainer(title: panel.title, height: panel.height, onClose: {
-                    activePanel = nil
+                    closePanel(panel)
                 }) {
                     panelContent(panel)
                 }
@@ -370,7 +424,9 @@ struct ContentView: View {
                 EditorToolbar(items: toolbarItems,
                               onBack: backAction,
                               pickerItems: $pickerItems,
-                              overlayPickerItems: $overlayPickerItems)
+                              overlayPickerItems: $overlayPickerItems,
+                              replacePickerItem: $replacePickerItem,
+                              extractAudioPickerItem: $extractAudioPickerItem)
                     .transition(.opacity)
             }
         }
@@ -404,6 +460,15 @@ struct ContentView: View {
         return { selection = nil }
     }
 
+    /// パネルの ✓(完了)。手書き中なら描いた線を追加してから閉じる
+    private func closePanel(_ panel: EditorPanel) {
+        if panel == .drawingCanvas {
+            finishDrawing()
+        } else {
+            activePanel = nil
+        }
+    }
+
     @ViewBuilder
     private func panelContent(_ panel: EditorPanel) -> some View {
         switch panel {
@@ -433,6 +498,8 @@ struct ContentView: View {
             }
         case .subtitleStyle:
             EditorSubtitleStylePanel(project: project)
+        case .captionTemplate:
+            EditorCaptionTemplatePanel(project: project)
         case .aspect:
             EditorAspectPanel(project: project)
         case .bgmVolume:
@@ -463,6 +530,100 @@ struct ContentView: View {
             } else {
                 EditorMissingPanelContent()
             }
+
+        // ---- 第3弾: クリップ ----
+        case .transition(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorTransitionPanel(project: project, clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .clipAnimation(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorClipAnimationPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .geometry(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorGeometryPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .speedCurve(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorSpeedCurvePanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .audioEffects(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorAudioEffectsPanel(url: clip.wrappedValue.url,
+                                        name: clip.wrappedValue.name,
+                                        effects: clip.audio.effects)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .beatDetect(let clipID):
+            EditorBeatDetectPanel(project: project, history: history, clipID: clipID)
+        case .hsl(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorHSLPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .lut(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorLUTPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .colorMatch(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorColorMatchPanel(project: project, clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+
+        // ---- 第3弾: テキスト ----
+        case .textStyle(let textID):
+            if let text = project.textClipBinding(id: textID) {
+                EditorTextStylePanel(text: text)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .textAnimation(let textID):
+            if let text = project.textClipBinding(id: textID) {
+                EditorTextAnimationPanel(text: text)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .textPlacement(let textID):
+            if let text = project.textClipBinding(id: textID) {
+                EditorTextPlacementPanel(text: text)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .textKeyframes(let textID):
+            if let text = project.textClipBinding(id: textID) {
+                let current = text.wrappedValue
+                EditorKeyframePanel(player: player,
+                                    start: current.start,
+                                    duration: current.duration,
+                                    currentValue: KeyframeInterpolator.Value(center: current.center,
+                                                                             scale: current.scale,
+                                                                             rotation: current.rotation,
+                                                                             opacity: current.opacity),
+                                    keyframes: text.keyframes)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .sticker:
+            EditorStickerPanel { emoji in
+                addSticker(emoji)
+            }
+
+        // ---- 第3弾: オーバーレイ ----
         case .overlayPlacement(let overlayID):
             if let overlay = project.overlayBinding(id: overlayID) {
                 EditorOverlayPlacementPanel(project: project, overlay: overlay)
@@ -493,9 +654,40 @@ struct ContentView: View {
             } else {
                 EditorMissingPanelContent()
             }
+        case .overlayKeyframes(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                let current = overlay.wrappedValue
+                EditorKeyframePanel(player: player,
+                                    start: current.start,
+                                    duration: current.duration,
+                                    currentValue: KeyframeInterpolator.Value(center: NormalizedPoint(x: current.frame.midX,
+                                                                                                     y: current.frame.midY),
+                                                                             scale: 1,
+                                                                             rotation: 0,
+                                                                             opacity: current.opacity),
+                                    keyframes: overlay.keyframes)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlayBlend(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayBlendPanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+
+        // ---- ナレーション ----
         case .narrationVolume(let narrationID):
             if let narration = project.narrationBinding(id: narrationID) {
                 EditorNarrationVolumePanel(narration: narration)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .narrationEffects(let narrationID):
+            if let narration = project.narrationBinding(id: narrationID) {
+                EditorAudioEffectsPanel(url: narration.wrappedValue.url,
+                                        name: narration.wrappedValue.name,
+                                        effects: narration.effects)
             } else {
                 EditorMissingPanelContent()
             }
@@ -504,6 +696,54 @@ struct ContentView: View {
                                        player: player,
                                        history: history,
                                        onRecorded: { id in selection = .narration(id) })
+
+        // ---- 第3弾: 手書き ----
+        case .drawingCanvas:
+            EditorDrawingToolsPanel(strokes: $draftStrokes,
+                                    colorHex: $drawingColorHex,
+                                    width: $drawingWidth,
+                                    onFinish: { finishDrawing() },
+                                    onCancel: { cancelDrawing() })
+        case .drawingStyle(let drawingID):
+            if let drawing = project.drawingBinding(id: drawingID) {
+                EditorDrawingStylePanel(drawing: drawing)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .drawingTiming(let drawingID):
+            if let drawing = project.drawingBinding(id: drawingID) {
+                EditorDrawingTimingPanel(drawing: drawing, player: player)
+            } else {
+                EditorMissingPanelContent()
+            }
+
+        // ---- 第3弾: マーカー ----
+        case .markerName(let markerID):
+            if let marker = project.markerBinding(id: markerID) {
+                EditorMarkerNamePanel(project: project, player: player, marker: marker)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .markerKind(let markerID):
+            if let marker = project.markerBinding(id: markerID) {
+                EditorMarkerKindPanel(marker: marker)
+            } else {
+                EditorMissingPanelContent()
+            }
+
+        // ---- 第3弾: ルート ----
+        case .watermark:
+            EditorWatermarkPanel(project: project)
+        case .formatKit:
+            EditorFormatKitPanel(project: project,
+                                 player: player,
+                                 history: history,
+                                 selectedClipID: selection?.clipID)
+        case .textToSpeech:
+            EditorTextToSpeechPanel(project: project,
+                                    player: player,
+                                    history: history,
+                                    onAdded: { id in selection = .narration(id) })
         }
     }
 
@@ -551,6 +791,12 @@ struct ContentView: View {
             return overlayItems(overlayID)
         case .narration(let narrationID):
             return narrationItems(narrationID)
+        case .text(let textID):
+            return textItems(textID)
+        case .drawing(let drawingID):
+            return drawingItems(drawingID)
+        case .marker(let markerID):
+            return markerItems(markerID)
         }
     }
 
@@ -572,6 +818,18 @@ struct ContentView: View {
                 activeSheet = .audio
             },
             EditorToolItem("テキスト", systemImage: "textformat") {
+                addTextAtPlayhead()
+            },
+            EditorToolItem("ステッカー", systemImage: "face.smiling") {
+                openPanel(.sticker)
+            },
+            EditorToolItem("手書き", systemImage: "pencil.tip.crop.circle") {
+                startDrawing()
+            },
+            EditorToolItem("マーカー", systemImage: "flag") {
+                addMarkerAtPlayhead()
+            },
+            EditorToolItem("字幕", systemImage: "captions.bubble") {
                 addSubtitleAtPlayhead()
             },
             EditorToolItem("ドキュメンタリー", systemImage: "film.stack") {
@@ -587,6 +845,17 @@ struct ContentView: View {
             EditorToolItem("ナレーション", systemImage: "mic") {
                 openPanel(.narrationRecord)
             },
+            EditorToolItem("読み上げ", systemImage: "waveform.badge.mic") {
+                openPanel(.textToSpeech)
+            },
+            EditorToolItem.extractAudio("音声抽出", systemImage: "waveform.badge.plus",
+                                        enabled: !isImporting && mediaToolProgress == nil),
+            EditorToolItem("透かし", systemImage: "seal") {
+                openPanel(.watermark)
+            },
+            EditorToolItem("フォーマット", systemImage: "rectangle.stack.badge.plus") {
+                openPanel(.formatKit)
+            },
             EditorToolItem("無音カット", systemImage: "waveform.slash", enabled: hasAudioClips) {
                 showSilenceCutConfirm = true
             },
@@ -594,7 +863,7 @@ struct ContentView: View {
                            enabled: hasAudioClips || !project.narration.isEmpty) {
                 showNormalizeConfirm = true
             },
-            EditorToolItem("自動字幕", systemImage: "captions.bubble") {
+            EditorToolItem("自動字幕", systemImage: "text.bubble") {
                 history.record(project)
                 activeSheet = .subtitles
             },
@@ -607,20 +876,41 @@ struct ContentView: View {
             EditorToolItem("比率", systemImage: "aspectratio") {
                 openPanel(.aspect)
             },
+            EditorToolItem("サムネ", systemImage: "photo.badge.plus") {
+                player.pause()
+                activePanel = nil
+                activeSheet = .coverMaker
+            },
+            EditorToolItem("比較", systemImage: "rectangle.split.2x1") {
+                player.pause()
+                activePanel = nil
+                activeSheet = .compare
+            },
             EditorToolItem.addMedia("追加", systemImage: "plus.rectangle.on.rectangle", enabled: !isImporting)
         ]
     }
 
     private func clipItems(_ clipID: UUID) -> [EditorToolItem] {
-        [
+        let clip = project.clips.first(where: { $0.id == clipID })
+        let isStill = clip?.isStill ?? false
+        let hasAudio = (clip?.hasAudio ?? false) && !isStill
+        let isReversed = clip?.isReversed ?? false
+        let busy = mediaToolProgress != nil
+        return [
             EditorToolItem("分割", systemImage: "square.split.2x1") {
                 splitClip(clipID)
             },
-            EditorToolItem("速度", systemImage: "speedometer") {
+            EditorToolItem("速度", systemImage: "speedometer", enabled: !isStill) {
                 openPanel(.speed(clipID))
             },
-            EditorToolItem("音量", systemImage: "speaker.wave.2") {
+            EditorToolItem("速度カーブ", systemImage: "waveform.path.ecg", enabled: !isStill) {
+                openPanel(.speedCurve(clipID))
+            },
+            EditorToolItem("音量", systemImage: "speaker.wave.2", enabled: hasAudio) {
                 openPanel(.volume(clipID))
+            },
+            EditorToolItem("音声効果", systemImage: "waveform.and.magnifyingglass", enabled: hasAudio) {
+                openPanel(.audioEffects(clipID))
             },
             EditorToolItem("フィルタ", systemImage: "camera.filters") {
                 openPanel(.filter(clipID))
@@ -628,8 +918,50 @@ struct ContentView: View {
             EditorToolItem("色調整", systemImage: "circle.lefthalf.filled") {
                 openPanel(.colorAdjust(clipID))
             },
-            EditorToolItem("Jカット/Lカット", systemImage: "waveform.path") {
+            EditorToolItem("自動補正", systemImage: "wand.and.stars") {
+                autoEnhance(clipID)
+            },
+            EditorToolItem("HSL", systemImage: "paintpalette") {
+                openPanel(.hsl(clipID))
+            },
+            EditorToolItem("LUT", systemImage: "cube") {
+                openPanel(.lut(clipID))
+            },
+            EditorToolItem("色合わせ", systemImage: "eyedropper.halffull", enabled: project.clips.count > 1) {
+                openPanel(.colorMatch(clipID))
+            },
+            EditorToolItem("スコープ", systemImage: "chart.bar.xaxis") {
+                player.pause()
+                activePanel = nil
+                activeSheet = .scopes(clipID)
+            },
+            EditorToolItem("トランジション", systemImage: "arrow.left.arrow.right.square") {
+                openPanel(.transition(clipID))
+            },
+            EditorToolItem("アニメーション", systemImage: "sparkles.rectangle.stack") {
+                openPanel(.clipAnimation(clipID))
+            },
+            EditorToolItem("切り抜き/回転", systemImage: "crop.rotate") {
+                openPanel(.geometry(clipID))
+            },
+            EditorToolItem(isReversed ? "逆再生を解除" : "逆再生",
+                           systemImage: isReversed ? "arrow.uturn.backward.circle.fill" : "arrow.uturn.backward.circle",
+                           enabled: !isStill && !busy) {
+                toggleReverse(clipID)
+            },
+            EditorToolItem("フリーズ", systemImage: "pause.rectangle", enabled: !isStill && !busy) {
+                freezeFrame(clipID)
+            },
+            EditorToolItem.replaceMedia("置き換え", systemImage: "arrow.triangle.2.circlepath",
+                                        enabled: !isImporting && !busy),
+            EditorToolItem("ビート検出", systemImage: "metronome", enabled: hasAudio) {
+                openPanel(.beatDetect(clipID))
+            },
+            EditorToolItem("Jカット/Lカット", systemImage: "waveform.path", enabled: hasAudio) {
                 openPanel(.jlCut(clipID))
+            },
+            EditorToolItem("フォーマット保存", systemImage: "rectangle.stack.badge.plus") {
+                openPanel(.formatKit)
             },
             EditorToolItem("複製", systemImage: "plus.square.on.square") {
                 history.record(project)
@@ -640,7 +972,7 @@ struct ContentView: View {
                 selection = nil
                 project.removeClip(id: clipID)
             },
-            EditorToolItem("マルチカメラ", systemImage: "camera.on.rectangle") {
+            EditorToolItem("マルチカメラ", systemImage: "camera.on.rectangle", enabled: !isStill) {
                 history.record(project)
                 activeSheet = .multicam(clipID)
             },
@@ -656,6 +988,12 @@ struct ContentView: View {
         var items: [EditorToolItem] = [
             EditorToolItem("配置", systemImage: "rectangle.on.rectangle") {
                 openPanel(.overlayPlacement(overlayID))
+            },
+            EditorToolItem("キーフレーム", systemImage: "diamond") {
+                openPanel(.overlayKeyframes(overlayID))
+            },
+            EditorToolItem("ブレンド", systemImage: "circle.lefthalf.striped.horizontal") {
+                openPanel(.overlayBlend(overlayID))
             },
             EditorToolItem("ケン・バーンズ", systemImage: "arrow.up.left.and.arrow.down.right") {
                 openPanel(.overlayKenBurns(overlayID))
@@ -688,6 +1026,9 @@ struct ContentView: View {
             EditorToolItem("音量", systemImage: "speaker.wave.2") {
                 openPanel(.narrationVolume(narrationID))
             },
+            EditorToolItem("音声効果", systemImage: "waveform.and.magnifyingglass") {
+                openPanel(.narrationEffects(narrationID))
+            },
             EditorToolItem("音量そろえ", systemImage: "waveform") {
                 startNormalize(clipIDs: [], narrationIDs: [narrationID])
             },
@@ -707,12 +1048,15 @@ struct ContentView: View {
             EditorToolItem("スタイル", systemImage: "textformat.size") {
                 openPanel(.subtitleStyle)
             },
+            EditorToolItem("テンプレート", systemImage: "rectangle.3.group") {
+                openPanel(.captionTemplate)
+            },
             EditorToolItem("削除", systemImage: "trash", destructive: true) {
                 history.record(project)
                 selection = nil
                 project.removeSubtitle(id: cueID)
             },
-            EditorToolItem("自動字幕", systemImage: "captions.bubble") {
+            EditorToolItem("自動字幕", systemImage: "text.bubble") {
                 history.record(project)
                 activeSheet = .subtitles
             }
@@ -733,6 +1077,64 @@ struct ContentView: View {
                 selection = nil
                 project.audio.bgmURL = nil
                 project.audio.bgmName = nil
+            }
+        ]
+    }
+
+    private func textItems(_ textID: UUID) -> [EditorToolItem] {
+        let isSticker = project.textClips.first(where: { $0.id == textID })?.isSticker ?? false
+        return [
+            EditorToolItem(isSticker ? "ステッカー編集" : "テキスト編集", systemImage: "pencil") {
+                openPanel(.textStyle(textID))
+            },
+            EditorToolItem("アニメーション", systemImage: "sparkles") {
+                openPanel(.textAnimation(textID))
+            },
+            EditorToolItem("配置", systemImage: "arrow.up.and.down.and.arrow.left.and.right") {
+                openPanel(.textPlacement(textID))
+            },
+            EditorToolItem("キーフレーム", systemImage: "diamond") {
+                openPanel(.textKeyframes(textID))
+            },
+            EditorToolItem("複製", systemImage: "plus.square.on.square") {
+                duplicateText(textID)
+            },
+            EditorToolItem("削除", systemImage: "trash", destructive: true) {
+                history.record(project)
+                selection = nil
+                project.removeTextClip(id: textID)
+            }
+        ]
+    }
+
+    private func drawingItems(_ drawingID: UUID) -> [EditorToolItem] {
+        [
+            EditorToolItem("色・太さ", systemImage: "paintbrush.pointed") {
+                openPanel(.drawingStyle(drawingID))
+            },
+            EditorToolItem("表示時間", systemImage: "clock") {
+                openPanel(.drawingTiming(drawingID))
+            },
+            EditorToolItem("削除", systemImage: "trash", destructive: true) {
+                history.record(project)
+                selection = nil
+                project.removeDrawing(id: drawingID)
+            }
+        ]
+    }
+
+    private func markerItems(_ markerID: UUID) -> [EditorToolItem] {
+        [
+            EditorToolItem("名前", systemImage: "character.cursor.ibeam") {
+                openPanel(.markerName(markerID))
+            },
+            EditorToolItem("種類", systemImage: "flag") {
+                openPanel(.markerKind(markerID))
+            },
+            EditorToolItem("削除", systemImage: "trash", destructive: true) {
+                history.record(project)
+                selection = nil
+                project.removeMarker(id: markerID)
             }
         ]
     }
@@ -761,6 +1163,12 @@ struct ContentView: View {
             AudioSettingsView(project: project)
         case .export:
             ExportView(project: project)
+        case .scopes(let clipID):
+            ScopeSheetView(player: player, clip: project.clips.first(where: { $0.id == clipID }))
+        case .coverMaker:
+            CoverMakerView(project: project)
+        case .compare:
+            CompareView(project: project, player: player)
         }
     }
 
@@ -805,6 +1213,12 @@ struct ContentView: View {
             return project.overlays.contains(where: { $0.id == overlayID })
         case .narration(let narrationID):
             return project.narration.contains(where: { $0.id == narrationID })
+        case .text(let textID):
+            return project.textClips.contains(where: { $0.id == textID })
+        case .drawing(let drawingID):
+            return project.drawings.contains(where: { $0.id == drawingID })
+        case .marker(let markerID):
+            return project.markers.contains(where: { $0.id == markerID })
         }
     }
 
@@ -827,6 +1241,94 @@ struct ContentView: View {
         history.record(project)
         let cue = project.addSubtitle(at: player.currentTime)
         selection = .subtitle(cue.id)
+    }
+
+    // MARK: テキスト / ステッカー
+
+    /// 再生位置にテキストレイヤーを追加して選択し、テキスト編集パネルを開く
+    private func addTextAtPlayhead() {
+        history.record(project)
+        let clip = TextClip(text: "テキスト", start: max(0, player.currentTime))
+        project.textClips.append(clip)
+        project.sortTextClips()
+        selection = .text(clip.id)
+        // 履歴は追加前に記録済みなので openPanel は使わない
+        activePanel = .textStyle(clip.id)
+    }
+
+    /// 絵文字ステッカーを再生位置に追加して選択する(ステッカーパネルは選択の変化で閉じる)
+    private func addSticker(_ emoji: String) {
+        history.record(project)
+        var clip = TextClip(text: emoji, start: max(0, player.currentTime))
+        clip.isSticker = true
+        clip.widthRatio = 0.3
+        clip.style.sizeRatio = 0.18
+        clip.style.bold = false
+        clip.style.shadow.enabled = false
+        clip.style.backgroundColorHex = nil
+        clip.style.strokeColorHex = nil
+        project.textClips.append(clip)
+        project.sortTextClips()
+        selection = .text(clip.id)
+    }
+
+    /// 選択中のテキストを複製して直後に置き、複製を選択する
+    private func duplicateText(_ textID: UUID) {
+        guard let original = project.textClips.first(where: { $0.id == textID }) else { return }
+        history.record(project)
+        var copy = original
+        copy.id = UUID()
+        copy.start = original.end
+        copy.keyframes = original.keyframes.map { keyframe in
+            var k = keyframe
+            k.id = UUID()
+            return k
+        }
+        project.textClips.append(copy)
+        project.sortTextClips()
+        selection = .text(copy.id)
+    }
+
+    // MARK: 手書き
+
+    /// 新しい手書きを始める(プレビューにキャンバスを重ね、下部に道具を出す)
+    private func startDrawing() {
+        player.pause()
+        draftStrokes = []
+        selection = nil
+        // 履歴は「完了」で追加するときに記録する
+        activePanel = .drawingCanvas
+    }
+
+    /// 描いた線を再生位置の手書きとして追加する
+    private func finishDrawing() {
+        let strokes = draftStrokes
+        draftStrokes = []
+        activePanel = nil
+        guard !strokes.isEmpty else { return }
+        history.record(project)
+        let drawing = DrawingClip(start: max(0, player.currentTime), strokes: strokes)
+        project.drawings.append(drawing)
+        project.drawings.sort { $0.start < $1.start }
+        selection = .drawing(drawing.id)
+    }
+
+    private func cancelDrawing() {
+        draftStrokes = []
+        activePanel = nil
+    }
+
+    // MARK: マーカー
+
+    /// 再生位置にマーカーを追加して選択し、名前のパネルを開く
+    private func addMarkerAtPlayhead() {
+        history.record(project)
+        let marker = TimelineMarker(time: max(0, player.currentTime), name: "", kind: .note)
+        project.markers.append(marker)
+        project.sortMarkers()
+        selection = .marker(marker.id)
+        // 履歴は追加前に記録済みなので openPanel は使わない
+        activePanel = .markerName(marker.id)
     }
 
     // MARK: 章タイトル / テロップ
@@ -948,6 +1450,224 @@ struct ContentView: View {
         }
     }
 
+    // MARK: 逆再生 / フリーズ / 自動補正
+
+    /// 逆再生の切り替え。逆再生ファイルがまだなければ作ってから有効にする(解除してもファイルは残す)
+    private func toggleReverse(_ clipID: UUID) {
+        guard let i = project.index(of: clipID) else { return }
+        let clip = project.clips[i]
+        if clip.isReversed {
+            history.record(project)
+            project.clips[i].isReversed = false
+            return
+        }
+        if clip.reversedURL != nil {
+            history.record(project)
+            project.clips[i].isReversed = true
+            return
+        }
+        player.pause()
+        mediaToolTask?.cancel()
+        mediaToolTask = Task { @MainActor in
+            mediaToolProgress = ClipFXProgress(title: "逆再生の動画を作成中", fraction: 0)
+            do {
+                // 元素材全体を逆再生にする(トリミング範囲を後で変えても使えるように)
+                let url = try await MediaTools.reversedCopy(of: clip.url, start: 0, end: clip.duration, progress: { value in
+                    DispatchQueue.main.async {
+                        if mediaToolProgress != nil {
+                            mediaToolProgress?.fraction = value
+                        }
+                    }
+                })
+                mediaToolProgress = nil
+                if Task.isCancelled {
+                    try? FileManager.default.removeItem(at: url)
+                    return
+                }
+                guard let j = project.index(of: clipID) else {
+                    try? FileManager.default.removeItem(at: url)
+                    return
+                }
+                history.record(project)
+                project.clips[j].reversedURL = url
+                project.clips[j].isReversed = true
+            } catch is CancellationError {
+                mediaToolProgress = nil
+            } catch {
+                mediaToolProgress = nil
+                if !Task.isCancelled {
+                    alertMessage = "逆再生の動画を作成できませんでした。\n\(error.localizedDescription)"
+                }
+            }
+            mediaToolTask = nil
+        }
+    }
+
+    /// 再生位置のコマを静止画クリップにして、クリップを分割した間に差し込む
+    private func freezeFrame(_ clipID: UUID) {
+        guard let location = project.locate(timelineTime: player.currentTime),
+              location.index < project.clips.count else { return }
+        let clip = project.clips[location.index]
+        guard clip.id == clipID else {
+            alertMessage = "再生位置(中央の白い線)を選択中のクリップの上に合わせてからフリーズしてください。"
+            return
+        }
+        let sourceTime = min(max(location.sourceTime, clip.startTime), clip.endTime)
+        player.pause()
+        mediaToolTask?.cancel()
+        mediaToolTask = Task { @MainActor in
+            mediaToolProgress = ClipFXProgress(title: "フリーズフレームを作成中", fraction: nil)
+            do {
+                let imageURL = try await MediaTools.freezeFrameImage(from: clip.url, at: sourceTime)
+                mediaToolProgress = nil
+                if Task.isCancelled { return }
+                let size = MediaStore.imagePixelSize(of: imageURL) ?? clip.displaySize
+                let thumb = MediaStore.makeImageClipThumbnail(url: imageURL, maxPixel: 320)
+                var still = Clip(url: imageURL,
+                                 duration: 3600,
+                                 naturalSize: size,
+                                 preferredTransform: .identity,
+                                 hasAudio: false,
+                                 thumbnail: thumb,
+                                 name: "フリーズ")
+                still.stillImageURL = imageURL
+                still.startTime = 0
+                still.endTime = 2
+                still.filter = clip.filter
+
+                guard let i = project.index(of: clipID) else { return }
+                history.record(project)
+                let minimum = 0.2
+                if sourceTime > clip.startTime + minimum, sourceTime < clip.endTime - minimum,
+                   project.splitClip(id: clipID, atSourceTime: sourceTime) {
+                    project.clips.insert(still, at: i + 1)
+                } else if sourceTime <= clip.startTime + minimum {
+                    project.clips.insert(still, at: i)
+                } else {
+                    project.clips.insert(still, at: i + 1)
+                }
+                selection = .clip(still.id)
+            } catch is CancellationError {
+                mediaToolProgress = nil
+            } catch {
+                mediaToolProgress = nil
+                if !Task.isCancelled {
+                    alertMessage = "フリーズフレームを作成できませんでした。\n\(error.localizedDescription)"
+                }
+            }
+            mediaToolTask = nil
+        }
+    }
+
+    /// サムネイルから明るさ・コントラストなどを推定して色調整に反映する
+    private func autoEnhance(_ clipID: UUID) {
+        Task { @MainActor in
+            guard let i = project.index(of: clipID) else { return }
+            let clip = project.clips[i]
+            var image = clip.thumbnail
+            if image == nil {
+                if let still = clip.stillImageURL {
+                    image = MediaStore.makeImageClipThumbnail(url: still, maxPixel: 320)
+                } else {
+                    image = await MediaStore.thumbnail(for: clip.url, at: clip.startTime, maxPixel: 320)
+                }
+            }
+            guard let image else {
+                alertMessage = "サムネイルを取得できなかったため、自動補正できませんでした。"
+                return
+            }
+            let adjustments = FilterEngine.autoEnhanceAdjustments(for: image)
+            guard let j = project.index(of: clipID) else { return }
+            history.record(project)
+            project.clips[j].filter.adjustments = adjustments
+            // 結果を確認・微調整できるよう色調整パネルを開く(履歴は記録済み)
+            activePanel = .colorAdjust(clipID)
+        }
+    }
+
+    // MARK: 置き換え / 音声抽出
+
+    /// 選択中のクリップの素材を別の動画に置き換える(トリミング位置・速度・フィルタなどは保つ)
+    @MainActor
+    private func replaceClip(_ clipID: UUID, with item: PhotosPickerItem) async {
+        isImporting = true
+        importTotal = 1
+        importDone = 0
+        defer { isImporting = false }
+        do {
+            guard let movie = try await item.loadTransferable(type: PickedMovie.self) else {
+                alertMessage = "動画データを取得できませんでした。"
+                return
+            }
+            let fresh = try await MediaStore.makeClip(from: movie.url)
+            guard let i = project.index(of: clipID) else { return }
+            let old = project.clips[i]
+            var replaced = Clip(id: old.id,
+                                url: fresh.url,
+                                duration: fresh.duration,
+                                naturalSize: fresh.naturalSize,
+                                preferredTransform: fresh.preferredTransform,
+                                hasAudio: fresh.hasAudio,
+                                thumbnail: fresh.thumbnail,
+                                name: fresh.name)
+            replaced.startTime = min(max(0, old.startTime), max(0, fresh.duration - 0.2))
+            replaced.endTime = min(old.endTime, fresh.duration)
+            if replaced.endTime - replaced.startTime < 0.2 {
+                replaced.startTime = 0
+                replaced.endTime = fresh.duration
+            }
+            replaced.speed = old.speed
+            replaced.filter = old.filter
+            replaced.multicam = old.multicam
+            replaced.isMuted = old.isMuted && fresh.hasAudio
+            replaced.audio = old.audio
+            replaced.transition = old.transition
+            replaced.animation = old.animation
+            replaced.geometry = old.geometry
+            replaced.speedCurve = old.speedCurve
+            history.record(project)
+            project.clips[i] = replaced
+            importDone = 1
+        } catch {
+            alertMessage = "動画を置き換えられませんでした。\n\(error.localizedDescription)"
+        }
+    }
+
+    /// 動画から音声だけを取り出してナレーションとして再生位置に追加する
+    @MainActor
+    private func extractAudio(from item: PhotosPickerItem) async {
+        mediaToolProgress = ClipFXProgress(title: "音声を取り出しています", fraction: nil)
+        defer { mediaToolProgress = nil }
+        do {
+            guard let movie = try await item.loadTransferable(type: PickedMovie.self) else {
+                alertMessage = "動画データを取得できませんでした。"
+                return
+            }
+            let extracted = try await MediaTools.extractAudio(from: movie.url, start: nil, end: nil)
+            var url = extracted
+            if !url.path.hasPrefix(MediaStore.mediaDirectory.path) {
+                url = try MediaStore.copyIntoMediaDirectory(extracted)
+            }
+            // 取り出し元の動画コピーは不要になる
+            if movie.url != url {
+                try? FileManager.default.removeItem(at: movie.url)
+            }
+            let asset = AVURLAsset(url: url)
+            let seconds = try await asset.load(.duration).seconds
+            let duration = (seconds.isFinite && seconds > 0) ? seconds : 1
+            history.record(project)
+            let clip = NarrationClip(url: url,
+                                     name: MediaStore.displayName(for: url, fallback: "抽出した音声"),
+                                     start: max(0, player.currentTime),
+                                     duration: duration)
+            project.narration.append(clip)
+            project.sortNarration()
+            selection = .narration(clip.id)
+        } catch {
+            alertMessage = "音声を取り出せませんでした。\n\(error.localizedDescription)"
+        }
+    }
+
     // MARK: 無音カット
 
     private func startSilenceCut() {
@@ -961,7 +1681,7 @@ struct ContentView: View {
     /// 音声のある(ミュートでない)全クリップから無音部分を取り除き、残す範囲ごとにクリップを分割する
     @MainActor
     private func runSilenceCut() async {
-        let targets = project.clips.filter { $0.hasAudio && !$0.isMuted }
+        let targets = project.clips.filter { $0.hasAudio && !$0.isMuted && !$0.isStill }
         guard !targets.isEmpty else {
             alertMessage = "音声のあるクリップがありません。"
             return
@@ -1052,7 +1772,7 @@ struct ContentView: View {
     /// 指定したクリップ・ナレーションのラウドネスを測り、-16 LUFS を目安にゲインを設定する
     @MainActor
     private func runNormalize(clipIDs: [UUID], narrationIDs: [UUID]) async {
-        let clipTargets = project.clips.filter { clipIDs.contains($0.id) && $0.hasAudio }
+        let clipTargets = project.clips.filter { clipIDs.contains($0.id) && $0.hasAudio && !$0.isStill }
         let narrationTargets = project.narration.filter { narrationIDs.contains($0.id) }
         let total = clipTargets.count + narrationTargets.count
         guard total > 0 else {
@@ -1181,6 +1901,7 @@ struct ContentView: View {
     /// いま保存してからプロジェクト一覧へ戻る
     private func closeProject() {
         player.pause()
+        mediaToolTask?.cancel()
         activePanel = nil
         activeSheet = nil
         selection = nil
@@ -1203,9 +1924,11 @@ struct ContentView: View {
     /// このプロジェクトの内容をすべて消す(一覧からは消さない)。空になった内容は onChange 経由で保存される
     private func clearProject() {
         player.pause()
+        mediaToolTask?.cancel()
         activePanel = nil
         activeSheet = nil
         selection = nil
+        draftStrokes = []
         project.restore(ProjectSnapshot(clips: [],
                                         subtitles: [],
                                         subtitleStyle: SubtitleStyle(),
@@ -1219,7 +1942,12 @@ struct ContentView: View {
     @MainActor
     private func reloadThumbnails() async {
         for clip in project.clips where clip.thumbnail == nil {
-            let image = await MediaStore.thumbnail(for: clip.url, at: clip.startTime, maxPixel: 240)
+            let image: UIImage?
+            if let still = clip.stillImageURL {
+                image = MediaStore.makeImageClipThumbnail(url: still, maxPixel: 240)
+            } else {
+                image = await MediaStore.thumbnail(for: clip.url, at: clip.startTime, maxPixel: 240)
+            }
             if let i = project.index(of: clip.id) {
                 project.clips[i].thumbnail = image
             }

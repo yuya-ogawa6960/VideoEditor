@@ -1,6 +1,8 @@
 import SwiftUI
 import Observation
 import UniformTypeIdentifiers
+import NaturalLanguage
+import UIKit
 
 // MARK: - ヘルパー
 
@@ -12,6 +14,14 @@ fileprivate func subtitleTimeString(_ seconds: Double) -> String {
     let secs = (tenths % 600) / 10
     let frac = tenths % 10
     return String(format: "%d:%02d.%d", minutes, secs, frac)
+}
+
+/// SwiftUI の Color → "#RRGGBB"(0...1 に丸めてから変換)
+fileprivate func subtitleHexString(from color: Color) -> String {
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+    func component(_ v: CGFloat) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
+    return String(format: "#%02X%02X%02X", component(r), component(g), component(b))
 }
 
 // MARK: - スタイルプリセット
@@ -258,10 +268,22 @@ struct SubtitleEditorView: View {
                 }
                 .disabled(project.isEmpty || isTranslating)
             }
+
+            NavigationLink {
+                TranscriptionSettingsView()
+            } label: {
+                HStack {
+                    Label("文字起こしの方式とAI仕上げ", systemImage: "gearshape")
+                    Spacer()
+                    Text(AppSettings.shared.transcriptionEngine.shortName)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(isTranscribing)
         } header: {
             Text("自動文字起こし")
         } footer: {
-            Text("動画の音声から字幕を自動作成します。対応端末ではオンデバイスで処理します。")
+            Text("今の方式: (AppSettings.shared.transcriptionEngine.displayName)。AI仕上げ: (AppSettings.shared.polishSubtitles ? SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: AppSettings.shared)) : "オフ")。方式は設定から変えられます。")
         }
     }
 
@@ -283,7 +305,9 @@ struct SubtitleEditorView: View {
                 return
             }
             do {
-                let cues = try await transcriber.transcribe(snapshot: snapshot, language: language)
+                let transcribed = try await transcriber.transcribe(snapshot: snapshot, language: language)
+                // カラオケ風テンプレート用に、単語タイミングが無い字幕へ文字数比例のタイミングを付ける
+                let cues = SubtitleWordTiming.fillingMissing(transcribed)
                 if Task.isCancelled {
                     transcriptionTask = nil
                     return
@@ -457,7 +481,8 @@ struct SubtitleEditorView: View {
             }
             do {
                 let data = try Data(contentsOf: url)
-                let cues = try SRTCodec.decode(data: data)
+                let decoded = try SRTCodec.decode(data: data)
+                let cues = SubtitleWordTiming.fillingMissing(decoded)
                 if project.subtitles.isEmpty {
                     pendingImportedCues = cues
                     applyImportedCues(replace: true)
@@ -515,11 +540,72 @@ struct SubtitleEditorView: View {
         }
     }
 
+    private var templateChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(CaptionTemplate.allCases) { template in
+                    let selected = project.subtitleStyle.template == template
+                    Button {
+                        project.subtitleStyle.template = template
+                    } label: {
+                        Text(template.displayName)
+                            .font(.subheadline.weight(selected ? .semibold : .regular))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule().fill(selected ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
+                            )
+                            .foregroundStyle(selected ? Color.white : Color.primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var highlightColorBinding: Binding<Color> {
+        Binding<Color>(
+            get: { Color(hex: project.subtitleStyle.highlightColorHex) ?? Color.yellow },
+            set: { project.subtitleStyle.highlightColorHex = subtitleHexString(from: $0) }
+        )
+    }
+
+    private var subtitleFontBinding: Binding<String> {
+        Binding<String>(
+            get: { project.subtitleStyle.fontName ?? "" },
+            set: { project.subtitleStyle.fontName = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private var hasAnyWordTiming: Bool {
+        project.subtitles.contains { !$0.words.isEmpty }
+    }
+
     private var styleSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 6) {
                 Text("プリセット")
                 presetChips
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("テンプレート")
+                templateChips
+                if project.subtitleStyle.template != .plain, !project.subtitles.isEmpty, !hasAnyWordTiming {
+                    Text("このテンプレートは単語ごとのタイミングを使います。字幕一覧のメニューから「単語タイミングを作り直す」を実行してください。")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            ColorPicker("ハイライト色", selection: highlightColorBinding, supportsOpacity: false)
+
+            Picker("フォント", selection: subtitleFontBinding) {
+                ForEach(SubtitleFontCatalog.options(including: project.subtitleStyle.fontName)) { option in
+                    SubtitleFontCatalog.label(for: option)
+                        .tag(option.id)
+                }
             }
 
             Picker("位置", selection: $project.subtitleStyle.position) {
@@ -615,6 +701,11 @@ struct SubtitleEditorView: View {
                         } label: {
                             Label("タイミングを一括ずらす", systemImage: "arrow.left.and.right")
                         }
+                        Button {
+                            regenerateWordTimings()
+                        } label: {
+                            Label("単語タイミングを作り直す", systemImage: "textformat.abc.dottedunderline")
+                        }
                         Button(role: .destructive) {
                             isDeleteAllPresented = true
                         } label: {
@@ -651,15 +742,32 @@ struct SubtitleEditorView: View {
         guard abs(effective) > 0.0001 else { return }
         var cues = project.subtitles
         for i in cues.indices {
-            let newStart = max(0, cues[i].start + effective)
-            let newEnd = max(newStart + 0.2, cues[i].end + effective)
+            let oldStart = cues[i].start
+            let oldEnd = cues[i].end
+            let newStart = max(0, oldStart + effective)
+            let newEnd = max(newStart + 0.2, oldEnd + effective)
             cues[i].start = newStart
             cues[i].end = newEnd
+            cues[i].words = SubtitleWordTiming.rescaled(cues[i].words,
+                                                        oldStart: oldStart, oldEnd: oldEnd,
+                                                        newStart: newStart, newEnd: newEnd)
         }
         project.subtitles = cues
         project.sortSubtitles()
         appliedShift += effective
         exportURL = nil
+    }
+
+    /// 全字幕に、文字数に比例した単語タイミングを付け直す(カラオケ風テンプレート用)
+    private func regenerateWordTimings() {
+        guard !project.subtitles.isEmpty else { return }
+        var cues = project.subtitles
+        for i in cues.indices {
+            cues[i].words = SubtitleWordTiming.distribute(cue: cues[i])
+        }
+        project.subtitles = cues
+        showAlert(title: "単語タイミングを更新しました",
+                  message: "\(cues.count) 件の字幕に、文字数に応じた単語タイミングを付けました。カラオケ風などのテンプレートで単語ごとに色が変わります。")
     }
 
     private func cueRow(_ cue: SubtitleCue, isCurrent: Bool) -> some View {
@@ -800,22 +908,181 @@ struct SubtitleCueEditView: View {
                 }
             }
         }
+        .onChange(of: cue.wrappedValue.text) { _, _ in
+            // 文字を変えたら単語タイミングを付け直す(単語を使うテンプレートのとき、または元々付いていたとき)
+            var c = cue.wrappedValue
+            guard !c.words.isEmpty || project.subtitleStyle.template != .plain else { return }
+            c.words = SubtitleWordTiming.distribute(cue: c)
+            cue.wrappedValue = c
+        }
     }
 
     private func setStart(_ cue: Binding<SubtitleCue>, _ value: Double) {
         var c = cue.wrappedValue
+        let oldStart = c.start
+        let oldEnd = c.end
         c.start = max(0, value)
         if c.end < c.start + minimumLength {
             c.end = c.start + minimumLength
         }
+        c.words = SubtitleWordTiming.rescaled(c.words, oldStart: oldStart, oldEnd: oldEnd,
+                                              newStart: c.start, newEnd: c.end)
         cue.wrappedValue = c
         project.sortSubtitles()
     }
 
     private func setEnd(_ cue: Binding<SubtitleCue>, _ value: Double) {
         var c = cue.wrappedValue
+        let oldStart = c.start
+        let oldEnd = c.end
         c.end = max(value, c.start + minimumLength)
+        c.words = SubtitleWordTiming.rescaled(c.words, oldStart: oldStart, oldEnd: oldEnd,
+                                              newStart: c.start, newEnd: c.end)
         cue.wrappedValue = c
         project.sortSubtitles()
+    }
+}
+
+// MARK: - 単語タイミング
+
+/// 字幕の単語タイミング(カラオケ風・単語ごとのテンプレート用)。
+/// 音声認識から単語の時刻が取れないため、文字数に比例して cue の区間を分配する。
+enum SubtitleWordTiming {
+    /// cue の区間を、単語の文字数に比例して分配したタイミングを返す
+    static func distribute(cue: SubtitleCue) -> [SubtitleWord] {
+        distribute(text: cue.text, start: cue.start, end: cue.end)
+    }
+
+    static func distribute(text: String, start: Double, end: Double) -> [SubtitleWord] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, end > start else { return [] }
+        let tokens = tokenize(trimmed)
+        guard !tokens.isEmpty else { return [] }
+        let weights = tokens.map { Double(max(1, $0.count)) }
+        let total = weights.reduce(0, +)
+        guard total > 0 else { return [] }
+        let span = end - start
+        var result: [SubtitleWord] = []
+        result.reserveCapacity(tokens.count)
+        var cursor = start
+        for (i, token) in tokens.enumerated() {
+            let wordEnd = (i == tokens.count - 1) ? end : min(end, cursor + span * weights[i] / total)
+            result.append(SubtitleWord(text: token, start: cursor, end: wordEnd))
+            cursor = wordEnd
+        }
+        return result
+    }
+
+    /// words が空の cue にだけタイミングを付ける
+    static func fillingMissing(_ cues: [SubtitleCue]) -> [SubtitleCue] {
+        cues.map { cue in
+            guard cue.words.isEmpty else { return cue }
+            var c = cue
+            c.words = distribute(cue: c)
+            return c
+        }
+    }
+
+    /// cue の開始・終了を変えたとき、単語の時刻を古い区間から新しい区間へ線形に写す
+    static func rescaled(_ words: [SubtitleWord],
+                         oldStart: Double, oldEnd: Double,
+                         newStart: Double, newEnd: Double) -> [SubtitleWord] {
+        guard !words.isEmpty else { return words }
+        let oldSpan = oldEnd - oldStart
+        let newSpan = newEnd - newStart
+        guard oldSpan > 0.0001, newSpan > 0 else { return words }
+        let scale = newSpan / oldSpan
+        return words.map { word in
+            SubtitleWord(text: word.text,
+                         start: newStart + (word.start - oldStart) * scale,
+                         end: newStart + (word.end - oldStart) * scale)
+        }
+    }
+
+    /// NLTokenizer で単語に分ける。単語の後ろの句読点・記号は前の単語に付ける(日本語・英語とも)
+    private static func tokenize(_ text: String) -> [String] {
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = text
+        var ranges: [Range<String.Index>] = []
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            ranges.append(range)
+            return true
+        }
+
+        var tokens: [String] = []
+        for (i, range) in ranges.enumerated() {
+            var token = ""
+            if i == 0, range.lowerBound > text.startIndex {
+                // 先頭の記号(「 など)は最初の単語に付ける
+                let lead = text[text.startIndex..<range.lowerBound].filter { !$0.isWhitespace && !$0.isNewline }
+                token += String(lead)
+            }
+            token += String(text[range])
+            let gapEnd = (i + 1 < ranges.count) ? ranges[i + 1].lowerBound : text.endIndex
+            if range.upperBound < gapEnd {
+                let trail = text[range.upperBound..<gapEnd].filter { !$0.isWhitespace && !$0.isNewline }
+                token += String(trail)
+            }
+            let cleaned = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleaned.isEmpty {
+                tokens.append(cleaned)
+            }
+        }
+
+        if tokens.isEmpty {
+            // 分割できないときは空白区切り、それも無ければ全体を 1 語にする
+            let parts = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+            return parts.isEmpty ? [text] : parts
+        }
+        return tokens
+    }
+}
+
+// MARK: - フォントの選択肢
+
+/// 字幕・サムネで共通のフォント選択肢。id が空文字ならシステムフォント
+enum SubtitleFontCatalog {
+    struct Option: Identifiable, Hashable {
+        let id: String
+        let label: String
+    }
+
+    static let builtIn: [Option] = [
+        Option(id: "", label: "システム(標準)"),
+        Option(id: "HiraginoSans-W6", label: "ヒラギノ角ゴ W6"),
+        Option(id: "HiraMinProN-W6", label: "ヒラギノ明朝 W6"),
+        Option(id: "HiraMaruProN-W4", label: "ヒラギノ丸ゴ W4"),
+        Option(id: "Noteworthy-Bold", label: "Noteworthy(ノート風)"),
+        Option(id: "BradleyHandITCTT-Bold", label: "Bradley Hand(手書き風)"),
+        Option(id: "Chalkduster", label: "Chalkduster(チョーク)"),
+        Option(id: "MarkerFelt-Wide", label: "Marker Felt(マーカー)"),
+        Option(id: "AvenirNext-Bold", label: "Avenir Next Bold"),
+        Option(id: "Futura-Bold", label: "Futura Bold")
+    ]
+
+    /// 組み込み + 「ファイル」から読み込んだフォント(MediaTools)+ 現在選ばれている名前(一覧に無ければ追加)
+    static func options(including current: String?) -> [Option] {
+        var result = builtIn
+        var known = Set(result.map { $0.id })
+        for name in MediaTools.storedFontNames() where !known.contains(name) {
+            result.append(Option(id: name, label: "\(name)(読み込み)"))
+            known.insert(name)
+        }
+        if let current, !current.isEmpty, !known.contains(current) {
+            result.append(Option(id: current, label: current))
+        }
+        return result
+    }
+
+    /// Picker 用のラベル(そのフォントで表示)
+    static func label(for option: Option) -> some View {
+        Group {
+            if option.id.isEmpty {
+                Text(option.label)
+            } else {
+                Text(option.label)
+                    .font(.custom(option.id, size: 17))
+            }
+        }
     }
 }

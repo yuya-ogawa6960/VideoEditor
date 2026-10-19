@@ -6,12 +6,18 @@ import Observation
 // =====================================================================
 // 自動文字起こし
 //
-// - iOS 26 以降: SpeechAnalyzer + SpeechTranscriber(句読点付き・単語ごとの時刻)で
-//   クリップ全体を一度に認識する。モデル未導入なら自動ダウンロード、失敗時は従来方式へ。
-// - iOS 18〜25: SFSpeechRecognizer(addsPunctuation)で ≤50 秒のチャンクに分けて認識。
+// エンジンは AppSettings.shared.transcriptionEngine で切り替える:
+// - Apple(端末内)
+//   - iOS 26 以降: SpeechAnalyzer + SpeechTranscriber(句読点付き・単語ごとの時刻)で
+//     クリップ全体を一度に認識する。モデル未導入なら自動ダウンロード、失敗時は従来方式へ。
+//   - iOS 18〜25: SFSpeechRecognizer(addsPunctuation)で ≤50 秒のチャンクに分けて認識。
+// - Whisper(端末内): WhisperTranscriber(WhisperKit)。初回にモデルをダウンロードする。
+// - クラウドAI: CloudTranscriber(OpenAI)。API キーが必要。
 //
-// どちらの経路でも「クリップ全体の時刻付きトークン列」を作ってから
+// どの経路でも「クリップ全体の時刻付きトークン列」を作ってから
 // SubtitleSegmenter で文・文節単位に区切る(チャンク境界で文が切れない)。
+// セグメンタは各字幕に単語タイミング(cue.words)も付ける。
+// 最後に設定が有効なら SubtitlePolisher(LLM)で句読点・フィラー・分割を仕上げる。
 // =====================================================================
 
 enum TranscriptionLanguage: String, CaseIterable, Identifiable {
@@ -124,6 +130,8 @@ final class TranscriptionService {
     // MARK: - 公開 API
 
     func requestAuthorization() async -> Bool {
+        // Apple 以外のエンジンは iOS の音声認識権限を使わない
+        guard AppSettings.shared.transcriptionEngine == .apple else { return true }
         let status = SFSpeechRecognizer.authorizationStatus()
         switch status {
         case .authorized:
@@ -194,10 +202,20 @@ final class TranscriptionService {
     private func performTranscription(snapshot: ProjectSnapshot,
                                       language: TranscriptionLanguage,
                                       removeFillers: Bool) async throws -> [SubtitleCue] {
-        // 権限
-        if SFSpeechRecognizer.authorizationStatus() != .authorized {
-            let granted = await requestAuthorization()
-            guard granted else { throw TranscriptionError.notAuthorized }
+        let settings = AppSettings.shared
+        let engine = settings.transcriptionEngine
+
+        // エンジンごとの前提条件
+        switch engine {
+        case .apple:
+            if SFSpeechRecognizer.authorizationStatus() != .authorized {
+                let granted = await requestAuthorization()
+                guard granted else { throw TranscriptionError.notAuthorized }
+            }
+        case .whisper:
+            guard WhisperTranscriber.isAvailable else { throw WhisperTranscriberError.unavailable }
+        case .cloud:
+            guard settings.isCloudConfigured else { throw CloudTranscriptionError.missingAPIKey }
         }
 
         // クリップごとのジョブ
@@ -211,6 +229,19 @@ final class TranscriptionService {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
+        // Whisper: モデルの準備(ダウンロード・読み込み)。終わったらメモリを解放する
+        if engine == .whisper {
+            try await WhisperTranscriber.shared.prepare(model: settings.whisperModel) { [weak self] fraction, status in
+                guard let self else { return }
+                Task { await self.updateUI(progress: fraction, status: status) }
+            }
+            try checkCancelled()
+            await updateUI(progress: 0, status: "文字起こし中(Whisper)…")
+        }
+        defer {
+            if engine == .whisper { WhisperTranscriber.shared.unload() }
+        }
+
         // 従来の認識器は必要になったときだけ作る
         var legacyRecognizer: SFSpeechRecognizer?
 
@@ -222,22 +253,31 @@ final class TranscriptionService {
             // 元素材上の秒で揃えたトークン列
             var sourceTokens: [TimedToken]? = nil
 
-            #if compiler(>=6.2)
-            if #available(iOS 26.0, *) {
-                sourceTokens = try await recognizeClipWithAnalyzer(job: job, language: language, tempDir: tempDir,
-                                                                   doneUnits: doneUnits, totalUnits: totalUnits)
-            }
-            #endif
-
-            if sourceTokens == nil {
-                if legacyRecognizer == nil {
-                    guard let recognizer = SFSpeechRecognizer(locale: language.locale), recognizer.isAvailable else {
-                        throw TranscriptionError.recognizerUnavailable(language.displayName)
-                    }
-                    legacyRecognizer = recognizer
+            switch engine {
+            case .apple:
+                #if compiler(>=6.2)
+                if #available(iOS 26.0, *) {
+                    sourceTokens = try await recognizeClipWithAnalyzer(job: job, language: language, tempDir: tempDir,
+                                                                       doneUnits: doneUnits, totalUnits: totalUnits)
                 }
-                sourceTokens = try await recognizeClipWithSFSpeech(job: job, recognizer: legacyRecognizer!, tempDir: tempDir,
-                                                                   doneUnits: doneUnits, totalUnits: totalUnits)
+                #endif
+
+                if sourceTokens == nil {
+                    if legacyRecognizer == nil {
+                        guard let recognizer = SFSpeechRecognizer(locale: language.locale), recognizer.isAvailable else {
+                            throw TranscriptionError.recognizerUnavailable(language.displayName)
+                        }
+                        legacyRecognizer = recognizer
+                    }
+                    sourceTokens = try await recognizeClipWithSFSpeech(job: job, recognizer: legacyRecognizer!, tempDir: tempDir,
+                                                                       doneUnits: doneUnits, totalUnits: totalUnits)
+                }
+            case .whisper:
+                sourceTokens = try await recognizeClipWithWhisper(job: job, language: language,
+                                                                  doneUnits: doneUnits, totalUnits: totalUnits)
+            case .cloud:
+                sourceTokens = try await recognizeClipWithCloud(job: job, language: language, apiKey: settings.openAIKey,
+                                                                doneUnits: doneUnits, totalUnits: totalUnits)
             }
             doneUnits += job.chunks.count
             try checkCancelled()
@@ -251,7 +291,63 @@ final class TranscriptionService {
             await updateUI(progress: Double(doneUnits) / Double(totalUnits), status: nil)
         }
 
-        return Self.finalize(cues)
+        var result = Self.finalize(cues)
+
+        // AI 仕上げ(句読点・フィラー・分割)。失敗しても result はそのまま返る
+        if settings.polishSubtitles, !result.isEmpty {
+            let polishEngine = SubtitlePolisher.resolveEngine(settings: settings)
+            if polishEngine != .none {
+                try checkCancelled()
+                await updateUI(progress: 1, status: "AIで字幕を仕上げ中(\(SubtitlePolisher.displayName(of: polishEngine)))…")
+                result = await SubtitlePolisher.polish(result, language: language, settings: settings)
+                try checkCancelled()
+                result = Self.finalize(result)
+            }
+        }
+
+        return result
+    }
+
+    // MARK: - Whisper(端末内)/ クラウドAI
+
+    /// クリップ全体を WhisperKit で認識し、元素材上の秒のトークン列を返す
+    private func recognizeClipWithWhisper(job: ClipJob, language: TranscriptionLanguage,
+                                          doneUnits: Int, totalUnits: Int) async throws -> [TimedToken] {
+        let clip = job.clip
+        await updateUI(progress: Double(doneUnits) / Double(totalUnits),
+                       status: "文字起こし中(Whisper) \(doneUnits + 1)/\(totalUnits)")
+        let unitCount = Double(job.chunks.count)
+        do {
+            return try await WhisperTranscriber.shared.transcribe(sourceURL: clip.url, start: clip.startTime, end: clip.endTime,
+                                                                   language: language.languageCode) { [weak self] fraction in
+                guard let self else { return }
+                let value = (Double(doneUnits) + fraction * unitCount) / Double(totalUnits)
+                Task { await self.updateUI(progress: value, status: nil) }
+            }
+        } catch {
+            if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            throw error
+        }
+    }
+
+    /// クリップ全体をクラウド(OpenAI)で認識し、元素材上の秒のトークン列を返す
+    private func recognizeClipWithCloud(job: ClipJob, language: TranscriptionLanguage, apiKey: String,
+                                        doneUnits: Int, totalUnits: Int) async throws -> [TimedToken] {
+        let clip = job.clip
+        await updateUI(progress: Double(doneUnits) / Double(totalUnits),
+                       status: "文字起こし中(クラウドAI) \(doneUnits + 1)/\(totalUnits)")
+        let unitCount = Double(job.chunks.count)
+        do {
+            return try await CloudTranscriber.shared.transcribe(sourceURL: clip.url, start: clip.startTime, end: clip.endTime,
+                                                                 language: language.languageCode, apiKey: apiKey) { [weak self] fraction in
+                guard let self else { return }
+                let value = (Double(doneUnits) + fraction * unitCount) / Double(totalUnits)
+                Task { await self.updateUI(progress: value, status: nil) }
+            }
+        } catch {
+            if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            throw error
+        }
     }
 
     private static func makeJobs(for snapshot: ProjectSnapshot) -> [ClipJob] {
@@ -541,6 +637,7 @@ final class TranscriptionService {
         if sorted.count > 1 {
             for i in 0..<(sorted.count - 1) where sorted[i].end > sorted[i + 1].start - 0.05 {
                 sorted[i].end = max(sorted[i].start + 0.2, sorted[i + 1].start - 0.05)
+                sorted[i].words = SubtitleSegmenter.clampWords(sorted[i].words, start: sorted[i].start, end: sorted[i].end)
             }
         }
         return sorted

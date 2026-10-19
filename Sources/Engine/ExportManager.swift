@@ -41,6 +41,23 @@ enum ExportManagerError: LocalizedError {
     }
 }
 
+/// 書き出し履歴の 1 件(Documents/Exports/history.json に保存)
+struct ExportRecord: Identifiable, Equatable, Codable {
+    let id: UUID
+    /// Exports フォルダ内のファイル名(コンテナのパスが変わっても追えるよう名前だけ保存する)
+    let fileName: String
+    let date: Date
+    /// 長さ(秒)
+    let duration: Double
+    /// 例: 「16:9 横 1080p 30fps」
+    let canvasDescription: String
+
+    var url: URL {
+        let directory = (try? ExportManager.exportsDirectory()) ?? FileManager.default.temporaryDirectory
+        return directory.appendingPathComponent(fileName)
+    }
+}
+
 @Observable
 final class ExportManager {
     static let shared = ExportManager()
@@ -57,9 +74,21 @@ final class ExportManager {
     private(set) var savedToPhotos: Bool = false
     /// ユーザー向けの状態表示(日本語)
     private(set) var statusText: String = "待機中"
+    /// 書き出し履歴(新しい順、最大 20 件。ファイルが無くなったものは除く)
+    private(set) var history: [ExportRecord] = []
+
+    private static let historyLimit = 20
+
+    /// 縦横同時書き出しなどで続けて行う 1 本分
+    private struct ExportJob {
+        let snapshot: ProjectSnapshot
+        let saveToPhotos: Bool
+        let label: String
+    }
 
     // 以下はメインスレッドからのみ触る
     @ObservationIgnored private var currentPipeline: ExportPipeline?
+    @ObservationIgnored private var currentAudioSession: AVAssetExportSession?
     @ObservationIgnored private var cancelRequested = false
     @ObservationIgnored private var expiredInBackground = false
     @ObservationIgnored private var continuedTaskExpired = false
@@ -67,18 +96,54 @@ final class ExportManager {
     /// iOS 26+ の BGContinuedProcessingTask(型を iOS 18 でも扱えるよう AnyObject で保持)
     @ObservationIgnored private var continuedTask: AnyObject?
     @ObservationIgnored private var didRequestNotificationAuthorization = false
+    /// 続けて書き出す予定(縦横同時)
+    @ObservationIgnored private var queuedJobs: [ExportJob] = []
+    /// 状態表示の先頭に付ける「(1/2 横 16:9)」など
+    @ObservationIgnored private var jobLabel: String = ""
 
     // 進捗の間引き(任意スレッドから)
     private let progressLock = NSLock()
     @ObservationIgnored private var lastProgressReport: CFAbsoluteTime = 0
 
-    private init() {}
+    private init() {
+        loadHistory()
+    }
 
     // MARK: - Public API
 
     func start(snapshot: ProjectSnapshot, saveToPhotos: Bool) {
         exportOnMain { [weak self] in
-            self?.startOnMain(snapshot: snapshot, saveToPhotos: saveToPhotos)
+            guard let self, !self.isRunning else { return }
+            self.queuedJobs = []
+            self.jobLabel = ""
+            self.startOnMain(snapshot: snapshot, saveToPhotos: saveToPhotos)
+        }
+    }
+
+    /// 横 16:9 → 縦 9:16(ぼかし背景)の順に 2 本続けて書き出す
+    func startDual(snapshot: ProjectSnapshot, saveToPhotos: Bool = false) {
+        exportOnMain { [weak self] in
+            self?.startDualOnMain(snapshot: snapshot, saveToPhotos: saveToPhotos)
+        }
+    }
+
+    /// 音声だけを m4a に書き出す
+    func startAudioOnly(snapshot: ProjectSnapshot) {
+        exportOnMain { [weak self] in
+            self?.startAudioOnlyOnMain(snapshot: snapshot)
+        }
+    }
+
+    /// 履歴から削除する(書き出したファイルも削除)
+    func deleteRecord(_ record: ExportRecord) {
+        exportOnMain { [weak self] in
+            guard let self else { return }
+            try? FileManager.default.removeItem(at: record.url)
+            self.history.removeAll { $0.id == record.id }
+            if let last = self.lastOutputURL, last.path == record.url.path {
+                self.lastOutputURL = nil
+            }
+            self.saveHistory()
         }
     }
 
@@ -140,11 +205,12 @@ final class ExportManager {
         progress = 0
         savedToPhotos = false
         lastOutputURL = nil
-        statusText = "書き出しの準備中…"
+        statusText = jobLabel + "書き出しの準備中…"
         cancelRequested = false
         expiredInBackground = false
         continuedTaskExpired = false
         currentPipeline = nil
+        currentAudioSession = nil
         progressLock.lock()
         lastProgressReport = 0
         progressLock.unlock()
@@ -163,14 +229,80 @@ final class ExportManager {
     }
 
     @MainActor
+    private func startDualOnMain(snapshot: ProjectSnapshot, saveToPhotos: Bool) {
+        guard !isRunning else { return }
+        guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
+            let message = "書き出すクリップがありません"
+            state = .failed(message)
+            statusText = message
+            return
+        }
+        var landscape = snapshot
+        landscape.canvas.aspect = .landscape16x9
+        var portrait = snapshot
+        portrait.canvas.aspect = .portrait9x16
+        portrait.canvas.scaling = .fitBlur
+
+        // 空き容量は 2 本分で確認する(作業用マージンは 1 回分)
+        let first = StorageEstimator.estimate(for: landscape)
+        let second = StorageEstimator.estimate(for: portrait)
+        let required = first.requiredBytes + second.estimatedOutputBytes
+        guard first.availableBytes >= required else {
+            let message = "空き容量が不足しています(2 本分で必要: \(StorageEstimator.formatBytes(required)) / 空き: \(StorageEstimator.formatBytes(first.availableBytes)))"
+            state = .failed(message)
+            statusText = message
+            return
+        }
+
+        queuedJobs = [ExportJob(snapshot: portrait, saveToPhotos: saveToPhotos, label: "(2/2 縦 9:16)")]
+        jobLabel = "(1/2 横 16:9)"
+        startOnMain(snapshot: landscape, saveToPhotos: saveToPhotos)
+    }
+
+    @MainActor
+    private func startAudioOnlyOnMain(snapshot: ProjectSnapshot) {
+        guard !isRunning else { return }
+        guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
+            let message = "書き出すクリップがありません"
+            state = .failed(message)
+            statusText = message
+            return
+        }
+        queuedJobs = []
+        jobLabel = ""
+        isRunning = true
+        state = .preparing
+        progress = 0
+        savedToPhotos = false
+        lastOutputURL = nil
+        statusText = "音声の書き出しを準備中…"
+        cancelRequested = false
+        expiredInBackground = false
+        continuedTaskExpired = false
+        currentPipeline = nil
+        currentAudioSession = nil
+        progressLock.lock()
+        lastProgressReport = 0
+        progressLock.unlock()
+
+        beginBackgroundWork()
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            await self?.runAudioExport(snapshot: snapshot)
+        }
+    }
+
+    @MainActor
     private func cancelOnMain(dueToBackgroundLimit: Bool) {
         guard isRunning else { return }
         if dueToBackgroundLimit {
             expiredInBackground = true
         }
         cancelRequested = true
+        queuedJobs = []
         statusText = "キャンセルしています…"
         currentPipeline?.cancel()
+        currentAudioSession?.cancelExport()
     }
 
     // MARK: - Export flow (background)
@@ -223,7 +355,7 @@ final class ExportManager {
             if self.cancelRequested { return false }
             self.currentPipeline = pipeline
             self.state = .exporting
-            self.statusText = "書き出し中… 0%"
+            self.statusText = self.jobLabel + "書き出し中… 0%"
             return true
         }
         guard proceed else {
@@ -255,9 +387,12 @@ final class ExportManager {
             }
             let savedResult = saved
             let photoErrorResult = photoError
+            let durationSeconds = built.duration.seconds
+            let description = Self.canvasDescription(for: snapshot, renderSize: built.renderSize)
             await MainActor.run {
                 self.finishSucceeded(outputURL: outputURL, saved: savedResult, photoError: photoErrorResult,
-                                     fellBackToSDR: fellBackToSDR)
+                                     fellBackToSDR: fellBackToSDR,
+                                     duration: durationSeconds, canvasDescription: description)
             }
         case .cancelled:
             await MainActor.run { self.finishCancelled(outputURL: outputURL) }
@@ -265,6 +400,148 @@ final class ExportManager {
             let message = "書き出しに失敗しました: \(error.localizedDescription)"
             await MainActor.run { self.finishFailed(message, outputURL: outputURL) }
         }
+    }
+
+    // MARK: - Audio-only export (background)
+
+    private func runAudioExport(snapshot: ProjectSnapshot) async {
+        let outputURL: URL
+        do {
+            outputURL = try Self.makeOutputURL(fileExtension: "m4a")
+        } catch {
+            let message = "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)"
+            await MainActor.run { self.finishFailed(message, outputURL: nil) }
+            return
+        }
+
+        let built: BuiltComposition
+        do {
+            built = try await CompositionBuilder.build(snapshot, purpose: .preview)
+        } catch {
+            let message = "音声の構成に失敗しました: \(error.localizedDescription)"
+            await MainActor.run {
+                if self.cancelRequested {
+                    self.finishCancelled(outputURL: outputURL)
+                } else {
+                    self.finishFailed(message, outputURL: outputURL)
+                }
+            }
+            return
+        }
+
+        guard let session = AVAssetExportSession(asset: built.composition, presetName: AVAssetExportPresetAppleM4A) else {
+            await MainActor.run { self.finishFailed("音声の書き出しを準備できませんでした", outputURL: outputURL) }
+            return
+        }
+        session.audioMix = built.audioMix
+        session.audioTimePitchAlgorithm = .spectral
+        let durationSeconds = built.duration.seconds
+        if durationSeconds.isFinite && durationSeconds > 0 {
+            session.timeRange = CMTimeRange(start: .zero, duration: built.duration)
+        }
+
+        let proceed: Bool = await MainActor.run {
+            if self.cancelRequested { return false }
+            self.currentAudioSession = session
+            self.state = .exporting
+            self.statusText = "音声を書き出し中… 0%"
+            return true
+        }
+        guard proceed else {
+            await MainActor.run { self.finishCancelled(outputURL: outputURL) }
+            return
+        }
+
+        // 進捗(0.2 秒ごとに読む)
+        let monitor = Task.detached { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                if Task.isCancelled { break }
+                let value = Double(session.progress)
+                self?.pipelineReportedProgress(value)
+            }
+        }
+
+        do {
+            try await session.export(to: outputURL, as: .m4a)
+            monitor.cancel()
+            await MainActor.run {
+                self.currentAudioSession = nil
+                if self.cancelRequested {
+                    self.finishCancelled(outputURL: outputURL)
+                } else {
+                    self.finishSucceeded(outputURL: outputURL, saved: false, photoError: nil,
+                                         duration: durationSeconds, canvasDescription: "音声のみ(m4a)",
+                                         audioOnly: true)
+                }
+            }
+        } catch {
+            monitor.cancel()
+            let cancelled = error is CancellationError
+            await MainActor.run {
+                self.currentAudioSession = nil
+                if self.cancelRequested || cancelled {
+                    self.finishCancelled(outputURL: outputURL)
+                } else {
+                    self.finishFailed("音声の書き出しに失敗しました: \(error.localizedDescription)", outputURL: outputURL)
+                }
+            }
+        }
+    }
+
+    /// 履歴に表示する出力の説明(例: 「16:9 横 1080p 30fps」)
+    private static func canvasDescription(for snapshot: ProjectSnapshot, renderSize: CGSize) -> String {
+        let aspect: String
+        switch snapshot.canvas.aspect {
+        case .original: aspect = "元の比率"
+        case .portrait9x16: aspect = "9:16 縦"
+        case .landscape16x9: aspect = "16:9 横"
+        case .square: aspect = "1:1"
+        case .portrait4x5: aspect = "4:5 縦"
+        }
+        let shortSide = Int(min(renderSize.width, renderSize.height).rounded())
+        let codec = StorageEstimator.usesHEVC(for: snapshot) ? "HEVC" : "H.264"
+        return "\(aspect) \(shortSide)p \(snapshot.canvas.frameRate)fps \(codec)"
+    }
+
+    // MARK: - History
+
+    private static func historyURL() throws -> URL {
+        try exportsDirectory().appendingPathComponent("history.json")
+    }
+
+    private func loadHistory() {
+        guard let url = try? Self.historyURL(),
+              let data = try? Data(contentsOf: url) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let records = try? decoder.decode([ExportRecord].self, from: data) else { return }
+        history = records.filter { FileManager.default.fileExists(atPath: $0.url.path) }
+    }
+
+    private func saveHistory() {
+        guard let url = try? Self.historyURL() else { return }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(history) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    @MainActor
+    private func appendHistory(url: URL, duration: Double, canvasDescription: String) {
+        let record = ExportRecord(id: UUID(),
+                                  fileName: url.lastPathComponent,
+                                  date: Date(),
+                                  duration: duration.isFinite ? max(0, duration) : 0,
+                                  canvasDescription: canvasDescription)
+        var updated = history.filter { $0.fileName != record.fileName && FileManager.default.fileExists(atPath: $0.url.path) }
+        updated.insert(record, at: 0)
+        if updated.count > Self.historyLimit {
+            updated = Array(updated.prefix(Self.historyLimit))
+        }
+        history = updated
+        saveHistory()
     }
 
     /// 出力ファイルを AVURLAsset で開き、長さ(許容 0.5 秒)と映像トラックの有無を確認する。問題があれば日本語の説明を返す
@@ -305,26 +582,43 @@ final class ExportManager {
     private static let sdrFallbackNote = "HDRで書き出せなかったためSDRで書き出しました"
 
     @MainActor
-    private func finishSucceeded(outputURL: URL, saved: Bool, photoError: Error?, fellBackToSDR: Bool = false) {
+    private func finishSucceeded(outputURL: URL, saved: Bool, photoError: Error?, fellBackToSDR: Bool = false,
+                                 duration: Double, canvasDescription: String, audioOnly: Bool = false) {
         currentPipeline = nil
+        currentAudioSession = nil
         lastOutputURL = outputURL
+        appendHistory(url: outputURL, duration: duration, canvasDescription: canvasDescription)
+
+        if !queuedJobs.isEmpty {
+            // 縦横同時: 続けて次の 1 本を書き出す(バックグラウンド処理は続行したまま)
+            let next = queuedJobs.removeFirst()
+            isRunning = false
+            jobLabel = next.label
+            startOnMain(snapshot: next.snapshot, saveToPhotos: next.saveToPhotos)
+            return
+        }
+
+        let label = jobLabel
+        jobLabel = ""
         progress = 1
         savedToPhotos = saved
         state = .finished
         isRunning = false
+        let doneText = audioOnly ? "音声の書き出し完了" : "書き出し完了"
         if let photoError {
-            statusText = "書き出し完了(写真への保存に失敗: \(photoError.localizedDescription))"
+            statusText = "\(doneText)(写真への保存に失敗: \(photoError.localizedDescription))"
         } else if saved {
-            statusText = "書き出し完了・写真に保存しました"
+            statusText = label.isEmpty ? "\(doneText)・写真に保存しました" : "2 本とも書き出して写真に保存しました"
         } else {
-            statusText = "書き出し完了"
+            statusText = label.isEmpty ? doneText : "2 本とも書き出しました"
         }
         if fellBackToSDR {
             statusText += "(\(Self.sdrFallbackNote))"
         }
         if AppLifecycle.shared.isInBackground {
-            Self.postLocalNotification(title: "書き出し完了",
-                                       body: saved ? "動画を書き出して写真に保存しました" : "動画の書き出しが完了しました")
+            Self.postLocalNotification(title: doneText,
+                                       body: saved ? "動画を書き出して写真に保存しました"
+                                           : (audioOnly ? "音声の書き出しが完了しました" : "動画の書き出しが完了しました"))
         }
         endBackgroundWork(success: true)
     }
@@ -333,6 +627,9 @@ final class ExportManager {
     @MainActor
     private func finishVerificationFailed(_ message: String, outputURL: URL) {
         currentPipeline = nil
+        currentAudioSession = nil
+        queuedJobs = []
+        jobLabel = ""
         lastOutputURL = outputURL
         isRunning = false
         state = .failed(message)
@@ -346,6 +643,9 @@ final class ExportManager {
     @MainActor
     private func finishCancelled(outputURL: URL?) {
         currentPipeline = nil
+        currentAudioSession = nil
+        queuedJobs = []
+        jobLabel = ""
         if let outputURL {
             try? FileManager.default.removeItem(at: outputURL)
         }
@@ -367,6 +667,9 @@ final class ExportManager {
     @MainActor
     private func finishFailed(_ message: String, outputURL: URL?) {
         currentPipeline = nil
+        currentAudioSession = nil
+        queuedJobs = []
+        jobLabel = ""
         if let outputURL {
             try? FileManager.default.removeItem(at: outputURL)
         }
@@ -405,7 +708,8 @@ final class ExportManager {
     private func applyProgress(_ value: Double) {
         guard isRunning, state == .exporting, !cancelRequested else { return }
         progress = value
-        statusText = "書き出し中… \(Int((value * 100).rounded(.down)))%"
+        let percent = Int((value * 100).rounded(.down))
+        statusText = currentAudioSession != nil ? "音声を書き出し中… \(percent)%" : jobLabel + "書き出し中… \(percent)%"
         #if compiler(>=6.2)
         if #available(iOS 26.0, *), let task = continuedTask as? BGContinuedProcessingTask {
             task.progress.totalUnitCount = 1000

@@ -150,11 +150,63 @@ struct SubtitleSegmenter {
             guard !text.isEmpty else { continue }
             let start = layout.starts[r.lowerBound]
             let end = max(start, layout.ends[r.upperBound - 1])
-            cues.append(SubtitleCue(start: start, end: end, text: text))
+            var cue = SubtitleCue(start: start, end: end, text: text)
+            cue.words = words(in: r, layout: layout)
+            cues.append(cue)
         }
         cues.sort { $0.start < $1.start }
         adjustTiming(&cues)
         return cues
+    }
+
+    // MARK: - 単語タイミング(カラオケ風テンプレート用)
+
+    /// 範囲内のスカラーを元トークンごとにまとめ、SubtitleWord の列にする。
+    /// トークンの途中で分割された字幕でも、その字幕に含まれる部分だけが入る
+    private func words(in r: Range<Int>, layout: Layout) -> [SubtitleWord] {
+        var result: [SubtitleWord] = []
+        var i = r.lowerBound
+        while i < r.upperBound {
+            let owner = layout.owner[i]
+            if owner < 0 {
+                i += 1
+                continue
+            }
+            var j = i
+            while j < r.upperBound, layout.owner[j] == owner { j += 1 }
+            let text = layout.text(of: i..<j).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                let start = layout.starts[i]
+                let end = max(start, layout.ends[j - 1])
+                result.append(SubtitleWord(text: text, start: start, end: end))
+            }
+            i = j
+        }
+        // 字幕本文(cleanCueText)と同じく、末尾の読点は最後の単語からも除く
+        if let last = result.last {
+            var text = last.text
+            while let scalar = text.unicodeScalars.last, Self.clauseEnders.contains(scalar) {
+                text.removeLast()
+                text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if text.isEmpty {
+                result.removeLast()
+            } else {
+                result[result.count - 1].text = text
+            }
+        }
+        return result
+    }
+
+    /// 単語の時刻を start...end に収める(字幕の時刻を変えたとき用)
+    static func clampWords(_ words: [SubtitleWord], start: Double, end: Double) -> [SubtitleWord] {
+        guard !words.isEmpty else { return words }
+        let hi = max(start, end)
+        return words.map { word in
+            let s = min(max(word.start, start), hi)
+            let e = min(max(word.end, s), hi)
+            return SubtitleWord(text: word.text, start: s, end: e)
+        }
     }
 
     // MARK: - トークン正規化
@@ -725,6 +777,7 @@ struct SubtitleSegmenter {
                 end = start + 0.2
             }
             cues[i].end = end
+            cues[i].words = Self.clampWords(cues[i].words, start: start, end: end)
         }
     }
 }

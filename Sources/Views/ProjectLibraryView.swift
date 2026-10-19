@@ -1,8 +1,10 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 // =====================================================================
 // プロジェクト一覧(CapCut のホーム画面に相当)と、一覧 ⇄ 編集画面を切り替えるルート。
+// プロジェクトの書き出し(.videomania パッケージ)/ 読み込みもここから行う(ProjectPackage)。
 // =====================================================================
 
 // MARK: - ルート
@@ -55,6 +57,15 @@ struct ProjectLibraryView: View {
     @State private var deleteTarget: ProjectMeta?
     @State private var isDeleting = false
 
+    // パッケージの書き出し / 読み込み
+    @State private var isImporterPresented = false
+    @State private var isImporting = false
+    @State private var exportingMeta: ProjectMeta?
+    @State private var exportProgress: Double = 0
+    @State private var packageShareItem: PackageShareItem?
+    @State private var alertTitle = ""
+    @State private var alertMessage: String?
+
     private let columns = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
@@ -92,6 +103,38 @@ struct ProjectLibraryView: View {
             .background(Color.black.ignoresSafeArea())
             .navigationTitle("プロジェクト")
             .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        isImporterPresented = true
+                    } label: {
+                        Label("読み込み", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(isImporting || exportingMeta != nil)
+                    .accessibilityLabel("プロジェクトを読み込み")
+                }
+            }
+            .fileImporter(isPresented: $isImporterPresented,
+                          allowedContentTypes: [.folder, .package, .item],
+                          allowsMultipleSelection: false) { result in
+                handlePackageImport(result)
+            }
+            .sheet(item: $packageShareItem) { item in
+                PackageShareSheet(item: item)
+            }
+            .alert(alertTitle, isPresented: Binding(
+                get: { alertMessage != nil },
+                set: { if !$0 { alertMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage ?? "")
+            }
+            .overlay {
+                if isImporting || exportingMeta != nil {
+                    packageProgressOverlay
+                }
+            }
         }
         .preferredColorScheme(.dark)
         .alert("名前を変更", isPresented: $isRenaming) {
@@ -174,8 +217,32 @@ struct ProjectLibraryView: View {
                                 onOpen: { onOpen(meta) },
                                 onRename: { beginRename(meta) },
                                 onDuplicate: { _ = library.duplicate(id: meta.id) },
+                                onExport: { exportPackage(meta) },
                                 onDelete: { beginDelete(meta) })
             }
+        }
+    }
+
+    private var packageProgressOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+            VStack(spacing: 12) {
+                if let meta = exportingMeta {
+                    ProgressView(value: min(max(exportProgress, 0), 1))
+                    Text("「\(meta.name)」を書き出し中… \(Int((min(max(exportProgress, 0), 1) * 100).rounded()))%")
+                        .font(.callout)
+                        .monospacedDigit()
+                        .multilineTextAlignment(.center)
+                } else {
+                    ProgressView()
+                    Text("プロジェクトを読み込み中…")
+                        .font(.callout)
+                }
+            }
+            .padding(20)
+            .frame(width: 280)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         }
     }
 
@@ -191,6 +258,104 @@ struct ProjectLibraryView: View {
         deleteTarget = meta
         isDeleting = true
     }
+
+    private func showAlert(_ title: String, _ message: String) {
+        alertTitle = title
+        alertMessage = message
+    }
+
+    // MARK: パッケージの書き出し / 読み込み
+
+    /// プロジェクトを <名前>.videomania(フォルダ形式)にまとめて共有シートへ
+    private func exportPackage(_ meta: ProjectMeta) {
+        guard exportingMeta == nil, !isImporting else { return }
+        // まとめ書き待ちの保存があれば先に書く
+        ProjectStore.flush(projectID: meta.id)
+        exportingMeta = meta
+        exportProgress = 0
+        Task { @MainActor in
+            do {
+                let url = try await ProjectPackage.export(projectID: meta.id, progress: { value in
+                    Task { @MainActor in
+                        exportProgress = value
+                    }
+                })
+                exportingMeta = nil
+                packageShareItem = PackageShareItem(url: url, name: meta.name)
+            } catch {
+                exportingMeta = nil
+                showAlert("書き出せませんでした", error.localizedDescription)
+            }
+        }
+    }
+
+    private func handlePackageImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            showAlert("読み込みエラー", error.localizedDescription)
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            isImporting = true
+            Task { @MainActor in
+                do {
+                    let meta = try await ProjectPackage.importPackage(from: url)
+                    isImporting = false
+                    showAlert("読み込み完了", "「\(meta.name)」を読み込みました。一覧から開けます。")
+                } catch {
+                    isImporting = false
+                    showAlert("読み込めませんでした", "選んだ項目は Video Mania のプロジェクト(.videomania)ではないか、壊れている可能性があります。\n\(error.localizedDescription)")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - パッケージ共有
+
+/// 書き出した .videomania の共有シートに渡す項目
+private struct PackageShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+    let name: String
+}
+
+private struct PackageShareSheet: View {
+    let item: PackageShareItem
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Image(systemName: "shippingbox")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.secondary)
+                Text("「\(item.name)」をパッケージにしました")
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                Text("ファイル名: \(item.url.lastPathComponent)\n「ファイル」アプリや AirDrop で別の端末に送り、プロジェクト一覧の「読み込み」から取り込めます。素材の動画・写真も一緒に入っているため、サイズは大きくなります。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                ShareLink(item: item.url) {
+                    Label("共有・ファイルに保存", systemImage: "square.and.arrow.up")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(24)
+            .navigationTitle("プロジェクトの書き出し")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
 }
 
 // MARK: - カード
@@ -201,6 +366,7 @@ private struct ProjectCardView: View {
     let onOpen: () -> Void
     let onRename: () -> Void
     let onDuplicate: () -> Void
+    let onExport: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -279,6 +445,9 @@ private struct ProjectCardView: View {
         }
         Button(action: onDuplicate) {
             Label("複製", systemImage: "plus.square.on.square")
+        }
+        Button(action: onExport) {
+            Label("書き出し(.videomania)", systemImage: "shippingbox")
         }
         Button(role: .destructive, action: onDelete) {
             Label("削除", systemImage: "trash")

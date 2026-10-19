@@ -32,17 +32,18 @@ enum LookPreset: String, CaseIterable, Identifiable {
 
 /// 作品全体にかかる演出
 struct DocumentaryStyle: Equatable {
-    var look: LookPreset = .none
+    /// 既定で「ドキュメンタリー風」を適用する(ユーザー設定: 新規作成時に最初から適用)
+    var look: LookPreset = .documentary
     /// 色味の強さ 0...1
-    var lookIntensity: Double = 1
+    var lookIntensity: Double = 0.85
     /// 2.39:1 の上下黒帯
-    var letterbox: Bool = false
+    var letterbox: Bool = true
     /// フィルム粒子 0...1
-    var filmGrain: Double = 0
+    var filmGrain: Double = 0.25
     /// 周辺減光 0...1
-    var vignette: Double = 0
+    var vignette: Double = 0.35
     /// 冒頭を黒からフェードイン、最後を黒へフェードアウト(各 1.5 秒)
-    var fadeFromToBlack: Bool = false
+    var fadeFromToBlack: Bool = true
     /// クリップのつなぎ目を一瞬黒に落とす(0.5 秒)
     var dipToBlackBetweenClips: Bool = false
     /// 字幕(=話している区間)の間だけ BGM を下げる

@@ -12,6 +12,24 @@ enum EditorSelection: Hashable {
     case bgm
     case overlay(UUID)
     case narration(UUID)
+    case text(UUID)
+    case drawing(UUID)
+    case marker(UUID)
+
+    var textID: UUID? {
+        if case .text(let id) = self { return id }
+        return nil
+    }
+
+    var drawingID: UUID? {
+        if case .drawing(let id) = self { return id }
+        return nil
+    }
+
+    var markerID: UUID? {
+        if case .marker(let id) = self { return id }
+        return nil
+    }
 
     var overlayID: UUID? {
         if case .overlay(let id) = self { return id }
@@ -102,5 +120,10 @@ extension EditorProject {
         lowerThirds = snapshot.lowerThirds
         overlays = snapshot.overlays
         narration = snapshot.narration
+        textClips = snapshot.textClips
+        drawings = snapshot.drawings
+        markers = snapshot.markers
+        watermark = snapshot.watermark
+        cover = snapshot.cover
     }
 }

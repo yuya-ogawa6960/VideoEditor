@@ -23,6 +23,7 @@ struct NarrationClip: Identifiable, Equatable {
     var volume: Float = 1
     /// 正規化で求めたゲイン(線形)
     var gain: Float = 1
+    var effects = AudioEffects()
 
     /// 出力タイムライン上の終了秒
     var end: Double { start + duration }
@@ -54,6 +55,8 @@ struct ClipAudioSettings: Equatable {
     /// L カット: このクリップの映像が終わった後、何秒音声を続けるか。
     /// 音声は元素材の endTime を越えて (endTime + audioTailOut) まで取る。
     var audioTailOut: Double = 0
+    /// イコライザー・ピッチ・ボイスプリセット(Phase3Models.swift)
+    var effects = AudioEffects()
 
     var isIdentity: Bool { gain == 1 && audioLeadIn == 0 && audioTailOut == 0 }
     var hasSplitEdit: Bool { audioLeadIn > 0 || audioTailOut > 0 }

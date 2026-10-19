@@ -7,9 +7,11 @@ import UIKit
 // OverlayRenderer: Bロール / ワイプ(PiP) / 写真クリップを 1 フレームに重ねる
 // VideoCompositor から毎フレーム呼ばれる。
 // 手順(オーバーレイごと): ソース画像 → Ken Burns クロップ → フィルタ → 枠に収める(fill / fit)
-//   → 角丸マスク → 不透明度(フェード込み) → source-over 合成
+//   → 角丸マスク → 回転(キーフレーム) → 不透明度(フェード込み) → 合成(通常 or ブレンドモード)
+// キーフレームがあるときは枠の中心・大きさ・回転・不透明度を KeyframeInterpolator の値で置き換える。
 // CoreImage は左下原点、NormalizedRect は左上原点なので y を変換する。
 // 写真の CIImage と角丸マスクはサイズごとにキャッシュして、毎フレームの確保を避ける。
+// WatermarkRenderer: 透かし(画像または文字)を隅に描く。
 // =====================================================================
 
 enum OverlayRenderer {
@@ -26,8 +28,8 @@ enum OverlayRenderer {
         let canvas = CGRect(origin: .zero, size: canvasSize)
         var out = frame
         for overlay in overlays where overlay.contains(timelineTime: time) {
-            let alpha = overlay.effectiveOpacity(at: time)
-            if alpha <= 0.001 { continue }
+            let fade = overlay.fadeFactor(at: time)
+            if fade <= 0.001 { continue }
 
             let source: CIImage?
             if overlay.isImage {
@@ -40,21 +42,21 @@ enum OverlayRenderer {
             }
             guard let source else { continue }
 
-            if let rendered = Self.image(for: overlay, source: source, time: time, alpha: alpha, canvasSize: canvasSize) {
-                out = rendered.composited(over: out)
+            if let rendered = Self.image(for: overlay, source: source, time: time, fade: fade, canvasSize: canvasSize) {
+                out = composite(rendered, over: out, blendMode: overlay.blendMode, canvas: canvas)
             }
         }
         return out.cropped(to: canvas)
     }
 
     /// 1 つのオーバーレイを、キャンバス上の位置に配置した CIImage にする(合成前)。
-    /// source は原点 (0,0)・向き反映済みの画像。
+    /// source は原点 (0,0)・向き反映済みの画像。fade はフェードイン/アウトの係数(不透明度は含まない)
     static func image(for overlay: VideoCompositorOverlay,
                       source: CIImage,
                       time: Double,
-                      alpha: Double,
+                      fade: Double,
                       canvasSize: CGSize) -> CIImage? {
-        var image = normalizedToOrigin(source)
+        var image = GeometryMath.normalizedToOrigin(source)
         let sourceExtent = image.extent
         guard sourceExtent.width >= 1, sourceExtent.height >= 1, !sourceExtent.isInfinite else { return nil }
 
@@ -62,14 +64,9 @@ enum OverlayRenderer {
         if overlay.kenBurns.enabled {
             let crop = overlay.kenBurns.crop(at: overlay.progress(at: time)).clamped()
             if !crop.isFull {
-                let w = sourceExtent.width
-                let h = sourceExtent.height
-                let cropRect = CGRect(x: CGFloat(crop.x) * w,
-                                      y: (1 - CGFloat(crop.maxY)) * h,
-                                      width: CGFloat(crop.width) * w,
-                                      height: CGFloat(crop.height) * h)
+                let cropRect = GeometryMath.rect(topLeft: crop, in: sourceExtent.size)
                 if cropRect.width >= 1, cropRect.height >= 1 {
-                    image = normalizedToOrigin(image.cropped(to: cropRect))
+                    image = GeometryMath.normalizedToOrigin(image.cropped(to: cropRect))
                 }
             }
         }
@@ -77,8 +74,22 @@ enum OverlayRenderer {
         // 2. フィルタ(identity ならそのまま返る)
         image = FilterEngine.apply(overlay.filter, to: image)
 
-        // 3. 枠に収める
-        let frameRect = pixelFrame(overlay.frame, canvasSize: canvasSize)
+        // 3. 枠(キーフレームがあれば中心・大きさ・回転・不透明度を置き換える)
+        var frameRect = pixelFrame(overlay.frame, canvasSize: canvasSize)
+        var rotation = 0.0
+        var opacity = overlay.opacity
+        if !overlay.keyframes.isEmpty {
+            let fallback = KeyframeInterpolator.Value(center: NormalizedPoint(x: overlay.frame.midX, y: overlay.frame.midY),
+                                                      scale: 1, rotation: 0, opacity: overlay.opacity)
+            let value = KeyframeInterpolator.value(at: time - overlay.start, keyframes: overlay.keyframes, fallback: fallback)
+            let center = GeometryMath.point(topLeft: value.center, in: canvasSize)
+            let scale = CGFloat(max(0.01, value.scale))
+            let w = max(1, (frameRect.width * scale).rounded())
+            let h = max(1, (frameRect.height * scale).rounded())
+            frameRect = CGRect(x: (center.x - w / 2).rounded(), y: (center.y - h / 2).rounded(), width: w, height: h)
+            rotation = value.rotation
+            opacity = min(max(value.opacity, 0), 1)
+        }
         guard frameRect.width >= 1, frameRect.height >= 1 else { return nil }
         let e = image.extent
         guard e.width > 0, e.height > 0, !e.isInfinite else { return nil }
@@ -107,17 +118,16 @@ enum OverlayRenderer {
             ]).cropped(to: frameRect)
         }
 
-        // 5. 不透明度(premultiplied なので RGBA すべてに掛ける)
-        if alpha < 0.999 {
-            let a = CGFloat(max(0, alpha))
-            placed = placed.applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: a, y: 0, z: 0, w: 0),
-                "inputGVector": CIVector(x: 0, y: a, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: a, w: 0),
-                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: a)
-            ])
+        // 5. 回転(枠の中心まわり)
+        if abs(rotation) > 0.01 {
+            placed = GeometryMath.transformed(GeometryMath.normalizedToOrigin(placed),
+                                              scale: 1,
+                                              rotationDegrees: rotation,
+                                              center: CGPoint(x: frameRect.midX, y: frameRect.midY))
         }
-        return placed
+
+        // 6. 不透明度(フェード × 不透明度)
+        return GeometryMath.withAlpha(placed, fade * opacity)
     }
 
     /// NormalizedRect(左上原点)→ キャンバス上のピクセル矩形(CoreImage の左下原点、整数に丸め)
@@ -132,12 +142,32 @@ enum OverlayRenderer {
         return CGRect(x: x, y: canvasSize.height - bottomY, width: width, height: height)
     }
 
+    // MARK: - ブレンド
+
+    /// 対応するブレンドフィルタ名(これ以外は通常の重ね合わせ)
+    static let blendModeNames: Set<String> = [
+        "CIMultiplyBlendMode", "CIScreenBlendMode", "CIOverlayBlendMode", "CISoftLightBlendMode",
+        "CIHardLightBlendMode", "CILightenBlendMode", "CIDarkenBlendMode", "CIColorDodgeBlendMode",
+        "CIColorBurnBlendMode", "CIDifferenceBlendMode", "CIExclusionBlendMode", "CILuminosityBlendMode",
+        "CIHueBlendMode", "CIColorBlendMode", "CISaturationBlendMode", "CIAdditionCompositing"
+    ]
+
+    /// top を bottom の上に合成する(blendMode が対応名なら CoreImage のブレンド、そうでなければ source-over)
+    static func composite(_ top: CIImage, over bottom: CIImage, blendMode: String?, canvas: CGRect) -> CIImage {
+        if let mode = blendMode, blendModeNames.contains(mode) {
+            return top.applyingFilter(mode, parameters: [
+                kCIInputBackgroundImageKey: bottom
+            ]).cropped(to: canvas)
+        }
+        return top.composited(over: bottom).cropped(to: canvas)
+    }
+
     // MARK: - キャッシュ
 
-    /// 写真オーバーレイの CIImage(url + 読み込みサイズごと)
+    /// 写真オーバーレイ・静止画クリップの CIImage(url + 読み込みサイズごと)
     private static let imageCache: NSCache<NSString, CIImage> = {
         let c = NSCache<NSString, CIImage>()
-        c.countLimit = 16
+        c.countLimit = 24
         return c
     }()
 
@@ -200,12 +230,65 @@ enum OverlayRenderer {
         let radius = CGFloat(ratio) * base
         return min(radius, min(frameRect.width, frameRect.height) / 2)
     }
+}
 
-    /// 原点を (0,0) に揃える
-    private static func normalizedToOrigin(_ image: CIImage) -> CIImage {
+// MARK: - 透かし
+
+enum WatermarkRenderer {
+
+    /// 透かし(画像または文字)を隅に描く。最後に呼ぶので黒帯の上にも出る
+    static func draw(_ settings: WatermarkSettings, over frame: CIImage, canvasSize: CGSize) -> CIImage {
+        guard settings.isActive, canvasSize.width >= 2, canvasSize.height >= 2 else { return frame }
+        let canvas = CGRect(origin: .zero, size: canvasSize)
+        let shortSide = min(canvasSize.width, canvasSize.height)
+        let sizeRatio = GeometryMath.clamp(settings.sizeRatio, 0.03, 0.8)
+        let targetWidth = max(8, (CGFloat(sizeRatio) * canvasSize.width).rounded())
+
+        var mark: CIImage? = nil
+        if let url = settings.imageURL,
+           let base = OverlayRenderer.cachedImage(url: url, canvasSize: canvasSize) {
+            let e = base.extent
+            if e.width >= 1, e.height >= 1, !e.isInfinite {
+                let scale = targetWidth / e.width
+                mark = GeometryMath.normalizedToOrigin(base).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            }
+        }
+        if mark == nil, !settings.text.trimmingCharacters(in: .whitespaces).isEmpty {
+            var style = TextStyle()
+            style.bold = true
+            style.colorHex = "#FFFFFF"
+            // sizeRatio は画面幅に対する比率なので、短辺基準の文字サイズに換算する
+            let widthToShort = Double(canvasSize.width / shortSide)
+            style.sizeRatio = GeometryMath.clamp(sizeRatio * 0.22 * widthToShort, 0.015, 0.3)
+            style.shadow.enabled = true
+            style.shadow.opacity = 0.7
+            style.strokeColorHex = nil
+            style.backgroundColorHex = nil
+            mark = TextRenderer.image(text: settings.text, style: style, canvasSize: canvasSize, widthRatio: 1)
+        }
+        guard let image = mark else { return frame }
         let e = image.extent
-        guard !e.isInfinite else { return image }
-        if e.origin.x == 0 && e.origin.y == 0 { return image }
-        return image.transformed(by: CGAffineTransform(translationX: -e.origin.x, y: -e.origin.y))
+        guard e.width >= 1, e.height >= 1, !e.isInfinite else { return frame }
+
+        let margin = (canvasSize.width * 0.03).rounded()
+        let x: CGFloat
+        let y: CGFloat
+        switch settings.corner {
+        case .topLeft:
+            x = margin
+            y = canvasSize.height - margin - e.height
+        case .topRight:
+            x = canvasSize.width - margin - e.width
+            y = canvasSize.height - margin - e.height
+        case .bottomLeft:
+            x = margin
+            y = margin
+        case .bottomRight:
+            x = canvasSize.width - margin - e.width
+            y = margin
+        }
+        let placed = GeometryMath.normalizedToOrigin(image)
+            .transformed(by: CGAffineTransform(translationX: x.rounded(), y: y.rounded()))
+        return GeometryMath.withAlpha(placed, settings.opacity).composited(over: frame).cropped(to: canvas)
     }
 }

@@ -1,0 +1,524 @@
+import Foundation
+import NaturalLanguage
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
+
+// =====================================================================
+// 字幕の AI 仕上げ(LLM による校正)
+//
+// 音声認識 → SubtitleSegmenter の後に呼ぶ。句読点の補正・残ったフィラーの除去・
+// 誤認識の修正を行い、長すぎる字幕は文の切れ目で 2 つに分ける(時刻は文字数比で配分)。
+//
+// エンジン:
+//   (a) 端末内: FoundationModels(iOS 26+、Apple Intelligence が有効な端末)
+//   (b) クラウド: OpenAI Chat Completions(gpt-4o-mini、ユーザーの API キー)
+//   (c) なし
+//
+// 失敗しても例外は投げず、入力をそのまま返す(バッチ単位で部分的に適用される)。
+// id・時刻・単語タイミングはできる限り保持し、本文が変わった cue の単語は新しい本文に合わせて再配分する。
+// =====================================================================
+
+enum SubtitlePolisher {
+
+    enum ResolvedEngine: Equatable {
+        case onDevice
+        case cloud
+        case none
+    }
+
+    static let cloudModel = "gpt-4o-mini"
+    static let cloudEndpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+
+    /// 1 回のリクエストに入れる字幕数
+    static let cloudBatchSize = 40
+    /// 端末内モデルはコンテキストが小さいので少なめ
+    static let onDeviceBatchSize = 16
+
+    // MARK: - 直近のエラー(表示・デバッグ用。キーは含めない)
+
+    private static let errorLock = NSLock()
+    private static var storedLastError: String?
+
+    static var lastErrorMessage: String? {
+        errorLock.lock()
+        defer { errorLock.unlock() }
+        return storedLastError
+    }
+
+    private static func setLastError(_ message: String?) {
+        errorLock.lock()
+        storedLastError = message
+        errorLock.unlock()
+    }
+
+    // MARK: - エンジンの解決
+
+    /// 端末内モデル(Apple Intelligence)が今すぐ使えるか
+    static var isOnDeviceAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .available = SystemLanguageModel.default.availability {
+                return true
+            }
+            return false
+        }
+        #endif
+        return false
+    }
+
+    static func resolveEngine(settings: AppSettings) -> ResolvedEngine {
+        switch settings.polishEngine {
+        case .none:
+            return .none
+        case .onDevice:
+            return isOnDeviceAvailable ? .onDevice : .none
+        case .cloud:
+            return settings.isCloudConfigured ? .cloud : .none
+        case .auto:
+            if isOnDeviceAvailable { return .onDevice }
+            if settings.isCloudConfigured { return .cloud }
+            return .none
+        }
+    }
+
+    /// 進捗表示用の名前
+    static func displayName(of engine: ResolvedEngine) -> String {
+        switch engine {
+        case .onDevice: return "Apple Intelligence"
+        case .cloud: return "OpenAI"
+        case .none: return "なし"
+        }
+    }
+
+    // MARK: - 公開 API
+
+    /// 字幕を校正して返す。失敗した部分は入力のまま。例外は投げない
+    static func polish(_ cues: [SubtitleCue], language: TranscriptionLanguage, settings: AppSettings) async -> [SubtitleCue] {
+        guard !cues.isEmpty else { return cues }
+        let engine = resolveEngine(settings: settings)
+        guard engine != .none else { return cues }
+        setLastError(nil)
+
+        let instructions = polishInstructions(language: language)
+        let apiKey = settings.openAIKey
+        let batchSize = (engine == .onDevice) ? onDeviceBatchSize : cloudBatchSize
+
+        let replies = await runBatches(count: cues.count, batchSize: batchSize) { indices in
+            let prompt = itemsPrompt(header: polishPromptHeader(language: language),
+                                     items: indices.map { ($0, cues[$0].text) })
+            return await generate(engine: engine, instructions: instructions, prompt: prompt, apiKey: apiKey)
+        }
+        if Task.isCancelled || replies.isEmpty { return cues }
+        return apply(replies, to: cues, language: language)
+    }
+
+    /// 字幕を翻訳して translatedText に入れる(本文・時刻・単語は変えない)。
+    /// エンジンが無い / 1 件も翻訳できなかったときは nil
+    static func translate(_ cues: [SubtitleCue], from language: TranscriptionLanguage, toEnglish: Bool,
+                          settings: AppSettings) async -> [SubtitleCue]? {
+        guard !cues.isEmpty else { return nil }
+        let engine = resolveEngine(settings: settings)
+        guard engine != .none else { return nil }
+        setLastError(nil)
+
+        let instructions = translationInstructions(source: language, toEnglish: toEnglish)
+        let apiKey = settings.openAIKey
+        let batchSize = (engine == .onDevice) ? onDeviceBatchSize : cloudBatchSize
+
+        let replies = await runBatches(count: cues.count, batchSize: batchSize) { indices in
+            let header = toEnglish ? "Translate the following subtitles."
+                                   : "次の字幕を翻訳してください。"
+            let prompt = itemsPrompt(header: header, items: indices.map { ($0, cues[$0].text) })
+            return await generate(engine: engine, instructions: instructions, prompt: prompt, apiKey: apiKey)
+        }
+        if Task.isCancelled || replies.isEmpty { return nil }
+
+        var result = cues
+        var count = 0
+        for (index, text) in replies where index >= 0 && index < result.count {
+            let cleaned = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleaned.isEmpty else { continue }
+            result[index].translatedText = cleaned
+            count += 1
+        }
+        return count > 0 ? result : nil
+    }
+
+    // MARK: - プロンプト
+
+    private static func polishInstructions(language: TranscriptionLanguage) -> String {
+        switch language {
+        case .japanese:
+            return """
+            あなたは動画字幕の校正者です。音声認識で作られた日本語の字幕を、意味を変えずに読みやすく整えます。
+            ルール:
+            - 明らかな誤認識は文脈から自然な表記に直す(固有名詞・数字は確信があるときだけ)
+            - 句読点(、。)を自然に補う。「あのー」「えーと」などのフィラーや言い直しは削る
+            - 内容の追加・要約・意訳・敬語への言い換えはしない。話し言葉の語尾はそのまま残す
+            - 字幕の数と番号は入力と同じにする(複数の字幕を 1 つにまとめない)
+            - 1 つの字幕が長すぎるときだけ、文の切れ目に改行(\\n)を 1 つ入れて 2 つに分ける
+            - フィラーだけで意味の無い字幕は空文字列 "" にする
+            - 出力は JSON オブジェクトのみ。形式: {"items":[{"i":番号,"t":"字幕"}, ...]}
+            """
+        case .english:
+            return """
+            You are a subtitle editor. Clean up English subtitles produced by speech recognition without changing their meaning.
+            Rules:
+            - Fix obvious misrecognitions from context (be careful with names and numbers).
+            - Add natural punctuation and capitalization. Remove fillers (um, uh, you know) and false starts.
+            - Do not add, summarize, or paraphrase content. Keep the speaker's wording.
+            - Keep the same number of subtitles and the same numbering (never merge subtitles).
+            - Only if a subtitle is too long, insert exactly one line break (\\n) at a sentence boundary to split it in two.
+            - If a subtitle is only filler with no meaning, return an empty string "".
+            - Output JSON only, in the form: {"items":[{"i":number,"t":"subtitle"}, ...]}
+            """
+        }
+    }
+
+    private static func polishPromptHeader(language: TranscriptionLanguage) -> String {
+        switch language {
+        case .japanese: return "次の字幕を校正してください。番号: 本文 の形式です。"
+        case .english: return "Clean up the following subtitles. Each line is number: text."
+        }
+    }
+
+    private static func translationInstructions(source: TranscriptionLanguage, toEnglish: Bool) -> String {
+        if toEnglish {
+            return """
+            You translate video subtitles from \(source == .japanese ? "Japanese" : "English") into natural, concise English suitable for on-screen captions.
+            - Translate each subtitle on its own; keep the same numbering and the same number of items.
+            - Keep names and numbers. Do not add explanations.
+            - Output JSON only, in the form: {"items":[{"i":number,"t":"translation"}, ...]}
+            """
+        }
+        return """
+        あなたは動画字幕の翻訳者です。\(source == .english ? "英語" : "日本語")の字幕を、画面に表示する字幕として自然で簡潔な日本語に翻訳します。
+        - 字幕ごとに翻訳し、番号と件数は入力と同じにする
+        - 固有名詞・数字はそのまま。説明は加えない
+        - 出力は JSON オブジェクトのみ。形式: {"items":[{"i":番号,"t":"訳文"}, ...]}
+        """
+    }
+
+    private static func itemsPrompt(header: String, items: [(Int, String)]) -> String {
+        var lines: [String] = [header, ""]
+        for (index, text) in items {
+            let flat = text.replacingOccurrences(of: "\r", with: " ")
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            lines.append("\(index): \(flat)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - バッチ実行
+
+    /// count 件を batchSize ごとに処理し、index → 応答テキストを集める。失敗したバッチは半分に割って再試行
+    private static func runBatches(count: Int, batchSize: Int,
+                                   generate: ([Int]) async -> String?) async -> [Int: String] {
+        var replies: [Int: String] = [:]
+        var start = 0
+        while start < count {
+            if Task.isCancelled { return [:] }
+            let end = min(count, start + max(1, batchSize))
+            let got = await process(indices: Array(start..<end), depth: 0, generate: generate)
+            replies.merge(got) { _, new in new }
+            start = end
+        }
+        return replies
+    }
+
+    private static func process(indices: [Int], depth: Int,
+                                generate: ([Int]) async -> String?) async -> [Int: String] {
+        if Task.isCancelled || indices.isEmpty { return [:] }
+        if let raw = await generate(indices), let parsed = parseItems(raw) {
+            let valid = parsed.filter { indices.contains($0.key) }
+            if !valid.isEmpty { return valid }
+        }
+        guard indices.count > 4, depth < 3 else { return [:] }
+        let mid = indices.count / 2
+        let left = await process(indices: Array(indices[0..<mid]), depth: depth + 1, generate: generate)
+        let right = await process(indices: Array(indices[mid...]), depth: depth + 1, generate: generate)
+        return left.merging(right) { _, new in new }
+    }
+
+    // MARK: - 生成
+
+    private static func generate(engine: ResolvedEngine, instructions: String, prompt: String, apiKey: String) async -> String? {
+        switch engine {
+        case .onDevice:
+            return await generateOnDevice(instructions: instructions, prompt: prompt)
+        case .cloud:
+            return await chatCompletion(instructions: instructions, prompt: prompt, apiKey: apiKey)
+        case .none:
+            return nil
+        }
+    }
+
+    private static func generateOnDevice(instructions: String, prompt: String) async -> String? {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            do {
+                let session = LanguageModelSession(instructions: instructions)
+                let response = try await session.respond(to: prompt, options: GenerationOptions(temperature: 0.2))
+                return response.content
+            } catch {
+                if error is CancellationError { return nil }
+                setLastError("端末内 AI: \(error.localizedDescription)")
+                return nil
+            }
+        }
+        #endif
+        setLastError("端末内 AI はこの端末では利用できません")
+        return nil
+    }
+
+    private static func chatCompletion(instructions: String, prompt: String, apiKey: String) async -> String? {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            setLastError("OpenAI の API キーが設定されていません")
+            return nil
+        }
+        let payload: [String: Any] = [
+            "model": cloudModel,
+            "temperature": 0.2,
+            "response_format": ["type": "json_object"],
+            "messages": [
+                ["role": "system", "content": instructions],
+                ["role": "user", "content": prompt],
+            ],
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+
+        var request = URLRequest(url: cloudEndpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        request.timeoutInterval = 120
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else {
+                switch status {
+                case 401: setLastError("APIキーが正しくありません")
+                case 429: setLastError("利用上限です")
+                default: setLastError("OpenAI がエラーを返しました(\(status))")
+                }
+                return nil
+            }
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = root["choices"] as? [[String: Any]],
+                  let message = choices.first?["message"] as? [String: Any],
+                  let content = message["content"] as? String else {
+                setLastError("OpenAI の応答を読み取れませんでした")
+                return nil
+            }
+            return content
+        } catch {
+            if error is CancellationError { return nil }
+            if let urlError = error as? URLError, urlError.code == .cancelled { return nil }
+            setLastError("通信エラー: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // MARK: - 応答の解析
+
+    /// {"items":[{"i":0,"t":"..."}]} / [{"i":..}] / {"0":"..."} のいずれも受け付ける
+    static func parseItems(_ raw: String) -> [Int: String]? {
+        guard let object = extractJSON(raw) else { return nil }
+        var array: [Any]? = object as? [Any]
+        if array == nil, let dict = object as? [String: Any] {
+            for key in ["items", "cues", "results", "subtitles", "data", "output"] {
+                if let candidate = dict[key] as? [Any] {
+                    array = candidate
+                    break
+                }
+            }
+            if array == nil {
+                let anyArray = dict.values.first(where: { $0 is [Any] })
+                array = anyArray as? [Any]
+            }
+            if array == nil {
+                var map: [Int: String] = [:]
+                for (key, value) in dict {
+                    if let index = Int(key.trimmingCharacters(in: .whitespaces)), let text = value as? String {
+                        map[index] = text
+                    }
+                }
+                return map.isEmpty ? nil : map
+            }
+        }
+        guard let items = array else { return nil }
+        var result: [Int: String] = [:]
+        for case let item as [String: Any] in items {
+            let index = intValue(item["i"]) ?? intValue(item["index"]) ?? intValue(item["id"]) ?? intValue(item["n"])
+            let text = (item["t"] as? String) ?? (item["text"] as? String) ?? (item["subtitle"] as? String)
+                ?? (item["translation"] as? String)
+            guard let index, let text else { continue }
+            result[index] = text
+        }
+        return result.isEmpty ? nil : result
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let i = value as? Int { return i }
+        if let n = value as? NSNumber { return n.intValue }
+        if let s = value as? String, let i = Int(s.trimmingCharacters(in: .whitespaces)) { return i }
+        return nil
+    }
+
+    private static func extractJSON(_ raw: String) -> Any? {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```") {
+            if let firstNewline = text.firstIndex(of: "\n") {
+                text = String(text[text.index(after: firstNewline)...])
+            }
+            if let fence = text.range(of: "```", options: .backwards) {
+                text = String(text[..<fence.lowerBound])
+            }
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let data = text.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+            return object
+        }
+        let openers: [Character] = ["{", "["]
+        guard let startIndex = text.firstIndex(where: { openers.contains($0) }) else { return nil }
+        let closer: Character = (text[startIndex] == "{") ? "}" : "]"
+        guard let endIndex = text.lastIndex(of: closer), endIndex > startIndex else { return nil }
+        let slice = String(text[startIndex...endIndex])
+        guard let data = slice.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    }
+
+    // MARK: - 適用
+
+    private static func apply(_ replies: [Int: String], to cues: [SubtitleCue], language: TranscriptionLanguage) -> [SubtitleCue] {
+        var result: [SubtitleCue] = []
+        result.reserveCapacity(cues.count)
+        for (index, cue) in cues.enumerated() {
+            guard let reply = replies[index] else {
+                result.append(cue)
+                continue
+            }
+            let original = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stripped = stripLeadingIndex(reply.replacingOccurrences(of: "\r", with: ""), index: index)
+            let pieces = stripped.components(separatedBy: "\n")
+                .map { SubtitleSegmenter.cleanCueText($0) }
+                .filter { !$0.isEmpty }
+
+            if pieces.isEmpty {
+                // 空 → フィラーだけの短い字幕なら削除、長いものは念のため元のまま
+                if original.count <= 8 { continue }
+                result.append(cue)
+                continue
+            }
+
+            let joined = pieces.joined(separator: language == .japanese ? "" : " ")
+            guard isPlausible(original: original, candidate: joined) else {
+                result.append(cue)
+                continue
+            }
+
+            if pieces.count == 1 || cue.duration < 1.6 {
+                result.append(retexted(cue, newText: pieces.count == 1 ? pieces[0] : joined, language: language))
+            } else {
+                result.append(contentsOf: split(cue, into: Array(pieces.prefix(3)), language: language))
+            }
+        }
+        return result
+    }
+
+    /// 「12: 本文」のように番号が混入していたら外す
+    private static func stripLeadingIndex(_ text: String, index: Int) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for prefix in ["\(index): ", "\(index):", "\(index). ", "\(index)） ", "\(index)) "] {
+            if trimmed.hasPrefix(prefix) {
+                return String(trimmed.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return trimmed
+    }
+
+    /// 元の本文から大きく逸脱していないか(長さ比・文字の重なり)
+    private static func isPlausible(original: String, candidate: String) -> Bool {
+        let a = original.count
+        let b = candidate.count
+        guard b > 0, b <= 240 else { return false }
+        if a >= 6 {
+            let ratio = Double(b) / Double(max(1, a))
+            if ratio > 2.2 || ratio < 0.35 { return false }
+            let originalSet = Set(original.lowercased().filter { !$0.isWhitespace && !$0.isPunctuation })
+            let candidateChars = candidate.lowercased().filter { !$0.isWhitespace && !$0.isPunctuation }
+            guard !candidateChars.isEmpty else { return false }
+            let overlap = candidateChars.filter { originalSet.contains($0) }.count
+            if Double(overlap) / Double(candidateChars.count) < 0.4 { return false }
+        }
+        return true
+    }
+
+    private static func retexted(_ cue: SubtitleCue, newText: String, language: TranscriptionLanguage) -> SubtitleCue {
+        guard cue.text != newText else { return cue }
+        var updated = cue
+        updated.words = rescaleWords(cue.words, newText: newText, start: cue.start, end: cue.end, language: language)
+        updated.text = newText
+        return updated
+    }
+
+    /// 1 つの cue を pieces に分割(時刻は文字数比、単語は区間ごとに再配分)
+    private static func split(_ cue: SubtitleCue, into pieces: [String], language: TranscriptionLanguage) -> [SubtitleCue] {
+        let weights = pieces.map { Double(max(1, $0.count)) }
+        let total = max(1, weights.reduce(0, +))
+        let span = max(0, cue.end - cue.start)
+        var cursor = cue.start
+        var result: [SubtitleCue] = []
+        for (i, piece) in pieces.enumerated() {
+            let pieceEnd = (i == pieces.count - 1) ? cue.end : min(cue.end, cursor + span * weights[i] / total)
+            var newCue = SubtitleCue(id: i == 0 ? cue.id : UUID(), start: cursor, end: pieceEnd, text: piece)
+            if !cue.words.isEmpty {
+                let inRange = cue.words.filter { word in
+                    let mid = (word.start + word.end) / 2
+                    return mid >= cursor && mid < pieceEnd + 0.000_001
+                }
+                if inRange.isEmpty {
+                    newCue.words = TranscriptionTokenUtilities.distributeEvenly(
+                        text: piece, start: cursor, end: pieceEnd, language: language.languageCode)
+                        .map { SubtitleWord(text: $0.text, start: $0.start, end: $0.end) }
+                } else {
+                    newCue.words = rescaleWords(inRange, newText: piece, start: cursor, end: pieceEnd, language: language)
+                }
+            }
+            result.append(newCue)
+            cursor = pieceEnd
+        }
+        return result
+    }
+
+    /// 本文が変わった cue の単語タイミングを新しい本文に合わせる。
+    /// 単語数が同じならテキストだけ差し替え、違えば元の単語列の時間範囲に文字数比で配分する
+    static func rescaleWords(_ words: [SubtitleWord], newText: String, start: Double, end: Double,
+                             language: TranscriptionLanguage) -> [SubtitleWord] {
+        guard !words.isEmpty else { return [] }
+        let pieces = TranscriptionTokenUtilities.wordPieces(newText, language: language.languageCode)
+        guard !pieces.isEmpty else { return [] }
+        if pieces.count == words.count {
+            var result: [SubtitleWord] = []
+            for (word, piece) in zip(words, pieces) {
+                result.append(SubtitleWord(text: piece, start: word.start, end: word.end))
+            }
+            return result
+        }
+        var rangeStart = max(start, words[0].start)
+        var rangeEnd = min(end, words[words.count - 1].end)
+        if rangeEnd <= rangeStart + 0.05 {
+            rangeStart = start
+            rangeEnd = max(end, start + 0.2)
+        }
+        return TranscriptionTokenUtilities.distributeEvenly(text: newText, start: rangeStart, end: rangeEnd,
+                                                            language: language.languageCode)
+            .map { SubtitleWord(text: $0.text, start: $0.start, end: $0.end) }
+    }
+}

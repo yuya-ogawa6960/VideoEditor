@@ -36,13 +36,23 @@ enum FilterEngineContexts {
 
 enum FilterEngine {
 
+    /// 順序: 読み込んだ LUT(.cube、設定時はプリセットより優先)またはプリセット → 色調整 → HSL
     static func apply(_ settings: FilterSettings, to image: CIImage) -> CIImage {
         if settings.isIdentity { return image }
         let extent = image.extent
         var output = image
 
-        // 1. プリセット(LUT。強度で元画像とブレンド)
-        if settings.preset != .none && settings.intensity > 0 {
+        // 1. 読み込んだ LUT(強度でブレンド)。読めないときはプリセットへフォールバック
+        var usedFileLUT = false
+        if let name = settings.lutFileName, settings.lutIntensity > 0,
+           let file = FilterLUT.fileCube(named: name) {
+            let graded = FilterLUT.apply(file.data, dimension: file.size, to: image)
+            output = blend(original: image, filtered: graded, intensity: settings.lutIntensity)
+            usedFileLUT = true
+        }
+
+        // 1'. プリセット(LUT。強度で元画像とブレンド)
+        if !usedFileLUT && settings.preset != .none && settings.intensity > 0 {
             let filtered = presetImage(settings.preset, image: image)
             output = blend(original: image, filtered: filtered, intensity: settings.intensity)
         }
@@ -53,8 +63,88 @@ enum FilterEngine {
             output = applyAdjustments(adj, to: output)
         }
 
+        // 4. HSL(色相帯ごと)
+        if !settings.hsl.isIdentity, let cube = FilterLUT.hslCube(for: settings.hsl) {
+            output = FilterLUT.apply(cube, to: output)
+        }
+
         if extent.isInfinite || extent.isEmpty { return output }
         return output.cropped(to: extent)
+    }
+
+    // MARK: - 自動補正 / 色合わせ
+
+    /// CoreImage の自動補正(露出・色かぶり・コントラスト)を適用する
+    static func autoEnhance(_ image: CIImage) -> CIImage {
+        let extent = image.extent
+        let filters = image.autoAdjustmentFilters(options: [
+            CIImageAutoAdjustmentOption.enhance: true,
+            CIImageAutoAdjustmentOption.redEye: false
+        ])
+        var output = image
+        for filter in filters {
+            filter.setValue(output, forKey: kCIInputImageKey)
+            if let result = filter.outputImage {
+                output = result
+            }
+        }
+        if extent.isInfinite || extent.isEmpty { return output }
+        return output.cropped(to: extent)
+    }
+
+    /// 参照画像(reference)の平均的な明るさ・彩度・色温度に source を近づける色調整を提案する
+    static func suggestedAdjustments(toMatch reference: UIImage, from source: UIImage) -> ColorAdjustments {
+        guard let refCG = ScopeAnalyzer.cgImage(from: reference),
+              let srcCG = ScopeAnalyzer.cgImage(from: source),
+              let ref = ScopeAnalyzer.colorStatistics(refCG),
+              let src = ScopeAnalyzer.colorStatistics(srcCG) else {
+            return ColorAdjustments()
+        }
+        var adj = ColorAdjustments()
+        adj.brightness = clamp(Double(ref.meanLuma - src.meanLuma) * 0.9, -0.5, 0.5)
+        adj.contrast = clamp(Double(ref.lumaStdDev) / max(Double(src.lumaStdDev), 0.02), 0.7, 1.4)
+        adj.saturation = clamp(Double(ref.meanSaturation) / max(Double(src.meanSaturation), 0.02), 0.5, 1.6)
+        adj.temperature = clamp(Double(ref.warmth - src.warmth) * 3.0, -1, 1)
+        return roundedAdjustments(adj)
+    }
+
+    /// 画像の平均輝度・コントラスト・彩度から控えめな自動補正値を求める
+    static func autoEnhanceAdjustments(for image: UIImage) -> ColorAdjustments {
+        guard let cg = ScopeAnalyzer.cgImage(from: image),
+              let stats = ScopeAnalyzer.colorStatistics(cg) else {
+            return ColorAdjustments()
+        }
+        var adj = ColorAdjustments()
+        let targetLuma: Double = 0.46
+        adj.brightness = clamp((targetLuma - Double(stats.meanLuma)) * 0.6, -0.25, 0.25)
+        let targetStdDev: Double = 0.21
+        adj.contrast = clamp(targetStdDev / max(Double(stats.lumaStdDev), 0.03), 0.9, 1.25)
+        let meanSat = Double(stats.meanSaturation)
+        if meanSat < 0.22 {
+            adj.saturation = clamp(1 + (0.22 - meanSat) * 1.5, 1, 1.3)
+        }
+        if stats.darkFraction > 0.35 {
+            adj.shadows = clamp(Double(stats.darkFraction - 0.35) * 1.2, 0, 0.4)
+        }
+        if stats.brightFraction > 0.2 {
+            adj.highlights = -clamp(Double(stats.brightFraction - 0.2) * 1.5, 0, 0.4)
+        }
+        return roundedAdjustments(adj)
+    }
+
+    /// スライダーで扱いやすいよう 0.01 単位に丸める
+    private static func roundedAdjustments(_ adj: ColorAdjustments) -> ColorAdjustments {
+        func r(_ v: Double) -> Double { (v * 100).rounded() / 100 }
+        var out = adj
+        out.brightness = r(adj.brightness)
+        out.contrast = r(adj.contrast)
+        out.saturation = r(adj.saturation)
+        out.exposure = r(adj.exposure)
+        out.temperature = r(adj.temperature)
+        out.highlights = r(adj.highlights)
+        out.shadows = r(adj.shadows)
+        out.sharpness = r(adj.sharpness)
+        return out
     }
 
     /// 色調整(ColorAdjustments)だけを適用する。順序: 基本の CIColorControls → 露出 → 色温度

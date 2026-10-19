@@ -1,14 +1,24 @@
 import Foundation
 import AVFoundation
 import CoreGraphics
+import CoreVideo
 
 // =====================================================================
 // CompositionBuilder: ProjectSnapshot → AVComposition + AVVideoComposition + AVAudioMix
 //
 // トラック構成:
-//   映像: メイン 1 本 + マルチカムのアングル A/B + オーバーレイ動画(重なる分だけ増やす小さなプール)
-//   音声: クリップ音声 A/B(偶数クリップ → A、奇数 → B。J/L カットで隣と重なれる)
+//   映像: メイン A/B(偶数クリップ → A、奇数 → B。トランジションで隣と重なれる)
+//         + マルチカムのアングル A/B + オーバーレイ動画(重なる分だけ増やす小さなプール)
+//   音声: クリップ音声 A/B(偶数クリップ → A、奇数 → B。J/L カット・トランジションのクロスフェード)
 //         + オーバーレイ音声(volume > 0 のみ) + ナレーション + BGM
+//
+// タイムライン: timelineLayout(for:) がトランジションの重なりを反映した各クリップの出力上の位置を返す。
+//   クリップ N のトランジションは N と N+1 を duration だけ重ね(各クリップの半分まで)、全体は短くなる。
+// 速度カーブ: トリミング範囲を等速の区間に分けて scaleTimeRange(音声も同じ)。
+// 静止画・読めないクリップ: 黒のダミー映像(Caches に 1 回だけ生成)をトラックに入れて長さを確保し、
+//   コンポジタは画像(静止画)または黒を描く。
+// 逆再生: reversedURL を素材として使う(範囲は duration − endTime ... duration − startTime)。
+// 音声エフェクト: AudioEffectsRenderer.cachedProcessedURL(for:effects:) が返す処理済みファイルを使う。
 // =====================================================================
 
 enum RenderPurpose { case preview, export }
@@ -19,6 +29,14 @@ struct BuiltComposition {
     let audioMix: AVAudioMix?
     let renderSize: CGSize
     let duration: CMTime
+}
+
+/// 出力タイムライン上のクリップの位置(トランジションの重なりを反映した後の秒)
+struct ClipPlacement {
+    let clipID: UUID
+    let start: Double
+    let end: Double
+    var duration: Double { max(0, end - start) }
 }
 
 enum CompositionBuilderError: LocalizedError {
@@ -47,6 +65,9 @@ enum CompositionBuilder {
 
     /// クリップ音声の最大音量(originalVolume × gain の上限)
     private static let maxClipVolume: Float = 4
+
+    /// 速度カーブを等速区間に分ける数
+    private static let speedCurveSegmentCount = 24
 
     // MARK: - renderSize
 
@@ -84,120 +105,263 @@ enum CompositionBuilder {
         return CGSize(width: compositionEven(width), height: compositionEven(height))
     }
 
+    // MARK: - タイムラインの配置(トランジションの重なりを反映)
+
+    /// クリップ N のトランジションで N と N+1 が重なる長さ(秒)。各クリップの出力長の半分まで
+    static func transitionOverlap(from clip: Clip, to next: Clip) -> Double {
+        guard clip.transition.isActive else { return 0 }
+        let a = max(0, clip.outputDuration)
+        let b = max(0, next.outputDuration)
+        let d = min(clip.transition.duration, a / 2, b / 2)
+        guard d.isFinite, d >= 0.05 else { return 0 }
+        return d
+    }
+
+    /// 各クリップの出力タイムライン上の開始・終了(重なり反映後)。clips と同じ順・同じ数
+    static func timelineLayout(for snapshot: ProjectSnapshot) -> [ClipPlacement] {
+        var result: [ClipPlacement] = []
+        result.reserveCapacity(snapshot.clips.count)
+        var t = 0.0
+        let clips = snapshot.clips
+        for (i, clip) in clips.enumerated() {
+            let out = max(0, clip.outputDuration.isFinite ? clip.outputDuration : 0)
+            let start = t
+            let end = start + out
+            result.append(ClipPlacement(clipID: clip.id, start: start, end: end))
+            var next = end
+            if i + 1 < clips.count {
+                next = end - transitionOverlap(from: clip, to: clips[i + 1])
+            }
+            t = max(start, next)
+        }
+        return result
+    }
+
+    /// 作品全体の長さ(秒、重なり反映後)
+    static func totalDuration(for snapshot: ProjectSnapshot) -> Double {
+        timelineLayout(for: snapshot).last?.end ?? 0
+    }
+
     // MARK: - build
+
+    /// 命令の材料(シーン情報が揃ってから VideoCompositorInstruction にする)
+    private struct InstructionSpec {
+        let range: CMTimeRange
+        let layers: [VideoCompositorClipLayer]
+        let transition: VideoCompositorTransition?
+    }
 
     static func build(_ snapshot: ProjectSnapshot, purpose: RenderPurpose) async throws -> BuiltComposition {
         guard !snapshot.clips.isEmpty else { throw CompositionBuilderError.noClips }
 
         let size = renderSize(for: snapshot, purpose: purpose)
         let composition = AVMutableComposition()
-        guard let mainVideoTrack = composition.addMutableTrack(withMediaType: .video,
-                                                               preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw CompositionBuilderError.cannotCreateTrack
+
+        // メイン映像 A/B
+        var mainTracks: [AVMutableCompositionTrack] = []
+        for _ in 0..<2 {
+            guard let track = composition.addMutableTrack(withMediaType: .video,
+                                                          preferredTrackID: kCMPersistentTrackID_Invalid) else {
+                throw CompositionBuilderError.cannotCreateTrack
+            }
+            mainTracks.append(track)
         }
+
+        let layout = timelineLayout(for: snapshot)
+        let clipOutputDurations = snapshot.clips.map { $0.outputDuration }
 
         // クリップ音声の A/B レーン(偶数クリップ → 0、奇数クリップ → 1)
         var clipLanes: [AudioLane?] = [nil, nil]
         var angleTracks: [AVMutableCompositionTrack] = []
         var nextAngleTrackIndex = 0
-        var instructions: [VideoCompositorInstruction] = []
-        var clipBoundaries: [Double] = []
-        var cursor = CMTime.zero
-
-        // アングル素材の読み込みキャッシュ
         var angleCache: [URL: CompositionAngleSource] = [:]
-
-        // 隣のクリップの出力長(J/L カットが隣のさらに隣へ食い込まないように使う)
-        let clipOutputDurations = snapshot.clips.map { $0.outputDuration }
-        var placedClipIndex = 0
+        var placeholder: CompositionAngleSource? = nil
+        var placeholderLoaded = false
+        var layers: [VideoCompositorClipLayer?] = Array(repeating: nil, count: snapshot.clips.count)
+        var hardCutBoundaries: [Double] = []
+        var pictureCount = 0
 
         for (clipIndex, clip) in snapshot.clips.enumerated() {
-            let asset = AVURLAsset(url: clip.url)
-            let videoTracks: [AVAssetTrack]
-            do {
-                videoTracks = try await asset.loadTracks(withMediaType: .video)
-            } catch {
+            let placement = layout[clipIndex]
+            let outStart = compositionTime(placement.start, method: .roundHalfAwayFromZero)
+            let outEnd = compositionTime(placement.end, method: .roundHalfAwayFromZero)
+            guard outEnd > outStart else { continue }
+            let outDuration = outEnd - outStart
+            let track = mainTracks[clipIndex % 2]
+            let overlapIn = clipIndex > 0 ? max(0, layout[clipIndex - 1].end - placement.start) : 0
+            let overlapOut = clipIndex + 1 < layout.count ? max(0, placement.end - layout[clipIndex + 1].start) : 0
+            if clipIndex > 0 && overlapIn <= 0.001 {
+                hardCutBoundaries.append(placement.start)
+            }
+
+            // --- 静止画クリップ(映像ソース無し。黒のダミーで長さを確保)
+            if let still = clip.stillImageURL {
+                if !placeholderLoaded {
+                    placeholderLoaded = true
+                    placeholder = await loadPlaceholderSource()
+                }
+                let placeholderID = insertPlaceholder(placeholder, into: track, at: outStart, duration: outDuration)
+                layers[clipIndex] = VideoCompositorClipLayer(clipID: clip.id,
+                                                             trackID: nil,
+                                                             placeholderTrackID: placeholderID,
+                                                             transform: .identity,
+                                                             angleSegments: [],
+                                                             stillImageURL: still,
+                                                             filter: clip.filter,
+                                                             geometry: clip.geometry,
+                                                             animation: clip.animation,
+                                                             speedSegments: [],
+                                                             smoothSlow: false,
+                                                             start: placement.start,
+                                                             end: placement.end)
+                pictureCount += 1
                 continue
             }
-            guard let sourceVideo = videoTracks.first else { continue }
-            let (trackRange, mainTransform) = try await sourceVideo.load(.timeRange, .preferredTransform)
 
-            let speed = max(clip.speed, 0.01)
-
-            // ソース範囲(トラックの範囲に収める)
-            var srcStart = compositionTime(max(0, clip.startTime), method: .roundHalfAwayFromZero)
-            var srcEnd = compositionTime(clip.endTime, method: .roundTowardZero)
-            let trackStart = trackRange.start.convertScale(timescale, method: .roundTowardPositiveInfinity)
-            let trackEnd = trackRange.end.convertScale(timescale, method: .roundTowardZero)
-            if srcStart < trackStart { srcStart = trackStart }
-            if srcEnd > trackEnd { srcEnd = trackEnd }
-            guard srcEnd > srcStart else { continue }
-            let srcDuration = srcEnd - srcStart
-            let outDuration = scaledDuration(srcDuration, speed: speed)
-            guard outDuration > .zero else { continue }
-
-            // --- メイン映像
-            do {
-                try mainVideoTrack.insertTimeRange(CMTimeRange(start: srcStart, duration: srcDuration),
-                                                   of: sourceVideo, at: cursor)
-            } catch {
+            // --- 映像ソース(逆再生なら逆再生済みファイル)
+            let reversedActive = clip.isReversed && clip.reversedURL != nil
+            let sourceURL = reversedActive ? (clip.reversedURL ?? clip.url) : clip.url
+            let asset = AVURLAsset(url: sourceURL)
+            let videoTracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+            guard let sourceVideo = videoTracks.first,
+                  let loaded = try? await sourceVideo.load(.timeRange, .preferredTransform) else {
+                // 読めないクリップ: 黒
+                if !placeholderLoaded {
+                    placeholderLoaded = true
+                    placeholder = await loadPlaceholderSource()
+                }
+                let placeholderID = insertPlaceholder(placeholder, into: track, at: outStart, duration: outDuration)
+                layers[clipIndex] = blackLayer(for: clip, placeholderTrackID: placeholderID, placement: placement)
                 continue
             }
-            if outDuration != srcDuration {
-                mainVideoTrack.scaleTimeRange(CMTimeRange(start: cursor, duration: srcDuration),
-                                              toDuration: outDuration)
-            }
-            let clipOutRange = CMTimeRange(start: cursor, duration: outDuration)
-            let clipOutEnd = clipOutRange.end
+            let (trackRange, mainTransform) = loaded
 
-            // --- クリップ音声(マルチカムでもメインの音声。ゲイン・J/L カット・速度を反映)
+            // ソース範囲(秒)。逆再生ファイルのタイムラインは反転済み
+            var srcStartSec = clip.startTime
+            var srcEndSec = clip.endTime
+            if reversedActive {
+                srcStartSec = clip.duration - clip.endTime
+                srcEndSec = clip.duration - clip.startTime
+            }
+            let trackStartSec = max(0, trackRange.start.seconds)
+            let trackEndSec = trackRange.end.seconds
+            srcStartSec = max(srcStartSec, trackStartSec)
+            if trackEndSec.isFinite { srcEndSec = min(srcEndSec, trackEndSec) }
+
+            let plan = speedPlan(clip: clip,
+                                 sourceStart: srcStartSec,
+                                 sourceEnd: srcEndSec,
+                                 trackRange: trackRange,
+                                 outStart: outStart,
+                                 outDuration: outDuration)
+            guard srcEndSec - srcStartSec > 0.01, !plan.isEmpty else {
+                if !placeholderLoaded {
+                    placeholderLoaded = true
+                    placeholder = await loadPlaceholderSource()
+                }
+                let placeholderID = insertPlaceholder(placeholder, into: track, at: outStart, duration: outDuration)
+                layers[clipIndex] = blackLayer(for: clip, placeholderTrackID: placeholderID, placement: placement)
+                continue
+            }
+
+            // --- メイン映像(等速区間ごとに挿入して長さを合わせる)
+            var insertedAny = false
+            for segment in plan {
+                if trackEnd(track) > segment.outRange.start { continue }
+                compositionPad(track, to: segment.outRange.start)
+                do {
+                    try track.insertTimeRange(segment.sourceRange, of: sourceVideo, at: segment.outRange.start)
+                } catch {
+                    continue
+                }
+                if segment.outRange.duration != segment.sourceRange.duration {
+                    track.scaleTimeRange(CMTimeRange(start: segment.outRange.start, duration: segment.sourceRange.duration),
+                                         toDuration: segment.outRange.duration)
+                }
+                insertedAny = true
+            }
+            guard insertedAny else {
+                if !placeholderLoaded {
+                    placeholderLoaded = true
+                    placeholder = await loadPlaceholderSource()
+                }
+                let placeholderID = insertPlaceholder(placeholder, into: track, at: outStart, duration: outDuration)
+                layers[clipIndex] = blackLayer(for: clip, placeholderTrackID: placeholderID, placement: placement)
+                continue
+            }
+            if trackEnd(track) < outEnd {
+                compositionPad(track, to: outEnd)
+            }
+
+            // --- クリップ音声(マルチカムでもメインの音声。ゲイン・J/L カット・速度・エフェクトを反映)
             if !clip.isMuted && clip.hasAudio {
-                if let sourceAudio = (try? await asset.loadTracks(withMediaType: .audio))?.first,
+                var audioAsset = asset
+                if !clip.audio.effects.isIdentity,
+                   let processed = AudioEffectsRenderer.cachedProcessedURL(for: sourceURL, effects: clip.audio.effects) {
+                    audioAsset = AVURLAsset(url: processed)
+                }
+                let audioTracks = (try? await audioAsset.loadTracks(withMediaType: .audio)) ?? []
+                if let sourceAudio = audioTracks.first,
                    let audioRange = try? await sourceAudio.load(.timeRange) {
-                    let laneIndex = placedClipIndex % 2
+                    let laneIndex = clipIndex % 2
                     if clipLanes[laneIndex] == nil,
-                       let track = composition.addMutableTrack(withMediaType: .audio,
-                                                               preferredTrackID: kCMPersistentTrackID_Invalid) {
-                        clipLanes[laneIndex] = AudioLane(track: track)
+                       let laneTrack = composition.addMutableTrack(withMediaType: .audio,
+                                                                   preferredTrackID: kCMPersistentTrackID_Invalid) {
+                        clipLanes[laneIndex] = AudioLane(track: laneTrack)
                     }
                     if let lane = clipLanes[laneIndex] {
-                        let previousOut = clipIndex > 0 ? clipOutputDurations[clipIndex - 1] : 0
-                        let nextOut = clipIndex + 1 < clipOutputDurations.count ? clipOutputDurations[clipIndex + 1] : 0
-                        if let placement = clipAudioPlacement(audioRange: audioRange,
-                                                              srcStart: srcStart,
-                                                              srcEnd: srcEnd,
-                                                              speed: speed,
-                                                              leadIn: clip.audio.audioLeadIn,
-                                                              tailOut: clip.audio.audioTailOut,
-                                                              cursor: cursor,
-                                                              maxLeadTimeline: previousOut,
-                                                              maxTailTimeline: nextOut,
-                                                              laneEnd: lane.end) {
-                            compositionPad(lane.track, to: placement.at)
-                            do {
-                                try lane.track.insertTimeRange(placement.sourceRange, of: sourceAudio, at: placement.at)
-                                if placement.outDuration != placement.sourceRange.duration {
-                                    lane.track.scaleTimeRange(CMTimeRange(start: placement.at,
-                                                                          duration: placement.sourceRange.duration),
-                                                              toDuration: placement.outDuration)
+                        let gain = clip.audio.gain.isFinite ? max(0, clip.audio.gain) : 1
+                        let volume = min(snapshot.audio.originalVolume * gain, maxClipVolume)
+                        if clip.speedCurve.enabled || reversedActive {
+                            insertSegmentedAudio(plan,
+                                                 sourceAudio: sourceAudio,
+                                                 audioRange: audioRange,
+                                                 lane: lane,
+                                                 volume: volume,
+                                                 fadeIn: overlapIn,
+                                                 fadeOut: overlapOut)
+                        } else if let first = plan.first {
+                            let speed = max(clip.speed, 0.01)
+                            let previousOut = clipIndex > 0 ? clipOutputDurations[clipIndex - 1] : 0
+                            let nextOut = clipIndex + 1 < clipOutputDurations.count ? clipOutputDurations[clipIndex + 1] : 0
+                            if let audioPlacement = clipAudioPlacement(audioRange: audioRange,
+                                                                       srcStart: first.sourceRange.start,
+                                                                       srcEnd: first.sourceRange.end,
+                                                                       speed: speed,
+                                                                       leadIn: clip.audio.audioLeadIn,
+                                                                       tailOut: clip.audio.audioTailOut,
+                                                                       cursor: outStart,
+                                                                       maxLeadTimeline: previousOut,
+                                                                       maxTailTimeline: nextOut,
+                                                                       laneEnd: lane.end) {
+                                compositionPad(lane.track, to: audioPlacement.at)
+                                do {
+                                    try lane.track.insertTimeRange(audioPlacement.sourceRange, of: sourceAudio, at: audioPlacement.at)
+                                    if audioPlacement.outDuration != audioPlacement.sourceRange.duration {
+                                        lane.track.scaleTimeRange(CMTimeRange(start: audioPlacement.at,
+                                                                              duration: audioPlacement.sourceRange.duration),
+                                                                  toDuration: audioPlacement.outDuration)
+                                    }
+                                    lane.addSegment(at: audioPlacement.at,
+                                                    duration: audioPlacement.outDuration,
+                                                    volume: volume,
+                                                    fadeIn: overlapIn,
+                                                    fadeOut: overlapOut)
+                                } catch {
+                                    // 音声が入らなくても映像は続行
                                 }
-                                let gain = clip.audio.gain.isFinite ? max(0, clip.audio.gain) : 1
-                                let volume = min(snapshot.audio.originalVolume * gain, maxClipVolume)
-                                lane.addVolume(volume, at: placement.at)
-                            } catch {
-                                // 音声が入らなくても映像は続行
                             }
                         }
                     }
                 }
             }
 
-            // --- マルチカム
+            // --- マルチカム(逆再生中は使わない)
             var segments: [VideoCompositorAngleSegment] = []
-            if clip.multicam.isActive {
+            if clip.multicam.isActive && !reversedActive {
                 let runs = compositionAngleRuns(multicam: clip.multicam,
-                                                sourceStart: srcStart.seconds,
-                                                sourceEnd: srcEnd.seconds)
+                                                sourceStart: srcStartSec,
+                                                sourceEnd: srcEndSec)
                 for run in runs where run.angle > 0 && run.angle <= clip.multicam.angles.count {
                     let angle = clip.multicam.angles[run.angle - 1]
 
@@ -213,22 +377,21 @@ enum CompositionBuilder {
                     let rangeEndSec = min(run.end + angle.offset, angleSource.timeRange.end.seconds)
                     guard rangeEndSec - rangeStartSec > 0.02 else { continue }
 
+                    // 出力タイムライン上の位置(速度カーブを考慮)
+                    guard let outSSec = outputTime(forSource: rangeStartSec - angle.offset, plan: plan),
+                          let outESec = outputTime(forSource: rangeEndSec - angle.offset, plan: plan) else { continue }
+                    let segOutStart = compositionTime(outSSec, method: .roundHalfAwayFromZero)
+                    var segOutEnd = compositionTime(outESec, method: .roundHalfAwayFromZero)
+                    if segOutEnd > outEnd { segOutEnd = outEnd }
+                    guard (segOutEnd - segOutStart).seconds > 0.02 else { continue }
+                    let segOut = segOutEnd - segOutStart
+
                     let angleSrcStart = compositionTime(rangeStartSec, method: .roundTowardPositiveInfinity)
                     var angleSrcEnd = compositionTime(rangeEndSec, method: .roundTowardZero)
                     let angleTrackEnd = angleSource.timeRange.end.convertScale(timescale, method: .roundTowardZero)
                     if angleSrcEnd > angleTrackEnd { angleSrcEnd = angleTrackEnd }
                     guard angleSrcEnd > angleSrcStart else { continue }
                     let angleSrcDuration = angleSrcEnd - angleSrcStart
-
-                    // 出力タイムライン上の位置
-                    let mainSourceStart = compositionTime(rangeStartSec - angle.offset, method: .roundHalfAwayFromZero)
-                    var offsetInClip = mainSourceStart - srcStart
-                    if offsetInClip < .zero { offsetInClip = .zero }
-                    let outStart = cursor + scaledDuration(offsetInClip, speed: speed)
-                    var segOut = scaledDuration(angleSrcDuration, speed: speed)
-                    if outStart >= clipOutEnd { continue }
-                    if outStart + segOut > clipOutEnd { segOut = clipOutEnd - outStart }
-                    guard segOut > .zero else { continue }
 
                     // A/B 交互のアングルトラックへ配置
                     let slot = nextAngleTrackIndex % 2
@@ -240,59 +403,85 @@ enum CompositionBuilder {
                         angleTracks.append(newTrack)
                     }
                     let angleTrack = angleTracks[slot]
-                    let existingEnd = angleTrack.timeRange.end
-                    if existingEnd.isValid && existingEnd > outStart { continue }
-                    compositionPad(angleTrack, to: outStart)
+                    if trackEnd(angleTrack) > segOutStart { continue }
+                    compositionPad(angleTrack, to: segOutStart)
                     do {
                         try angleTrack.insertTimeRange(CMTimeRange(start: angleSrcStart, duration: angleSrcDuration),
-                                                       of: angleSource.track, at: outStart)
+                                                       of: angleSource.track, at: segOutStart)
                     } catch {
                         continue
                     }
                     if segOut != angleSrcDuration {
-                        angleTrack.scaleTimeRange(CMTimeRange(start: outStart, duration: angleSrcDuration),
+                        angleTrack.scaleTimeRange(CMTimeRange(start: segOutStart, duration: angleSrcDuration),
                                                   toDuration: segOut)
                     }
                     nextAngleTrackIndex += 1
                     segments.append(VideoCompositorAngleSegment(
-                        timeRange: CMTimeRange(start: outStart, duration: segOut),
+                        timeRange: CMTimeRange(start: segOutStart, duration: segOut),
                         trackID: angleTrack.trackID,
                         transform: angleSource.transform))
                 }
             }
 
-            // --- 字幕(このクリップ区間に重なるもの)
-            let clipStartSec = clipOutRange.start.seconds
-            let clipEndSec = clipOutEnd.seconds
-            var subtitles: [VideoCompositorSubtitle] = []
-            for cue in snapshot.subtitles where cue.end > clipStartSec && cue.start < clipEndSec && cue.end > cue.start {
-                let lines = cue.displayLines(mode: snapshot.subtitleStyle.displayMode)
-                if !lines.isEmpty {
-                    subtitles.append(VideoCompositorSubtitle(start: cue.start, end: cue.end, lines: lines))
-                }
-            }
-
-            if !instructions.isEmpty {
-                clipBoundaries.append(clipOutRange.start.seconds)
-            }
-            instructions.append(VideoCompositorInstruction(
-                timeRange: clipOutRange,
-                mainTrackID: mainVideoTrack.trackID,
-                mainTransform: mainTransform,
+            layers[clipIndex] = VideoCompositorClipLayer(
+                clipID: clip.id,
+                trackID: track.trackID,
+                placeholderTrackID: nil,
+                transform: mainTransform,
                 angleSegments: segments,
+                stillImageURL: nil,
                 filter: clip.filter,
-                subtitles: subtitles,
-                subtitleStyle: snapshot.subtitleStyle,
-                scaling: snapshot.canvas.scaling,
-                renderSize: size))
-
-            cursor = clipOutEnd
-            placedClipIndex += 1
+                geometry: clip.geometry,
+                animation: clip.animation,
+                speedSegments: plan.map {
+                    VideoCompositorSpeedSegment(start: $0.outRange.start.seconds, end: $0.outRange.end.seconds, speed: $0.speed)
+                },
+                smoothSlow: clip.speedCurve.enabled && clip.speedCurve.smoothSlow,
+                start: placement.start,
+                end: placement.end)
+            pictureCount += 1
         }
 
-        guard !instructions.isEmpty, cursor > .zero else { throw CompositionBuilderError.noVideo }
+        guard pictureCount > 0 else { throw CompositionBuilderError.noVideo }
+
+        // --- 命令の区間(単独区間とトランジション区間を隙間なく並べる)
+        var specs: [InstructionSpec] = []
+        var cursor = CMTime.zero
+        for i in 0..<layout.count {
+            guard let layer = layers[i] else { continue }
+            let placement = layout[i]
+            var nextOverlap = 0.0
+            var nextLayer: VideoCompositorClipLayer? = nil
+            if i + 1 < layout.count, let candidate = layers[i + 1] {
+                nextOverlap = max(0, placement.end - layout[i + 1].start)
+                nextLayer = candidate
+            }
+            let soloEnd = compositionTime(placement.end - nextOverlap, method: .roundHalfAwayFromZero)
+            if soloEnd > cursor {
+                specs.append(InstructionSpec(range: CMTimeRange(start: cursor, end: soloEnd), layers: [layer], transition: nil))
+                cursor = soloEnd
+            }
+            if nextOverlap > 0.001, let nextLayer {
+                let transitionEnd = compositionTime(placement.end, method: .roundHalfAwayFromZero)
+                if transitionEnd > cursor {
+                    let transition = VideoCompositorTransition(type: snapshot.clips[i].transition.type,
+                                                               start: layout[i + 1].start,
+                                                               duration: nextOverlap)
+                    specs.append(InstructionSpec(range: CMTimeRange(start: cursor, end: transitionEnd),
+                                                 layers: [layer, nextLayer],
+                                                 transition: transition))
+                    cursor = transitionEnd
+                }
+            }
+        }
+        guard !specs.isEmpty, cursor > .zero else { throw CompositionBuilderError.noVideo }
         let totalDuration = cursor
         let totalSeconds = totalDuration.seconds
+
+        // 何も入らなかった映像トラックは外す
+        for track in mainTracks where track.segments.isEmpty {
+            composition.removeTrack(track)
+        }
 
         // --- オーバーレイ(Bロール / ワイプ / 写真)
         var overlayLanes: [AudioLane] = []
@@ -300,9 +489,6 @@ enum CompositionBuilder {
                                                 into: composition,
                                                 totalSeconds: totalSeconds,
                                                 audioLanes: &overlayLanes)
-        if !overlayInfos.isEmpty {
-            instructions = instructions.map { $0.withMediaOverlays(overlayInfos) }
-        }
 
         // --- ナレーション
         var narrationLanes: [AudioLane] = []
@@ -321,8 +507,36 @@ enum CompositionBuilder {
                 .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
                 .sorted { $0.start < $1.start },
             totalDuration: totalSeconds,
-            clipBoundaries: clipBoundaries)
-        instructions = instructions.map { $0.withDocumentary(documentaryInfo) }
+            clipBoundaries: hardCutBoundaries)
+
+        // --- 字幕(表示行は事前計算)
+        let subtitles: [VideoCompositorSubtitle] = snapshot.subtitles.compactMap { (cue: SubtitleCue) -> VideoCompositorSubtitle? in
+            guard cue.end > cue.start, cue.end > 0, cue.start < totalSeconds else { return nil }
+            let lines = cue.displayLines(mode: snapshot.subtitleStyle.displayMode)
+            guard !lines.isEmpty else { return nil }
+            return VideoCompositorSubtitle(start: cue.start, end: cue.end, lines: lines,
+                                           words: cue.words, originalText: cue.text)
+        }
+
+        let scene = VideoCompositorScene(
+            renderSize: size,
+            scaling: snapshot.canvas.scaling,
+            subtitles: subtitles,
+            subtitleStyle: snapshot.subtitleStyle,
+            textClips: snapshot.textClips
+                .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
+                .sorted { $0.start < $1.start },
+            drawings: snapshot.drawings
+                .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
+                .sorted { $0.start < $1.start },
+            watermark: snapshot.watermark,
+            documentary: documentaryInfo,
+            mediaOverlays: overlayInfos,
+            totalDuration: totalSeconds)
+
+        var instructions: [VideoCompositorInstruction] = specs.map {
+            VideoCompositorInstruction(timeRange: $0.range, layers: $0.layers, transition: $0.transition, scene: scene)
+        }
 
         // --- 音量(クリップ音声 / オーバーレイ音声 / ナレーション)
         var audioParameters: [AVMutableAudioMixInputParameters] = []
@@ -402,7 +616,11 @@ enum CompositionBuilder {
         }
 
         // --- 命令の最終調整: コンポジション全長を隙間なく覆う
-        let compositionDuration = composition.duration
+        var compositionDuration = composition.duration
+        if compositionDuration < totalDuration, let first = mainTracks.first, !first.segments.isEmpty {
+            compositionPad(first, to: totalDuration)
+            compositionDuration = composition.duration
+        }
         if compositionDuration > totalDuration, let last = instructions.last {
             instructions[instructions.count - 1] = last.withTimeRange(
                 CMTimeRange(start: last.timeRange.start, end: compositionDuration))
@@ -428,6 +646,204 @@ enum CompositionBuilder {
                                 audioMix: audioMix,
                                 renderSize: size,
                                 duration: finalDuration)
+    }
+
+    // MARK: - 速度(等速 / 速度カーブ)の区間計画
+
+    /// 元素材上の範囲 → 出力上の範囲(等速区間)。speed は実効速度(ソース長 / 出力長)
+    struct SpeedPlanSegment {
+        let sourceRange: CMTimeRange
+        let outRange: CMTimeRange
+        let speed: Double
+    }
+
+    /// トリミング範囲 [sourceStart, sourceEnd) を出力 [outStart, outStart + outDuration) に割り当てる。
+    /// 速度カーブが有効なら speedCurve.segments() の区間ごと、無効なら 1 区間(clip.speed)。
+    /// 各区間の出力長は、合計がちょうど outDuration になるよう比例配分する(UI の配置と一致させる)
+    private static func speedPlan(clip: Clip,
+                                  sourceStart: Double,
+                                  sourceEnd: Double,
+                                  trackRange: CMTimeRange,
+                                  outStart: CMTime,
+                                  outDuration: CMTime) -> [SpeedPlanSegment] {
+        let trimmed = sourceEnd - sourceStart
+        guard trimmed > 0, outDuration > .zero else { return [] }
+
+        let raw: [(from: Double, to: Double, speed: Double)]
+        if clip.speedCurve.enabled {
+            raw = clip.speedCurve.segments(count: speedCurveSegmentCount).map {
+                (from: $0.fromPosition, to: $0.toPosition, speed: max($0.speed, 0.05))
+            }
+        } else {
+            raw = [(from: 0, to: 1, speed: max(clip.speed, 0.01))]
+        }
+        let rawOut = raw.map { ($0.to - $0.from) * trimmed / $0.speed }
+        let rawTotal = rawOut.reduce(0, +)
+        guard rawTotal > 0, rawTotal.isFinite else { return [] }
+        let factor = outDuration.seconds / rawTotal
+        let outEnd = outStart + outDuration
+
+        let trackStart = trackRange.start.convertScale(timescale, method: .roundTowardPositiveInfinity)
+        let trackEndTime = trackRange.end.convertScale(timescale, method: .roundTowardZero)
+
+        var result: [SpeedPlanSegment] = []
+        var cursor = outStart
+        var boundary = compositionTime(sourceStart, method: .roundHalfAwayFromZero)
+        if boundary < trackStart { boundary = trackStart }
+        for (i, seg) in raw.enumerated() {
+            var nextBoundary: CMTime
+            if i == raw.count - 1 {
+                nextBoundary = compositionTime(sourceEnd, method: .roundTowardZero)
+            } else {
+                nextBoundary = compositionTime(sourceStart + seg.to * trimmed, method: .roundHalfAwayFromZero)
+            }
+            if nextBoundary > trackEndTime { nextBoundary = trackEndTime }
+            let sStart = boundary
+            let sEnd = nextBoundary
+            if sEnd > boundary { boundary = nextBoundary }
+            guard sEnd > sStart else { continue }
+
+            var oEnd: CMTime
+            if i == raw.count - 1 {
+                oEnd = outEnd
+            } else {
+                oEnd = cursor + CMTime(seconds: rawOut[i] * factor, preferredTimescale: timescale)
+            }
+            if oEnd > outEnd { oEnd = outEnd }
+            guard oEnd > cursor else { continue }
+            let speed = (sEnd - sStart).seconds / (oEnd - cursor).seconds
+            result.append(SpeedPlanSegment(sourceRange: CMTimeRange(start: sStart, end: sEnd),
+                                           outRange: CMTimeRange(start: cursor, end: oEnd),
+                                           speed: speed))
+            cursor = oEnd
+        }
+        // 丸めで最後が足りないときは最後の区間を伸ばして出力長を揃える
+        if let last = result.last, last.outRange.end < outEnd {
+            let stretched = CMTimeRange(start: last.outRange.start, end: outEnd)
+            let speed = last.sourceRange.duration.seconds / max(stretched.duration.seconds, 0.0001)
+            result[result.count - 1] = SpeedPlanSegment(sourceRange: last.sourceRange, outRange: stretched, speed: speed)
+        }
+        return result
+    }
+
+    /// 元素材上の秒 → 出力タイムライン上の秒(区間計画に沿って線形に変換)
+    private static func outputTime(forSource seconds: Double, plan: [SpeedPlanSegment]) -> Double? {
+        guard let first = plan.first, let last = plan.last else { return nil }
+        if seconds <= first.sourceRange.start.seconds { return first.outRange.start.seconds }
+        if seconds >= last.sourceRange.end.seconds { return last.outRange.end.seconds }
+        for seg in plan {
+            let s0 = seg.sourceRange.start.seconds
+            let s1 = seg.sourceRange.end.seconds
+            if seconds >= s0 && seconds <= s1 {
+                let o0 = seg.outRange.start.seconds
+                let o1 = seg.outRange.end.seconds
+                let t = s1 > s0 ? (seconds - s0) / (s1 - s0) : 0
+                return o0 + (o1 - o0) * t
+            }
+        }
+        return nil
+    }
+
+    /// 速度カーブ / 逆再生の音声: 映像と同じ区間計画で挿入する(J/L カットは無し)
+    private static func insertSegmentedAudio(_ plan: [SpeedPlanSegment],
+                                             sourceAudio: AVAssetTrack,
+                                             audioRange: CMTimeRange,
+                                             lane: AudioLane,
+                                             volume: Float,
+                                             fadeIn: Double,
+                                             fadeOut: Double) {
+        var firstAt: CMTime? = nil
+        var lastEnd: CMTime? = nil
+        for seg in plan {
+            let inter = audioRange.intersection(seg.sourceRange)
+            guard inter.isValid, !inter.isEmpty else { continue }
+            let aStart = inter.start.convertScale(timescale, method: .roundTowardPositiveInfinity)
+            let aEnd = inter.end.convertScale(timescale, method: .roundTowardZero)
+            guard aEnd > aStart else { continue }
+            let aDuration = aEnd - aStart
+            let offsetInSegment = max(0, (aStart - seg.sourceRange.start).seconds) / max(seg.speed, 0.01)
+            let at = seg.outRange.start + CMTime(seconds: offsetInSegment, preferredTimescale: timescale)
+            if at < lane.end { continue }   // 同じレーンの前の音声に重なる
+            var aOut = scaledDuration(aDuration, speed: seg.speed)
+            if at + aOut > seg.outRange.end { aOut = seg.outRange.end - at }
+            guard aOut > .zero else { continue }
+            compositionPad(lane.track, to: at)
+            do {
+                try lane.track.insertTimeRange(CMTimeRange(start: aStart, duration: aDuration), of: sourceAudio, at: at)
+            } catch {
+                continue
+            }
+            if aOut != aDuration {
+                lane.track.scaleTimeRange(CMTimeRange(start: at, duration: aDuration), toDuration: aOut)
+            }
+            if firstAt == nil { firstAt = at }
+            lastEnd = at + aOut
+        }
+        if let firstAt, let lastEnd, lastEnd > firstAt {
+            lane.addSegment(at: firstAt, duration: lastEnd - firstAt, volume: volume, fadeIn: fadeIn, fadeOut: fadeOut)
+        }
+    }
+
+    // MARK: - 黒のダミー映像(静止画・読めないクリップ)
+
+    /// 映像ソースの無い層(黒)
+    private static func blackLayer(for clip: Clip,
+                                   placeholderTrackID: CMPersistentTrackID?,
+                                   placement: ClipPlacement) -> VideoCompositorClipLayer {
+        VideoCompositorClipLayer(clipID: clip.id,
+                                 trackID: nil,
+                                 placeholderTrackID: placeholderTrackID,
+                                 transform: .identity,
+                                 angleSegments: [],
+                                 stillImageURL: nil,
+                                 filter: clip.filter,
+                                 geometry: clip.geometry,
+                                 animation: clip.animation,
+                                 speedSegments: [],
+                                 smoothSlow: false,
+                                 start: placement.start,
+                                 end: placement.end)
+    }
+
+    private static func loadPlaceholderSource() async -> CompositionAngleSource? {
+        guard let url = await CompositionPlaceholder.blackVideoURL() else { return nil }
+        let asset = AVURLAsset(url: url)
+        let tracks = (try? await asset.loadTracks(withMediaType: .video)) ?? []
+        guard let track = tracks.first,
+              let loaded = try? await track.load(.timeRange, .preferredTransform),
+              loaded.0.duration > .zero else {
+            CompositionPlaceholder.discard(url)
+            return nil
+        }
+        return CompositionAngleSource(track: track, timeRange: loaded.0, transform: loaded.1)
+    }
+
+    /// 黒のダミー映像を track の at から duration だけ入れる(フレームは描画に使わない)。
+    /// 入れられたらそのトラック ID、入れられなければ空区間で長さだけ確保して nil
+    private static func insertPlaceholder(_ source: CompositionAngleSource?,
+                                          into track: AVMutableCompositionTrack,
+                                          at: CMTime,
+                                          duration: CMTime) -> CMPersistentTrackID? {
+        guard duration > .zero else { return nil }
+        let end = at + duration
+        guard trackEnd(track) <= at else { return nil }
+        if let source, source.timeRange.duration > .zero {
+            let available = source.timeRange.duration
+            let srcDuration = available < duration ? available : duration
+            let srcRange = CMTimeRange(start: source.timeRange.start, duration: srcDuration)
+            compositionPad(track, to: at)
+            do {
+                try track.insertTimeRange(srcRange, of: source.track, at: at)
+                if srcDuration != duration {
+                    track.scaleTimeRange(CMTimeRange(start: at, duration: srcDuration), toDuration: duration)
+                }
+                return track.trackID
+            } catch {
+                // 空区間で代用
+            }
+        }
+        compositionPad(track, to: end)
+        return nil
     }
 
     // MARK: - クリップ音声(ゲイン・J カット・L カット)
@@ -546,12 +962,12 @@ enum CompositionBuilder {
             }
             let (trackRange, transform) = loaded
             let trackStart = trackRange.start.convertScale(timescale, method: .roundTowardPositiveInfinity)
-            let trackEnd = trackRange.end.convertScale(timescale, method: .roundTowardZero)
+            let trackEndTime = trackRange.end.convertScale(timescale, method: .roundTowardZero)
 
             var oSrcStart = compositionTime(sourceStartSec, method: .roundTowardPositiveInfinity)
             var oSrcEnd = compositionTime(sourceStartSec + timelineDuration * speed, method: .roundTowardZero)
             if oSrcStart < trackStart { oSrcStart = trackStart }
-            if oSrcEnd > trackEnd { oSrcEnd = trackEnd }
+            if oSrcEnd > trackEndTime { oSrcEnd = trackEndTime }
             guard oSrcEnd > oSrcStart else { continue }
             let oSrcDuration = oSrcEnd - oSrcStart
             let outStart = compositionTime(timelineStart, method: .roundHalfAwayFromZero)
@@ -615,7 +1031,8 @@ enum CompositionBuilder {
 
     // MARK: - ナレーション
 
-    /// ナレーションを音声レーンへ入れる。戻り値はダッキング用の区間(タイムライン秒)
+    /// ナレーションを音声レーンへ入れる(音声エフェクトは処理済みファイルがあればそれを使う)。
+    /// 戻り値はダッキング用の区間(タイムライン秒)
     private static func insertNarration(_ clips: [NarrationClip],
                                         into composition: AVMutableComposition,
                                         totalSeconds: Double,
@@ -636,7 +1053,12 @@ enum CompositionBuilder {
             let timelineDuration = timelineEnd - timelineStart
             guard timelineDuration > 0.01 else { continue }
 
-            let asset = AVURLAsset(url: clip.url)
+            var url = clip.url
+            if !clip.effects.isIdentity,
+               let processed = AudioEffectsRenderer.cachedProcessedURL(for: clip.url, effects: clip.effects) {
+                url = processed
+            }
+            let asset = AVURLAsset(url: url)
             guard let sourceAudio = (try? await asset.loadTracks(withMediaType: .audio))?.first,
                   let audioRange = try? await sourceAudio.load(.timeRange) else {
                 continue
@@ -676,10 +1098,8 @@ enum CompositionBuilder {
                                             at time: CMTime,
                                             composition: AVMutableComposition,
                                             limit: Int) -> AVMutableCompositionTrack? {
-        for track in tracks {
-            let end = track.timeRange.end
-            let currentEnd = (end.isValid && end.isNumeric) ? end : .zero
-            if currentEnd <= time { return track }
+        for track in tracks where trackEnd(track) <= time {
+            return track
         }
         guard tracks.count < limit,
               let track = composition.addMutableTrack(withMediaType: .video,
@@ -708,10 +1128,18 @@ enum CompositionBuilder {
         return lane
     }
 
-    /// 1 本の音声トラックと、その上に置いた区間ごとの音量
+    /// 1 本の音声トラックと、その上に置いた区間ごとの音量(段階的な設定とランプ。時刻は昇順)
     private final class AudioLane {
         let track: AVMutableCompositionTrack
-        private var events: [(time: CMTime, volume: Float)] = []
+
+        private enum Event {
+            case set(time: CMTime, volume: Float)
+            case ramp(range: CMTimeRange, from: Float, to: Float)
+        }
+
+        private var events: [Event] = []
+        /// 最後に設定した時刻(AVAudioMix は昇順・重なりなしを要求する)
+        private var lastTime: CMTime = .zero
 
         init(track: AVMutableCompositionTrack) {
             self.track = track
@@ -726,24 +1154,54 @@ enum CompositionBuilder {
 
         /// time 以降の音量(時刻は昇順に追加する)
         func addVolume(_ volume: Float, at time: CMTime) {
-            if let last = events.last {
-                if last.time == time {
-                    events[events.count - 1] = (time: time, volume: volume)
-                    return
-                }
-                if last.time > time { return }
+            guard events.isEmpty || time >= lastTime else { return }
+            events.append(.set(time: time, volume: volume))
+            lastTime = time
+        }
+
+        /// at から duration の区間を volume にし、先頭 fadeIn 秒でフェードイン・末尾 fadeOut 秒でフェードアウトする
+        func addSegment(at: CMTime, duration: CMTime, volume: Float, fadeIn: Double, fadeOut: Double) {
+            guard duration > .zero, events.isEmpty || at >= lastTime else { return }
+            let durationSec = duration.seconds
+            let fin = (fadeIn.isFinite && fadeIn > 0.01) ? min(fadeIn, durationSec / 2) : 0
+            let fout = (fadeOut.isFinite && fadeOut > 0.01) ? min(fadeOut, durationSec / 2) : 0
+            let end = at + duration
+
+            if fin > 0 {
+                let range = CMTimeRange(start: at, duration: CMTime(seconds: fin, preferredTimescale: CompositionBuilder.timescale))
+                events.append(.ramp(range: range, from: 0, to: volume))
+                lastTime = range.end
+            } else {
+                events.append(.set(time: at, volume: volume))
+                lastTime = at
             }
-            events.append((time: time, volume: volume))
+            if fout > 0 {
+                let start = end - CMTime(seconds: fout, preferredTimescale: CompositionBuilder.timescale)
+                if start >= lastTime && end > start {
+                    events.append(.ramp(range: CMTimeRange(start: start, end: end), from: volume, to: 0))
+                    lastTime = end
+                }
+            }
         }
 
         func makeParameters() -> AVMutableAudioMixInputParameters {
             let params = AVMutableAudioMixInputParameters(track: track)
             params.audioTimePitchAlgorithm = .spectral
-            if let first = events.first, first.time > .zero {
-                params.setVolume(first.volume, at: .zero)
+            if let first = events.first {
+                switch first {
+                case .set(let time, let volume):
+                    if time > .zero { params.setVolume(volume, at: .zero) }
+                case .ramp(let range, _, _):
+                    if range.start > .zero { params.setVolume(0, at: .zero) }
+                }
             }
             for event in events {
-                params.setVolume(event.volume, at: event.time)
+                switch event {
+                case .set(let time, let volume):
+                    params.setVolume(volume, at: time)
+                case .ramp(let range, let from, let to):
+                    params.setVolumeRamp(fromStartVolume: from, toEndVolume: to, timeRange: range)
+                }
             }
             return params
         }
@@ -841,7 +1299,7 @@ enum CompositionBuilder {
 
     private static func compositionTime(_ seconds: Double, method: CMTimeRoundingMethod) -> CMTime {
         guard seconds.isFinite else { return .zero }
-        return CMTime(seconds: seconds, preferredTimescale: 60000).convertScale(timescale, method: method)
+        return CMTime(seconds: max(0, seconds), preferredTimescale: 60000).convertScale(timescale, method: method)
     }
 
     /// 速度を反映した出力上の長さ(timescale 600)
@@ -854,10 +1312,15 @@ enum CompositionBuilder {
         return CMTime(seconds: seconds, preferredTimescale: timescale)
     }
 
+    /// トラック末尾(無効なら 0)
+    private static func trackEnd(_ track: AVMutableCompositionTrack) -> CMTime {
+        let end = track.timeRange.end
+        return (end.isValid && end.isNumeric) ? end : .zero
+    }
+
     /// トラック末尾が time より前なら空区間を挿入して揃える
     private static func compositionPad(_ track: AVMutableCompositionTrack, to time: CMTime) {
-        let end = track.timeRange.end
-        let currentEnd = (end.isValid && end.isNumeric) ? end : .zero
+        let currentEnd = trackEnd(track)
         if currentEnd < time {
             track.insertEmptyTimeRange(CMTimeRange(start: currentEnd, end: time))
         }
@@ -899,11 +1362,146 @@ enum CompositionBuilder {
     }
 }
 
-/// 読み込み済みアングル素材
+/// 読み込み済みアングル素材(黒のダミー映像にも使う)
 struct CompositionAngleSource {
     let track: AVAssetTrack
     let timeRange: CMTimeRange
     let transform: CGAffineTransform
+}
+
+// MARK: - 黒のダミー映像(Caches に 1 回だけ生成)
+
+/// 静止画クリップや読めないクリップのために、コンポジションの長さを確保する小さな黒い mp4。
+/// フレームは描画に使わない(コンポジタが画像または黒を描く)。
+enum CompositionPlaceholder {
+
+    static let pixelSize = 64
+    private static let lock = NSLock()
+    private static var cachedURL: URL?
+
+    private static var fileURL: URL? {
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let dir = caches.appendingPathComponent("VideoMania", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir.appendingPathComponent("placeholder_black_64_v1.mp4")
+    }
+
+    /// 黒のダミー映像(1 秒、64×64)。無ければ生成する。失敗したら nil
+    static func blackVideoURL() async -> URL? {
+        lock.lock()
+        let cached = cachedURL
+        lock.unlock()
+        if let cached, FileManager.default.fileExists(atPath: cached.path) { return cached }
+
+        guard let url = fileURL else { return nil }
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) {
+            remember(url)
+            return url
+        }
+        let temp = url.deletingLastPathComponent().appendingPathComponent("placeholder_\(UUID().uuidString).mp4")
+        let ok = await writeBlackVideo(to: temp)
+        guard ok else {
+            try? fm.removeItem(at: temp)
+            return nil
+        }
+        if fm.fileExists(atPath: url.path) {
+            try? fm.removeItem(at: temp)
+        } else {
+            do {
+                try fm.moveItem(at: temp, to: url)
+            } catch {
+                try? fm.removeItem(at: temp)
+                if !fm.fileExists(atPath: url.path) { return nil }
+            }
+        }
+        remember(url)
+        return url
+    }
+
+    /// 壊れていたファイルを捨てる(次回作り直す)
+    static func discard(_ url: URL) {
+        lock.lock()
+        if cachedURL == url { cachedURL = nil }
+        lock.unlock()
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    private static func remember(_ url: URL) {
+        lock.lock()
+        cachedURL = url
+        lock.unlock()
+    }
+
+    private static func writeBlackVideo(to url: URL) async -> Bool {
+        let size = pixelSize
+        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else { return false }
+        let settings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: size,
+            AVVideoHeightKey: size
+        ]
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        input.expectsMediaDataInRealTime = false
+        let attributes: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: size,
+            kCVPixelBufferHeightKey as String: size
+        ]
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
+                                                           sourcePixelBufferAttributes: attributes)
+        guard writer.canAdd(input) else { return false }
+        writer.add(input)
+        guard writer.startWriting() else { return false }
+        writer.startSession(atSourceTime: .zero)
+
+        var created: CVPixelBuffer? = nil
+        if let pool = adaptor.pixelBufferPool {
+            _ = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &created)
+        }
+        if created == nil {
+            _ = CVPixelBufferCreate(kCFAllocatorDefault, size, size, kCVPixelFormatType_32BGRA,
+                                    attributes as CFDictionary, &created)
+        }
+        guard let pixelBuffer = created else {
+            writer.cancelWriting()
+            return false
+        }
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        if let base = CVPixelBufferGetBaseAddress(pixelBuffer) {
+            let total = CVPixelBufferGetBytesPerRow(pixelBuffer) * CVPixelBufferGetHeight(pixelBuffer)
+            memset(base, 0, total)
+            // BGRA のアルファを不透明に
+            let bytes = base.assumingMemoryBound(to: UInt8.self)
+            var i = 3
+            while i < total {
+                bytes[i] = 255
+                i += 4
+            }
+        }
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+
+        let frameCount = 10
+        for index in 0..<frameCount {
+            var waited = 0
+            while !input.isReadyForMoreMediaData && waited < 200 {
+                try? await Task.sleep(nanoseconds: 5_000_000)
+                waited += 1
+            }
+            guard input.isReadyForMoreMediaData else { break }
+            let time = CMTime(value: CMTimeValue(index), timescale: 10)
+            if !adaptor.append(pixelBuffer, withPresentationTime: time) { break }
+        }
+        input.markAsFinished()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            writer.finishWriting {
+                continuation.resume()
+            }
+        }
+        return writer.status == .completed
+    }
 }
 
 /// 偶数の整数に丸める(最小 2)

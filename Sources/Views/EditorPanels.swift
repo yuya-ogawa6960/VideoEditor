@@ -40,6 +40,63 @@ enum EditorPanel: Hashable {
     /// ナレーションの録音(ルートツールバーから開く)
     case narrationRecord
 
+    // ---- 第3弾: クリップ ----
+    /// クリップの終わりから次のクリップへのトランジション
+    case transition(UUID)
+    /// クリップのイン・アウト アニメーション
+    case clipAnimation(UUID)
+    /// 切り抜き / 回転 / 反転 / ズーム
+    case geometry(UUID)
+    /// 速度カーブ
+    case speedCurve(UUID)
+    /// 音声効果(EQ・ピッチ・ボイス)
+    case audioEffects(UUID)
+    /// ビート検出
+    case beatDetect(UUID)
+    /// HSL(色相帯ごとの調整)
+    case hsl(UUID)
+    /// LUT(.cube)
+    case lut(UUID)
+    /// 色合わせ(別クリップを基準に色を寄せる)
+    case colorMatch(UUID)
+
+    // ---- 第3弾: テキスト・ステッカー ----
+    /// テキストレイヤー 1 件の文字・スタイル
+    case textStyle(UUID)
+    /// テキストレイヤーのアニメーション
+    case textAnimation(UUID)
+    /// テキストレイヤーの配置(位置・大きさ・回転)
+    case textPlacement(UUID)
+    /// テキストレイヤーのキーフレーム
+    case textKeyframes(UUID)
+    /// 絵文字ステッカーの選択(ルート)
+    case sticker
+
+    // ---- 第3弾: オーバーレイ ----
+    case overlayKeyframes(UUID)
+    case overlayBlend(UUID)
+
+    // ---- 第3弾: ナレーション ----
+    case narrationEffects(UUID)
+
+    // ---- 第3弾: 手書き ----
+    /// 新しい手書きを描いている最中(プレビューにキャンバスを重ねる)
+    case drawingCanvas
+    case drawingStyle(UUID)
+    case drawingTiming(UUID)
+
+    // ---- 第3弾: マーカー ----
+    case markerName(UUID)
+    case markerKind(UUID)
+
+    // ---- 第3弾: 字幕テンプレート ----
+    case captionTemplate
+
+    // ---- 第3弾: ルート ----
+    case watermark
+    case formatKit
+    case textToSpeech
+
     var title: String {
         switch self {
         case .speed: return "速度"
@@ -61,6 +118,32 @@ enum EditorPanel: Hashable {
         case .overlayFilter: return "オーバーレイのフィルタ"
         case .narrationVolume: return "ナレーションの音量"
         case .narrationRecord: return "ナレーション録音"
+        case .transition: return "トランジション"
+        case .clipAnimation: return "アニメーション"
+        case .geometry: return "切り抜き / 回転"
+        case .speedCurve: return "速度カーブ"
+        case .audioEffects: return "音声効果"
+        case .beatDetect: return "ビート検出"
+        case .hsl: return "HSL"
+        case .lut: return "LUT"
+        case .colorMatch: return "色合わせ"
+        case .textStyle: return "テキスト編集"
+        case .textAnimation: return "テキストのアニメーション"
+        case .textPlacement: return "配置"
+        case .textKeyframes: return "キーフレーム"
+        case .sticker: return "ステッカー"
+        case .overlayKeyframes: return "キーフレーム"
+        case .overlayBlend: return "ブレンド"
+        case .narrationEffects: return "音声効果"
+        case .drawingCanvas: return "手書き"
+        case .drawingStyle: return "色・太さ"
+        case .drawingTiming: return "表示時間"
+        case .markerName: return "マーカー"
+        case .markerKind: return "マーカーの種類"
+        case .captionTemplate: return "字幕テンプレート"
+        case .watermark: return "透かし"
+        case .formatKit: return "フォーマット"
+        case .textToSpeech: return "読み上げ"
         }
     }
 
@@ -71,6 +154,11 @@ enum EditorPanel: Hashable {
         case .colorAdjust, .overlayPlacement: return 320
         case .overlayKenBurns, .narrationRecord: return 280
         case .jlCut: return 250
+        case .textStyle, .formatKit: return 360
+        case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
+             .overlayKeyframes, .watermark, .textToSpeech, .sticker, .captionTemplate: return 320
+        case .transition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
+             .narrationEffects, .drawingStyle, .drawingCanvas: return 280
         default: return 220
         }
     }
@@ -78,22 +166,34 @@ enum EditorPanel: Hashable {
     /// 選択状態が変わったときにこのパネルを開いたままにしてよいか
     func isCompatible(with selection: EditorSelection?) -> Bool {
         switch self {
-        case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id):
+        case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id),
+             .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
+             .audioEffects(let id), .beatDetect(let id), .hsl(let id), .lut(let id), .colorMatch(let id):
             return selection == .clip(id)
         case .textEdit(let id):
             return selection == .subtitle(id)
-        case .subtitleStyle:
+        case .subtitleStyle, .captionTemplate:
             return selection?.subtitleID != nil
         case .aspect:
             return true
         case .bgmVolume:
             return selection == .bgm
         case .overlayPlacement(let id), .overlayKenBurns(let id), .overlayVolume(let id),
-             .overlaySpeed(let id), .overlayFilter(let id):
+             .overlaySpeed(let id), .overlayFilter(let id), .overlayKeyframes(let id), .overlayBlend(let id):
             return selection == .overlay(id)
-        case .narrationVolume(let id):
+        case .narrationVolume(let id), .narrationEffects(let id):
             return selection == .narration(id)
-        case .documentary, .titleCard, .lowerThird, .narrationRecord:
+        case .textStyle(let id), .textAnimation(let id), .textPlacement(let id), .textKeyframes(let id):
+            return selection == .text(id)
+        case .drawingStyle(let id), .drawingTiming(let id):
+            return selection == .drawing(id)
+        case .markerName(let id), .markerKind(let id):
+            return selection == .marker(id)
+        case .formatKit:
+            // ルートからも、クリップ選択中(選択範囲を保存)からも開ける
+            return selection == nil || selection?.clipID != nil
+        case .documentary, .titleCard, .lowerThird, .narrationRecord,
+             .sticker, .drawingCanvas, .watermark, .textToSpeech:
             // ルート(何も選択していない)ツールバーから開くパネル
             return selection == nil
         }
@@ -186,6 +286,91 @@ struct EditorMissingPanelContent: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.top, 24)
+    }
+}
+
+/// パネル内の小見出し(第3弾のパネル共通)
+struct EditorSectionTitle: View {
+    let title: String
+    var body: some View {
+        Text(title)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+}
+
+/// ラベルつきのテキスト入力(第3弾のパネル共通)
+struct EditorTextFieldRow: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+    var multiline: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            EditorSectionTitle(title: title)
+            if multiline {
+                TextField(placeholder, text: $text, axis: .vertical)
+                    .lineLimit(1...4)
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            } else {
+                TextField(placeholder, text: $text)
+                    .textFieldStyle(.plain)
+                    .padding(8)
+                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+}
+
+/// カプセル型の小さなボタン(第3弾のパネル共通)
+struct EditorPillButton: View {
+    let title: String
+    let systemImage: String
+    var tint: Color = .white
+    var prominent: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            EditorHaptics.tap()
+            action()
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(prominent ? Color.white : tint)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(prominent ? Color.accentColor : tint.opacity(0.15), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 名前と時間の 1 行(第3弾のパネル共通)
+struct EditorItemHeaderRow: View {
+    let systemImage: String
+    let name: String
+    let start: Double
+    let end: Double
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(name)
+                .font(.subheadline)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Text("\(MediaTimeText.precise(start)) – \(MediaTimeText.precise(end))")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

@@ -153,6 +153,10 @@ struct OverlayClip: Identifiable, Equatable {
     /// フェードイン/アウト(秒)
     var fadeIn: Double = 0.3
     var fadeOut: Double = 0.3
+    /// 位置・大きさ・回転・不透明度のキーフレーム(start からの相対秒)
+    var keyframes: [Keyframe] = []
+    /// 乗算・スクリーンなどのブレンド(CoreImage のフィルター名。nil = 通常)
+    var blendMode: String? = nil
 
     init(id: UUID = UUID(),
          url: URL,
@@ -250,6 +254,8 @@ struct OverlayClip: Identifiable, Equatable {
             && lhs.kenBurns == rhs.kenBurns
             && lhs.filter == rhs.filter
             && lhs.fadeIn == rhs.fadeIn
+            && lhs.keyframes == rhs.keyframes
+            && lhs.blendMode == rhs.blendMode
             && lhs.fadeOut == rhs.fadeOut
     }
 }

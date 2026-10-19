@@ -88,6 +88,272 @@ enum FilterLUT {
         }
     }
 
+    /// 一辺 dimension の LUT を適用(.cube ファイル由来など、dimension が既定と異なるとき)
+    static func apply(_ cube: NSData, dimension: Int, to image: CIImage) -> CIImage {
+        image.applyingFilter("CIColorCubeWithColorSpace", parameters: [
+            "inputCubeDimension": NSNumber(value: max(2, dimension)),
+            "inputCubeData": cube,
+            "inputColorSpace": FilterEngineContexts.colorSpace
+        ])
+    }
+
+    // MARK: - HSL(8 つの色相帯ごとの色相 / 彩度 / 明るさ)
+
+    /// 値ごとにキャッシュ(スライダー操作中に増えすぎないよう上限を超えたら捨てる)
+    private static var hslCache: [String: NSData] = [:]
+    private static let hslCacheLimit = 24
+
+    /// HSL 調整の LUT。identity なら nil
+    static func hslCube(for adjustment: HSLAdjustment) -> NSData? {
+        guard !adjustment.isIdentity else { return nil }
+        let key = adjustment.bands
+            .map { String(format: "%.3f,%.3f,%.3f", $0.hue, $0.saturation, $0.luminance) }
+            .joined(separator: ";")
+        lock.lock()
+        if let cached = hslCache[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+        let data = makeHSLCube(adjustment, dimension: dimension)
+        lock.lock()
+        if hslCache.count >= hslCacheLimit { hslCache.removeAll() }
+        hslCache[key] = data
+        lock.unlock()
+        return data
+    }
+
+    static func makeHSLCube(_ adjustment: HSLAdjustment, dimension n: Int) -> NSData {
+        let bands = adjustment.bands
+        let count = n * n * n * 4
+        var values = [Float](repeating: 0, count: count)
+        let step = 1.0 / Double(n - 1)
+        var i = 0
+        for bi in 0..<n {
+            let b = Double(bi) * step
+            for gi in 0..<n {
+                let g = Double(gi) * step
+                for ri in 0..<n {
+                    let r = Double(ri) * step
+                    let out = hslGrade(r, g, b, bands)
+                    values[i] = Float(out.r)
+                    values[i + 1] = Float(out.g)
+                    values[i + 2] = Float(out.b)
+                    values[i + 3] = 1
+                    i += 4
+                }
+            }
+        }
+        let data = values.withUnsafeBufferPointer { Data(buffer: $0) }
+        return data as NSData
+    }
+
+    /// 1 画素の HSL 調整。帯の重みは隣と足して 1 になるコサイン窓(帯の境目で段差が出ない)
+    static func hslGrade(_ inR: Double, _ inG: Double, _ inB: Double, _ bands: [HSLBand]) -> (r: Double, g: Double, b: Double) {
+        let r = clamp01(inR), g = clamp01(inG), b = clamp01(inB)
+        guard !bands.isEmpty else { return (r, g, b) }
+        let hsv = rgbToHsv(r, g, b)
+        // 無彩色(グレー)には効かせない
+        let gate = smoothstep(0.03, 0.18, hsv.s)
+        guard gate > 0.0001 else { return (r, g, b) }
+
+        let spacing = 360.0 / Double(bands.count)
+        var dh = 0.0
+        var ds = 0.0
+        var dl = 0.0
+        for (k, band) in bands.enumerated() where !band.isIdentity {
+            let d = hueDistance(hsv.h, Double(k) * spacing)
+            if d < spacing {
+                let w = 0.5 * (1 + cos(Double.pi * d / spacing))
+                dh += w * band.hue * 30
+                ds += w * band.saturation
+                dl += w * band.luminance
+            }
+        }
+        if dh == 0 && ds == 0 && dl == 0 { return (r, g, b) }
+
+        let h = wrapHue(hsv.h + dh * gate)
+        let s = clamp01(hsv.s * (1 + ds * gate))
+        var v = hsv.v
+        let lumShift = dl * gate * 0.5
+        if lumShift > 0 {
+            v += lumShift * (1 - v)
+        } else {
+            v += lumShift * v
+        }
+        let rgb = hsvToRgb(h, s, clamp01(v))
+        return (clamp01(rgb.r), clamp01(rgb.g), clamp01(rgb.b))
+    }
+
+    // MARK: - .cube ファイル(読み込んだ LUT)
+
+    enum CubeError: LocalizedError {
+        case unreadable
+        case invalidFormat
+        case unsupported(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unreadable: return "LUT ファイルを読み込めませんでした"
+            case .invalidFormat: return "LUT ファイルの形式が正しくありません(.cube の 3D LUT に対応)"
+            case .unsupported(let what): return "この LUT は対応していません(\(what))"
+            }
+        }
+    }
+
+    /// CIColorCube が受け付ける最大の一辺。これより大きい LUT は縮小する
+    static let maxFileCubeDimension = 64
+
+    /// 読み込んだ LUT の保存先(MediaStore.mediaDirectory/LUTs)
+    static var lutDirectory: URL {
+        MediaStore.mediaDirectory.appendingPathComponent("LUTs", isDirectory: true)
+    }
+
+    /// .cube(3D LUT)を解析して CIColorCube 用の RGBA float32 データにする(赤が最も速く変化する順)
+    static func loadCube(url: URL) throws -> (size: Int, data: Data) {
+        let raw: String
+        if let s = try? String(contentsOf: url, encoding: .utf8) {
+            raw = s
+        } else if let s = try? String(contentsOf: url, encoding: .isoLatin1) {
+            raw = s
+        } else {
+            throw CubeError.unreadable
+        }
+
+        var size = 0
+        var values: [Float] = []
+        values.reserveCapacity(33 * 33 * 33 * 3)
+        for rawLine in raw.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            let upper = line.uppercased()
+            if upper.hasPrefix("TITLE") || upper.hasPrefix("DOMAIN_MIN") || upper.hasPrefix("DOMAIN_MAX") { continue }
+            if upper.hasPrefix("LUT_1D_SIZE") { throw CubeError.unsupported("1D LUT") }
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if upper.hasPrefix("LUT_3D_SIZE") {
+                if let last = parts.last, let n = Int(last) { size = n }
+                continue
+            }
+            if parts.count >= 3, let r = Float(parts[0]), let g = Float(parts[1]), let b = Float(parts[2]) {
+                values.append(r)
+                values.append(g)
+                values.append(b)
+            }
+        }
+        guard size >= 2, size <= 256 else { throw CubeError.invalidFormat }
+        let voxels = size * size * size
+        guard values.count >= voxels * 3 else { throw CubeError.invalidFormat }
+
+        var rgba = [Float](repeating: 1, count: voxels * 4)
+        var src = 0
+        var dst = 0
+        for _ in 0..<voxels {
+            rgba[dst] = min(max(values[src], 0), 1)
+            rgba[dst + 1] = min(max(values[src + 1], 0), 1)
+            rgba[dst + 2] = min(max(values[src + 2], 0), 1)
+            rgba[dst + 3] = 1
+            src += 3
+            dst += 4
+        }
+        var finalSize = size
+        var finalValues = rgba
+        if size > maxFileCubeDimension {
+            finalValues = resampleCube(rgba, from: size, to: maxFileCubeDimension)
+            finalSize = maxFileCubeDimension
+        }
+        let data = finalValues.withUnsafeBufferPointer { Data(buffer: $0) }
+        return (finalSize, data)
+    }
+
+    /// 三線形補間で一辺 n → m に縮小
+    private static func resampleCube(_ values: [Float], from n: Int, to m: Int) -> [Float] {
+        guard n >= 2, m >= 2 else { return values }
+        var out = [Float](repeating: 1, count: m * m * m * 4)
+        func index(_ r: Int, _ g: Int, _ b: Int) -> Int { ((b * n + g) * n + r) * 4 }
+        let scale = Float(n - 1) / Float(m - 1)
+        var o = 0
+        for bi in 0..<m {
+            let fb = Float(bi) * scale
+            let b0 = min(n - 1, Int(fb))
+            let b1 = min(n - 1, b0 + 1)
+            let tb = fb - Float(b0)
+            for gi in 0..<m {
+                let fg = Float(gi) * scale
+                let g0 = min(n - 1, Int(fg))
+                let g1 = min(n - 1, g0 + 1)
+                let tg = fg - Float(g0)
+                for ri in 0..<m {
+                    let fr = Float(ri) * scale
+                    let r0 = min(n - 1, Int(fr))
+                    let r1 = min(n - 1, r0 + 1)
+                    let tr = fr - Float(r0)
+                    for c in 0..<3 {
+                        let c000 = values[index(r0, g0, b0) + c]
+                        let c100 = values[index(r1, g0, b0) + c]
+                        let c010 = values[index(r0, g1, b0) + c]
+                        let c110 = values[index(r1, g1, b0) + c]
+                        let c001 = values[index(r0, g0, b1) + c]
+                        let c101 = values[index(r1, g0, b1) + c]
+                        let c011 = values[index(r0, g1, b1) + c]
+                        let c111 = values[index(r1, g1, b1) + c]
+                        let c00 = c000 + (c100 - c000) * tr
+                        let c10 = c010 + (c110 - c010) * tr
+                        let c01 = c001 + (c101 - c001) * tr
+                        let c11 = c011 + (c111 - c011) * tr
+                        let c0 = c00 + (c10 - c00) * tg
+                        let c1 = c01 + (c11 - c01) * tg
+                        out[o + c] = c0 + (c1 - c0) * tb
+                    }
+                    out[o + 3] = 1
+                    o += 4
+                }
+            }
+        }
+        return out
+    }
+
+    /// ファイル名ごとのキャッシュ(見つからなかった名前は 3 秒だけ覚えて毎フレームのファイルアクセスを避ける)
+    private static var fileCache: [String: (size: Int, data: NSData)] = [:]
+    private static var fileMisses: [String: Date] = [:]
+
+    /// lutDirectory 内の .cube を読み込んで返す(キャッシュ付き)。無い / 壊れている場合は nil
+    static func fileCube(named name: String) -> (size: Int, data: NSData)? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        lock.lock()
+        if let cached = fileCache[trimmed] {
+            lock.unlock()
+            return cached
+        }
+        if let missed = fileMisses[trimmed], Date().timeIntervalSince(missed) < 3 {
+            lock.unlock()
+            return nil
+        }
+        lock.unlock()
+
+        let url = lutDirectory.appendingPathComponent(trimmed)
+        guard let loaded = try? loadCube(url: url) else {
+            lock.lock()
+            fileMisses[trimmed] = Date()
+            lock.unlock()
+            return nil
+        }
+        let entry = (size: loaded.size, data: loaded.data as NSData)
+        lock.lock()
+        fileCache[trimmed] = entry
+        fileMisses[trimmed] = nil
+        lock.unlock()
+        return entry
+    }
+
+    /// LUT を読み込み直したいとき(ファイルの差し替え後など)に呼ぶ
+    static func invalidateFileCache() {
+        lock.lock()
+        fileCache.removeAll()
+        fileMisses.removeAll()
+        lock.unlock()
+    }
+
     // MARK: - レシピ
 
     static func recipe(for preset: FilterPreset) -> LUTRecipe? {

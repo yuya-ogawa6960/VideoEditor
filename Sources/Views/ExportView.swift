@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import UIKit
 
 // MARK: - プリセット
 
@@ -88,10 +89,27 @@ fileprivate func exportDurationString(_ seconds: Double) -> String {
     return String(format: "%d:%02d", m, s)
 }
 
+/// GIF 書き出しの範囲の決め方
+fileprivate enum ExportGIFRange: String, CaseIterable, Identifiable {
+    case whole, marker, custom
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .whole: return "全体"
+        case .marker: return "マーカー区間"
+        case .custom: return "開始〜終了"
+        }
+    }
+}
+
 // MARK: - 書き出し画面
 
 struct ExportView: View {
     @Bindable var project: EditorProject
+    /// 編集画面のプレーヤー(「比較を開く」で使う。省略時は比較画面用に内部で用意する)
+    var player: PlayerController? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -101,6 +119,24 @@ struct ExportView: View {
     @State private var alertTitle: String = ""
     @State private var alertMessage: String?
     @State private var showAdvanced: Bool = false
+
+    // 縦横同時 / 比較
+    @State private var dualExport: Bool = false
+    @State private var compareTarget: ExportRecord?
+    @State private var comparePlayer: PlayerController?
+
+    // GIF
+    @State private var showGIFPanel: Bool = false
+    @State private var gifRangeMode: ExportGIFRange = .whole
+    @State private var gifMarkerID: UUID?
+    @State private var gifStartText: String = "0"
+    @State private var gifEndText: String = ""
+    @State private var gifFPS: Int = 12
+    @State private var gifMaxWidth: Int = 480
+    @State private var gifProgress: Double = 0
+    @State private var gifTask: Task<Void, Never>?
+    @State private var gifURL: URL?
+    @State private var gifError: String?
 
     private var exporter: ExportManager { ExportManager.shared }
 
@@ -118,6 +154,8 @@ struct ExportView: View {
                 infoSection
                 storageSection
                 exportSection
+                extrasSection
+                historySection
             }
             .navigationTitle("書き出し")
             .navigationBarTitleDisplayMode(.inline)
@@ -126,8 +164,16 @@ struct ExportView: View {
                     Button("閉じる") { dismiss() }
                 }
             }
+            .sheet(item: $compareTarget) { record in
+                CompareView(project: project,
+                            player: player ?? comparePlayer ?? PlayerController(),
+                            initialRecordID: record.id)
+            }
             .onAppear {
                 recomputeEstimate()
+            }
+            .onDisappear {
+                gifTask?.cancel()
             }
             .onChange(of: project.snapshot()) {
                 recomputeEstimate()
@@ -150,6 +196,13 @@ struct ExportView: View {
 
     private var presetSection: some View {
         Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("組み込み + 保存したプリセット(長押しで名前変更・削除)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ExportPresetBar(project: project, isDisabled: exporter.isRunning)
+            }
+
             ForEach(ExportViewPreset.allCases) { preset in
                 Button {
                     project.canvas = preset.apply(to: project.canvas)
@@ -344,7 +397,7 @@ struct ExportView: View {
         let size = CompositionBuilder.renderSize(for: snapshot, purpose: .export)
         return Section {
             LabeledContent("出力サイズ", value: "\(Int(size.width.rounded())) × \(Int(size.height.rounded()))")
-            LabeledContent("長さ", value: exportDurationString(snapshot.totalDuration))
+            LabeledContent("長さ", value: exportDurationString(timelineDuration))
             LabeledContent("クリップ数", value: "\(snapshot.clips.count)")
         } header: {
             Text("出力内容")
@@ -385,17 +438,36 @@ struct ExportView: View {
 
     // MARK: 書き出し
 
+    /// 出力タイムラインの長さ(トランジションの重なりを反映)
+    private var timelineDuration: Double {
+        let total = CompositionBuilder.totalDuration(for: project.snapshot())
+        return total.isFinite ? max(0, total) : 0
+    }
+
+    /// 縦横同時のときは 2 本分の空き容量が必要
+    private var dualStorageOK: Bool {
+        guard dualExport, let estimate else { return true }
+        return estimate.availableBytes >= estimate.requiredBytes * 2
+    }
+
     private var disabledReason: String? {
         if project.isEmpty { return "動画を追加してください。" }
         if exporter.isRunning { return nil }
         if let estimate, !estimate.canExport { return "空き容量が不足しているため書き出せません。" }
+        if !dualStorageOK { return "縦横同時の書き出しには 2 本分の空き容量が必要です。" }
         return nil
     }
 
     private var canStart: Bool {
         guard !project.isEmpty, !exporter.isRunning else { return false }
         guard let estimate else { return false }
-        return estimate.canExport
+        return estimate.canExport && dualStorageOK
+    }
+
+    /// 直前の出力が動画か(音声のみ書き出しのときは「写真に保存」を出さない)
+    private var lastOutputIsVideo: Bool {
+        guard let url = exporter.lastOutputURL else { return false }
+        return ["mp4", "mov", "m4v"].contains(url.pathExtension.lowercased())
     }
 
     private var exportSection: some View {
@@ -411,7 +483,8 @@ struct ExportView: View {
                 } label: {
                     HStack {
                         Spacer()
-                        Label("書き出しを開始", systemImage: "square.and.arrow.up.on.square")
+                        Label(dualExport ? "縦横を同時に書き出し" : "書き出しを開始",
+                              systemImage: dualExport ? "rectangle.portrait.and.arrow.right" : "square.and.arrow.up.on.square")
                             .font(.headline)
                         Spacer()
                     }
@@ -459,10 +532,11 @@ struct ExportView: View {
         switch exporter.state {
         case .finished:
             VStack(alignment: .leading, spacing: 8) {
-                Label(exporter.savedToPhotos ? "書き出しが完了し、写真に保存しました" : "書き出しが完了しました",
+                Label(exporter.savedToPhotos ? "書き出しが完了し、写真に保存しました"
+                      : (lastOutputIsVideo ? "書き出しが完了しました" : "音声の書き出しが完了しました"),
                       systemImage: "checkmark.circle.fill")
                     .foregroundStyle(Color.green)
-                if !exporter.savedToPhotos {
+                if !exporter.savedToPhotos && lastOutputIsVideo {
                     Button {
                         saveToPhotosLibrary()
                     } label: {
@@ -506,7 +580,12 @@ struct ExportView: View {
     private func startExport() {
         recomputeEstimate()
         guard canStart else { return }
-        exporter.start(snapshot: project.snapshot(), saveToPhotos: saveToPhotos)
+        let snapshot = project.snapshot()
+        if dualExport {
+            exporter.startDual(snapshot: snapshot, saveToPhotos: saveToPhotos)
+        } else {
+            exporter.start(snapshot: snapshot, saveToPhotos: saveToPhotos)
+        }
     }
 
     private func saveToPhotosLibrary() {
@@ -524,5 +603,300 @@ struct ExportView: View {
                 alertMessage = error.localizedDescription
             }
         }
+    }
+
+    // MARK: その他の書き出し(縦横同時・音声のみ・GIF・チャプター)
+
+    private var hasChapters: Bool {
+        project.markers.contains { $0.kind == .chapter }
+    }
+
+    /// GIF の範囲に使えるマーカー(ビートは除く)
+    private var gifMarkers: [TimelineMarker] {
+        project.markers.filter { $0.kind != .beat }.sorted { $0.time < $1.time }
+    }
+
+    private var gifRange: (start: Double, end: Double)? {
+        let total = timelineDuration
+        guard total > 0 else { return nil }
+        switch gifRangeMode {
+        case .whole:
+            return (0, total)
+        case .marker:
+            let markers = gifMarkers
+            guard let id = gifMarkerID ?? markers.first?.id,
+                  let i = markers.firstIndex(where: { $0.id == id }) else { return nil }
+            let start = min(max(0, markers[i].time), total)
+            let end = (i + 1 < markers.count) ? min(max(0, markers[i + 1].time), total) : total
+            return end - start > 0.1 ? (start, end) : nil
+        case .custom:
+            guard let s = Double(gifStartText.trimmingCharacters(in: .whitespaces)),
+                  let e = Double(gifEndText.trimmingCharacters(in: .whitespaces)) else { return nil }
+            let start = min(max(0, s), total)
+            let end = min(max(0, e), total)
+            return end - start > 0.1 ? (start, end) : nil
+        }
+    }
+
+    private var gifRangeText: String {
+        guard let range = gifRange else { return "範囲が正しくありません(0.1 秒以上の区間を指定してください)" }
+        let length = range.end - range.start
+        var text = "\(exportDurationString(range.start)) 〜 \(exportDurationString(range.end))(\(String(format: "%.1f", length)) 秒)"
+        if length > 15 {
+            text += " ・ 長いと容量が大きくなります"
+        }
+        return text
+    }
+
+    private var extrasSection: some View {
+        Section {
+            Toggle("縦横を同時に書き出し", isOn: $dualExport)
+                .disabled(exporter.isRunning)
+
+            Button {
+                exporter.startAudioOnly(snapshot: project.snapshot())
+            } label: {
+                Label("音声のみ書き出し(m4a)", systemImage: "waveform")
+            }
+            .disabled(project.isEmpty || exporter.isRunning)
+
+            Button {
+                withAnimation {
+                    showGIFPanel.toggle()
+                }
+            } label: {
+                HStack {
+                    Label("GIFで書き出し", systemImage: "photo.stack")
+                    Spacer()
+                    Image(systemName: showGIFPanel ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(project.isEmpty)
+
+            if showGIFPanel {
+                gifPanel
+            }
+
+            Button {
+                copyChapterList()
+            } label: {
+                Label("チャプター一覧をコピー", systemImage: "list.number")
+            }
+            .disabled(!hasChapters)
+        } header: {
+            Text("その他の書き出し")
+        } footer: {
+            Text("「縦横を同時に書き出し」をオンにすると、16:9(横)と 9:16(縦)を続けて書き出します(2 本分の空き容量が必要)。チャプター一覧は「マーカー」のチャプターから作り、YouTube の概要欄に貼り付けられます。")
+        }
+    }
+
+    @ViewBuilder
+    private var gifPanel: some View {
+        Picker("範囲", selection: $gifRangeMode) {
+            ForEach(ExportGIFRange.allCases) { range in
+                Text(range.displayName).tag(range)
+            }
+        }
+        .pickerStyle(.segmented)
+        .onChange(of: gifRangeMode) {
+            if gifRangeMode == .marker, gifMarkerID == nil {
+                gifMarkerID = gifMarkers.first?.id
+            }
+            if gifRangeMode == .custom, gifEndText.isEmpty {
+                gifEndText = String(format: "%.1f", min(timelineDuration, 5))
+            }
+        }
+
+        switch gifRangeMode {
+        case .whole:
+            EmptyView()
+        case .marker:
+            if gifMarkers.isEmpty {
+                Text("マーカーがありません。編集画面の「マーカー」で区間の始まりに目印を付けてください。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("開始マーカー", selection: $gifMarkerID) {
+                    ForEach(gifMarkers) { marker in
+                        Text("\(exportDurationString(marker.time)) \(marker.name.isEmpty ? marker.kind.displayName : marker.name)")
+                            .tag(marker.id as UUID?)
+                    }
+                }
+            }
+        case .custom:
+            HStack {
+                Text("開始(秒)")
+                Spacer()
+                TextField("0", text: $gifStartText)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 110)
+            }
+            HStack {
+                Text("終了(秒)")
+                Spacer()
+                TextField(String(format: "%.1f", timelineDuration), text: $gifEndText)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 110)
+            }
+        }
+
+        Text(gifRangeText)
+            .font(.caption)
+            .foregroundStyle(gifRange == nil ? Color.red : Color.secondary)
+
+        Picker("フレームレート", selection: $gifFPS) {
+            ForEach([8, 10, 12, 15], id: \.self) { fps in
+                Text("\(fps) fps").tag(fps)
+            }
+        }
+        Picker("幅", selection: $gifMaxWidth) {
+            ForEach([320, 480, 640], id: \.self) { width in
+                Text("\(width) px").tag(width)
+            }
+        }
+
+        if gifTask != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: min(max(gifProgress, 0), 1))
+                HStack {
+                    Text("GIF を作成中… \(Int((min(max(gifProgress, 0), 1) * 100).rounded()))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("キャンセル", role: .destructive) {
+                        gifTask?.cancel()
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+            }
+        } else {
+            Button {
+                startGIFExport()
+            } label: {
+                Label("GIFを作成", systemImage: "sparkles")
+            }
+            .disabled(project.isEmpty || gifRange == nil)
+        }
+
+        if let url = gifURL {
+            ShareLink(item: url) {
+                Label("GIFを共有・保存", systemImage: "square.and.arrow.up")
+            }
+        }
+        if let gifError {
+            Text(gifError)
+                .font(.caption)
+                .foregroundStyle(.red)
+        }
+    }
+
+    private func startGIFExport() {
+        guard gifTask == nil, let range = gifRange else { return }
+        gifURL = nil
+        gifError = nil
+        gifProgress = 0
+        let snapshot = project.snapshot()
+        let fps = gifFPS
+        let width = CGFloat(gifMaxWidth)
+        gifTask = Task { @MainActor in
+            do {
+                let url = try await GIFExporter.export(snapshot: snapshot,
+                                                       start: range.start,
+                                                       end: range.end,
+                                                       fps: fps,
+                                                       maxWidth: width,
+                                                       progress: { value in
+                                                           Task { @MainActor in
+                                                               gifProgress = value
+                                                           }
+                                                       })
+                if !Task.isCancelled {
+                    gifURL = url
+                }
+            } catch is CancellationError {
+                // キャンセル時は何もしない
+            } catch {
+                if !Task.isCancelled {
+                    gifError = "GIF を作成できませんでした: \(error.localizedDescription)"
+                }
+            }
+            gifTask = nil
+        }
+    }
+
+    private func copyChapterList() {
+        UIPasteboard.general.string = project.chapterListText()
+        alertTitle = "コピーしました"
+        alertMessage = "チャプター一覧をクリップボードにコピーしました。YouTube の概要欄などに貼り付けてください。"
+    }
+
+    // MARK: 書き出し履歴
+
+    private var historySection: some View {
+        Section {
+            if exporter.history.isEmpty {
+                Text("まだ書き出し履歴がありません。書き出すとここに並び、共有や「比較」ができます。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(exporter.history) { record in
+                    historyRow(record)
+                }
+                .onDelete { offsets in
+                    let records = exporter.history
+                    for index in offsets where index < records.count {
+                        exporter.deleteRecord(records[index])
+                    }
+                }
+            }
+        } header: {
+            Text("書き出し履歴")
+        } footer: {
+            Text("最新 20 件まで残ります。左にスワイプで削除(書き出したファイルも削除されます)。")
+        }
+    }
+
+    private func historyRow(_ record: ExportRecord) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(record.date.formatted(date: .abbreviated, time: .shortened))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(exportDurationString(record.duration))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Text(record.canvasDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 20) {
+                ShareLink(item: record.url) {
+                    Label("共有", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.borderless)
+                Button {
+                    openCompare(record)
+                } label: {
+                    Label("比較を開く", systemImage: "rectangle.split.2x1")
+                }
+                .buttonStyle(.borderless)
+                .disabled(project.isEmpty)
+                Spacer()
+            }
+            .font(.subheadline)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func openCompare(_ record: ExportRecord) {
+        if player == nil, comparePlayer == nil {
+            comparePlayer = PlayerController()
+        }
+        compareTarget = record
     }
 }

@@ -72,8 +72,13 @@ struct FilterSettings: Equatable {
     /// 0 ... 1
     var intensity: Double = 1
     var adjustments = ColorAdjustments()
+    var hsl = HSLAdjustment()
+    /// 読み込んだ LUT(.cube)のファイル名(MediaStore.mediaDirectory/LUTs 内)。設定時は preset より優先
+    var lutFileName: String? = nil
+    /// LUT の強さ 0...1
+    var lutIntensity: Double = 1
 
-    var isIdentity: Bool { (preset == .none || intensity <= 0) && adjustments.isIdentity }
+    var isIdentity: Bool { (preset == .none || intensity <= 0) && adjustments.isIdentity && hsl.isIdentity && lutFileName == nil }
 }
 
 // MARK: - マルチカム(複数台カメラ切替)
@@ -161,6 +166,19 @@ struct Clip: Identifiable, Equatable {
     var isMuted: Bool
     /// 音量そろえのゲイン、Jカット・Lカット(AudioTrackModels.swift)
     var audio: ClipAudioSettings
+    /// このクリップの終わりから次のクリップへのトランジション
+    var transition: ClipTransition
+    /// イン・アウトのアニメーション
+    var animation: ClipAnimation
+    /// 切り抜き・回転・反転・ズーム
+    var geometry: ClipGeometry
+    /// 速度カーブ(enabled のとき speed より優先)
+    var speedCurve: SpeedCurve
+    /// 逆再生(reversedURL に逆再生済みファイルがあるときだけ有効)
+    var isReversed: Bool
+    var reversedURL: URL?
+    /// 静止画クリップ(写真・フリーズフレーム)。設定時は url は無視され、この画像を表示する。hasAudio は false
+    var stillImageURL: URL?
 
     init(id: UUID = UUID(), url: URL, duration: Double, naturalSize: CGSize,
          preferredTransform: CGAffineTransform, hasAudio: Bool, thumbnail: UIImage?, name: String) {
@@ -179,12 +197,23 @@ struct Clip: Identifiable, Equatable {
         self.multicam = MulticamInfo()
         self.isMuted = false
         self.audio = ClipAudioSettings()
+        self.transition = ClipTransition()
+        self.animation = ClipAnimation()
+        self.geometry = ClipGeometry()
+        self.speedCurve = SpeedCurve()
+        self.isReversed = false
+        self.reversedURL = nil
+        self.stillImageURL = nil
     }
 
     /// トリミング後の長さ(元素材の秒)
     var trimmedDuration: Double { max(0, endTime - startTime) }
     /// 速度を反映した出力上の長さ(秒)
-    var outputDuration: Double { trimmedDuration / max(speed, 0.01) }
+    var outputDuration: Double {
+        if speedCurve.enabled { return speedCurve.outputDuration(trimmed: trimmedDuration) }
+        return trimmedDuration / max(speed, 0.01)
+    }
+    var isStill: Bool { stillImageURL != nil }
     var isTrimmed: Bool { startTime > 0.001 || endTime < duration - 0.001 }
     var displaySize: CGSize { orientedSize(naturalSize: naturalSize, transform: preferredTransform) }
 
@@ -200,6 +229,13 @@ struct Clip: Identifiable, Equatable {
         copy.multicam = multicam
         copy.isMuted = isMuted
         copy.audio = audio
+        copy.transition = transition
+        copy.animation = animation
+        copy.geometry = geometry
+        copy.speedCurve = speedCurve
+        copy.isReversed = isReversed
+        copy.reversedURL = reversedURL
+        copy.stillImageURL = stillImageURL
         return copy
     }
 
@@ -212,6 +248,13 @@ struct Clip: Identifiable, Equatable {
             && lhs.multicam == rhs.multicam
             && lhs.isMuted == rhs.isMuted
             && lhs.audio == rhs.audio
+            && lhs.transition == rhs.transition
+            && lhs.animation == rhs.animation
+            && lhs.geometry == rhs.geometry
+            && lhs.speedCurve == rhs.speedCurve
+            && lhs.isReversed == rhs.isReversed
+            && lhs.reversedURL == rhs.reversedURL
+            && lhs.stillImageURL == rhs.stillImageURL
             && lhs.name == rhs.name
     }
 }
@@ -267,10 +310,15 @@ enum SubtitleDisplayMode: String, CaseIterable, Identifiable {
 struct SubtitleStyle: Equatable {
     var position: SubtitlePosition = .bottom
     var color: SubtitleColor = .white
-    /// 出力映像の幅に対する文字サイズ比(0.03 ... 0.10)
-    var sizeRatio: CGFloat = 0.045
-    var hasBackground: Bool = true
+    /// 出力映像の幅に対する文字サイズ比(0.03 ... 0.10)。既定はシネマ風
+    var sizeRatio: CGFloat = 0.038
+    var hasBackground: Bool = false
     var displayMode: SubtitleDisplayMode = .original
+    /// 字幕テンプレート(カラオケ風など)。words が無い cue では plain と同じ描画
+    var template: CaptionTemplate = .plain
+    var highlightColorHex: String = "#FFD54A"
+    /// nil = システムフォント
+    var fontName: String? = nil
 }
 
 /// 字幕1件(出力タイムライン上の秒)
@@ -280,6 +328,8 @@ struct SubtitleCue: Identifiable, Equatable {
     var end: Double
     var text: String
     var translatedText: String? = nil
+    /// 単語ごとの時刻(カラオケ風字幕用)。空なら不明
+    var words: [SubtitleWord] = []
 
     var duration: Double { max(0, end - start) }
 
@@ -393,7 +443,7 @@ enum ExportQuality: String, CaseIterable, Identifiable {
 struct CanvasSettings: Equatable {
     var aspect: CanvasAspect = .original
     var scaling: ScalingMode = .fit
-    var resolution: ResolutionCap = .fhd1080
+    var resolution: ResolutionCap = .uhd4k
     var quality: ExportQuality = .standard
     var frameRate: Int = 30
     /// 書き出しの詳細設定
@@ -442,6 +492,14 @@ struct ProjectSnapshot: Equatable {
     var overlays: [OverlayClip] = []
     /// ナレーション(録音した音声)のトラック
     var narration: [NarrationClip] = []
+    /// 自由配置テキスト・ステッカー
+    var textClips: [TextClip] = []
+    /// 手書き
+    var drawings: [DrawingClip] = []
+    /// マーカー(メモ・チャプター・ビート)
+    var markers: [TimelineMarker] = []
+    var watermark = WatermarkSettings()
+    var cover = CoverSettings()
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -461,6 +519,14 @@ final class EditorProject {
     var overlays: [OverlayClip] = []
     /// ナレーション(録音した音声)のトラック
     var narration: [NarrationClip] = []
+    /// 自由配置テキスト・ステッカー
+    var textClips: [TextClip] = []
+    /// 手書き
+    var drawings: [DrawingClip] = []
+    /// マーカー(メモ・チャプター・ビート)
+    var markers: [TimelineMarker] = []
+    var watermark = WatermarkSettings()
+    var cover = CoverSettings()
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -468,7 +534,8 @@ final class EditorProject {
     func snapshot() -> ProjectSnapshot {
         ProjectSnapshot(clips: clips, subtitles: subtitles, subtitleStyle: subtitleStyle,
                         audio: audio, canvas: canvas, documentary: documentary,
-                        titleCards: titleCards, lowerThirds: lowerThirds, overlays: overlays, narration: narration)
+                        titleCards: titleCards, lowerThirds: lowerThirds, overlays: overlays, narration: narration,
+                        textClips: textClips, drawings: drawings, markers: markers, watermark: watermark, cover: cover)
     }
 
     // MARK: タイムライン計算
@@ -619,5 +686,67 @@ extension EditorProject {
 
     func sortNarration() {
         narration.sort { $0.start < $1.start }
+    }
+}
+
+// MARK: - テキスト・手書き・マーカーの操作
+
+extension EditorProject {
+    func textClipBinding(id: UUID) -> Binding<TextClip>? {
+        guard let initial = textClips.first(where: { $0.id == id }) else { return nil }
+        return Binding(
+            get: { [weak self] in self?.textClips.first(where: { $0.id == id }) ?? initial },
+            set: { [weak self] newValue in
+                guard let self, let i = self.textClips.firstIndex(where: { $0.id == id }) else { return }
+                self.textClips[i] = newValue
+            }
+        )
+    }
+    func removeTextClip(id: UUID) { textClips.removeAll { $0.id == id } }
+    func sortTextClips() { textClips.sort { $0.start < $1.start } }
+
+    func drawingBinding(id: UUID) -> Binding<DrawingClip>? {
+        guard let initial = drawings.first(where: { $0.id == id }) else { return nil }
+        return Binding(
+            get: { [weak self] in self?.drawings.first(where: { $0.id == id }) ?? initial },
+            set: { [weak self] newValue in
+                guard let self, let i = self.drawings.firstIndex(where: { $0.id == id }) else { return }
+                self.drawings[i] = newValue
+            }
+        )
+    }
+    func removeDrawing(id: UUID) { drawings.removeAll { $0.id == id } }
+
+    func markerBinding(id: UUID) -> Binding<TimelineMarker>? {
+        guard let initial = markers.first(where: { $0.id == id }) else { return nil }
+        return Binding(
+            get: { [weak self] in self?.markers.first(where: { $0.id == id }) ?? initial },
+            set: { [weak self] newValue in
+                guard let self, let i = self.markers.firstIndex(where: { $0.id == id }) else { return }
+                self.markers[i] = newValue
+            }
+        )
+    }
+    func removeMarker(id: UUID) { markers.removeAll { $0.id == id } }
+    func sortMarkers() { markers.sort { $0.time < $1.time } }
+
+    /// チャプター一覧のテキスト(YouTube の概要欄用)。先頭に 0:00 が無ければ補う
+    func chapterListText() -> String {
+        let chapters = markers.filter { $0.kind == .chapter }.sorted { $0.time < $1.time }
+        var lines: [String] = []
+        if chapters.first.map({ $0.time > 0.5 }) ?? true { lines.append("0:00 はじめに") }
+        for c in chapters {
+            let t = Int(c.time.rounded(.down))
+            let h = t / 3600, m = (t % 3600) / 60, s = t % 60
+            let stamp = h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+            lines.append("\(stamp) \(c.name.isEmpty ? "チャプター" : c.name)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// 出力タイムライン上の時刻 → そのクリップの出力上の開始時刻(トランジション重なりは考慮しない)
+    func clipTimelineStart(id: UUID) -> Double? {
+        guard let i = index(of: id) else { return nil }
+        return clipStartTimes()[i]
     }
 }
