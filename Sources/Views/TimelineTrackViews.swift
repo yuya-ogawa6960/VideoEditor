@@ -73,27 +73,27 @@ enum TimelineMetrics {
     static var videoRowHeight: CGFloat { videoHeight + splitAudioLaneHeight }
 
     /// 表示するトラック行(中身のあるトラックだけ + 映像 + 追加行)
-    static func visibleTracks(hasOverlays: Bool, textLanes: Int, hasDrawings: Bool,
-                              hasSubtitles: Bool, hasBGM: Bool, hasNarration: Bool) -> [TimelineTrackKind] {
+    static func visibleTracks(overlayLanes: Int, textLanes: Int, hasDrawings: Bool,
+                              hasSubtitles: Bool, hasBGM: Bool, narrationLanes: Int) -> [TimelineTrackKind] {
         var rows: [TimelineTrackKind] = []
-        if hasOverlays { rows.append(.overlay) }
+        if overlayLanes > 0 { rows.append(.overlay(lanes: overlayLanes)) }
         rows.append(.video)
         if textLanes > 0 { rows.append(.text(lanes: textLanes)) }
         if hasDrawings { rows.append(.drawing) }
         if hasSubtitles { rows.append(.subtitle) }
         if hasBGM { rows.append(.audio) }
-        if hasNarration { rows.append(.narration) }
+        if narrationLanes > 0 { rows.append(.narration(lanes: narrationLanes)) }
         rows.append(.add)
         return rows
     }
 
     static func visibleTracks(for snapshot: ProjectSnapshot) -> [TimelineTrackKind] {
-        visibleTracks(hasOverlays: !snapshot.overlays.isEmpty,
+        visibleTracks(overlayLanes: overlayLaneCount(snapshot.overlays),
                       textLanes: textLaneCount(snapshot.textClips),
                       hasDrawings: !snapshot.drawings.isEmpty,
                       hasSubtitles: !snapshot.subtitles.isEmpty,
                       hasBGM: snapshot.audio.bgmURL != nil,
-                      hasNarration: !snapshot.narration.isEmpty)
+                      narrationLanes: narrationLaneCount(snapshot.narration))
     }
 
     /// 行を全部並べたときの高さ(行間込み)
@@ -164,35 +164,58 @@ enum TimelineMetrics {
     /// テキストの段と段の間(pt)
     static let textLaneGap: CGFloat = 2
 
-    /// 時間が重なるテキストを別の段に振り分ける(開始が早い順に、空いている一番上の段へ)
-    static func textLanes(_ clips: [TextClip]) -> [UUID: Int] {
-        let ordered = clips.sorted { a, b in
-            if a.start != b.start { return a.start < b.start }
-            return a.id.uuidString < b.id.uuidString
+    /// 時間が重なる要素を別の段に振り分ける(開始が早い順に、空いている一番上の段へ)。
+    /// spans は (id, 開始, 終了) を元の並び順で渡す(開始が同じなら元の順)
+    static func lanes(_ spans: [(id: UUID, start: Double, end: Double)]) -> [UUID: Int] {
+        let ordered = spans.enumerated().sorted { a, b in
+            if a.element.start != b.element.start { return a.element.start < b.element.start }
+            return a.offset < b.offset
         }
         var laneEnds: [Double] = []
         var result: [UUID: Int] = [:]
-        for clip in ordered {
-            if let lane = laneEnds.firstIndex(where: { $0 <= clip.start + 0.0001 }) {
-                laneEnds[lane] = clip.end
-                result[clip.id] = lane
+        for entry in ordered {
+            let span = entry.element
+            if let lane = laneEnds.firstIndex(where: { $0 <= span.start + 0.0005 }) {
+                laneEnds[lane] = span.end
+                result[span.id] = lane
             } else {
-                laneEnds.append(clip.end)
-                result[clip.id] = laneEnds.count - 1
+                laneEnds.append(span.end)
+                result[span.id] = laneEnds.count - 1
             }
         }
         return result
     }
 
-    static func textLaneCount(_ clips: [TextClip]) -> Int {
-        guard !clips.isEmpty else { return 0 }
-        return (textLanes(clips).values.max() ?? 0) + 1
+    static func laneCount(_ lanes: [UUID: Int]) -> Int {
+        guard !lanes.isEmpty else { return 0 }
+        return (lanes.values.max() ?? 0) + 1
     }
+
+    /// 1 段の高さ h を lanes 段重ねた高さ
+    static func stackedHeight(_ h: CGFloat, lanes: Int) -> CGFloat {
+        let n = CGFloat(max(1, lanes))
+        return h * n + textLaneGap * (n - 1)
+    }
+
+    static func textLanes(_ clips: [TextClip]) -> [UUID: Int] {
+        lanes(clips.map { (id: $0.id, start: $0.start, end: $0.end) })
+    }
+
+    static func overlayLanes(_ overlays: [OverlayClip]) -> [UUID: Int] {
+        lanes(overlays.map { (id: $0.id, start: $0.start, end: $0.end) })
+    }
+
+    static func narrationLanes(_ narration: [NarrationClip]) -> [UUID: Int] {
+        lanes(narration.map { (id: $0.id, start: $0.start, end: $0.start + $0.duration) })
+    }
+
+    static func textLaneCount(_ clips: [TextClip]) -> Int { laneCount(textLanes(clips)) }
+    static func overlayLaneCount(_ overlays: [OverlayClip]) -> Int { laneCount(overlayLanes(overlays)) }
+    static func narrationLaneCount(_ narration: [NarrationClip]) -> Int { laneCount(narrationLanes(narration)) }
 
     /// 段数に応じたテキストトラックの高さ
     static func textTrackHeight(lanes: Int) -> CGFloat {
-        let n = CGFloat(max(1, lanes))
-        return textHeight * n + textLaneGap * (n - 1)
+        stackedHeight(textHeight, lanes: lanes)
     }
 
     /// 重なりの深さに応じた上側のずらし量
@@ -208,9 +231,12 @@ struct TimelineSpan {
 
 /// タイムラインのトラック行の種類(目盛りは別扱い)
 enum TimelineTrackKind: Hashable {
-    case overlay, video, drawing, subtitle, audio, narration, add
-    /// テキスト・ステッカー・モザイク(重なる分だけ段を増やす)
+    case video, drawing, subtitle, audio, add
+    /// 重なる分だけ段を増やすトラック
+    case overlay(lanes: Int)
+    /// テキスト・ステッカー・モザイク
     case text(lanes: Int)
+    case narration(lanes: Int)
 
     /// 行の見分け(段数が変わっても同じ行として扱う)
     var key: String {
@@ -228,13 +254,13 @@ enum TimelineTrackKind: Hashable {
 
     var height: CGFloat {
         switch self {
-        case .overlay: return TimelineMetrics.overlayHeight
+        case .overlay(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.overlayHeight, lanes: lanes)
         case .video: return TimelineMetrics.videoRowHeight
         case .text(let lanes): return TimelineMetrics.textTrackHeight(lanes: lanes)
         case .drawing: return TimelineMetrics.drawingHeight
         case .subtitle: return TimelineMetrics.subtitleHeight
         case .audio: return TimelineMetrics.audioHeight
-        case .narration: return TimelineMetrics.narrationHeight
+        case .narration(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.narrationHeight, lanes: lanes)
         case .add: return TimelineMetrics.addRowHeight
         }
     }

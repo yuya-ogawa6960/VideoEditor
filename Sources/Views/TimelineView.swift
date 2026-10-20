@@ -46,18 +46,19 @@ struct TimelineView: View {
     static func videoTrackTop(for project: EditorProject) -> CGFloat {
         var y: CGFloat = TimelineMetrics.topPadding + TimelineMetrics.rulerHeight + TimelineMetrics.trackSpacing
         if !project.overlays.isEmpty {
-            y += TimelineMetrics.overlayHeight + TimelineMetrics.trackSpacing
+            let lanes = TimelineMetrics.overlayLaneCount(project.overlays)
+            y += TimelineMetrics.stackedHeight(TimelineMetrics.overlayHeight, lanes: lanes) + TimelineMetrics.trackSpacing
         }
         return y
     }
 
     private static func visibleTracks(for project: EditorProject) -> [TimelineTrackKind] {
-        TimelineMetrics.visibleTracks(hasOverlays: !project.overlays.isEmpty,
+        TimelineMetrics.visibleTracks(overlayLanes: TimelineMetrics.overlayLaneCount(project.overlays),
                                       textLanes: TimelineMetrics.textLaneCount(project.textClips),
                                       hasDrawings: !project.drawings.isEmpty,
                                       hasSubtitles: !project.subtitles.isEmpty,
                                       hasBGM: project.audio.bgmURL != nil,
-                                      hasNarration: !project.narration.isEmpty)
+                                      narrationLanes: TimelineMetrics.narrationLaneCount(project.narration))
     }
 
     static func rowPlacements(_ rows: [TimelineTrackKind]) -> [TimelineRowPlacement] {
@@ -535,16 +536,20 @@ struct TimelineView: View {
         let selectedID: UUID? = selection?.overlayID
         let selectedItem: TimelineOverlayItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
 
+        // 時間が重なるオーバーレイは別の段に並べる(depth = 段)
+        let laneCount: Int = TimelineMetrics.overlayLaneCount(overlays)
+        let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
+
         return ZStack(alignment: .topLeading) {
             ForEach(items) { item in
                 let isSel = item.id == selectedID
-                let inset = TimelineMetrics.overlayInset(depth: item.depth)
+                let laneY: CGFloat = CGFloat(item.depth) * laneStep
                 TimelineOverlayBar(overlay: item.overlay,
                                    labelX: item.labelX,
                                    visibleWidth: item.visibleWidth,
-                                   height: max(8, h - inset),
+                                   height: h,
                                    isSelected: isSel)
-                    .offset(x: item.visibleX, y: inset)
+                    .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
                         selection = .overlay(item.id)
                     }
@@ -553,8 +558,8 @@ struct TimelineView: View {
             }
 
             if let sel = selectedItem {
-                let inset = TimelineMetrics.overlayInset(depth: sel.depth)
-                let barH = max(8, h - inset)
+                let inset: CGFloat = CGFloat(sel.depth) * laneStep
+                let barH = h
                 if !sel.overlay.keyframes.isEmpty {
                     TimelineKeyframeDiamonds(times: sel.overlay.keyframes.map { $0.time },
                                              pointsPerSecond: pps,
@@ -571,7 +576,7 @@ struct TimelineView: View {
                                trailing: overlayTrimGesture(id: sel.id, leading: false))
             }
         }
-        .frame(width: width, height: h, alignment: .topLeading)
+        .frame(width: width, height: TimelineMetrics.stackedHeight(h, lanes: laneCount), alignment: .topLeading)
     }
 
     // MARK: - 映像トラック
@@ -986,10 +991,16 @@ struct TimelineView: View {
         let items = narrationItems(width: width, originX: originX, pps: pps, narration: narration)
         let selectedID: UUID? = selection?.narrationID
         let selectedItem: TimelineNarrationItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
+        // 時間が重なるナレーションは別の段に並べる
+        let lanes: [UUID: Int] = TimelineMetrics.narrationLanes(narration)
+        let laneCount: Int = TimelineMetrics.laneCount(lanes)
+        let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
+        let selectedY: CGFloat = CGFloat(selectedID.flatMap { lanes[$0] } ?? 0) * laneStep
 
         return ZStack(alignment: .topLeading) {
             ForEach(items) { item in
                 let isSel = item.id == selectedID
+                let laneY: CGFloat = CGFloat(lanes[item.id] ?? 0) * laneStep
                 TimelineNarrationBar(clip: item.clip,
                                      screenX: item.screenX,
                                      visibleX: item.visibleX,
@@ -998,7 +1009,7 @@ struct TimelineView: View {
                                      labelX: item.labelX,
                                      height: h,
                                      isSelected: isSel)
-                    .offset(x: item.visibleX)
+                    .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
                         selection = .narration(item.id)
                     }
@@ -1009,12 +1020,12 @@ struct TimelineView: View {
             if let sel = selectedItem {
                 selectionDecor(screenX: sel.screenX, width: sel.width,
                                visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
-                               y: 0, height: h, duration: sel.clip.duration,
+                               y: selectedY, height: h, duration: sel.clip.duration,
                                leading: narrationTrimGesture(id: sel.id, leading: true),
                                trailing: narrationTrimGesture(id: sel.id, leading: false))
             }
         }
-        .frame(width: width, height: h, alignment: .topLeading)
+        .frame(width: width, height: TimelineMetrics.stackedHeight(h, lanes: laneCount), alignment: .topLeading)
     }
 
     // MARK: - スクロール(時刻の移動・トラックの縦スクロール)
