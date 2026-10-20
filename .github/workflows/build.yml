@@ -2,9 +2,8 @@
 # 公開リポジトリなら macOS ランナーも無料です。
 name: Build iOS app (unsigned IPA)
 
+# TestFlight 配布に切り替えたため、AltStore 用の署名なし IPA は手動実行のときだけ作る
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 concurrency:

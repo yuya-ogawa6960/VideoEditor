@@ -344,6 +344,8 @@ enum ContinuedProcessing {
     /// 残っていても、ハンドラ未登録で落ちないよう、すぐ完了させるだけのハンドラを登録する。
     /// 許可リストに無ければ登録しない(クラッシュさせない)。
     static func registerLegacyLaunchHandler() {
+        // TestFlight 版(バンドル ID が com.personal.* ではない)では以前の識別子は使わない
+        guard Bundle.main.bundleIdentifier?.hasPrefix("com.personal.") == true else { return }
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             _ = registerLaunchHandler(for: legacyExportIdentifier, slot: .legacy)

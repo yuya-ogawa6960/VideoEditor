@@ -53,9 +53,11 @@ targets:
         UIBackgroundModes:
           - processing
         # 継続処理(BGContinuedProcessingTask)の識別子は実行時のバンドル ID から作る("<bundleID>.export.<UUID>" など)。
+        # 1.6 からバンドル ID は com.yuyaogawa6960.videomania(TestFlight 配布用)。以下の com.personal.* は AltStore 時代の名残。
         # AltStore はバンドル ID を "com.personal.videoeditor.<TEAMID>" に書き換えるが、この一覧は書き換えないため、
         # ワイルドカード "com.personal.videoeditor.*" で書き換え後の ID にも一致させる。先頭の固定 ID は以前のバージョン用。
         BGTaskSchedulerPermittedIdentifiers:
+          - "com.yuyaogawa6960.videomania.*"
           - com.personal.videoeditor.export
           - "com.personal.videoeditor.*"
           - "com.personal.videoeditor.export.*"
@@ -65,7 +67,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.personal.videoeditor
+        PRODUCT_BUNDLE_IDENTIFIER: com.yuyaogawa6960.videomania
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: "NO"
