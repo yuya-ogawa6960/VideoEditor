@@ -34,6 +34,10 @@ enum BundledFonts {
 
     /// 英語(かわいい・丸い・手書き)
     static let english: [Entry] = [
+        // Instagram ストーリーの「Poster」(太い装飾セリフ。Instagram 専用で配布なし)に近いもの
+        Entry(name: "Fraunces-Black", label: "Poster風 Fraunces"),
+        Entry(name: "PlayfairDisplay-Black", label: "Poster風 Playfair"),
+        Entry(name: "GravitasOne", label: "Poster風 Gravitas"),
         Entry(name: "Pacifico-Regular", label: "Pacifico"),
         Entry(name: "Fredoka-SemiBold", label: "Fredoka"),
         Entry(name: "Baloo2-Bold", label: "Baloo 2"),

@@ -4,8 +4,8 @@ SIL Open Font License 1.1 (see OFL.txt):
 Hachi Maru Pop, Yusei Magic, Mochiy Pop One, Kiwi Maru, Zen Maru Gothic, M PLUS Rounded 1c,
 Yomogi, Klee One, Zen Kurenaido, Potta One, RocknRoll One, Dela Gothic One, DotGothic16,
 Pacifico, Fredoka, Baloo 2, Quicksand, Comfortaa, Sniglet, Bubblegum Sans, Lobster, Caveat,
-Patrick Hand, Gochi Hand, Indie Flower, Amatic SC
-(Fredoka, Baloo 2, Quicksand, Comfortaa, Caveat: static instances generated from the variable fonts.)
+Patrick Hand, Gochi Hand, Indie Flower, Amatic SC, Fraunces, Playfair Display, Gravitas One
+(Fredoka, Baloo 2, Quicksand, Comfortaa, Caveat, Fraunces, Playfair Display: static instances generated from the variable fonts.)
 
 Apache License 2.0 (see LICENSE-APACHE.txt):
 Kosugi Maru, Chewy
