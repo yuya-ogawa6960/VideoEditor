@@ -1,15 +1,15 @@
 import SwiftUI
 
 // =====================================================================
-// アプリの色(アイコンの網点と同じ、オレンジ → ピンク)。
+// アプリの色(アイコンの網点と同じ、オレンジ → ピンク。画面では少し深めの色にしている)。
 // 大事なボタン(新しいプロジェクト・書き出し・動画を追加)に使う。
 // アプリ全体の差し色(AccentColor)は、その中間のコーラル。
 // =====================================================================
 
 enum BrandStyle {
-    static let orange = Color(red: 1.0, green: 0.706, blue: 0.235)
-    static let pink = Color(red: 1.0, green: 0.314, blue: 0.431)
-    static let coral = Color(red: 1.0, green: 0.416, blue: 0.361)
+    static let orange = Color(red: 0.86, green: 0.47, blue: 0.13)
+    static let pink = Color(red: 0.76, green: 0.19, blue: 0.33)
+    static let coral = Color(red: 0.85, green: 0.33, blue: 0.27)
     /// 紺(アイコンの背景)
     static let navy = Color(red: 0.063, green: 0.102, blue: 0.2)
 
