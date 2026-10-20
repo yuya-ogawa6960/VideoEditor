@@ -141,7 +141,7 @@ struct OverlayClip: Identifiable, Equatable {
     var speed: Double = 1
     /// キャンバス上の配置(full = 全面を覆う Bロール、小さければワイプ)
     var frame: NormalizedRect = .full
-    var fit: OverlayFit = .fill
+    var fit: OverlayFit = .fit
     /// 0 ... 1
     var opacity: Double = 1
     /// 角丸半径。min(キャンバス幅, 高さ) に対する比率 0 ... 0.5
@@ -300,18 +300,18 @@ enum OverlayPreset: String, CaseIterable, Identifiable {
         overlay.frame = frame
         switch self {
         case .bRollFull:
-            overlay.fit = .fill
+            overlay.fit = .fit
             overlay.fadeIn = 0.5
             overlay.fadeOut = 0.5
             overlay.volume = 0
             overlay.cornerRadius = 0
         case .pipSmallCorner:
-            overlay.fit = .fill
+            overlay.fit = .fit
             overlay.fadeIn = 0.3
             overlay.fadeOut = 0.3
             overlay.cornerRadius = 0.03
         case .splitLeft:
-            overlay.fit = .fill
+            overlay.fit = .fit
             overlay.fadeIn = 0.3
             overlay.fadeOut = 0.3
             overlay.cornerRadius = 0

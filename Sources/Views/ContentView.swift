@@ -2080,7 +2080,6 @@ struct ContentView: View {
                 } else if let photo = try? await item.loadTransferable(type: PickedPhoto.self) {
                     var image = try MediaStore.makeImageOverlay(from: photo.url)
                     image.duration = 4
-                    image.kenBurns = KenBurns.zoomIn
                     overlay = image
                 } else {
                     // 種類が判定できなかった場合の保険
