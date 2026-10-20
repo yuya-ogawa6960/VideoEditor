@@ -11,7 +11,7 @@ enum TimelineAddKind {
 struct TimelineRowPlacement: Identifiable {
     let kind: TimelineTrackKind
     let y: CGFloat
-    var id: TimelineTrackKind { kind }
+    var id: String { kind.key }
 }
 
 /// CapCut 風タイムライン。
@@ -53,7 +53,7 @@ struct TimelineView: View {
 
     private static func visibleTracks(for project: EditorProject) -> [TimelineTrackKind] {
         TimelineMetrics.visibleTracks(hasOverlays: !project.overlays.isEmpty,
-                                      hasText: !project.textClips.isEmpty,
+                                      textLanes: TimelineMetrics.textLaneCount(project.textClips),
                                       hasDrawings: !project.drawings.isEmpty,
                                       hasSubtitles: !project.subtitles.isEmpty,
                                       hasBGM: project.audio.bgmURL != nil,
@@ -782,16 +782,23 @@ struct TimelineView: View {
         let items = textItems(width: width, originX: originX, pps: pps, textClips: textClips)
         let selectedID: UUID? = selection?.textID
         let selectedItem: TimelineTextItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
+        // 時間が重なるテキストは別の段に並べる
+        let lanes: [UUID: Int] = TimelineMetrics.textLanes(textClips)
+        let laneCount: Int = (lanes.values.max() ?? 0) + 1
+        let trackHeight: CGFloat = TimelineMetrics.textTrackHeight(lanes: laneCount)
+        let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
+        let selectedY: CGFloat = CGFloat(selectedID.flatMap { lanes[$0] } ?? 0) * laneStep
 
         return ZStack(alignment: .topLeading) {
             ForEach(items) { item in
                 let isSel = item.id == selectedID
+                let laneY: CGFloat = CGFloat(lanes[item.id] ?? 0) * laneStep
                 TimelineTextBar(textClip: item.textClip,
                                 labelX: item.labelX,
                                 visibleWidth: item.visibleWidth,
                                 height: h,
                                 isSelected: isSel)
-                    .offset(x: item.visibleX)
+                    .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
                         selection = .text(item.id)
                     }
@@ -806,17 +813,17 @@ struct TimelineView: View {
                                              screenX: sel.screenX,
                                              visibleX: sel.visibleX)
                         .frame(width: sel.visibleWidth, height: h)
-                        .offset(x: sel.visibleX)
+                        .offset(x: sel.visibleX, y: selectedY)
                         .zIndex(15)
                 }
                 selectionDecor(screenX: sel.screenX, width: sel.width,
                                visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
-                               y: 0, height: h, duration: sel.textClip.duration,
+                               y: selectedY, height: h, duration: sel.textClip.duration,
                                leading: textTrimGesture(id: sel.id, leading: true),
                                trailing: textTrimGesture(id: sel.id, leading: false))
             }
         }
-        .frame(width: width, height: h, alignment: .topLeading)
+        .frame(width: width, height: trackHeight, alignment: .topLeading)
     }
 
     // MARK: - 手書きトラック

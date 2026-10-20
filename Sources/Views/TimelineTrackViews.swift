@@ -73,12 +73,12 @@ enum TimelineMetrics {
     static var videoRowHeight: CGFloat { videoHeight + splitAudioLaneHeight }
 
     /// 表示するトラック行(中身のあるトラックだけ + 映像 + 追加行)
-    static func visibleTracks(hasOverlays: Bool, hasText: Bool, hasDrawings: Bool,
+    static func visibleTracks(hasOverlays: Bool, textLanes: Int, hasDrawings: Bool,
                               hasSubtitles: Bool, hasBGM: Bool, hasNarration: Bool) -> [TimelineTrackKind] {
         var rows: [TimelineTrackKind] = []
         if hasOverlays { rows.append(.overlay) }
         rows.append(.video)
-        if hasText { rows.append(.text) }
+        if textLanes > 0 { rows.append(.text(lanes: textLanes)) }
         if hasDrawings { rows.append(.drawing) }
         if hasSubtitles { rows.append(.subtitle) }
         if hasBGM { rows.append(.audio) }
@@ -89,7 +89,7 @@ enum TimelineMetrics {
 
     static func visibleTracks(for snapshot: ProjectSnapshot) -> [TimelineTrackKind] {
         visibleTracks(hasOverlays: !snapshot.overlays.isEmpty,
-                      hasText: !snapshot.textClips.isEmpty,
+                      textLanes: textLaneCount(snapshot.textClips),
                       hasDrawings: !snapshot.drawings.isEmpty,
                       hasSubtitles: !snapshot.subtitles.isEmpty,
                       hasBGM: snapshot.audio.bgmURL != nil,
@@ -161,6 +161,40 @@ enum TimelineMetrics {
         return min(max(0, local), max(0, visibleWidth - labelWidth))
     }
 
+    /// テキストの段と段の間(pt)
+    static let textLaneGap: CGFloat = 2
+
+    /// 時間が重なるテキストを別の段に振り分ける(開始が早い順に、空いている一番上の段へ)
+    static func textLanes(_ clips: [TextClip]) -> [UUID: Int] {
+        let ordered = clips.sorted { a, b in
+            if a.start != b.start { return a.start < b.start }
+            return a.id.uuidString < b.id.uuidString
+        }
+        var laneEnds: [Double] = []
+        var result: [UUID: Int] = [:]
+        for clip in ordered {
+            if let lane = laneEnds.firstIndex(where: { $0 <= clip.start + 0.0001 }) {
+                laneEnds[lane] = clip.end
+                result[clip.id] = lane
+            } else {
+                laneEnds.append(clip.end)
+                result[clip.id] = laneEnds.count - 1
+            }
+        }
+        return result
+    }
+
+    static func textLaneCount(_ clips: [TextClip]) -> Int {
+        guard !clips.isEmpty else { return 0 }
+        return (textLanes(clips).values.max() ?? 0) + 1
+    }
+
+    /// 段数に応じたテキストトラックの高さ
+    static func textTrackHeight(lanes: Int) -> CGFloat {
+        let n = CGFloat(max(1, lanes))
+        return textHeight * n + textLaneGap * (n - 1)
+    }
+
     /// 重なりの深さに応じた上側のずらし量
     static func overlayInset(depth: Int) -> CGFloat {
         CGFloat(min(max(depth, 0), overlayMaxStackDepth)) * overlayStackInset
@@ -174,13 +208,29 @@ struct TimelineSpan {
 
 /// タイムラインのトラック行の種類(目盛りは別扱い)
 enum TimelineTrackKind: Hashable {
-    case overlay, video, text, drawing, subtitle, audio, narration, add
+    case overlay, video, drawing, subtitle, audio, narration, add
+    /// テキスト・ステッカー・モザイク(重なる分だけ段を増やす)
+    case text(lanes: Int)
+
+    /// 行の見分け(段数が変わっても同じ行として扱う)
+    var key: String {
+        switch self {
+        case .overlay: return "overlay"
+        case .video: return "video"
+        case .text: return "text"
+        case .drawing: return "drawing"
+        case .subtitle: return "subtitle"
+        case .audio: return "audio"
+        case .narration: return "narration"
+        case .add: return "add"
+        }
+    }
 
     var height: CGFloat {
         switch self {
         case .overlay: return TimelineMetrics.overlayHeight
         case .video: return TimelineMetrics.videoRowHeight
-        case .text: return TimelineMetrics.textHeight
+        case .text(let lanes): return TimelineMetrics.textTrackHeight(lanes: lanes)
         case .drawing: return TimelineMetrics.drawingHeight
         case .subtitle: return TimelineMetrics.subtitleHeight
         case .audio: return TimelineMetrics.audioHeight
