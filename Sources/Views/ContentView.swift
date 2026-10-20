@@ -1272,6 +1272,9 @@ struct ContentView: View {
         items.append(EditorToolItem("削除", systemImage: "trash", destructive: true) {
             deleteClip(clipID)
         })
+        items.append(EditorToolItem("トランジション", systemImage: "arrow.left.arrow.right.square") {
+            openPanel(.transition(clipID))
+        })
         if !isStill {
             var speedItems: [EditorToolItem] = []
             speedItems.append(EditorToolItem("速度", systemImage: "speedometer") {
@@ -1292,9 +1295,6 @@ struct ContentView: View {
         })
         items.append(EditorToolItem.group("色調整", systemImage: "circle.lefthalf.filled", id: "group-color",
                                           items: colorGroupItems(clipID)))
-        items.append(EditorToolItem("トランジション", systemImage: "arrow.left.arrow.right.square") {
-            openPanel(.transition(clipID))
-        })
         items.append(EditorToolItem("アニメーション", systemImage: "sparkles.rectangle.stack") {
             openPanel(.clipAnimation(clipID))
         })
