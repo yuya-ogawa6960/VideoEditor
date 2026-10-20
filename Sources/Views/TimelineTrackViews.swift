@@ -52,6 +52,73 @@ enum TimelineMetrics {
     /// マーカーをタップで拾う許容距離(pt)
     static let markerTapTolerance: CGFloat = 12
 
+    /// トリムハンドルの見た目の幅と、指で掴める幅(外側へ広げる)
+    static let handleVisualWidth: CGFloat = 14
+    static let handleHitWidth: CGFloat = 44
+    /// 選択枠の上下の帯の太さ
+    static let selectionBarThickness: CGFloat = 3
+    /// スナップする距離(pt)
+    static let snapThreshold: CGFloat = 8
+    /// 空のトラックをまとめた「+ 追加」行の高さ
+    static let addRowHeight: CGFloat = 32
+    /// 左端のトラックアイコンの大きさ
+    static let trackChipSize: CGFloat = 24
+    /// これより行が多いときは縦にスクロールする(映像 + 中身のあるトラック + 追加行)
+    static let maxVisibleRows: Int = 5
+    /// 最後のクリップの後ろの「+」タイルの幅
+    static let addTileWidth: CGFloat = 44
+    static let snapGuideColor = Color.yellow
+
+    /// 映像トラック(J/L カットのレーン込み)の高さ
+    static var videoRowHeight: CGFloat { videoHeight + splitAudioLaneHeight }
+
+    /// 表示するトラック行(中身のあるトラックだけ + 映像 + 追加行)
+    static func visibleTracks(hasOverlays: Bool, hasText: Bool, hasDrawings: Bool,
+                              hasSubtitles: Bool, hasBGM: Bool, hasNarration: Bool) -> [TimelineTrackKind] {
+        var rows: [TimelineTrackKind] = []
+        if hasOverlays { rows.append(.overlay) }
+        rows.append(.video)
+        if hasText { rows.append(.text) }
+        if hasDrawings { rows.append(.drawing) }
+        if hasSubtitles { rows.append(.subtitle) }
+        if hasBGM { rows.append(.audio) }
+        if hasNarration { rows.append(.narration) }
+        rows.append(.add)
+        return rows
+    }
+
+    static func visibleTracks(for snapshot: ProjectSnapshot) -> [TimelineTrackKind] {
+        visibleTracks(hasOverlays: !snapshot.overlays.isEmpty,
+                      hasText: !snapshot.textClips.isEmpty,
+                      hasDrawings: !snapshot.drawings.isEmpty,
+                      hasSubtitles: !snapshot.subtitles.isEmpty,
+                      hasBGM: snapshot.audio.bgmURL != nil,
+                      hasNarration: !snapshot.narration.isEmpty)
+    }
+
+    /// 行を全部並べたときの高さ(行間込み)
+    static func rowsHeight(_ rows: [TimelineTrackKind]) -> CGFloat {
+        guard !rows.isEmpty else { return 0 }
+        var sum: CGFloat = 0
+        for row in rows {
+            sum += row.height
+        }
+        let gaps = CGFloat(rows.count - 1) * trackSpacing
+        return sum + gaps
+    }
+
+    /// 画面に見せる行の高さ(maxVisibleRows を超える分はスクロール)
+    static func rowsViewportHeight(_ rows: [TimelineTrackKind]) -> CGFloat {
+        if rows.count <= maxVisibleRows { return rowsHeight(rows) }
+        return rowsHeight(Array(rows.prefix(maxVisibleRows)))
+    }
+
+    /// タイムライン全体の高さ(目盛り + 見せる行 + 余白)
+    static func height(for rows: [TimelineTrackKind]) -> CGFloat {
+        let top: CGFloat = topPadding + rulerHeight + trackSpacing
+        return top + rowsViewportHeight(rows) + bottomPadding
+    }
+
     static let background = Color(white: 0.07)
     static let subtitleColor = Color(red: 1.0, green: 0.72, blue: 0.22)
     static let audioColor = Color(red: 0.16, green: 0.58, blue: 0.34)
@@ -105,6 +172,38 @@ struct TimelineSpan {
     let width: CGFloat
 }
 
+/// タイムラインのトラック行の種類(目盛りは別扱い)
+enum TimelineTrackKind: Hashable {
+    case overlay, video, text, drawing, subtitle, audio, narration, add
+
+    var height: CGFloat {
+        switch self {
+        case .overlay: return TimelineMetrics.overlayHeight
+        case .video: return TimelineMetrics.videoRowHeight
+        case .text: return TimelineMetrics.textHeight
+        case .drawing: return TimelineMetrics.drawingHeight
+        case .subtitle: return TimelineMetrics.subtitleHeight
+        case .audio: return TimelineMetrics.audioHeight
+        case .narration: return TimelineMetrics.narrationHeight
+        case .add: return TimelineMetrics.addRowHeight
+        }
+    }
+
+    /// 左端に出すアイコン(追加行は無し)
+    var iconName: String? {
+        switch self {
+        case .overlay: return "photo.on.rectangle"
+        case .video: return "film"
+        case .text: return "textformat"
+        case .drawing: return "scribble"
+        case .subtitle: return "captions.bubble"
+        case .audio: return "music.note"
+        case .narration: return "mic.fill"
+        case .add: return nil
+        }
+    }
+}
+
 /// 出力タイムライン上のクリップの範囲(トランジションの重なりを反映した秒)
 struct TimelineClipRange {
     let start: Double
@@ -132,6 +231,21 @@ final class TimelineInteraction {
     var lastSeekTime: CFTimeInterval = 0
     var pinchStartPPS: Double? = nil
     var edit: TimelineEditKind? = nil
+    /// 編集中にスナップする候補の時刻(編集開始時に 1 回だけ集める)
+    var snapTargets: [Double] = []
+    /// 今スナップしている時刻(同じ候補で何度も振動させないため)
+    var lastSnapTarget: Double? = nil
+    /// トリムが限界に達しているか(達した瞬間に 1 回だけ振動させるため)
+    var atTrimLimit: Bool = false
+    /// スクロールのドラッグが縦方向(トラックの縦スクロール)か。nil ならまだ決めていない
+    var verticalScroll: Bool? = nil
+    var verticalStartOffset: CGFloat = 0
+    var verticalMaxOffset: CGFloat = 0
+    var verticalStartTranslation: CGFloat = 0
+    /// クリップのトリム開始時の、動かす端のタイムライン上の時刻(スナップ用)
+    var trimEdgeTime: Double = 0
+    /// 編集開始直後の最初のスナップでは振動させない(隣の端に最初から揃っている場合)
+    var snapPrimed: Bool = false
 }
 
 enum TimelineEditKind {
@@ -180,6 +294,8 @@ struct TimelineSpanItem: Identifiable {
     let visibleX: CGFloat
     let visibleWidth: CGFloat
     let labelX: CGFloat
+    /// 長さ(秒)
+    var duration: Double = 0
 }
 
 /// 重ね合わせトラック上の 1 要素の配置
@@ -248,6 +364,27 @@ enum TimelineFormat {
             return String(format: "%d:%02d:%02d", h, m, s)
         }
         return String(format: "%d:%02d", m, s)
+    }
+
+    /// 0:05.2 / 1:30.0(10 分の 1 秒まで)
+    static func precise(_ seconds: Double) -> String {
+        guard seconds.isFinite else { return "0:00.0" }
+        let tenths = Int((max(0, seconds) * 10).rounded(.down))
+        let totalSeconds = tenths / 10
+        let fraction = tenths % 10
+        let m = totalSeconds / 60
+        let s = totalSeconds % 60
+        return String(format: "%d:%02d.%d", m, s, fraction)
+    }
+
+    /// 長さの表示(3.2s / 1:05.0)
+    static func duration(_ seconds: Double) -> String {
+        guard seconds.isFinite else { return "0.0s" }
+        let value = max(0, seconds)
+        if value < 60 {
+            return String(format: "%.1fs", value)
+        }
+        return precise(value)
     }
 }
 
@@ -588,6 +725,135 @@ struct TimelineTrimHandle: View {
                 .fill(Color.black.opacity(0.55))
                 .frame(width: 2.5, height: 12)
         }
+        .contentShape(Rectangle())
+    }
+}
+
+/// トリムハンドルの掴める範囲(幅 44pt)。見た目(約 14pt)は部品側の端に寄せ、外側へ掴める範囲を広げる。
+/// leading = true なら部品の左端に付くハンドル(見た目は右寄せ)
+struct TimelineTrimHandleHitArea: View {
+    let leading: Bool
+
+    var body: some View {
+        let visual = TimelineMetrics.handleVisualWidth
+        TimelineTrimHandle()
+            .frame(width: visual)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: leading ? .trailing : .leading)
+            .contentShape(Rectangle())
+    }
+}
+
+/// 選択中の部品の枠(上下の帯で左右のハンドルをつなぐ)と、長さのバッジ
+struct TimelineSelectionFrame: View {
+    /// 見えている範囲の幅
+    let visibleWidth: CGFloat
+    let height: CGFloat
+    /// 部品の長さ(秒、トリム中は刻々と変わる)
+    let duration: Double
+    /// バッジの x(見えている範囲内のローカル座標)
+    let badgeX: CGFloat
+
+    var body: some View {
+        let bar = TimelineMetrics.selectionBarThickness
+        let showsBadge = visibleWidth >= 34 && height >= 16
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(Color.white)
+                .frame(width: max(0, visibleWidth), height: bar)
+            Rectangle()
+                .fill(Color.white)
+                .frame(width: max(0, visibleWidth), height: bar)
+                .offset(y: max(0, height - bar))
+            if showsBadge {
+                Text(TimelineFormat.duration(duration))
+                    .font(.system(size: 9, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.white)
+                    .lineLimit(1)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.black.opacity(0.7), in: Capsule())
+                    .offset(x: badgeX + 4, y: bar + 1)
+            }
+        }
+        .frame(width: max(0, visibleWidth), height: height, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+}
+
+/// トラック左端の小さなアイコン(画面に固定、半透明)
+struct TimelineTrackChip: View {
+    let systemName: String
+    let rowHeight: CGFloat
+
+    var body: some View {
+        let size = min(TimelineMetrics.trackChipSize, rowHeight)
+        Image(systemName: systemName)
+            .font(.system(size: max(8, size * 0.45), weight: .semibold))
+            .foregroundStyle(Color.white)
+            .frame(width: size, height: size)
+            .background(Color.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .opacity(0.5)
+            .allowsHitTesting(false)
+    }
+}
+
+/// スクラブ中に再生位置の上に出す時刻の吹き出し
+struct TimelineTimeBubble: View {
+    let time: Double
+
+    var body: some View {
+        Text(TimelineFormat.precise(time))
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Color.white, in: Capsule())
+            .shadow(color: Color.black.opacity(0.4), radius: 2, x: 0, y: 1)
+            .fixedSize()
+            .allowsHitTesting(false)
+    }
+}
+
+/// トラック行を縦スクロールできるときの細いつまみ
+struct TimelineScrollIndicator: View {
+    let offset: CGFloat
+    let maxOffset: CGFloat
+    let viewportHeight: CGFloat
+
+    var body: some View {
+        let contentHeight: CGFloat = viewportHeight + max(0, maxOffset)
+        let ratio: CGFloat = contentHeight > 0 ? viewportHeight / contentHeight : 1
+        let thumbHeight: CGFloat = max(16, viewportHeight * ratio)
+        let travel: CGFloat = max(0, viewportHeight - thumbHeight)
+        let progress: CGFloat = maxOffset > 0 ? min(max(0, offset / maxOffset), 1) : 0
+        let thumbY: CGFloat = travel * progress
+        ZStack(alignment: .top) {
+            Capsule()
+                .fill(Color.white.opacity(0.45))
+                .frame(height: thumbHeight)
+                .offset(y: thumbY)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .allowsHitTesting(false)
+    }
+}
+
+/// 最後のクリップの後ろに出す「+」タイル(見た目のみ。タップは呼び出し側の Button)
+struct TimelineAddTile: View {
+    let height: CGFloat
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            Image(systemName: "plus")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color.white.opacity(0.85))
+        }
+        .frame(width: TimelineMetrics.addTileWidth, height: height)
         .contentShape(Rectangle())
     }
 }

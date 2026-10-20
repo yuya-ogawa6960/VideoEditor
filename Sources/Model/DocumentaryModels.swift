@@ -80,7 +80,7 @@ enum CaptionKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .nameplate: return "ネームプレート"
+        case .nameplate: return "名前と肩書き"
         case .location: return "場所・日付"
         }
     }

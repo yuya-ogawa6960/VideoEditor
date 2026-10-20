@@ -36,6 +36,7 @@ struct TranscriptionSettingsView: View {
     @State private var diagnosticBundleID: String = ""
     @State private var diagnosticContinued: String = ""
     @State private var diagnosticUploads: String = ""
+    @State private var showsDiagnostics: Bool = false
 
     init() {}
 
@@ -49,7 +50,7 @@ struct TranscriptionSettingsView: View {
             polishSection
             diagnosticsSection
         }
-        .navigationTitle("文字起こし設定")
+        .navigationTitle("文字起こしの方式")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             refreshModelState()
@@ -78,7 +79,7 @@ struct TranscriptionSettingsView: View {
 
     private var engineSection: some View {
         Section {
-            Picker("エンジン", selection: $settings.transcriptionEngine) {
+            Picker("方式", selection: $settings.transcriptionEngine) {
                 ForEach(TranscriptionEngine.allCases) { engine in
                     Text(engine.displayName).tag(engine)
                 }
@@ -90,7 +91,7 @@ struct TranscriptionSettingsView: View {
                 .padding(.vertical, 4)
 
             if settings.transcriptionEngine == .whisper, !WhisperTranscriber.isAvailable {
-                Label("このビルドには Whisper(WhisperKit)が含まれていません。別のエンジンを選んでください。",
+                Label("このビルドには Whisper(WhisperKit)が含まれていません。別の方式を選んでください。",
                       systemImage: "exclamationmark.triangle")
                     .font(.footnote)
                     .foregroundStyle(.orange)
@@ -102,9 +103,9 @@ struct TranscriptionSettingsView: View {
                     .foregroundStyle(.orange)
             }
         } header: {
-            Text("文字起こしエンジン")
+            Text("文字起こしの方式")
         } footer: {
-            Text("どのエンジンでも、認識結果は文・文節ごとに区切られ、フィラー(「あのー」など)は自動で除かれます。")
+            Text("迷ったら「Apple」で十分です。どの方式でも、認識結果は文・文節ごとに区切られ、フィラー(「あのー」など)は自動で除かれます。")
         }
     }
 
@@ -162,14 +163,17 @@ struct TranscriptionSettingsView: View {
 
     private var cloudSection: some View {
         Section {
-            Picker("プロバイダ", selection: $settings.cloudProvider) {
-                ForEach(CloudProvider.allCases) { provider in
-                    Text(provider.displayName).tag(provider)
-                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("API キーとは")
+                    .font(.subheadline.weight(.semibold))
+                Text("OpenAI のサービスを使うための「合言葉」のような文字列です。OpenAI のサイトでアカウントを作り、「API keys」で作成した「sk-」で始まる文字列をコピーして、下に貼り付けてください。使った分だけ OpenAI から料金が請求されます。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.vertical, 2)
 
             if settings.transcriptionEngine == .cloud {
-                Picker("文字起こしの方式", selection: $settings.cloudQuality) {
+                Picker("クラウドの精度", selection: $settings.cloudQuality) {
                     ForEach(CloudTranscriptionQuality.allCases) { quality in
                         Text(quality.displayName).tag(quality)
                     }
@@ -241,7 +245,7 @@ struct TranscriptionSettingsView: View {
         Section {
             Toggle("AI で字幕を仕上げる", isOn: $settings.polishSubtitles)
 
-            Picker("仕上げエンジン", selection: $settings.polishEngine) {
+            Picker("仕上げに使うAI", selection: $settings.polishEngine) {
                 ForEach(PolishEngine.allCases) { engine in
                     Text(engine.displayName).tag(engine)
                 }
@@ -253,7 +257,7 @@ struct TranscriptionSettingsView: View {
                 .foregroundStyle(.secondary)
 
             HStack {
-                Text("実際に使われるエンジン")
+                Text("実際に使われるAI")
                 Spacer()
                 Text(settings.polishSubtitles
                      ? SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: settings))
@@ -263,7 +267,7 @@ struct TranscriptionSettingsView: View {
         } header: {
             Text("AI 仕上げ")
         } footer: {
-            Text("音声認識のあとに、句読点の補正・言いよどみの削除・長い字幕の分割を AI が行います。端末内(Apple Intelligence)は iOS 26 以降で Apple Intelligence が有効な端末のみ使えます。クラウドは OpenAI の API キーが必要で、字幕テキストが送信されます。")
+            Text("音声を文字にしたあと、句読点の補正・言いよどみの削除・長い字幕の分割を AI が行います。端末内(Apple Intelligence)は iOS 26 以降で Apple Intelligence が有効な端末のみ使えます。クラウドは OpenAI の API キーが必要で、字幕テキストが送信されます。")
         }
     }
 
@@ -271,18 +275,18 @@ struct TranscriptionSettingsView: View {
 
     private var diagnosticsSection: some View {
         Section {
-            diagnosticRow(title: "実行時のバンドル ID", value: diagnosticBundleID, monospaced: true)
-            diagnosticRow(title: "ロック中の継続", value: diagnosticContinued, monospaced: false)
-            diagnosticRow(title: "バックグラウンド送信(クラウドAI)", value: diagnosticUploads, monospaced: false)
-            Button {
-                refreshDiagnostics()
-            } label: {
-                Label("診断を更新", systemImage: "arrow.clockwise")
+            DisclosureGroup("サポート用の情報", isExpanded: $showsDiagnostics) {
+                diagnosticRow(title: "実行時のバンドル ID", value: diagnosticBundleID, monospaced: true)
+                diagnosticRow(title: "ロック中の継続", value: diagnosticContinued, monospaced: false)
+                diagnosticRow(title: "バックグラウンド送信(クラウドAI)", value: diagnosticUploads, monospaced: false)
+                Button {
+                    refreshDiagnostics()
+                } label: {
+                    Label("情報を更新", systemImage: "arrow.clockwise")
+                }
             }
-        } header: {
-            Text("診断")
         } footer: {
-            Text("画面ロック中も書き出し・文字起こしを続けられるかの状態です。「ロック中の継続」は最後に書き出しか文字起こしを始めたときの結果です。うまく動かないときは、この内容を伝えてください。")
+            Text("ふだんは開く必要はありません。画面ロック中も書き出し・文字起こしを続けられるかの状態で、うまく動かないときにこの内容を伝えてください。")
         }
     }
 

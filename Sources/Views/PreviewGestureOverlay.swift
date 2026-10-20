@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+import AVFoundation
+import ImageIO
 
 // =====================================================================
 // プレビューの上に重ねる透明なレイヤー。
@@ -15,6 +17,16 @@ import UIKit
 //   maskTarget    → マスクパネルを開いている間、マスクの形を点線で出し、
 //                   ドラッグで中心 / ピンチで大きさ / 回転で角度を変える
 //   rectSelection → トラッキングの対象を囲む四角をドラッグで描く(完了時に正規化矩形を返す)
+//
+// 1.5 の追加:
+//   onSelect を渡すと、プレビューのタップで「今の時刻に表示中」のテキスト・ステッカー・
+//   オーバーレイを上にあるものから当たり判定して選ぶ。何も無い所のタップは、
+//   未選択なら再生位置のクリップを選び、選択中なら選択を外す。
+//   player を渡すと、ドラッグ・ピンチ・回転の間 player.beginInteraction() / endInteraction() で
+//   合成の作り直しを止める(その間は映像が古いままなので、点線の枠に半透明の代わりの絵を描いて動きを見せる)。
+//   初回だけ「ドラッグで移動・2本指で拡大/回転」の案内を出す。
+// 座標: このビューはアスペクトフィット後の映像の表示領域にぴったり重なる前提
+//   (NormalizedPoint / NormalizedRect は左上原点の 0...1)。
 // =====================================================================
 
 /// マスクの中心をプレビュー上で動かす対象
@@ -34,6 +46,8 @@ final class PreviewGestureSession {
     var dragActive = false
     var magnifyActive = false
     var rotateActive = false
+    /// player.beginInteraction() を呼んで、まだ endInteraction() していない
+    var interactionOpen = false
 
     // ジェスチャー開始時(または別のジェスチャーが終わった時)の値
     var startCenter = NormalizedPoint.center
@@ -61,6 +75,12 @@ final class PreviewGestureSession {
     var effectiveRotate: Double { rawRotate - baseRotate }
     var anyActive: Bool { dragActive || magnifyActive || rotateActive }
 
+    func resetFlags() {
+        dragActive = false
+        magnifyActive = false
+        rotateActive = false
+    }
+
     func resetDeltas() {
         rawDrag = .zero
         rawMagnify = 1
@@ -86,13 +106,43 @@ struct PreviewGestureOverlay: View {
     var maskTarget: PreviewMaskTarget? = nil
     /// 設定すると四角の範囲選択モードになる(通常の枠は出さない)
     var rectSelection: PreviewRectSelection? = nil
+    /// 渡すとジェスチャーの間 beginInteraction() / endInteraction() で合成の作り直しを止め、
+    /// タップの当たり判定に再生位置を使う
+    var player: PlayerController? = nil
+    /// 渡すとプレビューのタップで選択を変える(nil を渡されたら選択解除)。
+    /// nil のままならタップは下(プレビューの再生/停止)に通す
+    var onSelect: ((EditorSelection?) -> Void)? = nil
 
     @State private var session = PreviewGestureSession()
     /// 範囲選択中の四角(ビュー座標)
     @State private var dragRect: CGRect? = nil
+    /// 選択中のオーバーレイの代わりの絵(ドラッグ中に半透明で出す)
+    @State private var proxyImage: UIImage? = nil
+    /// テキスト/オーバーレイのジェスチャーが続いている間 true(キャンセル時も自動で false に戻る)
+    @GestureState private var gestureLive = false
+    /// 「ドラッグで移動・2本指で拡大/回転」の案内を出し終えたか(初回だけ出す)
+    @AppStorage("ux15.previewGestureCoachShown") private var coachShown = false
 
     /// 1 秒間に 30 回まで
     private static let minWriteInterval: CFAbsoluteTime = 1.0 / 30.0
+    /// 点線の枠の隅に出す印の大きさ(14 pt 以上)
+    private static let badgeIconSize: CGFloat = 14
+
+    init(project: EditorProject,
+         history: EditorHistory,
+         selection: EditorSelection?,
+         maskTarget: PreviewMaskTarget? = nil,
+         rectSelection: PreviewRectSelection? = nil,
+         player: PlayerController? = nil,
+         onSelect: ((EditorSelection?) -> Void)? = nil) {
+        self.project = project
+        self.history = history
+        self.selection = selection
+        self.maskTarget = maskTarget
+        self.rectSelection = rectSelection
+        self.player = player
+        self.onSelect = onSelect
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -102,14 +152,196 @@ struct PreviewGestureOverlay: View {
                     rectSelectionLayer(rectSelection, size: size)
                 } else if let maskTarget {
                     maskLayer(maskTarget, size: size)
-                } else if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
-                    textFrame(binding, size: size)
-                } else if let id = selection?.overlayID, let binding = project.overlayBinding(id: id) {
-                    overlayFrame(binding, size: size)
+                } else {
+                    if onSelect != nil {
+                        tapCatcher(size: size)
+                    }
+                    if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
+                        textFrame(binding, size: size)
+                    } else if let id = selection?.overlayID, let binding = project.overlayBinding(id: id) {
+                        overlayFrame(binding, size: size)
+                    }
+                    if showsCoachMark {
+                        coachMark
+                            .frame(width: size.width, height: size.height, alignment: .bottom)
+                    }
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
+        .onChange(of: gestureLive) { _, live in
+            // ジェスチャーがキャンセルされて onEnded が来ない場合でも、作り直しの停止を必ず解く
+            if !live {
+                finishInteractionIfNeeded()
+            }
+        }
+        .onDisappear {
+            finishInteractionIfNeeded()
+        }
+    }
+
+    // MARK: - 合成の作り直しの停止(player.beginInteraction / endInteraction)
+
+    private func openInteraction() {
+        if !coachShown {
+            coachShown = true
+        }
+        guard !session.interactionOpen else { return }
+        session.interactionOpen = true
+        player?.beginInteraction()
+    }
+
+    private func closeInteraction() {
+        guard session.interactionOpen else { return }
+        session.interactionOpen = false
+        player?.endInteraction()
+    }
+
+    /// 開始値・差分はそのまま残す(この後に onEnded が来ても正しい値で書ける)
+    private func finishInteractionIfNeeded() {
+        guard session.isActive || session.interactionOpen else { return }
+        session.resetFlags()
+        session.isActive = false
+        closeInteraction()
+    }
+
+    // MARK: - 初回の案内
+
+    private var showsCoachMark: Bool {
+        guard !coachShown else { return false }
+        return selection?.textID != nil || selection?.overlayID != nil
+    }
+
+    private var coachMark: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "hand.draw")
+                .font(.system(size: 15, weight: .semibold))
+            Text("ドラッグで移動・2本指で拡大/回転")
+                .font(.footnote.weight(.semibold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.black.opacity(0.7), in: Capsule())
+        .padding(.bottom, 12)
+        .allowsHitTesting(false)
+        .transition(.opacity)
+        .task {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if Task.isCancelled { return }
+            withAnimation(.easeOut(duration: 0.3)) {
+                coachShown = true
+            }
+        }
+    }
+
+    // MARK: - タップで選択
+
+    /// 全面でタップを受ける(ほぼ透明)。点線の枠はこの上にあるので枠のジェスチャーが優先される
+    private func tapCatcher(size: CGSize) -> some View {
+        Color.white.opacity(0.001)
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
+            .onTapGesture { location in
+                handleTap(at: location, size: size)
+            }
+    }
+
+    private func handleTap(at location: CGPoint, size: CGSize) {
+        guard let onSelect else { return }
+        let time: Double = player?.currentTime ?? 0
+        if let hit = hitTest(at: location, size: size, time: time) {
+            if hit != selection {
+                UISelectionFeedbackGenerator().selectionChanged()
+                onSelect(hit)
+            }
+            return
+        }
+        // 何も無い所: 選択中なら外す、未選択なら再生位置のクリップを選ぶ
+        if selection != nil {
+            onSelect(nil)
+            return
+        }
+        guard let located = project.locate(timelineTime: time),
+              located.index >= 0, located.index < project.clips.count else { return }
+        UISelectionFeedbackGenerator().selectionChanged()
+        onSelect(.clip(project.clips[located.index].id))
+    }
+
+    /// 今の時刻に表示中のテキスト・ステッカー・オーバーレイを上から順に当たり判定する。
+    /// 描画順はオーバーレイ(開始が早い順)→ テキスト(配列の順)なので、その逆順に調べる
+    private func hitTest(at point: CGPoint, size: CGSize, time: Double) -> EditorSelection? {
+        guard size.width > 0, size.height > 0 else { return nil }
+
+        for clip in project.textClips.reversed() where clip.contains(timelineTime: time) {
+            let placed = Self.placedText(clip, at: time)
+            let rect = Self.estimatedRect(for: placed, in: size)
+            if Self.hit(point, rect: rect, rotation: placed.rotation) {
+                return .text(clip.id)
+            }
+        }
+
+        let indexed: [(offset: Int, element: OverlayClip)] = Array(project.overlays.enumerated())
+        let ordered = indexed.sorted { (a: (offset: Int, element: OverlayClip), b: (offset: Int, element: OverlayClip)) -> Bool in
+            if a.element.start != b.element.start {
+                return a.element.start < b.element.start
+            }
+            return a.offset < b.offset
+        }
+        for item in ordered.reversed() {
+            let overlay = item.element
+            guard overlay.contains(timelineTime: time) else { continue }
+            guard overlay.effectiveOpacity(at: time) > 0.05 else { continue }
+            let placed = Self.placedOverlayRect(overlay, at: time, in: size)
+            if Self.hit(point, rect: placed.rect, rotation: placed.rotation) {
+                return .overlay(overlay.id)
+            }
+        }
+        return nil
+    }
+
+    /// キーフレームを反映したテキスト(位置・大きさ・角度)
+    private static func placedText(_ clip: TextClip, at time: Double) -> TextClip {
+        guard !clip.keyframes.isEmpty else { return clip }
+        let fallback = KeyframeInterpolator.Value(center: clip.center, scale: clip.scale,
+                                                  rotation: clip.rotation, opacity: clip.opacity)
+        let local: Double = time - clip.start
+        let value = KeyframeInterpolator.value(at: local, keyframes: clip.keyframes, fallback: fallback)
+        var placed = clip
+        placed.center = value.center
+        placed.scale = value.scale
+        placed.rotation = value.rotation
+        return placed
+    }
+
+    /// キーフレームを反映したオーバーレイの枠(ビュー座標)と角度
+    private static func placedOverlayRect(_ overlay: OverlayClip, at time: Double, in size: CGSize) -> (rect: CGRect, rotation: Double) {
+        let base = overlay.frame.rect(in: size)
+        guard !overlay.keyframes.isEmpty else { return (base, 0) }
+        let fallback = KeyframeInterpolator.Value(center: NormalizedPoint(x: overlay.frame.midX, y: overlay.frame.midY),
+                                                  scale: 1, rotation: 0, opacity: overlay.opacity)
+        let local: Double = time - overlay.start
+        let value = KeyframeInterpolator.value(at: local, keyframes: overlay.keyframes, fallback: fallback)
+        let center = value.center.point(in: size)
+        let scale = CGFloat(max(0.01, value.scale))
+        let w: CGFloat = base.width * scale
+        let h: CGFloat = base.height * scale
+        let rect = CGRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h)
+        return (rect, value.rotation)
+    }
+
+    /// 回転した矩形の当たり判定(小さい物も指で押せるよう最低 44 pt に広げる)
+    private static func hit(_ point: CGPoint, rect: CGRect, rotation: Double) -> Bool {
+        let halfW: CGFloat = max(rect.width, 44) / 2
+        let halfH: CGFloat = max(rect.height, 44) / 2
+        let dx: CGFloat = point.x - rect.midX
+        let dy: CGFloat = point.y - rect.midY
+        let angle: Double = -rotation * Double.pi / 180
+        let cosA = CGFloat(cos(angle))
+        let sinA = CGFloat(sin(angle))
+        let lx: CGFloat = dx * cosA - dy * sinA
+        let ly: CGFloat = dx * sinA + dy * cosA
+        return abs(lx) <= halfW && abs(ly) <= halfH
     }
 
     // MARK: - 範囲選択(トラッキング)
@@ -223,7 +455,9 @@ struct PreviewGestureOverlay: View {
             maskShapeView(mask, size: frameSize, short: short)
                 .frame(width: frameSize.width, height: frameSize.height)
                 .contentShape(Rectangle())
-                .gesture(maskGesture(binding, container: container))
+                .gesture(maskGesture(binding, container: container).updating($gestureLive) { _, state, _ in
+                    state = true
+                })
                 .rotationEffect(.degrees(mask.rotation))
                 .position(center)
         }
@@ -231,9 +465,9 @@ struct PreviewGestureOverlay: View {
 
     private var maskBadge: some View {
         Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-            .font(.system(size: 10, weight: .bold))
+            .font(.system(size: Self.badgeIconSize, weight: .bold))
             .foregroundStyle(.black)
-            .padding(3)
+            .padding(4)
             .background(Color.white.opacity(0.9), in: Circle())
     }
 
@@ -275,8 +509,10 @@ struct PreviewGestureOverlay: View {
         session.startMaskHeight = mask.height
         session.startRotation = mask.rotation
         session.resetDeltas()
+        session.resetFlags()
         session.lastWrite = 0
         session.isActive = true
+        openInteraction()
     }
 
     private func endGesture(mask: MaskSettings, cleanup: () -> Void) {
@@ -288,6 +524,7 @@ struct PreviewGestureOverlay: View {
         cleanup()
         if !session.anyActive {
             session.isActive = false
+            closeInteraction()
         }
     }
 
@@ -395,39 +632,114 @@ struct PreviewGestureOverlay: View {
         return CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h)
     }
 
-    private func dashedFrame(width: CGFloat, height: CGFloat, badge: String) -> some View {
-        RoundedRectangle(cornerRadius: 4)
-            .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-            .foregroundStyle(Color.white.opacity(0.9))
-            .background(Color.white.opacity(0.001))
-            .overlay(alignment: .topLeading) {
-                Image(systemName: badge)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.black)
-                    .padding(3)
-                    .background(Color.white.opacity(0.9), in: Circle())
-                    .offset(x: -8, y: -8)
+    /// 点線の枠。ジェスチャー中は proxy(半透明の代わりの絵)を枠の中に出す
+    private func dashedFrame<Proxy: View>(width: CGFloat, height: CGFloat, badge: String,
+                                          @ViewBuilder proxy: () -> Proxy) -> some View {
+        let w: CGFloat = max(width, 28)
+        let h: CGFloat = max(height, 28)
+        return ZStack {
+            if gestureLive {
+                proxy()
+                    .frame(width: w, height: h)
                     .allowsHitTesting(false)
             }
-            .frame(width: max(width, 28), height: max(height, 28))
-            .contentShape(Rectangle())
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(style: StrokeStyle(lineWidth: gestureLive ? 2 : 1.5, dash: [6, 4]))
+                .foregroundStyle(Color.white.opacity(0.9))
+                .shadow(color: Color.black.opacity(0.5), radius: 1)
+        }
+        .background(Color.white.opacity(0.001))
+        .overlay(alignment: .topLeading) {
+            Image(systemName: badge)
+                .font(.system(size: Self.badgeIconSize, weight: .bold))
+                .foregroundStyle(.black)
+                .padding(5)
+                .background(Color.white.opacity(0.9), in: Circle())
+                .offset(x: -12, y: -12)
+                .allowsHitTesting(false)
+        }
+        .frame(width: w, height: h)
+        .contentShape(Rectangle())
+    }
+
+    /// テキストの代わりの絵(実際の描画はエンジン側なので近似)
+    private func textProxy(_ clip: TextClip, size: CGSize) -> some View {
+        let short: CGFloat = min(size.width, size.height)
+        let base: CGFloat = CGFloat(clip.style.sizeRatio) * short
+        let fontPx: CGFloat = max(base * CGFloat(clip.scale), 6)
+        let color: Color = Color(hex: clip.style.colorHex) ?? .white
+        let font: Font
+        if let name = clip.style.fontName {
+            font = Font.custom(name, size: fontPx)
+        } else {
+            font = Font.system(size: fontPx, weight: clip.style.bold ? .bold : .regular)
+        }
+        var background: Color = .clear
+        if let hex = clip.style.backgroundColorHex, let bg = Color(hex: hex) {
+            background = bg.opacity(clip.style.backgroundOpacity)
+        }
+        return Text(clip.text)
+            .font(font)
+            .foregroundStyle(color)
+            .multilineTextAlignment(.center)
+            .minimumScaleFactor(0.3)
+            .padding(2)
+            .background(background, in: RoundedRectangle(cornerRadius: 4))
+            .shadow(color: Color.black.opacity(0.6), radius: 2)
+            .opacity(0.7)
+    }
+
+    /// オーバーレイの代わりの絵(素材のサムネイル。読み込み前は薄い四角)
+    @ViewBuilder
+    private func overlayProxy(_ overlay: OverlayClip) -> some View {
+        if let image = proxyImage {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: overlay.fit == .fit ? .fit : .fill)
+                .clipped()
+                .opacity(0.6)
+        } else {
+            ZStack {
+                Color.white.opacity(0.25)
+                Image(systemName: overlay.isImage ? "photo" : "film")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.9))
+            }
+        }
     }
 
     private func textFrame(_ binding: Binding<TextClip>, size: CGSize) -> some View {
         let clip = binding.wrappedValue
         let rect = Self.estimatedRect(for: clip, in: size)
-        return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right")
-            .gesture(textGesture(binding, size: size))
-            .rotationEffect(.degrees(clip.rotation))
-            .position(x: rect.midX, y: rect.midY)
+        return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right") {
+            textProxy(clip, size: size)
+        }
+        .gesture(textGesture(binding, size: size).updating($gestureLive) { _, state, _ in
+            state = true
+        })
+        // 選択中の枠のタップは下(再生/停止や選択解除)に通さない
+        .gesture(TapGesture().onEnded { }, including: onSelect != nil ? .gesture : .none)
+        .rotationEffect(.degrees(clip.rotation))
+        .position(x: rect.midX, y: rect.midY)
     }
 
     private func overlayFrame(_ binding: Binding<OverlayClip>, size: CGSize) -> some View {
         let overlay = binding.wrappedValue
         let rect = overlay.frame.rect(in: size)
-        return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right")
-            .gesture(overlayGesture(binding, size: size))
-            .position(x: rect.midX, y: rect.midY)
+        return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right") {
+            overlayProxy(overlay)
+        }
+        .gesture(overlayGesture(binding, size: size).updating($gestureLive) { _, state, _ in
+            state = true
+        })
+        .gesture(TapGesture().onEnded { }, including: onSelect != nil ? .gesture : .none)
+        .position(x: rect.midX, y: rect.midY)
+        .task(id: overlay.url) {
+            proxyImage = nil
+            let image = await PreviewProxyThumbnails.shared.image(for: overlay)
+            if Task.isCancelled { return }
+            proxyImage = image
+        }
     }
 
     // MARK: - テキストのジェスチャー
@@ -439,8 +751,10 @@ struct PreviewGestureOverlay: View {
         session.startScale = clip.scale
         session.startRotation = clip.rotation
         session.resetDeltas()
+        session.resetFlags()
         session.lastWrite = 0
         session.isActive = true
+        openInteraction()
     }
 
     private func endGesture(text clip: TextClip, cleanup: () -> Void) {
@@ -451,6 +765,7 @@ struct PreviewGestureOverlay: View {
         cleanup()
         if !session.anyActive {
             session.isActive = false
+            closeInteraction()
         }
     }
 
@@ -531,8 +846,10 @@ struct PreviewGestureOverlay: View {
         history.record(project)
         session.startFrame = overlay.frame
         session.resetDeltas()
+        session.resetFlags()
         session.lastWrite = 0
         session.isActive = true
+        openInteraction()
     }
 
     private func endGesture(overlay: OverlayClip, cleanup: () -> Void) {
@@ -541,6 +858,7 @@ struct PreviewGestureOverlay: View {
         cleanup()
         if !session.anyActive {
             session.isActive = false
+            closeInteraction()
         }
     }
 
@@ -598,5 +916,61 @@ struct PreviewGestureOverlay: View {
             }
 
         return drag.simultaneously(with: magnify)
+    }
+}
+
+// MARK: - ドラッグ中の代わりの絵(オーバーレイ素材のサムネイル)
+
+/// オーバーレイ素材の小さなサムネイル。URL ごとに覚えておく(数が増えたら捨てる)
+@MainActor
+final class PreviewProxyThumbnails {
+    static let shared = PreviewProxyThumbnails()
+
+    private var cache: [URL: UIImage] = [:]
+    nonisolated private static let maxPixelSize: CGFloat = 480
+
+    func image(for overlay: OverlayClip) async -> UIImage? {
+        let url = overlay.url
+        if let cached = cache[url] { return cached }
+        let image: UIImage?
+        if overlay.isImage {
+            image = await Task.detached(priority: .userInitiated) {
+                PreviewProxyThumbnails.loadPhoto(url)
+            }.value
+        } else {
+            image = await PreviewProxyThumbnails.loadVideoFrame(url, at: overlay.sourceStart)
+        }
+        if let image {
+            if cache.count >= 24 {
+                cache.removeAll()
+            }
+            cache[url] = image
+        }
+        return image
+    }
+
+    nonisolated static func loadPhoto(_ url: URL) -> UIImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxPixelSize)
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    nonisolated static func loadVideoFrame(_ url: URL, at seconds: Double) async -> UIImage? {
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: maxPixelSize, height: maxPixelSize)
+        let time = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        do {
+            let result = try await generator.image(at: time)
+            return UIImage(cgImage: result.image)
+        } catch {
+            return nil
+        }
     }
 }

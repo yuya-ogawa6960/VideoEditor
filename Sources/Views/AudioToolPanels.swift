@@ -244,7 +244,8 @@ struct EditorNarrationVolumePanel: View {
     private var gainText: String {
         let db = LoudnessAnalyzer.decibels(fromGain: narration.gain)
         guard db.isFinite else { return "—" }
-        return String(format: "%+.1f dB", db)
+        if abs(db) < 0.05 { return "なし" }
+        return db > 0 ? "少し大きく" : "少し小さく"
     }
 
     private var hasGain: Bool { abs(narration.gain - 1) > 0.001 }
@@ -269,23 +270,30 @@ struct EditorNarrationVolumePanel: View {
                             value: $narration.volume,
                             range: 0...1,
                             display: "\(Int((narration.volume * 100).rounded()))%")
+            HStack {
+                Spacer()
+                EditorChip(title: "リセット", isSelected: false) {
+                    narration.volume = 1
+                }
+            }
 
             HStack {
-                Text("音量そろえの補正: \(gainText)")
+                Text("自動で整えた分: \(gainText)")
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                 Spacer()
-                EditorChip(title: "補正をリセット", isSelected: false) {
+                EditorChip(title: "自動調整を取り消す", isSelected: false) {
                     narration.gain = 1
                 }
                 .disabled(!hasGain)
                 .opacity(hasGain ? 1 : 0.4)
             }
 
-            Text("ツールバーの「音量そろえ」で、このナレーションの音量を自動で整えられます。")
-                .font(.caption2)
+            Text("ツールバーの「音量そろえ」や「聞きやすくする」で、このナレーションの音量を自動で整えられます。")
+                .font(.caption)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 6)
     }

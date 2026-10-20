@@ -60,6 +60,8 @@ struct ClipFXProgressOverlay: View {
                             .padding(.horizontal, 18)
                             .padding(.vertical, 8)
                             .background(Color.white.opacity(0.15), in: Capsule())
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -104,6 +106,17 @@ enum ClipFXTimeline {
     }
 }
 
+/// 操作の下に出す 1 行の説明(やさしい言葉で)
+private struct ClipFXHint: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 private func clipFXSeconds(_ value: Double) -> String {
     String(format: "%.1f 秒", value)
 }
@@ -135,14 +148,15 @@ struct EditorTransitionPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if isLast {
-                Text("最後のクリップには次のクリップがないため、トランジションは表示されません。")
+                Text("最後のクリップには次のクリップがないため、つなぎ効果は使えません。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("このクリップの終わりから次のクリップへのつなぎ方です。")
+                Text("つなぎ効果: このクリップから次のクリップへの切り替わり方です。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -168,12 +182,12 @@ struct EditorTransitionPanel: View {
 
             if clip.transition.duration > maxDuration + 0.001 {
                 Text("※ 前後のクリップが短いため、実際には最大 \(clipFXSeconds(maxDuration)) になります")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             HStack {
-                EditorChip(title: "なしに戻す", isSelected: false) {
+                EditorChip(title: "リセット", isSelected: false) {
                     clip.transition = ClipTransition()
                 }
                 .disabled(clip.transition.type == .none)
@@ -185,7 +199,7 @@ struct EditorTransitionPanel: View {
             }
         }
         .padding(.top, 6)
-        .confirmationDialog("このトランジションをすべてのクリップに適用しますか?",
+        .confirmationDialog("このつなぎ効果をすべてのクリップに使いますか?",
                             isPresented: $showApplyAllConfirm,
                             titleVisibility: .visible) {
             Button("全クリップに適用") {
@@ -206,8 +220,10 @@ struct EditorClipAnimationPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            ClipFXHint(text: "登場の動き: クリップが始まるとき・終わるときの動きを選びます。")
+
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "イン(始まり)")
+                EditorSectionTitle(title: "始まるとき")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(ClipAnimationType.allCases) { type in
@@ -218,7 +234,7 @@ struct EditorClipAnimationPanel: View {
                         }
                     }
                 }
-                EditorSliderRow(title: "インの長さ",
+                EditorSliderRow(title: "始まりの動きの時間",
                                 value: Binding(get: { clip.animation.inDuration }, set: { clip.animation.inDuration = $0 }),
                                 range: 0.1...2.0,
                                 display: clipFXSeconds(clip.animation.inDuration))
@@ -227,7 +243,7 @@ struct EditorClipAnimationPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "アウト(終わり)")
+                EditorSectionTitle(title: "終わるとき")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(ClipAnimationType.allCases) { type in
@@ -238,7 +254,7 @@ struct EditorClipAnimationPanel: View {
                         }
                     }
                 }
-                EditorSliderRow(title: "アウトの長さ",
+                EditorSliderRow(title: "終わりの動きの時間",
                                 value: Binding(get: { clip.animation.outDuration }, set: { clip.animation.outDuration = $0 }),
                                 range: 0.1...2.0,
                                 display: clipFXSeconds(clip.animation.outDuration))
@@ -352,7 +368,8 @@ struct EditorGeometryPanel: View {
 
             // 切り抜き
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "切り抜き(縦横比)")
+                EditorSectionTitle(title: "切り抜き(縦横の比率)")
+                ClipFXHint(text: "映像の一部を切り取ります。9:16 は縦長、16:9 は横長です。")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(CropPreset.allCases) { preset in
@@ -369,11 +386,11 @@ struct EditorGeometryPanel: View {
                             value: $clip.geometry.zoom,
                             range: 1...4,
                             display: String(format: "%.2fx", clip.geometry.zoom))
-            EditorSliderRow(title: "横位置",
+            EditorSliderRow(title: "横の位置(左 ← → 右)",
                             value: $clip.geometry.offsetX,
                             range: -0.5...0.5,
                             display: String(format: "%+.2f", clip.geometry.offsetX))
-            EditorSliderRow(title: "縦位置",
+            EditorSliderRow(title: "縦の位置(上 ← → 下)",
                             value: $clip.geometry.offsetY,
                             range: -0.5...0.5,
                             display: String(format: "%+.2f", clip.geometry.offsetY))
@@ -397,11 +414,11 @@ struct EditorSpeedCurvePanel: View {
     @Binding var clip: Clip
 
     private let presets: [(title: String, curve: SpeedCurve)] = [
-        ("モンタージュ", SpeedCurve.montage),
-        ("ヒーロー", SpeedCurve.hero),
-        ("バレット", SpeedCurve.bullet),
-        ("フラッシュイン", SpeedCurve.flashIn),
-        ("フラッシュアウト", SpeedCurve.flashOut)
+        ("速く→ゆっくり→速く", SpeedCurve.montage),
+        ("途中をスローに", SpeedCurve.hero),
+        ("一瞬だけ止まる", SpeedCurve.bullet),
+        ("始めだけ速く", SpeedCurve.flashIn),
+        ("終わりだけ速く", SpeedCurve.flashOut)
     ]
 
     private var enabledBinding: Binding<Bool> {
@@ -424,13 +441,14 @@ struct EditorSpeedCurvePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Toggle(isOn: enabledBinding) {
-                Label("速度カーブを使う", systemImage: "waveform.path.ecg")
+                Label("なめらか変速を使う", systemImage: "waveform.path.ecg")
                     .font(.subheadline)
             }
             .tint(.accentColor)
+            ClipFXHint(text: "クリップの途中で速さを変えます(ゆっくり→速く など)。")
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "プリセット")
+                EditorSectionTitle(title: "おすすめの変え方")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(presets, id: \.title) { preset in
@@ -446,11 +464,11 @@ struct EditorSpeedCurvePanel: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSectionTitle(title: "カーブ(点をドラッグ: 上で速く、下で遅く)")
+                EditorSectionTitle(title: "速さのグラフ(点をドラッグ: 上で速く、下で遅く)")
                 SpeedCurveGraphView(points: $clip.speedCurve.points, isEnabled: clip.speedCurve.enabled)
             }
 
-            Toggle("スロー部分をなめらかに(コマを混ぜる)", isOn: $clip.speedCurve.smoothSlow)
+            Toggle("スローの部分をなめらかに見せる", isOn: $clip.speedCurve.smoothSlow)
                 .font(.subheadline)
                 .tint(.accentColor)
                 .disabled(!clip.speedCurve.enabled)
@@ -462,7 +480,7 @@ struct EditorSpeedCurvePanel: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                 Spacer()
-                EditorChip(title: "等速に戻す", isSelected: false) {
+                EditorChip(title: "リセット", isSelected: false) {
                     clip.speedCurve = SpeedCurve()
                 }
                 .disabled(!clip.speedCurve.enabled)
@@ -614,7 +632,11 @@ struct EditorAudioEffectsPanel: View {
     @State private var errorText: String?
     @State private var debounceTask: Task<Void, Never>?
 
-    private func db(_ value: Double) -> String { String(format: "%+.1f dB", value) }
+    private func db(_ value: Double) -> String {
+        if abs(value) < 0.05 { return "そのまま" }
+        let amount = String(format: "%.1f", abs(value))
+        return value > 0 ? "強め +\(amount)" : "弱め -\(amount)"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -636,8 +658,10 @@ struct EditorAudioEffectsPanel: View {
                 }
             }
 
+            ClipFXHint(text: "音の効果: 声を変えたり、低い音・高い音の強さを変えたりします。")
+
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "ボイス")
+                EditorSectionTitle(title: "声の変化")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(VoicePreset.allCases) { preset in
@@ -649,14 +673,14 @@ struct EditorAudioEffectsPanel: View {
                 }
             }
 
-            EditorSliderRow(title: "低音", value: $draft.eqLow, range: -12...12, display: db(draft.eqLow))
-            EditorSliderRow(title: "中音", value: $draft.eqMid, range: -12...12, display: db(draft.eqMid))
-            EditorSliderRow(title: "高音", value: $draft.eqHigh, range: -12...12, display: db(draft.eqHigh))
-            EditorSliderRow(title: "ピッチ(半音)",
+            EditorSliderRow(title: "低い音(ドンドン)", value: $draft.eqLow, range: -12...12, display: db(draft.eqLow))
+            EditorSliderRow(title: "中くらいの音(声)", value: $draft.eqMid, range: -12...12, display: db(draft.eqMid))
+            EditorSliderRow(title: "高い音(シャカシャカ)", value: $draft.eqHigh, range: -12...12, display: db(draft.eqHigh))
+            EditorSliderRow(title: "音の高さ(+1 で半音上がる)",
                             value: $draft.pitchSemitones,
                             range: -12...12,
                             display: String(format: "%+.1f", draft.pitchSemitones))
-            EditorSliderRow(title: "ノイズ低減",
+            EditorSliderRow(title: "雑音を減らす",
                             value: $draft.noiseReduction,
                             range: 0...1,
                             display: clipFXPercent(draft.noiseReduction))
@@ -664,13 +688,14 @@ struct EditorAudioEffectsPanel: View {
             HStack {
                 if let errorText {
                     Text(errorText)
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("変更すると 0.6 秒後に音声を処理してプレビューに反映します。")
-                        .font(.caption2)
+                    Text("変えると、少しして音に反映されます。")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 EditorChip(title: "リセット", isSelected: false) {
@@ -727,7 +752,7 @@ struct EditorAudioEffectsPanel: View {
         } catch is CancellationError {
             // 何もしない
         } catch {
-            errorText = "音声効果を適用できませんでした: \(error.localizedDescription)"
+            errorText = "音の効果を反映できませんでした。もう一度お試しください(\(error.localizedDescription))"
         }
         isProcessing = false
     }
@@ -753,19 +778,26 @@ struct EditorBeatDetectPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("音楽やリズムのあるクリップからビートを見つけ、タイムラインの目盛りにビートマーカーを付けます。")
+            Text("ビートに合わせる: 音楽の拍(ビート)を見つけて、タイムラインに目印を付けます。目印の位置で分割もできます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            EditorSliderRow(title: "感度(高いほど多く検出)",
+            EditorSliderRow(title: "感度(高いほど多く見つける)",
                             value: $sensitivity,
                             range: 0.1...1.0,
                             display: clipFXPercent(sensitivity))
                 .disabled(isRunning)
+            HStack {
+                Spacer()
+                EditorChip(title: "リセット", isSelected: false) {
+                    sensitivity = 0.5
+                }
+                .disabled(isRunning)
+            }
 
             HStack(spacing: 10) {
-                EditorPillButton(title: isRunning ? "検出中…" : "ビートを検出", systemImage: "metronome", prominent: true) {
+                EditorPillButton(title: isRunning ? "探しています…" : "ビートを探す", systemImage: "metronome", prominent: true) {
                     detect()
                 }
                 .disabled(isRunning || clip == nil || !(clip?.hasAudio ?? false))
@@ -775,11 +807,16 @@ struct EditorBeatDetectPanel: View {
                     ProgressView()
                         .controlSize(.small)
                         .tint(.white)
-                    Button("キャンセル") {
+                    Button {
                         task?.cancel()
+                    } label: {
+                        Text("キャンセル")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(.plain)
                 }
                 Spacer()
             }
@@ -804,10 +841,10 @@ struct EditorBeatDetectPanel: View {
 
             if !beats.isEmpty {
                 HStack(spacing: 10) {
-                    EditorPillButton(title: "ビートで分割", systemImage: "square.split.2x1") {
+                    EditorPillButton(title: "ビートの位置で分割", systemImage: "square.split.2x1") {
                         splitAtBeats()
                     }
-                    EditorPillButton(title: "ビートマーカーを消す", systemImage: "flag.slash") {
+                    EditorPillButton(title: "ビートの目印を消す", systemImage: "flag.slash") {
                         removeBeatMarkers()
                     }
                     Spacer()
@@ -840,16 +877,16 @@ struct EditorBeatDetectPanel: View {
                 beats = found.sorted()
                 bpm = BeatDetector.estimateBPM(onsets: beats)
                 addMarkers(sourceBeats: beats)
-                var text = "\(beats.count) 個のビートを見つけてマーカーを付けました。"
+                var text = "\(beats.count) 個のビートを見つけて目印を付けました。"
                 if let bpm, bpm.isFinite, bpm > 0 {
-                    text += " 約 \(Int(bpm.rounded())) BPM"
+                    text += "(テンポ: 1分間に約 \(Int(bpm.rounded())) 拍)"
                 }
                 message = text
             } catch is CancellationError {
                 message = "キャンセルしました。"
             } catch {
                 if !Task.isCancelled {
-                    errorText = "ビートを検出できませんでした: \(error.localizedDescription)"
+                    errorText = "ビートを見つけられませんでした。もう一度お試しください(\(error.localizedDescription))"
                 }
             }
             isRunning = false
@@ -878,7 +915,7 @@ struct EditorBeatDetectPanel: View {
         project.markers.removeAll {
             $0.kind == .beat && $0.time >= range.lowerBound - 0.01 && $0.time <= range.upperBound + 0.01
         }
-        message = "ビートマーカーを消しました。"
+        message = "ビートの目印を消しました。"
     }
 
     /// ビート(元素材上の秒)ごとにクリップを分割する。0.25 秒より近いビートは飛ばす
@@ -943,7 +980,8 @@ struct EditorHSLPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "色相帯")
+                EditorSectionTitle(title: "調整する色")
+                ClipFXHint(text: "色ごと調整: 選んだ色だけ、色味・鮮やかさ・明るさを変えます(例: 空の青だけ濃くする)。")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(0..<8, id: \.self) { index in
@@ -974,6 +1012,8 @@ struct EditorHSLPanel: View {
                                         .foregroundStyle(band == index ? Color.white : Color.secondary)
                                 }
                                 .frame(width: 44)
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
@@ -982,11 +1022,11 @@ struct EditorHSLPanel: View {
                 }
             }
 
-            EditorSliderRow(title: "色相",
+            EditorSliderRow(title: "色味(となりの色へずらす)",
                             value: bandBinding.hue,
                             range: -1...1,
                             display: String(format: "%+.2f", bandBinding.wrappedValue.hue))
-            EditorSliderRow(title: "彩度",
+            EditorSliderRow(title: "鮮やかさ",
                             value: bandBinding.saturation,
                             range: -1...1,
                             display: String(format: "%+.2f", bandBinding.wrappedValue.saturation))
@@ -996,7 +1036,7 @@ struct EditorHSLPanel: View {
                             display: String(format: "%+.2f", bandBinding.wrappedValue.luminance))
 
             HStack(spacing: 8) {
-                EditorChip(title: "この帯をリセット", isSelected: false) {
+                EditorChip(title: "この色をリセット", isSelected: false) {
                     bandBinding.wrappedValue = HSLBand()
                 }
                 .disabled(isBandIdentity(band))
@@ -1032,13 +1072,13 @@ struct EditorLUTPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("LUT(.cube)を読み込むと、フィルタの代わりにその色に仕上がります。")
+            Text("カラーLUT読込: 映画風などの「色の設定ファイル(.cube)」を読み込んで、その色合いに仕上げます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "LUT")
+                EditorSectionTitle(title: "読み込んだ色")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         EditorChip(title: "なし", isSelected: clip.filter.lutFileName == nil) {
@@ -1053,8 +1093,8 @@ struct EditorLUTPanel: View {
                     }
                 }
                 if names.isEmpty {
-                    Text("読み込んだ LUT はまだありません")
-                        .font(.caption2)
+                    Text("まだ読み込んでいません。下のボタンからファイルを選んでください。")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -1067,10 +1107,16 @@ struct EditorLUTPanel: View {
                 .opacity(clip.filter.lutFileName == nil ? 0.4 : 1)
 
             HStack {
-                EditorPillButton(title: ".cube を読み込む", systemImage: "square.and.arrow.down") {
+                EditorPillButton(title: "ファイル(.cube)を読み込む", systemImage: "square.and.arrow.down") {
                     showImporter = true
                 }
                 Spacer()
+                EditorChip(title: "リセット", isSelected: false) {
+                    clip.filter.lutFileName = nil
+                    clip.filter.lutIntensity = 1
+                }
+                .disabled(clip.filter.lutFileName == nil)
+                .opacity(clip.filter.lutFileName == nil ? 0.4 : 1)
             }
 
             if let errorText {
@@ -1099,10 +1145,10 @@ struct EditorLUTPanel: View {
                     if clip.filter.lutIntensity <= 0 { clip.filter.lutIntensity = 1 }
                     errorText = nil
                 } catch {
-                    errorText = "LUT を読み込めませんでした: \(error.localizedDescription)"
+                    errorText = "色の設定ファイルを読み込めませんでした。.cube ファイルか確認してください(\(error.localizedDescription))"
                 }
             case .failure(let error):
-                errorText = "LUT を読み込めませんでした: \(error.localizedDescription)"
+                errorText = "色の設定ファイルを読み込めませんでした。もう一度お試しください(\(error.localizedDescription))"
             }
         }
     }
@@ -1129,7 +1175,7 @@ struct EditorColorMatchPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("基準にするクリップを選ぶと、明るさ・彩度・色温度をそのクリップに近づけます。")
+            Text("色合わせ: お手本にするクリップをタップすると、明るさ・鮮やかさ・色味をそのクリップに近づけます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1184,7 +1230,7 @@ struct EditorColorMatchPanel: View {
                     ProgressView()
                         .controlSize(.small)
                         .tint(.white)
-                    Text("計算中…")
+                    Text("色を合わせています…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if let errorText {
@@ -1197,7 +1243,7 @@ struct EditorColorMatchPanel: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                EditorChip(title: "色調整をリセット", isSelected: false) {
+                EditorChip(title: "リセット", isSelected: false) {
                     clip.filter.adjustments = ColorAdjustments()
                     selectedReference = nil
                 }
@@ -1216,7 +1262,7 @@ struct EditorColorMatchPanel: View {
             let referenceImage = await thumbnail(for: reference)
             let sourceImage = await thumbnail(for: source)
             guard let referenceImage, let sourceImage else {
-                errorText = "サムネイルを取得できませんでした。"
+                errorText = "映像の色を読み取れませんでした。もう一度お試しください。"
                 isWorking = false
                 return
             }
@@ -1270,7 +1316,7 @@ struct ScopeSheetView: View {
                 .padding()
             }
             .background(Color.black)
-            .navigationTitle("スコープ")
+            .navigationTitle("明るさグラフ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1297,7 +1343,7 @@ struct ScopeSheetView: View {
     private var frameSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("再生位置 \(MediaTimeText.precise(player.currentTime)) のコマ")
+                Text("再生位置 \(MediaTimeText.precise(player.currentTime)) の画面")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -1325,9 +1371,10 @@ struct ScopeSheetView: View {
 
     private var histogramSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("ヒストグラム(明るさの分布: 左が暗い、右が明るい)")
+            Text("明るさの分布(左が暗い、右が明るい)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            ClipFXHint(text: "右端に山があると白く飛び、左端に山があると黒くつぶれています。")
             Canvas { context, size in
                 let values = histogram
                 guard !values.isEmpty else { return }
@@ -1346,7 +1393,7 @@ struct ScopeSheetView: View {
 
     private var waveformSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("波形(横: 画面の位置、縦: 明るさ)")
+            Text("場所ごとの明るさ(横: 画面の左右、縦: 明るさ)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Canvas { context, size in
@@ -1379,13 +1426,13 @@ struct ScopeSheetView: View {
 
     private var meansSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("RGB の平均")
+            Text("色の平均(赤・緑・青)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
-                meanLabel("R", meanR, .red)
-                meanLabel("G", meanG, .green)
-                meanLabel("B", meanB, .blue)
+                meanLabel("赤", meanR, .red)
+                meanLabel("緑", meanG, .green)
+                meanLabel("青", meanB, .blue)
                 Spacer()
             }
         }
@@ -1435,7 +1482,7 @@ struct ScopeSheetView: View {
         }
 
         guard let cgImage else {
-            errorText = "コマを取得できませんでした。再生位置を動かしてもう一度お試しください。"
+            errorText = "画面を読み取れませんでした。再生位置を動かしてもう一度お試しください。"
             isLoading = false
             return
         }

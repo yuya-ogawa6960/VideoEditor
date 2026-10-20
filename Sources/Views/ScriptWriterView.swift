@@ -176,7 +176,7 @@ struct ScriptWriterSheetView: View {
             Text("テーマ")
         } footer: {
             if hasEngine {
-                Text("いまの AI: \(engineName)。字幕やマーカーがあれば、それも参考にして台本を作ります。")
+                Text("いまの AI: \(engineName)。字幕や目印があれば、それも参考にして台本を作ります。")
             } else {
                 Text("台本の作成には Apple Intelligence(iOS 26 以降)か OpenAI の API キーが必要です。「AI の設定」から設定してください。")
             }
@@ -207,7 +207,7 @@ struct ScriptWriterSheetView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("「字幕から構成案」は、いまある字幕を読んで章の区切りを提案し、チャプターのマーカーとして追加します。")
+            Text("「字幕から構成案」は、いまある字幕を読んで章の区切りを提案し、チャプターの目印として追加します。")
         }
     }
 
@@ -246,7 +246,7 @@ struct ScriptWriterSheetView: View {
             }
         } footer: {
             if !lines.isEmpty {
-                Text("時刻は出力タイムライン上の目安です。左にスワイプで削除できます。")
+                Text("時刻は完成した動画での目安です。左にスワイプで削除できます。")
             }
         }
     }
@@ -340,7 +340,7 @@ struct ScriptWriterSheetView: View {
             Button {
                 insertNarration()
             } label: {
-                Label("読み上げて挿入(ナレーション)", systemImage: "waveform.badge.plus")
+                Label("AI読み上げで入れる(ナレーション)", systemImage: "waveform.badge.plus")
             }
             .disabled(nonEmptyLines.isEmpty || analysis.isRunning)
         } header: {
@@ -405,12 +405,12 @@ struct ScriptWriterSheetView: View {
             history.record(project)
             project.narration.append(contentsOf: adjusted)
             project.sortNarration()
-            infoText = "\(adjusted.count) 件のナレーションを追加しました。「音量」「音声効果」で調整できます。"
+            infoText = "\(adjusted.count) 件のナレーションを追加しました。「音量」「音の効果」で調整できます。"
             if let last = adjusted.last {
                 onNarrationAdded(last.id)
             }
         } onError: { error in
-            errorText = "読み上げを作成できませんでした。\n\(error.localizedDescription)"
+            errorText = "もう一度「AI読み上げで入れる」を押してください。続くときは「声」を「標準の声」に変えてお試しください。\n\n詳細: " + error.localizedDescription
         }
     }
 
@@ -487,7 +487,7 @@ struct ScriptWriterSheetView: View {
                 infoText = "\(lines.count) 行の台本ができました。内容と時刻を直してから挿入できます。"
             }
         } onError: { error in
-            errorText = "台本を作成できませんでした。\n\(error.localizedDescription)"
+            errorText = "通信できる場所で、もう一度「台本を作る」を押してください。続くときは「AI の設定」を確かめてください。\n\n詳細: " + error.localizedDescription
         }
     }
 
@@ -517,9 +517,9 @@ struct ScriptWriterSheetView: View {
             }
             project.markers = markers
             project.sortMarkers()
-            infoText = "\(added) 個のチャプターを追加しました。マーカーを選ぶと名前を直せます。"
+            infoText = "\(added) 個のチャプターを追加しました。目印を選ぶと名前を直せます。"
         } onError: { error in
-            errorText = "構成案を作成できませんでした。\n\(error.localizedDescription)"
+            errorText = "通信できる場所で、もう一度お試しください。続くときは「AI の設定」を確かめてください。\n\n詳細: " + error.localizedDescription
         }
     }
 }

@@ -140,13 +140,8 @@ enum MediaStore {
     }
 
     static func thumbnail(for url: URL, at seconds: Double, maxPixel: CGFloat) async -> UIImage? {
-        let asset = AVURLAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: maxPixel, height: maxPixel)
-        let tolerance = CMTime(seconds: 0.3, preferredTimescale: 600)
-        generator.requestedTimeToleranceBefore = tolerance
-        generator.requestedTimeToleranceAfter = tolerance
+        // 同じ素材・同じ大きさの生成器は使い回す(タイムラインのサムネイルで毎回アセットを開かない)
+        let generator = ThumbnailGeneratorPool.shared.generator(for: url, maxPixel: maxPixel)
         let safeSeconds = seconds.isFinite ? max(0, seconds) : 0
         let time = CMTime(seconds: safeSeconds, preferredTimescale: 600)
         do {
@@ -323,5 +318,48 @@ enum MediaTimeText {
         guard seconds.isFinite else { return "0秒" }
         if seconds >= 60 { return mmss(seconds) }
         return String(format: "%.1f秒", max(0, seconds))
+    }
+}
+
+// MARK: - サムネイル生成器の使い回し
+
+/// AVAssetImageGenerator を(URL + 最大ピクセル)ごとに使い回す。最近使った 8 個まで保持する(LRU)。
+/// AVAssetImageGenerator の image(at:) は同じ生成器から並行して呼んでよい。
+private final class ThumbnailGeneratorPool: @unchecked Sendable {
+    static let shared = ThumbnailGeneratorPool()
+
+    private let lock = NSLock()
+    private var generators: [String: AVAssetImageGenerator] = [:]
+    /// 古い順(末尾が最近使ったもの)
+    private var order: [String] = []
+    private let limit = 8
+
+    func generator(for url: URL, maxPixel: CGFloat) -> AVAssetImageGenerator {
+        let pixel = Int(max(1, maxPixel.rounded()))
+        let key = url.path + "#" + String(pixel)
+        lock.lock()
+        defer { lock.unlock() }
+        if let existing = generators[key] {
+            if let index = order.firstIndex(of: key) {
+                order.remove(at: index)
+            }
+            order.append(key)
+            return existing
+        }
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        let side = CGFloat(pixel)
+        generator.maximumSize = CGSize(width: side, height: side)
+        let tolerance = CMTime(seconds: 0.3, preferredTimescale: 600)
+        generator.requestedTimeToleranceBefore = tolerance
+        generator.requestedTimeToleranceAfter = tolerance
+        generators[key] = generator
+        order.append(key)
+        while order.count > limit {
+            let oldest = order.removeFirst()
+            generators[oldest] = nil
+        }
+        return generator
     }
 }

@@ -2,13 +2,27 @@ import SwiftUI
 import UIKit
 import QuartzCore
 
+/// タイムラインの「+ 追加」から追加するものの種類
+enum TimelineAddKind {
+    case media, text, subtitle, overlay, bgm, narration
+}
+
+/// トラック行の縦位置(行の領域内のローカル座標)
+struct TimelineRowPlacement: Identifiable {
+    let kind: TimelineTrackKind
+    let y: CGFloat
+    var id: TimelineTrackKind { kind }
+}
+
 /// CapCut 風タイムライン。
 /// 中央に固定された白い再生位置の下を、トラックが横にスクロールする。
 /// スクロール位置 = 時刻 × pointsPerSecond(ScrollView は使わず、ドラッグ + 慣性を自前で処理)。
 ///
 /// トラック(上から): 目盛り(+ マーカーの旗) / 重ね合わせ(Bロール・ワイプ・写真) /
 /// 映像(+ J/L カットの音声バー、クリップ間のトランジションのバッジ) / テキスト・ステッカー / 手書き /
-/// 字幕 / BGM / ナレーション
+/// 字幕 / BGM / ナレーション / 「+ 追加」行
+/// 中身の無いトラックは表示せず、「+ 追加」行のメニューから追加する。
+/// 行が多いとき(maxVisibleRows 超)は縦にドラッグしてスクロールする。
 ///
 /// クリップの横位置は `CompositionBuilder.timelineLayout(for:)`(トランジションの重なりで短くなった
 /// 出力タイムライン)に従う。
@@ -18,17 +32,53 @@ struct TimelineView: View {
     let history: EditorHistory
     let timeline: TimelineState
     @Binding var selection: EditorSelection?
+    let onAdd: (TimelineAddKind) -> Void
 
-    /// タイムライン全体の高さ(画面側はこの値で frame を固定する)
+    /// 全トラックを並べたときの高さ(互換用の固定値。画面側は preferredHeight(for:) を使う)
     static let totalHeight: CGFloat = TimelineMetrics.totalHeight
 
+    /// 中身のあるトラック + 目盛り + 映像 + 「+ 追加」行(32pt)の高さ。行が多いときは上限まで
+    static func preferredHeight(for project: EditorProject) -> CGFloat {
+        TimelineMetrics.height(for: visibleTracks(for: project))
+    }
+
+    /// 映像トラックの上端の y(タイムラインのローカル座標。縦スクロールしていないとき)
+    static func videoTrackTop(for project: EditorProject) -> CGFloat {
+        var y: CGFloat = TimelineMetrics.topPadding + TimelineMetrics.rulerHeight + TimelineMetrics.trackSpacing
+        if !project.overlays.isEmpty {
+            y += TimelineMetrics.overlayHeight + TimelineMetrics.trackSpacing
+        }
+        return y
+    }
+
+    private static func visibleTracks(for project: EditorProject) -> [TimelineTrackKind] {
+        TimelineMetrics.visibleTracks(hasOverlays: !project.overlays.isEmpty,
+                                      hasText: !project.textClips.isEmpty,
+                                      hasDrawings: !project.drawings.isEmpty,
+                                      hasSubtitles: !project.subtitles.isEmpty,
+                                      hasBGM: project.audio.bgmURL != nil,
+                                      hasNarration: !project.narration.isEmpty)
+    }
+
+    static func rowPlacements(_ rows: [TimelineTrackKind]) -> [TimelineRowPlacement] {
+        var result: [TimelineRowPlacement] = []
+        var y: CGFloat = 0
+        for row in rows {
+            result.append(TimelineRowPlacement(kind: row, y: y))
+            y += row.height + TimelineMetrics.trackSpacing
+        }
+        return result
+    }
+
     init(project: EditorProject, player: PlayerController, history: EditorHistory,
-         timeline: TimelineState, selection: Binding<EditorSelection?>) {
+         timeline: TimelineState, selection: Binding<EditorSelection?>,
+         onAdd: @escaping (TimelineAddKind) -> Void = { _ in }) {
         self.project = project
         self.player = player
         self.history = history
         self.timeline = timeline
         self._selection = selection
+        self.onAdd = onAdd
     }
 
     /// ジェスチャー管理(変更しても再描画しない)
@@ -46,6 +96,14 @@ struct TimelineView: View {
     @State private var reorderAnchorX: CGFloat = 0
     @State private var reorderTranslation: CGFloat = 0
 
+    /// スナップ中の時刻(黄色の縦線を出す)
+    @State private var snapGuideTime: Double? = nil
+    /// トラック行の縦スクロール量
+    @State private var verticalOffset: CGFloat = 0
+
+    /// 操作のヒントを一度だけ出す
+    @AppStorage("timeline.reorderTrimHintShown") private var hintShown: Bool = false
+
     @GestureState private var scrollGestureActive = false
     @GestureState private var editGestureActive = false
     @GestureState private var pinchGestureActive = false
@@ -58,11 +116,16 @@ struct TimelineView: View {
         let ranges = TimelineView.clipRanges(for: snapshot)
         let total = TimelineView.totalEnd(of: ranges, fallback: snapshot.totalDuration)
         let frameData = TimelineFrameData(time: time, pps: pps, total: total, ranges: ranges, snapshot: snapshot)
+        let rows = TimelineMetrics.visibleTracks(for: snapshot)
+        let height = TimelineMetrics.height(for: rows)
+        let showsHint = !hintShown && !snapshot.clips.isEmpty
+        let isScrubbing = scrubTime != nil
 
         GeometryReader { geo in
-            content(width: geo.size.width, frame: frameData)
+            content(width: geo.size.width, frame: frameData, rows: rows,
+                    showsHint: showsHint, isScrubbing: isScrubbing)
         }
-        .frame(height: TimelineMetrics.totalHeight)
+        .frame(height: height)
         .background(TimelineMetrics.background)
         .onChange(of: editGestureActive) { _, active in
             if !active { finishEdit() }
@@ -75,6 +138,7 @@ struct TimelineView: View {
         }
         .onDisappear {
             endScrubbing()
+            finishEdit()
         }
     }
 
@@ -128,10 +192,18 @@ struct TimelineView: View {
     // MARK: - 全体
 
     @ViewBuilder
-    private func content(width: CGFloat, frame f: TimelineFrameData) -> some View {
+    private func content(width: CGFloat, frame f: TimelineFrameData, rows: [TimelineTrackKind],
+                         showsHint: Bool, isScrubbing: Bool) -> some View {
         // タイムライン 0 秒の画面 x 座標
         let originX = width / 2 - CGFloat(f.time) * f.pps
         let pps = f.pps
+        let totalH = TimelineMetrics.height(for: rows)
+        let viewportH = TimelineMetrics.rowsViewportHeight(rows)
+        let contentH = TimelineMetrics.rowsHeight(rows)
+        let maxOffset = max(0, contentH - viewportH)
+        let vOffset = min(max(0, verticalOffset), maxOffset)
+        let rowsTop: CGFloat = TimelineMetrics.topPadding + TimelineMetrics.rulerHeight + TimelineMetrics.trackSpacing
+        let guideX: CGFloat? = snapGuideTime.map { originX + CGFloat($0) * pps }
 
         ZStack(alignment: .topLeading) {
             TimelineMetrics.background
@@ -140,27 +212,202 @@ struct TimelineView: View {
                     selection = nil
                 }
 
-            VStack(alignment: .leading, spacing: TimelineMetrics.trackSpacing) {
-                rulerTrack(width: width, originX: originX, pps: pps, total: f.total, markers: f.snapshot.markers)
-                overlayTrack(width: width, originX: originX, pps: pps, overlays: f.snapshot.overlays)
-                videoTrack(width: width, originX: originX, pps: pps, ranges: f.ranges)
-                textTrack(width: width, originX: originX, pps: pps, textClips: f.snapshot.textClips)
-                drawingTrack(width: width, originX: originX, pps: pps, drawings: f.snapshot.drawings)
-                subtitleTrack(width: width, originX: originX, pps: pps, subtitles: f.snapshot.subtitles)
-                audioTrack(width: width, originX: originX, pps: pps, total: f.total, audio: f.snapshot.audio)
-                narrationTrack(width: width, originX: originX, pps: pps, narration: f.snapshot.narration)
+            rulerTrack(width: width, originX: originX, pps: pps, total: f.total, markers: f.snapshot.markers)
+                .offset(y: TimelineMetrics.topPadding)
+
+            tracksArea(width: width, originX: originX, frame: f, rows: rows,
+                       offset: vOffset, viewportHeight: viewportH)
+                .frame(width: width, height: viewportH, alignment: .topLeading)
+                .clipped()
+                .offset(y: rowsTop)
+
+            if maxOffset > 0 {
+                TimelineScrollIndicator(offset: vOffset, maxOffset: maxOffset, viewportHeight: viewportH)
+                    .frame(width: 3, height: viewportH)
+                    .offset(x: width - 4, y: rowsTop)
+                    .allowsHitTesting(false)
             }
-            .padding(.top, TimelineMetrics.topPadding)
+
+            if let gx = guideX, gx.isFinite, gx > -2, gx < width + 2 {
+                Rectangle()
+                    .fill(TimelineMetrics.snapGuideColor)
+                    .frame(width: 1, height: totalH)
+                    .offset(x: gx - 0.5)
+                    .allowsHitTesting(false)
+            }
 
             TimelinePlayheadView()
-                .frame(width: width, height: TimelineMetrics.totalHeight)
+                .frame(width: width, height: totalH)
                 .allowsHitTesting(false)
+
+            if isScrubbing {
+                TimelineTimeBubble(time: f.time)
+                    .position(x: width / 2, y: 10)
+                    .allowsHitTesting(false)
+            }
+
+            if showsHint {
+                hintView
+                    .frame(width: width)
+                    .offset(y: rowsTop + 2)
+            }
         }
-        .frame(width: width, height: TimelineMetrics.totalHeight, alignment: .topLeading)
+        .frame(width: width, height: totalH, alignment: .topLeading)
         .clipped()
         .contentShape(Rectangle())
-        .simultaneousGesture(scrollGesture)
-        .simultaneousGesture(zoomGesture)
+        .simultaneousGesture(scrollGesture(maxVerticalOffset: maxOffset))
+        .simultaneousGesture(zoomGesture(width: width, total: f.total))
+    }
+
+    /// トラック行(縦スクロール分ずらし、見えない行は描かない)
+    @ViewBuilder
+    private func tracksArea(width: CGFloat, originX: CGFloat, frame f: TimelineFrameData,
+                            rows: [TimelineTrackKind], offset: CGFloat, viewportHeight: CGFloat) -> some View {
+        let placements = TimelineView.rowPlacements(rows).filter { p in
+            p.y + p.kind.height > offset - 1 && p.y < offset + viewportHeight + 1
+        }
+        ZStack(alignment: .topLeading) {
+            ForEach(placements) { p in
+                trackRow(kind: p.kind, width: width, originX: originX, frame: f)
+                    .offset(y: p.y - offset)
+            }
+        }
+    }
+
+    /// 1 行(中身 + 左端のアイコン)
+    private func trackRow(kind: TimelineTrackKind, width: CGFloat, originX: CGFloat,
+                          frame f: TimelineFrameData) -> some View {
+        let chipRowHeight: CGFloat = kind == .video ? TimelineMetrics.videoHeight : kind.height
+        let chipSize = min(TimelineMetrics.trackChipSize, chipRowHeight)
+        let chipY = max(0, (chipRowHeight - chipSize) / 2)
+        return ZStack(alignment: .topLeading) {
+            trackContent(kind: kind, width: width, originX: originX, frame: f)
+            if let icon = kind.iconName {
+                TimelineTrackChip(systemName: icon, rowHeight: chipRowHeight)
+                    .offset(x: 4, y: chipY)
+                    .zIndex(30)
+            }
+        }
+        .frame(width: width, height: kind.height, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func trackContent(kind: TimelineTrackKind, width: CGFloat, originX: CGFloat,
+                              frame f: TimelineFrameData) -> some View {
+        let pps = f.pps
+        switch kind {
+        case .overlay:
+            overlayTrack(width: width, originX: originX, pps: pps, overlays: f.snapshot.overlays)
+        case .video:
+            videoTrack(width: width, originX: originX, pps: pps, ranges: f.ranges, total: f.total)
+        case .text:
+            textTrack(width: width, originX: originX, pps: pps, textClips: f.snapshot.textClips)
+        case .drawing:
+            drawingTrack(width: width, originX: originX, pps: pps, drawings: f.snapshot.drawings)
+        case .subtitle:
+            subtitleTrack(width: width, originX: originX, pps: pps, subtitles: f.snapshot.subtitles)
+        case .audio:
+            audioTrack(width: width, originX: originX, pps: pps, total: f.total, audio: f.snapshot.audio)
+        case .narration:
+            narrationTrack(width: width, originX: originX, pps: pps, narration: f.snapshot.narration)
+        case .add:
+            addRow(width: width)
+        }
+    }
+
+    // MARK: - 「+ 追加」行・ヒント
+
+    private func addRow(width: CGFloat) -> some View {
+        let h = TimelineMetrics.addRowHeight
+        return Menu {
+            Button {
+                onAdd(.text)
+            } label: {
+                Label("テキスト", systemImage: "textformat")
+            }
+            Button {
+                onAdd(.subtitle)
+            } label: {
+                Label("字幕", systemImage: "captions.bubble")
+            }
+            Button {
+                onAdd(.overlay)
+            } label: {
+                Label("重ねる", systemImage: "photo.on.rectangle")
+            }
+            Button {
+                onAdd(.bgm)
+            } label: {
+                Label("BGM", systemImage: "music.note")
+            }
+            Button {
+                onAdd(.narration)
+            } label: {
+                Label("ナレーション", systemImage: "mic.fill")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .bold))
+                Text("追加")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(Color.white.opacity(0.85))
+            .padding(.horizontal, 12)
+            .frame(height: 26)
+            .background(Color.white.opacity(0.12), in: Capsule())
+            .frame(minWidth: 44, minHeight: h)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("トラックを追加")
+        .padding(.leading, 8)
+        .frame(width: width, height: h, alignment: .leading)
+    }
+
+    private var hintView: some View {
+        Text("長押しで並べ替え・端をドラッグで長さ調整")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.92), in: Capsule())
+            .shadow(color: Color.black.opacity(0.4), radius: 3, x: 0, y: 1)
+            .onTapGesture {
+                hintShown = true
+            }
+            .task {
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                if Task.isCancelled { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    hintShown = true
+                }
+            }
+    }
+
+    // MARK: - 選択中の部品の枠とトリムハンドル
+
+    /// 上下の帯 + 長さのバッジ + 左右のハンドル(掴める幅 44pt、外側へ広げる)
+    @ViewBuilder
+    private func selectionDecor<L: Gesture, T: Gesture>(screenX: CGFloat, width: CGFloat,
+                                                        visibleX: CGFloat, visibleWidth: CGFloat,
+                                                        y: CGFloat, height: CGFloat, duration: Double,
+                                                        leading: L, trailing: T) -> some View {
+        let hit = TimelineMetrics.handleHitWidth
+        let badgeX = TimelineMetrics.stickyLabelX(trueX: screenX, visibleX: visibleX,
+                                                  visibleWidth: visibleWidth, labelWidth: 44)
+        TimelineSelectionFrame(visibleWidth: visibleWidth, height: height, duration: duration, badgeX: badgeX)
+            .offset(x: visibleX, y: y)
+            .zIndex(18)
+        TimelineTrimHandleHitArea(leading: true)
+            .frame(width: hit, height: height)
+            .offset(x: screenX - hit, y: y)
+            .gesture(leading)
+            .zIndex(20)
+        TimelineTrimHandleHitArea(leading: false)
+            .frame(width: hit, height: height)
+            .offset(x: screenX + width, y: y)
+            .gesture(trailing)
+            .zIndex(20)
     }
 
     // MARK: - 目盛り + マーカー
@@ -282,21 +529,11 @@ struct TimelineView: View {
     private func overlayTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
                               overlays: [OverlayClip]) -> some View {
         let h = TimelineMetrics.overlayHeight
-        let hw = TimelineMetrics.subtitleHandleWidth
         let items = overlayItems(width: width, originX: originX, pps: pps, overlays: overlays)
         let selectedID: UUID? = selection?.overlayID
         let selectedItem: TimelineOverlayItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
 
         return ZStack(alignment: .topLeading) {
-            if overlays.isEmpty {
-                Text("+ Bロール・写真を重ねる")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.35))
-                    .frame(height: h)
-                    .offset(x: max(originX + 8, 8))
-                    .allowsHitTesting(false)
-            }
-
             ForEach(items) { item in
                 let isSel = item.id == selectedID
                 let inset = TimelineMetrics.overlayInset(depth: item.depth)
@@ -315,25 +552,21 @@ struct TimelineView: View {
 
             if let sel = selectedItem {
                 let inset = TimelineMetrics.overlayInset(depth: sel.depth)
+                let barH = max(8, h - inset)
                 if !sel.overlay.keyframes.isEmpty {
                     TimelineKeyframeDiamonds(times: sel.overlay.keyframes.map { $0.time },
                                              pointsPerSecond: pps,
                                              screenX: sel.screenX,
                                              visibleX: sel.visibleX)
-                        .frame(width: sel.visibleWidth, height: max(8, h - inset))
+                        .frame(width: sel.visibleWidth, height: barH)
                         .offset(x: sel.visibleX, y: inset)
                         .zIndex(15)
                 }
-                TimelineTrimHandle()
-                    .frame(width: hw, height: max(8, h - inset))
-                    .offset(x: sel.screenX - hw, y: inset)
-                    .gesture(overlayTrimGesture(id: sel.id, leading: true))
-                    .zIndex(20)
-                TimelineTrimHandle()
-                    .frame(width: hw, height: max(8, h - inset))
-                    .offset(x: sel.screenX + sel.width, y: inset)
-                    .gesture(overlayTrimGesture(id: sel.id, leading: false))
-                    .zIndex(20)
+                selectionDecor(screenX: sel.screenX, width: sel.width,
+                               visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
+                               y: inset, height: barH, duration: sel.overlay.duration,
+                               leading: overlayTrimGesture(id: sel.id, leading: true),
+                               trailing: overlayTrimGesture(id: sel.id, leading: false))
             }
         }
         .frame(width: width, height: h, alignment: .topLeading)
@@ -407,10 +640,9 @@ struct TimelineView: View {
     }
 
     private func videoTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
-                            ranges: [TimelineClipRange]) -> some View {
+                            ranges: [TimelineClipRange], total: Double) -> some View {
         let h = TimelineMetrics.videoHeight
         let lane = TimelineMetrics.splitAudioLaneHeight
-        let hw = TimelineMetrics.handleWidth
         let badge = TimelineMetrics.transitionBadgeSize
         let layout = clipItems(width: width, originX: originX, pps: pps, ranges: ranges)
         let items = layout.items
@@ -422,13 +654,36 @@ struct TimelineView: View {
             : nil
         let isEmpty = project.clips.isEmpty
 
+        // 最後のクリップの後ろの「+」タイル(最後のクリップを選択中はハンドルの外に出す)
+        let lastSelected = selectedClipID != nil && project.clips.last?.id == selectedClipID
+        let tileGap: CGFloat = lastSelected ? TimelineMetrics.handleHitWidth + 4 : 10
+        let tileShift: Double = leftTrimClipID != nil ? leftTrimShiftSeconds : 0
+        let endX: CGFloat = originX + CGFloat(total + tileShift) * pps
+        let tileX: CGFloat = endX + tileGap
+        let tileW = TimelineMetrics.addTileWidth
+        let margin = TimelineMetrics.cullMargin
+        let showsTile = reorderClipID == nil && tileX.isFinite && tileX < width + margin && tileX + tileW > -margin
+
         return ZStack(alignment: .topLeading) {
-            if isEmpty {
-                Text("動画を追加するとここに表示されます")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.white.opacity(0.35))
-                    .frame(width: width, height: h)
-                    .allowsHitTesting(false)
+            if showsTile {
+                Button {
+                    onAdd(.media)
+                } label: {
+                    TimelineAddTile(height: h)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("動画・写真を追加")
+                .offset(x: tileX)
+                .zIndex(2)
+
+                if isEmpty {
+                    Text("動画・写真を追加")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.45))
+                        .frame(height: h)
+                        .offset(x: tileX + tileW + 8)
+                        .allowsHitTesting(false)
+                }
             }
 
             ForEach(items) { item in
@@ -467,16 +722,11 @@ struct TimelineView: View {
             }
 
             if let sel = selectedItem {
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX - hw)
-                    .gesture(clipTrimGesture(clipID: sel.id, leading: true))
-                    .zIndex(20)
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX + sel.width)
-                    .gesture(clipTrimGesture(clipID: sel.id, leading: false))
-                    .zIndex(20)
+                selectionDecor(screenX: sel.screenX, width: sel.width,
+                               visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
+                               y: 0, height: h, duration: sel.clip.outputDuration,
+                               leading: clipTrimGesture(clipID: sel.id, leading: true),
+                               trailing: clipTrimGesture(clipID: sel.id, leading: false))
             }
         }
         .frame(width: width, height: h + lane, alignment: .topLeading)
@@ -502,21 +752,11 @@ struct TimelineView: View {
     private func textTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
                            textClips: [TextClip]) -> some View {
         let h = TimelineMetrics.textHeight
-        let hw = TimelineMetrics.subtitleHandleWidth
         let items = textItems(width: width, originX: originX, pps: pps, textClips: textClips)
         let selectedID: UUID? = selection?.textID
         let selectedItem: TimelineTextItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
 
         return ZStack(alignment: .topLeading) {
-            if textClips.isEmpty {
-                Text("+ テキスト・ステッカー")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.35))
-                    .frame(height: h)
-                    .offset(x: max(originX + 8, 8))
-                    .allowsHitTesting(false)
-            }
-
             ForEach(items) { item in
                 let isSel = item.id == selectedID
                 TimelineTextBar(textClip: item.textClip,
@@ -542,16 +782,11 @@ struct TimelineView: View {
                         .offset(x: sel.visibleX)
                         .zIndex(15)
                 }
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX - hw)
-                    .gesture(textTrimGesture(id: sel.id, leading: true))
-                    .zIndex(20)
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX + sel.width)
-                    .gesture(textTrimGesture(id: sel.id, leading: false))
-                    .zIndex(20)
+                selectionDecor(screenX: sel.screenX, width: sel.width,
+                               visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
+                               y: 0, height: h, duration: sel.textClip.duration,
+                               leading: textTrimGesture(id: sel.id, leading: true),
+                               trailing: textTrimGesture(id: sel.id, leading: false))
             }
         }
         .frame(width: width, height: h, alignment: .topLeading)
@@ -577,21 +812,11 @@ struct TimelineView: View {
     private func drawingTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
                               drawings: [DrawingClip]) -> some View {
         let h = TimelineMetrics.drawingHeight
-        let hw = TimelineMetrics.subtitleHandleWidth
         let items = drawingItems(width: width, originX: originX, pps: pps, drawings: drawings)
         let selectedID: UUID? = selection?.drawingID
         let selectedItem: TimelineDrawingItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
 
         return ZStack(alignment: .topLeading) {
-            if drawings.isEmpty {
-                Text("+ 手書き")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.35))
-                    .frame(height: h)
-                    .offset(x: max(originX + 8, 8))
-                    .allowsHitTesting(false)
-            }
-
             ForEach(items) { item in
                 let isSel = item.id == selectedID
                 TimelineDrawingBar(drawing: item.drawing,
@@ -608,16 +833,11 @@ struct TimelineView: View {
             }
 
             if let sel = selectedItem {
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX - hw)
-                    .gesture(drawingTrimGesture(id: sel.id, leading: true))
-                    .zIndex(20)
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX + sel.width)
-                    .gesture(drawingTrimGesture(id: sel.id, leading: false))
-                    .zIndex(20)
+                selectionDecor(screenX: sel.screenX, width: sel.width,
+                               visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
+                               y: 0, height: h, duration: sel.drawing.duration,
+                               leading: drawingTrimGesture(id: sel.id, leading: true),
+                               trailing: drawingTrimGesture(id: sel.id, leading: false))
             }
         }
         .frame(width: width, height: h, alignment: .topLeading)
@@ -635,7 +855,8 @@ struct TimelineView: View {
             let labelX = TimelineMetrics.stickyLabelX(trueX: x, visibleX: span.x,
                                                       visibleWidth: span.width, labelWidth: 24)
             result.append(TimelineSpanItem(id: cue.id, text: cue.text, screenX: x, width: w,
-                                           visibleX: span.x, visibleWidth: span.width, labelX: labelX))
+                                           visibleX: span.x, visibleWidth: span.width, labelX: labelX,
+                                           duration: cue.duration))
         }
         return result
     }
@@ -643,7 +864,6 @@ struct TimelineView: View {
     private func subtitleTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
                                subtitles: [SubtitleCue]) -> some View {
         let h = TimelineMetrics.subtitleHeight
-        let hw = TimelineMetrics.subtitleHandleWidth
         let items = subtitleItems(width: width, originX: originX, pps: pps, subtitles: subtitles)
         let selectedID: UUID? = selection?.subtitleID
         let selectedItem: TimelineSpanItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
@@ -665,16 +885,11 @@ struct TimelineView: View {
             }
 
             if let sel = selectedItem {
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX - hw)
-                    .gesture(subtitleTrimGesture(id: sel.id, leading: true))
-                    .zIndex(20)
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX + sel.width)
-                    .gesture(subtitleTrimGesture(id: sel.id, leading: false))
-                    .zIndex(20)
+                selectionDecor(screenX: sel.screenX, width: sel.width,
+                               visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
+                               y: 0, height: h, duration: sel.duration,
+                               leading: subtitleTrimGesture(id: sel.id, leading: true),
+                               trailing: subtitleTrimGesture(id: sel.id, leading: false))
             }
         }
         .frame(width: width, height: h, alignment: .topLeading)
@@ -692,32 +907,23 @@ struct TimelineView: View {
         let isSelected = selection == EditorSelection.bgm
 
         return ZStack(alignment: .topLeading) {
-            if hasBGM {
-                if let span {
-                    // 見えている範囲のタイムライン秒(BGM は 0 秒から始まりループする)
-                    let visibleStart = Double((span.x - originX) / pps)
-                    let visibleEnd = Double((span.x + span.width - originX) / pps)
-                    TimelineAudioBar(name: name,
-                                     labelX: TimelineMetrics.stickyLabelX(trueX: originX, visibleX: span.x,
-                                                                         visibleWidth: span.width, labelWidth: 80),
-                                     visibleWidth: span.width,
-                                     height: h,
-                                     isSelected: isSelected,
-                                     waveformURL: audio.bgmURL,
-                                     visibleStartTime: visibleStart,
-                                     visibleEndTime: visibleEnd)
-                        .offset(x: span.x)
-                        .onTapGesture {
-                            selection = .bgm
-                        }
-                }
-            } else {
-                Text("+ BGMを追加")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.35))
-                    .frame(height: h)
-                    .offset(x: max(originX + 8, 8))
-                    .allowsHitTesting(false)
+            if hasBGM, let span {
+                // 見えている範囲のタイムライン秒(BGM は 0 秒から始まりループする)
+                let visibleStart = Double((span.x - originX) / pps)
+                let visibleEnd = Double((span.x + span.width - originX) / pps)
+                TimelineAudioBar(name: name,
+                                 labelX: TimelineMetrics.stickyLabelX(trueX: originX, visibleX: span.x,
+                                                                     visibleWidth: span.width, labelWidth: 80),
+                                 visibleWidth: span.width,
+                                 height: h,
+                                 isSelected: isSelected,
+                                 waveformURL: audio.bgmURL,
+                                 visibleStartTime: visibleStart,
+                                 visibleEndTime: visibleEnd)
+                    .offset(x: span.x)
+                    .onTapGesture {
+                        selection = .bgm
+                    }
             }
         }
         .frame(width: width, height: h, alignment: .topLeading)
@@ -743,21 +949,11 @@ struct TimelineView: View {
     private func narrationTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
                                 narration: [NarrationClip]) -> some View {
         let h = TimelineMetrics.narrationHeight
-        let hw = TimelineMetrics.subtitleHandleWidth
         let items = narrationItems(width: width, originX: originX, pps: pps, narration: narration)
         let selectedID: UUID? = selection?.narrationID
         let selectedItem: TimelineNarrationItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
 
         return ZStack(alignment: .topLeading) {
-            if narration.isEmpty {
-                Text("+ ナレーションを録音")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.35))
-                    .frame(height: h)
-                    .offset(x: max(originX + 8, 8))
-                    .allowsHitTesting(false)
-            }
-
             ForEach(items) { item in
                 let isSel = item.id == selectedID
                 TimelineNarrationBar(clip: item.clip,
@@ -777,30 +973,25 @@ struct TimelineView: View {
             }
 
             if let sel = selectedItem {
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX - hw)
-                    .gesture(narrationTrimGesture(id: sel.id, leading: true))
-                    .zIndex(20)
-                TimelineTrimHandle()
-                    .frame(width: hw, height: h)
-                    .offset(x: sel.screenX + sel.width)
-                    .gesture(narrationTrimGesture(id: sel.id, leading: false))
-                    .zIndex(20)
+                selectionDecor(screenX: sel.screenX, width: sel.width,
+                               visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
+                               y: 0, height: h, duration: sel.clip.duration,
+                               leading: narrationTrimGesture(id: sel.id, leading: true),
+                               trailing: narrationTrimGesture(id: sel.id, leading: false))
             }
         }
         .frame(width: width, height: h, alignment: .topLeading)
     }
 
-    // MARK: - スクロール(時刻の移動)
+    // MARK: - スクロール(時刻の移動・トラックの縦スクロール)
 
-    private var scrollGesture: some Gesture {
+    private func scrollGesture(maxVerticalOffset: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .local)
             .updating($scrollGestureActive) { _, state, _ in
                 state = true
             }
             .onChanged { value in
-                scrollChanged(value)
+                scrollChanged(value, maxVerticalOffset: maxVerticalOffset)
             }
             .onEnded { value in
                 scrollEnded(value)
@@ -812,24 +1003,41 @@ struct TimelineView: View {
         return min(max(0, t), max(0, timelineDuration()))
     }
 
-    private func throttledSeek(_ t: Double) {
-        let now = CACurrentMediaTime()
-        if now - interaction.lastSeekTime >= 1.0 / 30.0 {
-            interaction.lastSeekTime = now
-            player.seek(to: t)
-        }
-    }
-
-    private func scrollChanged(_ value: DragGesture.Value) {
+    private func scrollChanged(_ value: DragGesture.Value, maxVerticalOffset: CGFloat) {
         if interaction.scrollBlocked { return }
         if interaction.edit != nil || interaction.pinchStartPPS != nil {
             interaction.scrollBlocked = true
+            interaction.verticalScroll = nil
             if interaction.scrollStartTime != nil {
                 interaction.scrollStartTime = nil
                 endScrubbing()
             }
             return
         }
+
+        // 最初の動きで縦(トラックの縦スクロール)か横(時刻の移動)かを決める
+        if interaction.verticalScroll == nil {
+            let dx = abs(value.translation.width)
+            let dy = abs(value.translation.height)
+            if maxVerticalOffset > 0 && dy > dx {
+                interaction.verticalScroll = true
+                interaction.verticalStartOffset = min(max(0, verticalOffset), maxVerticalOffset)
+                interaction.verticalMaxOffset = maxVerticalOffset
+                interaction.verticalStartTranslation = value.translation.height
+            } else {
+                interaction.verticalScroll = false
+            }
+        }
+        if interaction.verticalScroll == true {
+            let dy = value.translation.height - interaction.verticalStartTranslation
+            let proposed = interaction.verticalStartOffset - dy
+            let next = min(max(0, proposed), interaction.verticalMaxOffset)
+            if abs(next - verticalOffset) > 0.5 {
+                verticalOffset = next
+            }
+            return
+        }
+
         let pps = max(timeline.pointsPerSecond, 0.0001)
         if interaction.scrollStartTime == nil {
             momentumTask?.cancel()
@@ -845,12 +1053,19 @@ struct TimelineView: View {
         let dx = Double(value.translation.width - interaction.scrollStartTranslation)
         let t = clampTime(base - dx / pps)
         scrubTime = t
-        throttledSeek(t)
+        // 間引かずに追いかけシーク(PlayerController 側でまとめる)
+        player.scrub(to: t)
     }
 
     private func scrollEnded(_ value: DragGesture.Value) {
         let wasBlocked = interaction.scrollBlocked
+        let wasVertical = interaction.verticalScroll == true
         interaction.scrollBlocked = false
+        interaction.verticalScroll = nil
+        if wasVertical {
+            interaction.scrollStartTime = nil
+            return
+        }
         guard !wasBlocked, interaction.scrollStartTime != nil else {
             interaction.scrollStartTime = nil
             return
@@ -864,6 +1079,7 @@ struct TimelineView: View {
         // onEnded の後に処理されるよう 1 回遅らせる
         Task { @MainActor in
             interaction.scrollBlocked = false
+            interaction.verticalScroll = nil
             if interaction.scrollStartTime != nil {
                 interaction.scrollStartTime = nil
                 endScrubbing()
@@ -910,9 +1126,13 @@ struct TimelineView: View {
                     hitEdge = true
                 }
                 scrubTime = next
-                throttledSeek(next)
-                velocity *= pow(0.95, dt * 60)
-                if hitEdge || abs(velocity) * max(timeline.pointsPerSecond, 0.0001) < 15 {
+                player.scrub(to: next)
+                // 1 ミリ秒ごとに 0.998 倍(iOS のスクロールに近い減速)
+                let elapsedMs: Double = dt * 1000
+                let decay: Double = pow(0.998, elapsedMs)
+                velocity *= decay
+                let pointsPerSecondNow = max(timeline.pointsPerSecond, 0.0001)
+                if hitEdge || abs(velocity) * pointsPerSecondNow < 15 {
                     break
                 }
             }
@@ -922,12 +1142,12 @@ struct TimelineView: View {
         }
     }
 
-    /// スクラブ(ドラッグ・慣性)を終了し、最終位置へシークする
+    /// スクラブ(ドラッグ・慣性)を終了し、最終位置へ正確にシークする
     private func endScrubbing() {
         momentumTask?.cancel()
         momentumTask = nil
         if let t = scrubTime {
-            player.seek(to: t)
+            player.endScrub(at: t)
         }
         scrubTime = nil
         if timeline.isUserScrolling {
@@ -937,7 +1157,7 @@ struct TimelineView: View {
 
     // MARK: - ピンチで拡大縮小
 
-    private var zoomGesture: some Gesture {
+    private func zoomGesture(width: CGFloat, total: Double) -> some Gesture {
         MagnifyGesture()
             .updating($pinchGestureActive) { _, state, _ in
                 state = true
@@ -956,16 +1176,115 @@ struct TimelineView: View {
                 let factor = Double(value.magnification)
                 guard factor.isFinite, factor > 0 else { return }
                 timeline.pointsPerSecond = start * factor
-                timeline.clampZoom()
+                // 縮小の下限は動画の長さで変わる(全体が画面の 8 割に収まるところまで)
+                timeline.clampZoom(duration: total, viewWidth: Double(width))
             }
             .onEnded { _ in
                 interaction.pinchStartPPS = nil
             }
     }
 
+    // MARK: - スナップ・限界の振動
+
+    /// スナップ候補(再生位置・クリップの端・マーカー・ほかの部品の端)を集める。
+    /// excluding の部品自身は含めない。clipTrimIndex を渡すとそのクリップ以降のクリップの端は含めない
+    /// (トリムで一緒に動くため)。trailing のトリムではそのクリップの開始は含める。
+    private func collectSnapTargets(excluding id: UUID?, clipTrimIndex: Int? = nil,
+                                    trimLeading: Bool = false) -> [Double] {
+        let snapshot = project.snapshot()
+        var targets: [Double] = [player.currentTime]
+        let ranges = TimelineView.clipRanges(for: snapshot)
+        for (i, r) in ranges.enumerated() {
+            if let limit = clipTrimIndex {
+                if i < limit {
+                    targets.append(r.start)
+                    targets.append(r.end)
+                } else if i == limit && !trimLeading {
+                    targets.append(r.start)
+                }
+            } else {
+                targets.append(r.start)
+                targets.append(r.end)
+            }
+        }
+        for m in snapshot.markers where m.id != id {
+            targets.append(m.time)
+        }
+        for o in snapshot.overlays where o.id != id {
+            targets.append(o.start)
+            targets.append(o.end)
+        }
+        for t in snapshot.textClips where t.id != id {
+            targets.append(t.start)
+            targets.append(t.end)
+        }
+        for d in snapshot.drawings where d.id != id {
+            targets.append(d.start)
+            targets.append(d.end)
+        }
+        for c in snapshot.subtitles where c.id != id {
+            targets.append(c.start)
+            targets.append(c.end)
+        }
+        for n in snapshot.narration where n.id != id {
+            targets.append(n.start)
+            targets.append(n.end)
+        }
+        return targets.filter { $0.isFinite && $0 >= 0 }
+    }
+
+    /// 端(edges、元の時刻)を delta だけ動かしたとき、8pt 以内の候補があれば吸い付くよう delta を補正する
+    private func snappedDelta(_ delta: Double, edges: [Double]) -> Double {
+        let pps = max(timeline.pointsPerSecond, 0.0001)
+        let threshold = Double(TimelineMetrics.snapThreshold) / pps
+        var bestAdjust: Double? = nil
+        var bestTarget: Double? = nil
+        for edge in edges {
+            let moved = edge + delta
+            for target in interaction.snapTargets {
+                let diff = target - moved
+                if abs(diff) > threshold { continue }
+                if let current = bestAdjust, abs(current) <= abs(diff) { continue }
+                bestAdjust = diff
+                bestTarget = target
+            }
+        }
+        setSnapGuide(bestTarget)
+        if let bestAdjust {
+            return delta + bestAdjust
+        }
+        return delta
+    }
+
+    /// スナップ中の時刻を更新し、新しい候補に吸い付いたときだけ軽く振動させる
+    private func setSnapGuide(_ target: Double?) {
+        if let target {
+            var isNew = true
+            if let last = interaction.lastSnapTarget, abs(last - target) < 0.0001 {
+                isNew = false
+            }
+            if isNew && interaction.snapPrimed {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+        }
+        interaction.snapPrimed = true
+        interaction.lastSnapTarget = target
+        if snapGuideTime != target {
+            snapGuideTime = target
+        }
+    }
+
+    /// トリムが限界(最短・素材の端など)に達した瞬間に 1 回だけ振動させる
+    private func noteTrimLimit(_ hit: Bool) {
+        if hit && !interaction.atTrimLimit {
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        }
+        interaction.atTrimLimit = hit
+    }
+
     // MARK: - 編集操作の開始・終了
 
-    private func beginEdit(_ kind: TimelineEditKind) {
+    private func beginEdit(_ kind: TimelineEditKind, snapExcluding id: UUID? = nil, snaps: Bool = true) {
         if interaction.scrollStartTime != nil {
             interaction.scrollStartTime = nil
             interaction.scrollBlocked = true
@@ -974,6 +1293,15 @@ struct TimelineView: View {
         if player.isPlaying { player.pause() }
         history.record(project)
         interaction.edit = kind
+        interaction.snapTargets = snaps ? collectSnapTargets(excluding: id) : []
+        interaction.lastSnapTarget = nil
+        interaction.snapPrimed = false
+        interaction.atTrimLimit = false
+        // 操作中はプレビューの合成を作り直さない(終了時に 1 回だけ)
+        player.beginInteraction()
+        if !hintShown {
+            hintShown = true
+        }
     }
 
     private func finishEdit() {
@@ -1001,6 +1329,14 @@ struct TimelineView: View {
         case .moveMarker:
             project.sortMarkers()
         }
+        interaction.snapTargets = []
+        interaction.lastSnapTarget = nil
+        interaction.snapPrimed = false
+        interaction.atTrimLimit = false
+        if snapGuideTime != nil {
+            snapGuideTime = nil
+        }
+        player.endInteraction()
     }
 
     // MARK: - クリップのトリム
@@ -1014,8 +1350,17 @@ struct TimelineView: View {
                 if interaction.edit == nil {
                     guard let i = project.index(of: clipID) else { return }
                     let clip = project.clips[i]
+                    let ranges = clipRanges()
                     beginEdit(.trimClip(id: clipID, leading: leading,
-                                        originalStart: clip.startTime, originalEnd: clip.endTime))
+                                        originalStart: clip.startTime, originalEnd: clip.endTime),
+                              snaps: false)
+                    interaction.snapTargets = collectSnapTargets(excluding: clipID, clipTrimIndex: i,
+                                                                 trimLeading: leading)
+                    if i < ranges.count {
+                        interaction.trimEdgeTime = leading ? ranges[i].start : ranges[i].end
+                    } else {
+                        interaction.trimEdgeTime = 0
+                    }
                 }
                 applyClipTrim(translation: value.translation.width)
             }
@@ -1030,8 +1375,11 @@ struct TimelineView: View {
         let clip = project.clips[i]
         let speed = TimelineClipView.effectiveSpeed(of: clip)
         let pps = max(timeline.pointsPerSecond, 0.0001)
-        // Δ元素材秒 = Δポイント / pps × 速度
-        let delta = Double(translation) / pps * speed
+        // 表示上の端はタイムライン秒で translation / pps だけ動く。そこでスナップを掛ける
+        let rawVisualDelta = Double(translation) / pps
+        let visualDelta = snappedDelta(rawVisualDelta, edges: [interaction.trimEdgeTime])
+        // Δ元素材秒 = Δタイムライン秒 × 速度
+        let delta = visualDelta * speed
         let minimumLength = 0.2
         // 逆再生のクリップは表示上の先頭が元素材の終わり(endTime)なので、動かす端を入れ替える
         let reversed = clip.isReversed && clip.reversedURL != nil
@@ -1039,7 +1387,9 @@ struct TimelineView: View {
         let signedDelta = reversed ? -delta : delta
         if movesStart {
             let upper = max(0, originalEnd - minimumLength)
-            let newStart = min(max(0, originalStart + signedDelta), upper)
+            let proposed = originalStart + signedDelta
+            let newStart = min(max(0, proposed), upper)
+            noteTrimLimit(abs(newStart - proposed) > 0.0001)
             if abs(newStart - clip.startTime) > 0.0001 {
                 project.clips[i].startTime = newStart
             }
@@ -1049,7 +1399,9 @@ struct TimelineView: View {
             }
         } else {
             let lower = min(clip.duration, originalStart + minimumLength)
-            let newEnd = max(min(clip.duration, originalEnd + signedDelta), lower)
+            let proposed = originalEnd + signedDelta
+            let newEnd = max(min(clip.duration, proposed), lower)
+            noteTrimLimit(abs(newEnd - proposed) > 0.0001)
             if abs(newEnd - clip.endTime) > 0.0001 {
                 project.clips[i].endTime = newEnd
             }
@@ -1086,7 +1438,7 @@ struct TimelineView: View {
 
     private func beginReorder(clipID: UUID) {
         guard let i = project.index(of: clipID) else { return }
-        beginEdit(.reorder(id: clipID))
+        beginEdit(.reorder(id: clipID), snaps: false)
         let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
         let ranges = clipRanges()
         reorderAnchorX = i < ranges.count ? CGFloat(ranges[i].start) * pps : 0
@@ -1145,7 +1497,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let cue = project.subtitles.first(where: { $0.id == id }) else { return }
-                    beginEdit(.moveSubtitle(id: id, originalStart: cue.start, originalEnd: cue.end))
+                    beginEdit(.moveSubtitle(id: id, originalStart: cue.start, originalEnd: cue.end), snapExcluding: id)
                 }
                 applySubtitleEdit(translation: value.translation.width)
             }
@@ -1163,7 +1515,8 @@ struct TimelineView: View {
                 if interaction.edit == nil {
                     guard let cue = project.subtitles.first(where: { $0.id == id }) else { return }
                     beginEdit(.trimSubtitle(id: id, leading: leading,
-                                            originalStart: cue.start, originalEnd: cue.end))
+                                            originalStart: cue.start, originalEnd: cue.end),
+                              snapExcluding: id)
                 }
                 applySubtitleEdit(translation: value.translation.width)
             }
@@ -1180,13 +1533,17 @@ struct TimelineView: View {
         case let .trimSubtitle(id, leading, originalStart, originalEnd)?:
             guard let i = project.subtitles.firstIndex(where: { $0.id == id }) else { return }
             if leading {
-                let newStart = min(max(0, originalStart + delta), max(0, originalEnd - minimumLength))
+                let proposed = originalStart + snappedDelta(delta, edges: [originalStart])
+                let newStart = min(max(0, proposed), max(0, originalEnd - minimumLength))
+                noteTrimLimit(abs(newStart - proposed) > 0.0001)
                 if abs(project.subtitles[i].start - newStart) > 0.0001 {
                     project.subtitles[i].start = newStart
                 }
             } else {
                 let upper = max(timelineDuration(), originalEnd)
-                let newEnd = max(min(originalEnd + delta, upper), originalStart + minimumLength)
+                let proposed = originalEnd + snappedDelta(delta, edges: [originalEnd])
+                let newEnd = max(min(proposed, upper), originalStart + minimumLength)
+                noteTrimLimit(abs(newEnd - proposed) > 0.0001)
                 if abs(project.subtitles[i].end - newEnd) > 0.0001 {
                     project.subtitles[i].end = newEnd
                 }
@@ -1195,7 +1552,8 @@ struct TimelineView: View {
             guard let i = project.subtitles.firstIndex(where: { $0.id == id }) else { return }
             let length = max(0, originalEnd - originalStart)
             let upperStart = max(0, max(timelineDuration(), originalEnd) - length)
-            let newStart = min(max(0, originalStart + delta), upperStart)
+            let moved = snappedDelta(delta, edges: [originalStart, originalEnd])
+            let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.subtitles[i].start - newStart) > 0.0001 {
                 project.subtitles[i].start = newStart
                 project.subtitles[i].end = newStart + length
@@ -1215,7 +1573,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let overlay = project.overlays.first(where: { $0.id == id }) else { return }
-                    beginEdit(.moveOverlay(id: id, originalStart: overlay.start))
+                    beginEdit(.moveOverlay(id: id, originalStart: overlay.start), snapExcluding: id)
                 }
                 applyOverlayEdit(translation: value.translation.width)
             }
@@ -1232,7 +1590,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let overlay = project.overlays.first(where: { $0.id == id }) else { return }
-                    beginEdit(.trimOverlay(id: id, leading: leading, original: overlay))
+                    beginEdit(.trimOverlay(id: id, leading: leading, original: overlay), snapExcluding: id)
                 }
                 applyOverlayEdit(translation: value.translation.width)
             }
@@ -1250,7 +1608,8 @@ struct TimelineView: View {
             guard let i = project.overlays.firstIndex(where: { $0.id == id }) else { return }
             let length = max(0, project.overlays[i].duration)
             let upperStart = max(0, max(timelineDuration(), originalStart + length) - length)
-            let newStart = min(max(0, originalStart + delta), upperStart)
+            let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
+            let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.overlays[i].start - newStart) > 0.0001 {
                 project.overlays[i].start = newStart
             }
@@ -1265,7 +1624,9 @@ struct TimelineView: View {
                     lowerStart = max(lowerStart, original.start - original.sourceStart / speed)
                 }
                 let upperStart = max(lowerStart, original.end - minimumLength)
-                let newStart = min(max(lowerStart, original.start + delta), upperStart)
+                let proposed = original.start + snappedDelta(delta, edges: [original.start])
+                let newStart = min(max(lowerStart, proposed), upperStart)
+                noteTrimLimit(abs(newStart - proposed) > 0.0001)
                 updated.start = newStart
                 updated.duration = max(0.1, original.end - newStart)
                 if !original.isImage {
@@ -1278,7 +1639,9 @@ struct TimelineView: View {
                 if !original.isImage {
                     maxLength = min(maxLength, max(minimumLength, original.maxDuration))
                 }
-                updated.duration = min(max(minimumLength, original.duration + delta), maxLength)
+                let proposed = original.duration + snappedDelta(delta, edges: [original.end])
+                updated.duration = min(max(minimumLength, proposed), maxLength)
+                noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
             }
             if project.overlays[i] != updated {
                 project.overlays[i] = updated
@@ -1298,7 +1661,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let clip = project.narration.first(where: { $0.id == id }) else { return }
-                    beginEdit(.moveNarration(id: id, originalStart: clip.start))
+                    beginEdit(.moveNarration(id: id, originalStart: clip.start), snapExcluding: id)
                 }
                 applyNarrationEdit(translation: value.translation.width)
             }
@@ -1315,7 +1678,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let clip = project.narration.first(where: { $0.id == id }) else { return }
-                    beginEdit(.trimNarration(id: id, leading: leading, original: clip))
+                    beginEdit(.trimNarration(id: id, leading: leading, original: clip), snapExcluding: id)
                 }
                 applyNarrationEdit(translation: value.translation.width)
             }
@@ -1333,7 +1696,8 @@ struct TimelineView: View {
             guard let i = project.narration.firstIndex(where: { $0.id == id }) else { return }
             let length = max(0, project.narration[i].duration)
             let upperStart = max(0, max(timelineDuration(), originalStart + length) - length)
-            let newStart = min(max(0, originalStart + delta), upperStart)
+            let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
+            let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.narration[i].start - newStart) > 0.0001 {
                 project.narration[i].start = newStart
             }
@@ -1344,7 +1708,9 @@ struct TimelineView: View {
                 // 左端: 開始を動かし終了は固定。音声ファイル上の開始位置も同じだけずらす
                 let lowerStart = max(0, original.start - original.sourceStart)
                 let upperStart = max(lowerStart, original.end - minimumLength)
-                let newStart = min(max(lowerStart, original.start + delta), upperStart)
+                let proposed = original.start + snappedDelta(delta, edges: [original.start])
+                let newStart = min(max(lowerStart, proposed), upperStart)
+                noteTrimLimit(abs(newStart - proposed) > 0.0001)
                 updated.start = newStart
                 updated.sourceStart = max(0, original.sourceStart + (newStart - original.start))
                 updated.duration = max(0.1, original.end - newStart)
@@ -1360,7 +1726,9 @@ struct TimelineView: View {
                     sourceLimit = max(minimumLength, original.sourceEnd - original.sourceStart)
                 }
                 maxLength = min(maxLength, sourceLimit)
-                updated.duration = min(max(minimumLength, original.duration + delta), maxLength)
+                let proposed = original.duration + snappedDelta(delta, edges: [original.end])
+                updated.duration = min(max(minimumLength, proposed), maxLength)
+                noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
             }
             if project.narration[i] != updated {
                 project.narration[i] = updated
@@ -1380,7 +1748,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let clip = project.textClips.first(where: { $0.id == id }) else { return }
-                    beginEdit(.moveText(id: id, originalStart: clip.start))
+                    beginEdit(.moveText(id: id, originalStart: clip.start), snapExcluding: id)
                 }
                 applyTextEdit(translation: value.translation.width)
             }
@@ -1397,7 +1765,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let clip = project.textClips.first(where: { $0.id == id }) else { return }
-                    beginEdit(.trimText(id: id, leading: leading, original: clip))
+                    beginEdit(.trimText(id: id, leading: leading, original: clip), snapExcluding: id)
                 }
                 applyTextEdit(translation: value.translation.width)
             }
@@ -1415,7 +1783,8 @@ struct TimelineView: View {
             guard let i = project.textClips.firstIndex(where: { $0.id == id }) else { return }
             let length = max(0, project.textClips[i].duration)
             let upperStart = max(0, max(timelineDuration(), originalStart + length) - length)
-            let newStart = min(max(0, originalStart + delta), upperStart)
+            let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
+            let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.textClips[i].start - newStart) > 0.0001 {
                 project.textClips[i].start = newStart
             }
@@ -1425,14 +1794,18 @@ struct TimelineView: View {
             if leading {
                 // 左端: 開始を動かし終了は固定
                 let upperStart = max(0, original.end - minimumLength)
-                let newStart = min(max(0, original.start + delta), upperStart)
+                let proposed = original.start + snappedDelta(delta, edges: [original.start])
+                let newStart = min(max(0, proposed), upperStart)
+                noteTrimLimit(abs(newStart - proposed) > 0.0001)
                 updated.start = newStart
                 updated.duration = max(minimumLength, original.end - newStart)
             } else {
                 // 右端: 長さだけ変える
                 let upperEnd = max(timelineDuration(), original.end)
                 let maxLength = max(minimumLength, upperEnd - original.start)
-                updated.duration = min(max(minimumLength, original.duration + delta), maxLength)
+                let proposed = original.duration + snappedDelta(delta, edges: [original.end])
+                updated.duration = min(max(minimumLength, proposed), maxLength)
+                noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
             }
             if project.textClips[i] != updated {
                 project.textClips[i] = updated
@@ -1452,7 +1825,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let drawing = project.drawings.first(where: { $0.id == id }) else { return }
-                    beginEdit(.moveDrawing(id: id, originalStart: drawing.start))
+                    beginEdit(.moveDrawing(id: id, originalStart: drawing.start), snapExcluding: id)
                 }
                 applyDrawingEdit(translation: value.translation.width)
             }
@@ -1469,7 +1842,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let drawing = project.drawings.first(where: { $0.id == id }) else { return }
-                    beginEdit(.trimDrawing(id: id, leading: leading, original: drawing))
+                    beginEdit(.trimDrawing(id: id, leading: leading, original: drawing), snapExcluding: id)
                 }
                 applyDrawingEdit(translation: value.translation.width)
             }
@@ -1487,7 +1860,8 @@ struct TimelineView: View {
             guard let i = project.drawings.firstIndex(where: { $0.id == id }) else { return }
             let length = max(0, project.drawings[i].duration)
             let upperStart = max(0, max(timelineDuration(), originalStart + length) - length)
-            let newStart = min(max(0, originalStart + delta), upperStart)
+            let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
+            let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.drawings[i].start - newStart) > 0.0001 {
                 project.drawings[i].start = newStart
             }
@@ -1496,13 +1870,17 @@ struct TimelineView: View {
             var updated = original
             if leading {
                 let upperStart = max(0, original.end - minimumLength)
-                let newStart = min(max(0, original.start + delta), upperStart)
+                let proposed = original.start + snappedDelta(delta, edges: [original.start])
+                let newStart = min(max(0, proposed), upperStart)
+                noteTrimLimit(abs(newStart - proposed) > 0.0001)
                 updated.start = newStart
                 updated.duration = max(minimumLength, original.end - newStart)
             } else {
                 let upperEnd = max(timelineDuration(), original.end)
                 let maxLength = max(minimumLength, upperEnd - original.start)
-                updated.duration = min(max(minimumLength, original.duration + delta), maxLength)
+                let proposed = original.duration + snappedDelta(delta, edges: [original.end])
+                updated.duration = min(max(minimumLength, proposed), maxLength)
+                noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
             }
             if project.drawings[i] != updated {
                 project.drawings[i] = updated
@@ -1522,7 +1900,7 @@ struct TimelineView: View {
             .onChanged { value in
                 if interaction.edit == nil {
                     guard let marker = project.markers.first(where: { $0.id == id }) else { return }
-                    beginEdit(.moveMarker(id: id, originalTime: marker.time))
+                    beginEdit(.moveMarker(id: id, originalTime: marker.time), snapExcluding: id)
                 }
                 applyMarkerEdit(translation: value.translation.width)
             }
@@ -1535,7 +1913,8 @@ struct TimelineView: View {
         guard case let .moveMarker(id, originalTime)? = interaction.edit,
               let i = project.markers.firstIndex(where: { $0.id == id }) else { return }
         let pps = max(timeline.pointsPerSecond, 0.0001)
-        let newTime = clampTime(originalTime + Double(translation) / pps)
+        let delta = snappedDelta(Double(translation) / pps, edges: [originalTime])
+        let newTime = clampTime(originalTime + delta)
         if abs(project.markers[i].time - newTime) > 0.0001 {
             project.markers[i].time = newTime
         }

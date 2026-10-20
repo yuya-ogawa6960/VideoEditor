@@ -93,6 +93,8 @@ private struct DocumentaryActionRow: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color.white.opacity(0.12), in: Capsule())
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -108,9 +110,22 @@ private struct DocumentaryActionRow: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color.red.opacity(0.15), in: Capsule())
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
+    }
+}
+
+/// 操作の下に出す 1 行の説明(やさしい言葉で)
+private struct DocumentaryHint: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -142,6 +157,19 @@ struct EditorDocumentaryPanel: View {
         return style
     }
 
+    /// 「リセット」で適用する設定(演出をすべてオフ)
+    private static var offStyle: DocumentaryStyle {
+        var style = DocumentaryStyle()
+        style.look = .none
+        style.letterbox = false
+        style.filmGrain = 0
+        style.vignette = 0
+        style.fadeFromToBlack = false
+        style.dipToBlackBetweenClips = false
+        style.autoDucking = false
+        return style
+    }
+
     private var duckingPercent: String {
         "\(Int((Double(project.documentary.duckingLevel) * 100).rounded()))%"
     }
@@ -169,10 +197,12 @@ struct EditorDocumentaryPanel: View {
                 }
                 .buttonStyle(.plain)
 
+                DocumentaryHint(text: "全体の仕上げ: 作品全体の色・黒帯・フェード・BGMの下げ方をまとめて整えます。")
+
                 HStack(spacing: 8) {
-                    EditorChip(title: "元に戻す(なし)",
+                    EditorChip(title: "リセット(すべてオフ)",
                                isSelected: false) {
-                        project.documentary = DocumentaryStyle()
+                        project.documentary = Self.offStyle
                     }
                     Spacer()
                     if project.documentary.isActive {
@@ -186,6 +216,7 @@ struct EditorDocumentaryPanel: View {
             // 色味
             VStack(alignment: .leading, spacing: 8) {
                 DocumentarySectionTitle(title: "色味")
+                DocumentaryHint(text: "動画全体の色の雰囲気を選びます。")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(LookPreset.allCases) { preset in
@@ -207,23 +238,25 @@ struct EditorDocumentaryPanel: View {
             // 画面演出
             VStack(alignment: .leading, spacing: 10) {
                 DocumentarySectionTitle(title: "画面")
-                Toggle("上下の黒帯(2.39:1)", isOn: $project.documentary.letterbox)
+                Toggle("上下の黒帯(映画のような横長に)", isOn: $project.documentary.letterbox)
                     .font(.subheadline)
                     .tint(.accentColor)
-                Toggle("黒からフェードイン / アウト", isOn: $project.documentary.fadeFromToBlack)
+                Toggle("最初と最後を黒からふわっと出す", isOn: $project.documentary.fadeFromToBlack)
                     .font(.subheadline)
                     .tint(.accentColor)
-                Toggle("クリップ間を一瞬黒に", isOn: $project.documentary.dipToBlackBetweenClips)
+                Toggle("クリップのつなぎ目を一瞬黒に", isOn: $project.documentary.dipToBlackBetweenClips)
                     .font(.subheadline)
                     .tint(.accentColor)
-                EditorSliderRow(title: "フィルム粒子",
+                EditorSliderRow(title: "フィルムのざらつき",
                                 value: $project.documentary.filmGrain,
                                 range: 0...1,
                                 display: percentText(project.documentary.filmGrain))
-                EditorSliderRow(title: "周辺減光",
+                DocumentaryHint(text: "昔のフィルムのような細かい粒を加えます。")
+                EditorSliderRow(title: "四すみを暗く",
                                 value: $project.documentary.vignette,
                                 range: 0...1,
                                 display: percentText(project.documentary.vignette))
+                DocumentaryHint(text: "画面のまわりを少し暗くして、中央に目が行くようにします。")
             }
 
             // 音
@@ -232,7 +265,7 @@ struct EditorDocumentaryPanel: View {
                 Toggle("話している間 BGM を下げる", isOn: $project.documentary.autoDucking)
                     .font(.subheadline)
                     .tint(.accentColor)
-                EditorSliderRow(title: "ダッキング量(下げたときの BGM 音量)",
+                EditorSliderRow(title: "下げたときの BGM の大きさ",
                                 value: $project.documentary.duckingLevel,
                                 range: 0.1...0.8,
                                 display: duckingPercent)
@@ -318,6 +351,12 @@ struct EditorTitleCardPanel: View {
                             value: card.duration,
                             range: 1.5...8,
                             display: secondsText(card.wrappedValue.duration))
+            HStack {
+                Spacer()
+                EditorChip(title: "リセット", isSelected: false) {
+                    card.wrappedValue.duration = 3
+                }
+            }
 
             Toggle("黒背景(映像を隠す)", isOn: card.opaqueBackground)
                 .font(.subheadline)
@@ -418,6 +457,7 @@ struct EditorLowerThirdPanel: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                DocumentaryHint(text: "名前と肩書きは左下、場所と日付は左上に出ます。")
             }
 
             DocumentaryTextFieldRow(title: primaryLabel(kind),
@@ -431,6 +471,12 @@ struct EditorLowerThirdPanel: View {
                             value: item.duration,
                             range: 2...10,
                             display: secondsText(item.wrappedValue.duration))
+            HStack {
+                Spacer()
+                EditorChip(title: "リセット", isSelected: false) {
+                    item.wrappedValue.duration = 4
+                }
+            }
 
             DocumentaryActionRow(onMoveToPlayhead: {
                 item.wrappedValue.start = max(0, player.currentTime)

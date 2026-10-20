@@ -63,8 +63,29 @@ final class TimelineState {
     /// ユーザーがタイムラインを指でスクロール中か(再生位置の自動追従を止めるため)
     var isUserScrolling: Bool = false
 
+    /// 縮小できる下限をこれより小さくはしない(長い動画でも極端に潰れないように)
+    static let absoluteMinPointsPerSecond: Double = 0.05
+
     func clampZoom() {
         pointsPerSecond = min(max(pointsPerSecond, Self.minPointsPerSecond), Self.maxPointsPerSecond)
+    }
+
+    /// 動画の長さと表示幅に応じた縮小の下限: min(8, 幅 × 0.8 ÷ 長さ)。
+    /// 長い動画でも全体が画面の 8 割に収まるところまで縮小できる。
+    static func dynamicMinPointsPerSecond(duration: Double, viewWidth: Double) -> Double {
+        guard duration.isFinite, duration > 0.01, viewWidth.isFinite, viewWidth > 0 else {
+            return minPointsPerSecond
+        }
+        let usable: Double = viewWidth * 0.8
+        let fit: Double = usable / duration
+        let limited: Double = min(minPointsPerSecond, fit)
+        return max(absoluteMinPointsPerSecond, limited)
+    }
+
+    /// 動画の長さと表示幅を考慮して倍率を範囲内に収める
+    func clampZoom(duration: Double, viewWidth: Double) {
+        let lower = Self.dynamicMinPointsPerSecond(duration: duration, viewWidth: viewWidth)
+        pointsPerSecond = min(max(pointsPerSecond, lower), Self.maxPointsPerSecond)
     }
 }
 

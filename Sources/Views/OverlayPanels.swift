@@ -24,6 +24,28 @@ private struct OverlaySectionTitle: View {
     }
 }
 
+/// 操作の下に出す 1 行の説明(やさしい言葉で)
+private struct OverlayHint: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// 右寄せの「リセット」ボタン
+private struct OverlayResetRow: View {
+    let action: () -> Void
+    var body: some View {
+        HStack {
+            Spacer()
+            EditorChip(title: "リセット", isSelected: false, action: action)
+        }
+    }
+}
+
 private func overlayPercentText(_ value: Double) -> String {
     "\(Int((value * 100).rounded()))%"
 }
@@ -167,7 +189,8 @@ struct EditorOverlayPlacementPanel: View {
 
             // プリセット
             VStack(alignment: .leading, spacing: 6) {
-                OverlaySectionTitle(title: "プリセット")
+                OverlaySectionTitle(title: "よく使う配置")
+                OverlayHint(text: "Bロールは画面全体に、ワイプは隅に小さく重ねます。")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(OverlayPreset.allCases) { preset in
@@ -215,27 +238,35 @@ struct EditorOverlayPlacementPanel: View {
                     }
                     Spacer()
                 }
+                OverlayHint(text: "埋める: 枠いっぱいに広げて端を切る / 収める: 全体が見えるように縮める")
             }
 
-            EditorSliderRow(title: "不透明度",
+            EditorSliderRow(title: "濃さ(透けにくさ)",
                             value: $overlay.opacity,
                             range: 0...1,
                             display: overlayPercentText(overlay.opacity))
 
-            EditorSliderRow(title: "角丸",
+            EditorSliderRow(title: "角の丸み",
                             value: $overlay.cornerRadius,
                             range: 0...0.5,
                             display: overlayPercentText(overlay.cornerRadius))
 
-            EditorSliderRow(title: "フェードイン",
+            EditorSliderRow(title: "ふわっと出す(フェードイン)",
                             value: $overlay.fadeIn,
                             range: 0...2,
                             display: overlaySecondsText(overlay.fadeIn))
 
-            EditorSliderRow(title: "フェードアウト",
+            EditorSliderRow(title: "ふわっと消す(フェードアウト)",
                             value: $overlay.fadeOut,
                             range: 0...2,
                             display: overlaySecondsText(overlay.fadeOut))
+
+            OverlayResetRow {
+                overlay.opacity = 1
+                overlay.cornerRadius = 0
+                overlay.fadeIn = 0.3
+                overlay.fadeOut = 0.3
+            }
         }
         .padding(.top, 6)
     }
@@ -256,7 +287,7 @@ struct EditorOverlayKenBurnsPanel: View {
             switch self {
             case .zoomIn: return "ズームイン"
             case .zoomOut: return "ズームアウト"
-            case .panLeftToRight: return "左→右"
+            case .panLeftToRight: return "左から右へ"
             }
         }
 
@@ -319,10 +350,11 @@ struct EditorOverlayKenBurnsPanel: View {
             OverlayHeaderRow(overlay: overlay)
 
             Toggle(isOn: $overlay.kenBurns.enabled) {
-                Label("ケン・バーンズ(ゆっくり動かす)", systemImage: "arrow.up.left.and.arrow.down.right")
+                Label("ゆっくりズーム", systemImage: "arrow.up.left.and.arrow.down.right")
                     .font(.subheadline)
             }
             .tint(.accentColor)
+            OverlayHint(text: "写真や映像をゆっくり拡大・移動させて、動きのある見た目にします。")
 
             VStack(alignment: .leading, spacing: 6) {
                 OverlaySectionTitle(title: "動き")
@@ -348,11 +380,17 @@ struct EditorOverlayKenBurnsPanel: View {
                 .disabled(!overlay.kenBurns.enabled)
                 .opacity(overlay.kenBurns.enabled ? 1 : 0.4)
 
+            OverlayResetRow {
+                apply(motion, intensity: 1)
+            }
+            .disabled(!overlay.kenBurns.enabled)
+            .opacity(overlay.kenBurns.enabled ? 1 : 0.4)
+
             let note: String = overlay.isImage
                 ? "写真が \(overlaySecondsText(overlay.duration)) かけてゆっくり動きます。"
-                : "動画にも適用できます(ゆっくりしたズーム / パンになります)。"
+                : "動画にも使えます(ゆっくり拡大したり、横に動いたりします)。"
             Text(verbatim: note)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.top, 6)
@@ -388,7 +426,7 @@ struct EditorOverlayVolumePanel: View {
                                 display: "\(Int((overlay.volume * 100).rounded()))%")
 
                 HStack(spacing: 8) {
-                    EditorChip(title: "ミュート", isSelected: overlay.volume <= 0.001) {
+                    EditorChip(title: "音を消す", isSelected: overlay.volume <= 0.001) {
                         overlay.volume = 0
                     }
                     EditorChip(title: "50%", isSelected: abs(overlay.volume - 0.5) < 0.001) {
@@ -400,8 +438,8 @@ struct EditorOverlayVolumePanel: View {
                     Spacer()
                 }
 
-                Text("Bロールは通常ミュートにして、メイン映像の音声を続けます。")
-                    .font(.caption2)
+                Text("重ねた映像はふつう音を消して、下のメイン映像の音を聞かせます。")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -477,14 +515,18 @@ struct EditorOverlaySpeedPanel: View {
                     Slider(value: logSpeed, in: -2...2)
                         .tint(.white)
                     HStack {
-                        Text("0.25x")
+                        Text("ゆっくり 0.25x")
                         Spacer()
                         Text("1x")
                         Spacer()
-                        Text("4x")
+                        Text("4x 速く")
                     }
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                }
+
+                OverlayResetRow {
+                    setSpeed(1)
                 }
 
                 Text("長さ \(MediaTimeText.precise(overlay.duration))(素材の残り最大 \(MediaTimeText.precise(overlay.maxDuration)))")

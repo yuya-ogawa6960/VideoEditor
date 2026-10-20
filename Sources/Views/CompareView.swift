@@ -320,7 +320,7 @@ struct CompareView: View {
                     returnSection
                 }
             }
-            .navigationTitle("比較")
+            .navigationTitle("前回と比較")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -528,11 +528,11 @@ struct CompareView: View {
     private var recordSection: some View {
         Section {
             if exporter.history.isEmpty {
-                Text("書き出し履歴がありません。先に「書き出し」を行うと、そのファイルと現在の編集を比較できます。")
+                Text("まだ書き出した動画がありません。先に「書き出し」をすると、その動画といまの編集を見比べられます。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
-                Picker("比較する書き出し", selection: $selectedRecordID) {
+                Picker("見比べる動画", selection: $selectedRecordID) {
                     ForEach(exporter.history) { record in
                         Text(recordLabel(record))
                             .tag(record.id as UUID?)
@@ -594,7 +594,7 @@ struct CompareView: View {
         } header: {
             Text("表示と音声")
         } footer: {
-            Text("A は現在の編集内容(プレビュー画質)、B は選んだ書き出しファイルです。再生・シークは両方に同時に反映されます。")
+            Text("A はいまの編集(プレビュー画質)、B は選んだ書き出し済みの動画です。再生や位置の移動は両方に同時に反映されます。")
         }
     }
 
@@ -605,8 +605,7 @@ struct CompareView: View {
             loudnessRow(title: "A 現在の編集", measurement: loudnessA)
             loudnessRow(title: "B 前回の書き出し", measurement: loudnessB)
             if let a = loudnessA, let b = loudnessB, a.isValid, b.isValid {
-                let diff = a.integratedLUFS - b.integratedLUFS
-                LabeledContent("差(A − B)", value: String(format: "%+.1f LU", diff))
+                LabeledContent("くらべると", value: loudnessDiffText(a: a, b: b))
             }
             if isMeasuring {
                 HStack(spacing: 10) {
@@ -619,7 +618,7 @@ struct CompareView: View {
                 Button {
                     measureLoudness()
                 } label: {
-                    Label(loudnessA == nil && loudnessB == nil ? "ラウドネスを測定" : "もう一度測定", systemImage: "waveform.badge.magnifyingglass")
+                    Label(loudnessA == nil && loudnessB == nil ? "音の大きさを測る" : "もう一度測る", systemImage: "waveform.badge.magnifyingglass")
                 }
                 .disabled(project.isEmpty && currentRecord == nil)
             }
@@ -629,9 +628,9 @@ struct CompareView: View {
                     .foregroundStyle(.red)
             }
         } header: {
-            Text("ラウドネス(音の大きさ)")
+            Text("音の大きさ")
         } footer: {
-            Text("オンライン動画の目安は -16 〜 -14 LUFS です。A は現在の編集の音声を一時的に書き出して測ります。")
+            Text("YouTube などのネット動画で聞きやすい大きさかを「小さめ / ちょうどいい / 大きすぎ」で表示します。A はいまの編集の音を一時的に書き出して測ります。")
         }
     }
 
@@ -641,20 +640,55 @@ struct CompareView: View {
             Spacer()
             if let m = measurement {
                 if m.isValid {
-                    Text(String(format: "%.1f LUFS ・ ピーク %.1f dBFS", m.integratedLUFS, m.peakDBFS))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    Text(loudnessWord(m))
+                        .font(.caption)
+                        .foregroundStyle(loudnessColor(m))
                 } else {
-                    Text("測定不能(無音)")
+                    Text("測れませんでした(音がありません)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Text("未測定")
+                Text("まだ測っていません")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// 音の大きさを 小さめ / ちょうどいい / 大きすぎ で表す(ネット動画の目安 -16〜-14 LUFS 付近を「ちょうどいい」)
+    private func loudnessWord(_ m: LoudnessMeasurement) -> String {
+        let lufs: Double = Double(m.integratedLUFS)
+        let peak: Double = Double(m.peakDBFS)
+        var word: String
+        if lufs < -18 {
+            word = "小さめ"
+        } else if lufs > -12 {
+            word = "大きすぎ"
+        } else {
+            word = "ちょうどいい"
+        }
+        if peak > -1 {
+            word += "・音割れに注意"
+        }
+        return word
+    }
+
+    private func loudnessColor(_ m: LoudnessMeasurement) -> Color {
+        let lufs: Double = Double(m.integratedLUFS)
+        let peak: Double = Double(m.peakDBFS)
+        if lufs > -12 || peak > -1 { return Color.red }
+        if lufs < -18 { return Color.orange }
+        return Color.green
+    }
+
+    private func loudnessDiffText(a: LoudnessMeasurement, b: LoudnessMeasurement) -> String {
+        let diff: Double = Double(a.integratedLUFS) - Double(b.integratedLUFS)
+        if abs(diff) < 1 {
+            return "ほぼ同じ"
+        }
+        let amount: String = abs(diff) < 3 ? "少し" : "かなり"
+        return diff > 0 ? "A(いま)のほうが" + amount + "大きい" : "B(前回)のほうが" + amount + "大きい"
     }
 
     private func measureLoudness() {
@@ -672,7 +706,7 @@ struct CompareView: View {
                     let result = try await LoudnessAnalyzer.measure(url: tempURL)
                     if !Task.isCancelled { loudnessA = result }
                 } catch {
-                    if !Task.isCancelled { firstError = "A: \(error.localizedDescription)" }
+                    if !Task.isCancelled { firstError = "A(いまの編集)を測れませんでした。もう一度「もう一度測る」を押してください。(詳細: " + error.localizedDescription + ")" }
                 }
             }
             if let exportURL, !Task.isCancelled {
@@ -680,7 +714,7 @@ struct CompareView: View {
                     let result = try await LoudnessAnalyzer.measure(url: exportURL)
                     if !Task.isCancelled { loudnessB = result }
                 } catch {
-                    if !Task.isCancelled, firstError == nil { firstError = "B: \(error.localizedDescription)" }
+                    if !Task.isCancelled, firstError == nil { firstError = "B(前回の動画)を測れませんでした。別の書き出しを選んで測り直してください。(詳細: " + error.localizedDescription + ")" }
                 }
             }
             if !Task.isCancelled {

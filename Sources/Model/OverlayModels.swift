@@ -73,8 +73,8 @@ enum OverlayFit: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .fill: return "埋める"
-        case .fit: return "収める"
+        case .fill: return "枠いっぱい"
+        case .fit: return "全体が見える"
         }
     }
 }
@@ -280,8 +280,8 @@ enum OverlayPreset: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .bRollFull: return "Bロール(全面)"
-        case .pipSmallCorner: return "ワイプ(右上)"
+        case .bRollFull: return "全面に差し替え"
+        case .pipSmallCorner: return "右上に小窓"
         case .splitLeft: return "左半分"
         }
     }

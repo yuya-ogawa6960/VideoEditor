@@ -83,7 +83,7 @@ struct AudioSettingsView: View {
                 }
             }
 
-            Toggle("最後の2秒でフェードアウト", isOn: $project.audio.bgmFadeOut)
+            Toggle("最後の2秒でだんだん小さくする", isOn: $project.audio.bgmFadeOut)
                 .disabled(project.audio.bgmURL == nil)
         } header: {
             Text("BGM")
@@ -132,7 +132,7 @@ struct AudioSettingsView: View {
     private func handleImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            errorMessage = error.localizedDescription
+            errorMessage = "もう一度「BGMを選ぶ」から曲を選び直してください。\n\n詳細: " + error.localizedDescription
         case .success(let urls):
             guard let url = urls.first else { return }
             isImporting = true
@@ -146,7 +146,7 @@ struct AudioSettingsView: View {
                 project.audio.bgmURL = localURL
                 project.audio.bgmName = url.deletingPathExtension().lastPathComponent
             } catch {
-                errorMessage = "ファイルをコピーできませんでした。(\(error.localizedDescription))"
+                errorMessage = "端末の空き容量を確かめて、もう一度選んでください。Apple Music の曲は使えないので、「ファイル」アプリに保存した曲を選んでください。\n\n詳細: " + error.localizedDescription
             }
         }
     }

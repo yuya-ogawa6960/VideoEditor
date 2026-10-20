@@ -12,7 +12,11 @@ import WhisperKit
 // - モデルは Application Support/WhisperKit 以下に保存(iCloud バックアップ対象外)
 // - 入力音声は TranscriptionAudioExtractor で 16kHz モノラル WAV にしてから渡す
 // - 長い音声は約 5 分ごとの「最も静かな所」で区切って順に認識し、進捗を返す
-//   (各ピース内は WhisperKit の VAD チャンク分割に任せる)
+//   (各ピース内は WhisperKit の VAD チャンク分割に任せる)。31 分の音声なら 7 ピース。
+//   ピースを短くしないのは意図的: VAD 分割と単語時刻は WhisperKit がピース内で行うので、ピースの境界は少ない方が
+//   文の途中で切れにくく、ピースごとの準備(配列化・VAD)の無駄も少ない。ピースが長くて進捗が止まって見えないよう、
+//   ピース内の進み具合を WhisperKit の Progress と処理速度から見積もって約 0.25 秒ごとに返す
+// - モデルの読み込み(初回は CoreML の Neural Engine 向け特殊化で数分)の間は経過時間を状態文で返す
 // - CoreML(GPU / Neural Engine)はバックグラウンドでは使えないので、画面ロックなどでバックグラウンドにいる間は
 //   次のピースを始めず、フォアグラウンドに戻るまで待つ。認識中にバックグラウンドへ入ったら(進捗コールバックで気づいた時点で)
 //   そのピースの推論を打ち切り、戻ってからやり直す。戻ってから結果や失敗が届いた場合も、ピースの前後で
@@ -74,6 +78,8 @@ final class WhisperTranscriber {
     private var loadedModel: String?
     private var stopRequested = false
     private var preparing = false
+    /// 直近のモデル読み込みにかかった秒数(未読み込みなら nil。調査用)
+    private(set) var lastLoadDuration: TimeInterval?
     #if canImport(WhisperKit)
     private var whisperKit: WhisperKit?
     #endif
@@ -194,7 +200,20 @@ final class WhisperTranscriber {
         defer { setPreparing(false) }
 
         unload()
-        progress(1, "Whisperモデルを読み込み中…(初回は数分かかることがあります)")
+        // 読み込み(CoreML の Neural Engine 向け特殊化を含む)は初回に数分かかり、その間は進捗が取れない。
+        // 止まっていると思われないよう、20 秒を過ぎたら経過時間を 5 秒ごとに添えて知らせる
+        let loadingText = "Whisperモデルを準備中(初回のみ数分かかります)…"
+        progress(1, loadingText)
+        let loadStart = Date()
+        let ticker = Task {
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            while !Task.isCancelled {
+                let elapsed = Date().timeIntervalSince(loadStart)
+                progress(1, loadingText + " — 経過 " + Self.elapsedText(elapsed))
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+        defer { ticker.cancel() }
 
         let folder = Self.modelFolder(for: model)
         let config = WhisperKitConfig(model: model,
@@ -209,11 +228,14 @@ final class WhisperTranscriber {
 
         do {
             let kit = try await WhisperKit(config)
+            ticker.cancel()
             lock.lock()
             whisperKit = kit
             loadedModel = model
+            lastLoadDuration = Date().timeIntervalSince(loadStart)
             lock.unlock()
         } catch {
+            ticker.cancel()
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
             throw WhisperTranscriberError.loadFailed(error.localizedDescription)
         }
@@ -228,15 +250,42 @@ final class WhisperTranscriber {
     /// language は "ja" / "en" など ISO 639-1。
     func transcribe(audioURL: URL, language: String,
                     progress: @escaping (Double) -> Void) async throws -> [TimedToken] {
-        try await transcribe(sourceURL: audioURL, start: 0, end: nil, language: language, progress: progress)
+        try await transcribe(sourceURL: audioURL, start: 0, end: nil, language: language) { update in
+            progress(update.fraction)
+        }
+    }
+
+    /// 長さ seconds の音声を何ピースに分けるかの見込み(実際の区切りは静かな所なので ±1 ずれることがある)
+    static func estimatedPieceCount(seconds: Double) -> Int {
+        guard seconds > 0 else { return 1 }
+        var remaining = seconds
+        var count = 1
+        while remaining > pieceSeconds + lookAheadSeconds {
+            remaining -= pieceSeconds
+            count += 1
+        }
+        return count
+    }
+
+    /// 経過時間の表示(「45秒」「1分20秒」「1時間2分」)
+    static func elapsedText(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds))
+        if total >= 3600 {
+            return "\(total / 3600)時間\((total % 3600) / 60)分"
+        }
+        if total >= 60 {
+            return "\(total / 60)分\(total % 60)秒"
+        }
+        return "\(total)秒"
     }
 
     /// 元素材 sourceURL の start〜end(秒。end が nil なら末尾まで)を認識し、
     /// 元素材上の秒に揃えたトークン列を返す。
-    /// バックグラウンド中は次のピースを始めずに待つ(待っている間は pauseReporter に伝える)
+    /// バックグラウンド中は次のピースを始めずに待つ(待っている間は pauseReporter に伝える)。
+    /// progress はピースの開始・完了時と、認識中は約 0.25 秒ごとに呼ばれる(任意のスレッドから)
     func transcribe(sourceURL: URL, start: Double, end: Double?, language: String,
                     pauseReporter: BackgroundPauseReporter? = nil,
-                    progress: @escaping (Double) -> Void) async throws -> [TimedToken] {
+                    progress: @escaping (WhisperTranscriptionProgress) -> Void) async throws -> [TimedToken] {
         #if canImport(WhisperKit)
         guard let kit = currentKit() else { throw WhisperTranscriberError.modelNotReady }
         // 認識の途中でバックグラウンドへ入ったかを判定できるように、監視を始めておく
@@ -274,7 +323,18 @@ final class WhisperTranscriber {
 
         var tokens: [TimedToken] = []
         var position: AVAudioFramePosition = 0
-        progress(0)
+
+        // 進捗の集計(ピース数・処理済みの音声秒・推論にかかった秒)
+        let totalAudioSeconds = Double(totalFrames) / sampleRate
+        var totalPieces = Self.estimatedPieceCount(seconds: totalAudioSeconds)
+        var completedPieces = 0
+        var processedAudioSeconds = 0.0
+        /// 完了したピースの推論にかかった秒の合計(フォアグラウンド待ち・やり直した分は含めない)
+        var activeSeconds = 0.0
+        progress(WhisperTranscriptionProgress(completedPieces: 0, totalPieces: totalPieces, fractionInPiece: 0,
+                                              processedAudioSeconds: 0, currentPieceAudioSeconds: 0,
+                                              totalAudioSeconds: totalAudioSeconds, activeSeconds: 0,
+                                              currentPieceElapsed: 0))
 
         try await withTaskCancellationHandler {
             while position < totalFrames {
@@ -310,6 +370,32 @@ final class WhisperTranscriber {
                 let backgroundFlag = WhisperBackgroundFlag()
                 /// ピースの前後で変わったら、その間にバックグラウンドへ入った(一時停止だけで戻った場合も含む)
                 let epochBefore = BackgroundEpoch.current
+
+                // ピース内の進捗: WhisperKit の kit.progress(呼び出しをまたいで積み上がることがあるので開始時との差分)と、
+                // それまでのピースの処理速度からの時間見積もりの大きい方。約 0.25 秒ごとに知らせる
+                let pieceAudioSeconds = Double(cut) / sampleRate
+                let knownRate = processedAudioSeconds > 0 && activeSeconds > 0
+                let rate = knownRate ? activeSeconds / processedAudioSeconds : WhisperPieceTracker.guessedSecondsPerAudioSecond
+                let baseProgress = kit.progress
+                let tracker = WhisperPieceTracker(
+                    base: WhisperTranscriptionProgress(completedPieces: completedPieces, totalPieces: totalPieces,
+                                                       fractionInPiece: 0,
+                                                       processedAudioSeconds: processedAudioSeconds,
+                                                       currentPieceAudioSeconds: pieceAudioSeconds,
+                                                       totalAudioSeconds: totalAudioSeconds,
+                                                       activeSeconds: activeSeconds, currentPieceElapsed: 0),
+                    expectedSeconds: max(1, rate * pieceAudioSeconds),
+                    timeEstimateCap: knownRate ? 0.95 : 0.8,
+                    baseProgress: baseProgress,
+                    baseFraction: baseProgress.fractionCompleted)
+                let sampler = Task {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        if Task.isCancelled { break }
+                        tracker.sample(current: kit.progress, report: progress)
+                    }
+                }
+
                 do {
                     let results = try await kit.transcribe(audioArray: samples,
                                                            decodeOptions: options,
@@ -322,8 +408,12 @@ final class WhisperTranscriber {
                                                                }
                                                                return nil
                                                            })
+                    sampler.cancel()
+                    tracker.finish()
                     pieceTokens = Self.tokens(from: results, offset: extracted.startOffset + pieceStart)
                 } catch {
+                    sampler.cancel()
+                    tracker.finish()
                     if error is CancellationError || Task.isCancelled || isStopRequested { throw CancellationError() }
                     // 認識中にバックグラウンドへ入って失敗した(戻ってから失敗が届いた場合も含む)
                     // → ループの先頭で戻るまで待ち、同じピースをやり直す
@@ -340,7 +430,17 @@ final class WhisperTranscriber {
                 tokens.append(contentsOf: pieceTokens)
 
                 position += AVAudioFramePosition(cut)
-                progress(min(1, Double(position) / Double(totalFrames)))
+                completedPieces += 1
+                processedAudioSeconds += pieceAudioSeconds
+                activeSeconds += tracker.elapsed
+                let remainingSeconds = Double(max(0, totalFrames - position)) / sampleRate
+                totalPieces = completedPieces + (position < totalFrames ? Self.estimatedPieceCount(seconds: remainingSeconds) : 0)
+                progress(WhisperTranscriptionProgress(completedPieces: completedPieces, totalPieces: totalPieces,
+                                                      fractionInPiece: 0,
+                                                      processedAudioSeconds: processedAudioSeconds,
+                                                      currentPieceAudioSeconds: 0,
+                                                      totalAudioSeconds: totalAudioSeconds,
+                                                      activeSeconds: activeSeconds, currentPieceElapsed: 0))
             }
         } onCancel: { [weak self] in
             self?.setStop(true)
@@ -514,6 +614,103 @@ final class WhisperTranscriber {
             total += Int64(values.fileSize ?? 0)
         }
         return total
+    }
+}
+
+/// WhisperTranscriber.transcribe の進捗(1 回の呼び出し = 1 クリップ分)
+struct WhisperTranscriptionProgress {
+    /// 認識が終わったピース数
+    var completedPieces: Int
+    /// 全ピース数(見込み。区切りは静かな所なので途中で ±1 変わることがある)
+    var totalPieces: Int
+    /// 認識中のピースの進み具合(0...1。ピースの合間は 0)
+    var fractionInPiece: Double
+    /// 認識が終わったピースの音声の長さ(秒)の合計
+    var processedAudioSeconds: Double
+    /// 認識中のピースの音声の長さ(秒。ピースの合間は 0)
+    var currentPieceAudioSeconds: Double
+    /// この呼び出しで認識する音声全体の長さ(秒)
+    var totalAudioSeconds: Double
+    /// 完了したピースの推論にかかった秒の合計(フォアグラウンド待ち・やり直しは含めない)
+    var activeSeconds: Double
+    /// 認識中のピースを始めてからの秒
+    var currentPieceElapsed: Double
+
+    /// この呼び出し全体の進み具合(音声の長さの比。0...1)
+    var fraction: Double {
+        guard totalAudioSeconds > 0 else { return 0 }
+        let done = processedAudioSeconds + min(max(fractionInPiece, 0), 1) * currentPieceAudioSeconds
+        return min(max(done / totalAudioSeconds, 0), 1)
+    }
+}
+
+/// 1 ピースの認識中の進捗の見積もり(タイマーから呼ぶ。スレッドセーフ)。
+/// finish() のあとは何も知らせない(完了の通知より後に古い進捗が届かないよう、知らせるのはロックの中)
+private final class WhisperPieceTracker: @unchecked Sendable {
+    /// まだ処理速度が分からない最初のピースで仮に使う「音声 1 秒あたりの推論秒」
+    static let guessedSecondsPerAudioSecond: Double = 0.3
+
+    private let lock = NSLock()
+    private let base: WhisperTranscriptionProgress
+    private let startedAt = Date()
+    private let expectedSeconds: Double
+    private let timeEstimateCap: Double
+    private let baseProgress: Progress
+    private let baseFraction: Double
+    private var fraction: Double = 0
+    private var done = false
+
+    init(base: WhisperTranscriptionProgress, expectedSeconds: Double, timeEstimateCap: Double,
+         baseProgress: Progress, baseFraction: Double) {
+        self.base = base
+        self.expectedSeconds = expectedSeconds
+        self.timeEstimateCap = timeEstimateCap
+        self.baseProgress = baseProgress
+        self.baseFraction = baseFraction
+    }
+
+    /// ピースを始めてからの秒
+    var elapsed: Double {
+        Date().timeIntervalSince(startedAt)
+    }
+
+    /// current は今の kit.progress(WhisperKit は完了・キャンセル時に新しい Progress に差し替える)
+    func sample(current: Progress, report: (WhisperTranscriptionProgress) -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !done else { return }
+        let elapsedSeconds = elapsed
+
+        // WhisperKit の進捗(同じ Progress のままなら開始時からの差分、差し替わっていればそのまま)
+        var fromKit: Double = 0
+        let raw = current.fractionCompleted
+        if raw.isFinite {
+            if current === baseProgress {
+                if baseFraction < 0.999 {
+                    fromKit = (raw - baseFraction) / (1 - baseFraction)
+                }
+            } else {
+                fromKit = raw
+            }
+        }
+        fromKit = min(max(fromKit, 0), 0.99)
+
+        // 時間からの見積もり(これまでのピースの処理速度。最初のピースは仮の速度で控えめに)
+        let fromTime = min(timeEstimateCap, elapsedSeconds / max(expectedSeconds, 1))
+
+        // 後戻りさせない
+        fraction = max(fraction, fromKit, fromTime)
+
+        var update = base
+        update.fractionInPiece = fraction
+        update.currentPieceElapsed = elapsedSeconds
+        report(update)
+    }
+
+    func finish() {
+        lock.lock()
+        done = true
+        lock.unlock()
     }
 }
 

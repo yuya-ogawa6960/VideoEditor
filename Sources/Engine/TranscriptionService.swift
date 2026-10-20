@@ -202,6 +202,128 @@ private final class TranscriptionResumeGuard {
     }
 }
 
+/// 投げっぱなしの Task から届く状態表示の順番づけ。next() は通知を作った順の番号、
+/// claim(_:) はそれまでに反映した番号より新しいときだけ true(古い通知を捨てる)。スレッドセーフ
+private final class StatusSequence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var issued = 0
+    private var applied = 0
+
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        issued += 1
+        return issued
+    }
+
+    func claim(_ sequence: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard sequence > applied else { return false }
+        applied = sequence
+        return true
+    }
+}
+
+/// Whisper 1 回の実行(全クリップ)の進捗の集計。
+/// - ピース番号/全ピース数は WhisperTranscriber の約 5 分のピース単位(まだ始めていないクリップは見込み数)
+/// - 全体の進み具合は音声の長さの比
+/// - 残り時間は、完了したピースの「音声 1 秒あたりの推論秒」から見積もる(最初のピースが終わってから表示)
+/// スレッドセーフ(WhisperTranscriber の進捗は任意のスレッドから届く)
+private final class WhisperRunState: @unchecked Sendable {
+    struct Display {
+        let overall: Double
+        let text: String
+        let sequence: Int
+    }
+
+    private let lock = NSLock()
+    private let clipSeconds: [Double]
+    private let estimatedPieces: [Int]
+    private let sequence = StatusSequence()
+    /// 完了したクリップの集計
+    private var finishedAudio = 0.0
+    private var finishedActive = 0.0
+    private var finishedPieces = 0
+    /// 認識中のクリップの最新の進捗
+    private var current: WhisperTranscriptionProgress?
+
+    init(clipSeconds: [Double]) {
+        self.clipSeconds = clipSeconds
+        self.estimatedPieces = clipSeconds.map { WhisperTranscriber.estimatedPieceCount(seconds: $0) }
+    }
+
+    func claim(_ value: Int) -> Bool {
+        sequence.claim(value)
+    }
+
+    /// clipIndex のクリップの進捗を反映し、表示する全体の進捗と状態文を返す(progress が nil なら開始前)
+    func update(clipIndex: Int, progress: WhisperTranscriptionProgress?) -> Display {
+        lock.lock()
+        defer { lock.unlock() }
+        if let progress { current = progress }
+        let p = progress ?? current
+
+        let index = min(max(clipIndex, 0), max(clipSeconds.count - 1, 0))
+        let later = clipSeconds.isEmpty ? [] : Array((index + 1)..<clipSeconds.count)
+        let laterPieces = later.reduce(0) { $0 + estimatedPieces[$1] }
+        let laterAudio = later.reduce(0.0) { $0 + clipSeconds[$1] }
+        let clipEstimatePieces = clipSeconds.isEmpty ? 1 : estimatedPieces[index]
+        let clipEstimateAudio = clipSeconds.isEmpty ? 0 : clipSeconds[index]
+
+        let currentTotalPieces = max(1, p?.totalPieces ?? clipEstimatePieces)
+        let currentCompleted = p?.completedPieces ?? 0
+        let totalPieces = finishedPieces + currentTotalPieces + laterPieces
+        let pieceNumber = finishedPieces + min(currentCompleted + 1, currentTotalPieces)
+
+        let currentAudio = (p?.totalAudioSeconds ?? 0) > 0 ? (p?.totalAudioSeconds ?? 0) : clipEstimateAudio
+        let totalAudio = finishedAudio + currentAudio + laterAudio
+        let doneInClip = p.map { $0.fraction * $0.totalAudioSeconds } ?? 0
+        let overall = totalAudio > 0 ? min(max((finishedAudio + doneInClip) / totalAudio, 0), 1) : 0
+
+        var text = TranscriptionService.whisperStatusPrefix
+            + " \(pieceNumber)/\(totalPieces) ・ 約\(Int(overall * 100))%"
+
+        // 残り時間(完了したピースが 1 つ以上あるときだけ)
+        let processed = finishedAudio + (p?.processedAudioSeconds ?? 0)
+        let active = finishedActive + (p?.activeSeconds ?? 0)
+        if processed > 0, active > 0 {
+            let secondsPerAudioSecond = active / processed
+            let remaining = max(0, secondsPerAudioSecond * max(0, totalAudio - processed) - (p?.currentPieceElapsed ?? 0))
+            text += " ・ " + Self.remainingText(remaining)
+        }
+
+        return Display(overall: overall, text: text, sequence: sequence.next())
+    }
+
+    /// clipIndex のクリップが終わったら呼ぶ(最新の進捗を完了分として積む)
+    func finishClip(clipIndex: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        let index = min(max(clipIndex, 0), max(clipSeconds.count - 1, 0))
+        if let p = current {
+            finishedAudio += p.totalAudioSeconds
+            finishedActive += p.activeSeconds
+            finishedPieces += p.completedPieces
+        } else if !clipSeconds.isEmpty {
+            // 進捗が届かなかった(音声が空だったなど)
+            finishedAudio += clipSeconds[index]
+            finishedPieces += estimatedPieces[index]
+        }
+        current = nil
+    }
+
+    /// 「残り約 6分」「残り約 1時間5分」「残り1分未満」
+    private static func remainingText(_ seconds: Double) -> String {
+        if seconds < 60 { return "残り1分未満" }
+        let minutes = Int((seconds / 60).rounded(.up))
+        if minutes >= 60 {
+            return "残り約 \(minutes / 60)時間\(minutes % 60)分"
+        }
+        return "残り約 \(minutes)分"
+    }
+}
+
 @Observable
 final class TranscriptionService {
     private(set) var isRunning: Bool = false
@@ -420,14 +542,24 @@ final class TranscriptionService {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        // Whisper: モデルの準備(ダウンロード・読み込み)。終わったらメモリを解放する
+        // Whisper: モデルの準備(ダウンロード・読み込み)。終わったらメモリを解放する。
+        // 状態文は「Whisperモデルをダウンロード中 45%」→「Whisperモデルを準備中(初回のみ数分かかります)… — 経過 1分20秒」。
+        // 投げっぱなしの Task は順不同・遅れて届くことがあるので、番号が新しく、まだ「Whisperモデル」の表示中のときだけ書き換える
+        var whisperRun: WhisperRunState? = nil
         if engine == .whisper {
+            await updateUI(status: "Whisperモデルを確認中…")
+            let prepareSequence = StatusSequence()
             try await WhisperTranscriber.shared.prepare(model: settings.whisperModel) { [weak self] fraction, status in
                 guard let self else { return }
-                Task { await self.updateUI(progress: fraction, status: status) }
+                let seq = prepareSequence.next()
+                Task {
+                    await self.applyRunningStatus(status, progress: fraction, prefix: "Whisperモデル",
+                                                  isCurrent: { prepareSequence.claim(seq) })
+                }
             }
             try checkCancelled()
-            await updateUI(progress: 0, status: "文字起こし中(Whisper)…")
+            whisperRun = WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
+            await updateUI(progress: 0, status: TranscriptionService.whisperStatusPrefix + "…")
         }
         defer {
             if engine == .whisper { WhisperTranscriber.shared.unload() }
@@ -475,9 +607,11 @@ final class TranscriptionService {
                 }
             case .whisper:
                 // Whisper は継続処理中でもバックグラウンドでは推論しない(フォアグラウンドに戻るまで待つ)
-                sourceTokens = try await recognizeClipWithWhisper(job: job, language: language,
-                                                                  doneUnits: doneUnits, totalUnits: totalUnits,
-                                                                  pauseReporter: whisperReporter)
+                let run = whisperRun ?? WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
+                whisperRun = run
+                sourceTokens = try await recognizeClipWithWhisper(job: job, clipIndex: jobIndex, language: language,
+                                                                  run: run, pauseReporter: whisperReporter)
+                run.finishClip(clipIndex: jobIndex)
             case .cloud:
                 if let cloudTokens {
                     sourceTokens = jobIndex < cloudTokens.count ? cloudTokens[jobIndex] : []
@@ -498,8 +632,9 @@ final class TranscriptionService {
             segmenter.hardEnd = job.clipTimelineEnd
             cues.append(contentsOf: segmenter.segment(timelineTokens))
 
-            // まとめて送った経路は、送信の進捗ですでに 1 まで進めている
-            if cloudTokens == nil {
+            // まとめて送った経路は、送信の進捗ですでに 1 まで進めている。
+            // Whisper は音声の長さの比で進めている(ピースの完了通知で反映済み)
+            if cloudTokens == nil, engine != .whisper {
                 await updateUI(progress: Double(doneUnits) / Double(totalUnits), status: nil)
             }
         }
@@ -592,21 +727,31 @@ final class TranscriptionService {
 
     // MARK: - Whisper(端末内)/ クラウドAI
 
-    /// クリップ全体を WhisperKit で認識し、元素材上の秒のトークン列を返す
-    private func recognizeClipWithWhisper(job: ClipJob, language: TranscriptionLanguage,
-                                          doneUnits: Int, totalUnits: Int,
+    /// Whisper の状態文の先頭(applyRunningStatus の prefix にも使う)
+    fileprivate static let whisperStatusPrefix = "文字起こし中(Whisper)"
+
+    /// クリップ全体を WhisperKit で認識し、元素材上の秒のトークン列を返す。
+    /// 状態文は「文字起こし中(Whisper) 3/7 ・ 約12% ・ 残り約 6分」(認識中のピース番号/全ピース数。
+    /// 単位は WhisperTranscriber の約 5 分のピースで、SFSpeech 用の 50 秒チャンク数ではない)
+    private func recognizeClipWithWhisper(job: ClipJob, clipIndex: Int, language: TranscriptionLanguage,
+                                          run: WhisperRunState,
                                           pauseReporter: BackgroundPauseReporter) async throws -> [TimedToken] {
         let clip = job.clip
-        await updateUI(progress: Double(doneUnits) / Double(totalUnits),
-                       status: "文字起こし中(Whisper) \(doneUnits + 1)/\(totalUnits)")
-        let unitCount = Double(job.chunks.count)
+        let initial = run.update(clipIndex: clipIndex, progress: nil)
+        _ = run.claim(initial.sequence)
+        await updateUI(progress: initial.overall, status: initial.text)
         do {
             return try await WhisperTranscriber.shared.transcribe(sourceURL: clip.url, start: clip.startTime, end: clip.endTime,
                                                                    language: language.languageCode,
-                                                                   pauseReporter: pauseReporter) { [weak self] fraction in
+                                                                   pauseReporter: pauseReporter) { [weak self] update in
                 guard let self else { return }
-                let value = (Double(doneUnits) + fraction * unitCount) / Double(totalUnits)
-                Task { await self.updateUI(progress: value, status: nil) }
+                let state = run.update(clipIndex: clipIndex, progress: update)
+                // 投げっぱなしの Task は順不同に届くことがあるので、番号が新しいときだけ書き換える
+                Task {
+                    await self.applyRunningStatus(state.text, progress: state.overall,
+                                                  prefix: TranscriptionService.whisperStatusPrefix,
+                                                  isCurrent: { run.claim(state.sequence) })
+                }
             }
         } catch {
             if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
@@ -709,10 +854,13 @@ final class TranscriptionService {
 
     /// 投げっぱなしの Task から届く進捗の表示。まだ prefix で始まる表示のとき(後続の段階に進んでいないとき)だけ書き換える。
     /// 「一時停止中」「ロック中も…」の表示中は、戻したときに出す文言だけを最新にする。progress は戻さない(大きいときだけ進める)
-    private func applyRunningStatus(_ text: String, progress value: Double?, prefix: String) async {
+    /// isCurrent を渡したときは、メインアクター上でそれが true を返したときだけ書き換える(古い通知を捨てる)
+    private func applyRunningStatus(_ text: String, progress value: Double?, prefix: String,
+                                    isCurrent: (() -> Bool)? = nil) async {
         let handle = continuedHandle
         await MainActor.run {
             guard self.isRunning else { return }
+            if let isCurrent, !isCurrent() { return }
             var applied = false
             if self.statusText.hasPrefix(prefix) {
                 self.statusText = text

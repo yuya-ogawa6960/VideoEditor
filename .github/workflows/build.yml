@@ -60,6 +60,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             build
 
       - name: Package IPA

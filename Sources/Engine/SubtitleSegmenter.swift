@@ -9,6 +9,8 @@ import NaturalLanguage
 //
 // 手順:
 //   0. フィラー(あのー / えーと / um / uh …)・吃音・直後の重複を除去(removeFillers)
+//      日本語では単独の相づち(うん / ふーん / へえ …)とローマ字の相づち(hun? / hmm …)も除去し、
+//      分割後に相づち・句読点だけになった字幕は捨てる
 //   1. トークンを連結して全文を作り、1文字ごとの時刻対応を保持
 //   2. NLTokenizer(.sentence) と 。！？!?. 改行(および長い無音)で「文」に分割
 //      → 文の途中では原則切らない
@@ -54,6 +56,30 @@ struct SubtitleSegmenter {
     static let japaneseClauseStartFillers: Set<String> = ["なんか", "なんて言うか", "なんていうか"]
     /// 日本語: 単独かつ直後に間(> 0.3 秒 or 読点)があるときだけ削除(「その、」)
     static let japanesePauseFillers: Set<String> = ["その", "この", "まあその"]
+
+    /// 日本語: 相づち・感動詞。単独の発話(節の先頭かつ直後に間 or 句読点)のトークンなら削除。
+    /// 「うんうん」「はいはい」のような繰り返しも削除。カタカナ・半角・長音(ー ～ 〜)・小書き母音の表記ゆれは
+    /// backchannelKey で吸収するので、ここには代表的な表記だけを書けばよい
+    static let japaneseBackchannels: [String] = [
+        "うん", "うんうん", "ふーん", "ふん", "へえ", "へー", "ほう", "ほー",
+        "ああ", "あー", "おお", "おー", "ええ", "はい",
+    ]
+    /// 日本語: 字幕全体がこれ(と上の相づち)だけのときに限り、その字幕ごと削除
+    static let japaneseCueOnlyBackchannels: [String] = [
+        "なるほど", "そうそう", "そっか",
+    ]
+    /// 日本語モードのみ: クラウド認識がローマ字で書いた相づち(hun? / hmm など)。
+    /// トークン全体がこれ(大文字小文字無視・末尾の ?!.,… は無視)で、前後が英語の本文でないときだけ削除
+    static let japaneseLatinInterjections: [String] = [
+        "hun", "hmm", "hm", "mm", "mhm", "mm-hmm", "uh", "uh-huh", "um", "ah", "oh", "eh", "huh",
+        "yeah", "yep", "nn", "n", "un", "fun", "hee", "hai", "aa", "oo", "ee",
+        "hmmm", "mmm", "umm", "uhh", "ahh", "ohh", "hunn", "nnn", "mmhmm", "mm-hm", "uh-hu",
+    ]
+
+    private static let japaneseBackchannelKeys: Set<String> = Set(japaneseBackchannels.map { SubtitleSegmenter.backchannelKey($0) })
+    private static let japaneseCueBackchannelKeys: Set<String> =
+        japaneseBackchannelKeys.union(japaneseCueOnlyBackchannels.map { SubtitleSegmenter.backchannelKey($0) })
+    private static let japaneseLatinInterjectionKeys: Set<String> = Set(japaneseLatinInterjections.map { SubtitleSegmenter.backchannelKey($0) })
 
     /// 英語: 単独トークンなら常に削除(小文字・句読点除去後で比較)
     static let englishFillers: Set<String> = [
@@ -148,6 +174,9 @@ struct SubtitleSegmenter {
             guard let r = trimmed(range, layout) else { continue }
             let text = Self.cleanCueText(layout.text(of: r))
             guard !text.isEmpty else { continue }
+            // 句読点・記号だけ、または相づちだけの字幕は出さない
+            if Self.isPunctuationOnly(text) { continue }
+            if removeFillers, Self.isBackchannelOnlyText(text, language: language) { continue }
             let start = layout.starts[r.lowerBound]
             let end = max(start, layout.ends[r.upperBound - 1])
             var cue = SubtitleCue(start: start, end: end, text: text)
@@ -280,6 +309,17 @@ struct SubtitleSegmenter {
                     drop = true
                 } else if japanesePauseFillers.contains(core), pauseAfter {
                     drop = true
+                } else {
+                    let key = backchannelKey(token.text)
+                    if clauseStart, pauseAfter, isComposed(of: japaneseBackchannelKeys, key) {
+                        // 単独の相づち(「うん、」「ふーん。」「はいはい」)
+                        drop = true
+                    } else if japaneseLatinInterjectionKeys.contains(key),
+                              !isLatinContentToken(prev?.text),
+                              !isLatinContentToken(next?.text) {
+                        // ローマ字の相づち("hun?" "Hmm.")。英語の本文の一部なら残す
+                        drop = true
+                    }
                 }
             case .english:
                 let nextCore = next.map { coreText($0.text, language: language) } ?? ""
@@ -386,6 +426,90 @@ struct SubtitleSegmenter {
             return true
         default:
             return false
+        }
+    }
+
+    // MARK: - 相づちの判定
+
+    /// 相づち照合用の正規化キー: 全角/半角の統一(NFKC)・カタカナ→ひらがな・小文字化・
+    /// 長音(ー ～ 〜 ~ と小書き母音)を「ー」1 つに統一・前後の句読点と空白を除去
+    static func backchannelKey(_ text: String) -> String {
+        var s = text.precomposedStringWithCompatibilityMapping
+        s = s.applyingTransform(.hiraganaToKatakana, reverse: true) ?? s
+        s = s.lowercased()
+        let longMarks: Set<Unicode.Scalar> = ["ー", "～", "〜", "~", "〰", "ｰ", "ぁ", "ぃ", "ぅ", "ぇ", "ぉ"]
+        var view = String.UnicodeScalarView()
+        for scalar in s.unicodeScalars {
+            if longMarks.contains(scalar) {
+                if view.last != "ー" { view.append("ー") }
+            } else {
+                view.append(scalar)
+            }
+        }
+        let scalars = Array(view)
+        var lo = 0
+        var hi = scalars.count
+        while lo < hi, isPunctuationOrSpace(scalars[lo]) { lo += 1 }
+        while hi > lo, isPunctuationOrSpace(scalars[hi - 1]) { hi -= 1 }
+        var core = String.UnicodeScalarView()
+        core.append(contentsOf: scalars[lo..<hi])
+        return String(core)
+    }
+
+    /// key が辞書の語の繰り返し・連結だけでできているか(「うんうん」「はいはい」「ああ」)。
+    /// 末尾の促音(「ああっ」「へえっ」)は無視する
+    private static func isComposed(of dictionary: Set<String>, _ key: String) -> Bool {
+        var chars = Array(key)
+        while chars.count > 1, chars.last == "っ" { chars.removeLast() }
+        guard !chars.isEmpty, chars.count <= 24 else { return false }
+        var reachable = [Bool](repeating: false, count: chars.count + 1)
+        reachable[0] = true
+        for i in 0..<chars.count where reachable[i] {
+            for j in (i + 1)...chars.count where !reachable[j] {
+                if dictionary.contains(String(chars[i..<j])) { reachable[j] = true }
+            }
+        }
+        return reachable[chars.count]
+    }
+
+    /// 英字を含み、ローマ字の相づちではない(=英語の本文の)トークンか
+    private static func isLatinContentToken(_ text: String?) -> Bool {
+        guard let text else { return false }
+        let key = backchannelKey(text)
+        guard key.unicodeScalars.contains(where: { isASCIIAlphanumeric($0) && !($0.value >= 48 && $0.value <= 57) }) else {
+            return false
+        }
+        return !japaneseLatinInterjectionKeys.contains(key)
+    }
+
+    /// 句読点・記号・空白だけの文字列か
+    static func isPunctuationOnly(_ text: String) -> Bool {
+        text.unicodeScalars.allSatisfy { isPunctuationOrSpace($0) }
+    }
+
+    /// 字幕本文が相づち(日本語)/フィラー(英語)だけでできているか。句読点・空白は無視
+    static func isBackchannelOnlyText(_ text: String, language: TranscriptionLanguage) -> Bool {
+        // 長音記号(〜 ～)が区切り扱いにならないよう、先に正規化してから区切る
+        let normalized = language == .japanese ? backchannelKey(text) : text.lowercased()
+        var pieces: [String] = []
+        var current = String.UnicodeScalarView()
+        for scalar in normalized.unicodeScalars {
+            if isPunctuationOrSpace(scalar) {
+                if !current.isEmpty { pieces.append(String(current)) }
+                current = String.UnicodeScalarView()
+            } else {
+                current.append(scalar)
+            }
+        }
+        if !current.isEmpty { pieces.append(String(current)) }
+        guard !pieces.isEmpty else { return true }
+        switch language {
+        case .japanese:
+            return pieces.allSatisfy { piece in
+                japaneseLatinInterjectionKeys.contains(piece) || isComposed(of: japaneseCueBackchannelKeys, piece)
+            }
+        case .english:
+            return pieces.allSatisfy { englishFillers.contains($0) }
         }
     }
 

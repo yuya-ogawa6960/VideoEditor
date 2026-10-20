@@ -64,7 +64,7 @@ struct CoverMakerView: View {
                     outputSection
                 }
             }
-            .navigationTitle("サムネ作成")
+            .navigationTitle("表紙を作る")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -382,7 +382,7 @@ struct CoverMakerView: View {
                 .buttonStyle(.borderless)
             }
 
-            Toggle("映像の色味(フィルタ・ルック)を適用", isOn: $project.cover.applyLook)
+            Toggle("動画と同じ色味(フィルタ)にする", isOn: $project.cover.applyLook)
         } header: {
             Text("メモ風カード")
         } footer: {
@@ -445,7 +445,7 @@ struct CoverMakerView: View {
 
             if let shareURL {
                 ShareLink(item: shareURL) {
-                    Label("共有・ファイルに保存", systemImage: "square.and.arrow.up")
+                    Label("送る・ファイルに保存", systemImage: "square.and.arrow.up")
                 }
             } else {
                 Button {
@@ -457,15 +457,15 @@ struct CoverMakerView: View {
                             Text("画像を作成中…")
                         }
                     } else {
-                        Label("共有用の画像を作成", systemImage: "square.and.arrow.up")
+                        Label("送るための画像を作る", systemImage: "square.and.arrow.up")
                     }
                 }
                 .disabled(isPreparingShare || !canRender)
             }
         } header: {
-            Text("書き出し")
+            Text("保存・送る")
         } footer: {
-            Text("書き出し設定の画面比率で、幅 \(Int(outputWidth)) px の JPEG を作ります。")
+            Text("「書き出し」で選んだ画面の形で、幅 \(Int(outputWidth)) px の画像(JPEG)を作ります。YouTube のサムネイルなどに使えます。")
         }
     }
 
@@ -514,7 +514,7 @@ struct CoverMakerView: View {
                 renderError = nil
             } catch {
                 if Task.isCancelled || generation != renderGeneration { return }
-                renderError = "プレビューを作成できませんでした: \(error.localizedDescription)"
+                renderError = "プレビューを作れませんでした。背景のコマや写真を選び直してください。(詳細: " + error.localizedDescription + ")"
             }
             isRendering = false
         }
@@ -572,11 +572,11 @@ struct CoverMakerView: View {
                     project.cover.imageURL = picked.url
                 } else {
                     alertTitle = "写真を読み込めませんでした"
-                    alertMessage = "この写真は読み込めない形式です。"
+                    alertMessage = "別の写真を選んでください(この写真は読み込めない形式です)。"
                 }
             } catch {
                 alertTitle = "写真を読み込めませんでした"
-                alertMessage = error.localizedDescription
+                alertMessage = "もう一度「写真を選ぶ」から選び直してください。\n\n詳細: " + error.localizedDescription
             }
             photoItem = nil
         }
@@ -595,10 +595,10 @@ struct CoverMakerView: View {
                 let image = try await CoverRenderer.render(snapshot: snapshot, cover: cover, size: size)
                 try await CoverRenderer.saveToPhotos(image)
                 alertTitle = "保存しました"
-                alertMessage = "サムネ画像を写真アプリに保存しました。"
+                alertMessage = "表紙の画像を写真アプリに保存しました。"
             } catch {
                 alertTitle = "保存できませんでした"
-                alertMessage = error.localizedDescription
+                alertMessage = "設定アプリでこのアプリの「写真」への追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: " + error.localizedDescription
             }
             isSaving = false
         }
@@ -624,8 +624,8 @@ struct CoverMakerView: View {
                 try data.write(to: url, options: .atomic)
                 shareURL = url
             } catch {
-                alertTitle = "画像を作成できませんでした"
-                alertMessage = error.localizedDescription
+                alertTitle = "画像を作れませんでした"
+                alertMessage = "端末の空き容量を確かめて、もう一度お試しください。\n\n詳細: " + error.localizedDescription
             }
             isPreparingShare = false
         }

@@ -108,10 +108,12 @@ struct ProjectLibraryView: View {
                     Button {
                         isImporterPresented = true
                     } label: {
-                        Label("読み込み", systemImage: "square.and.arrow.down")
+                        Label("プロジェクトを受け取る", systemImage: "square.and.arrow.down")
+                            .labelStyle(.titleAndIcon)
+                            .font(.subheadline)
                     }
                     .disabled(isImporting || exportingMeta != nil)
-                    .accessibilityLabel("プロジェクトを読み込み")
+                    .accessibilityLabel("プロジェクトを受け取る")
                 }
             }
             .fileImporter(isPresented: $isImporterPresented,
@@ -198,12 +200,29 @@ struct ProjectLibraryView: View {
                 .font(.system(size: 44))
                 .foregroundStyle(.secondary)
             Text("まだプロジェクトがありません")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text("「新しいプロジェクト」から編集を始めましょう。\n編集内容はプロジェクトごとに自動保存されます。")
+                .font(.headline)
+                .foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("1. 上の「新しいプロジェクト」を押す")
+                Text("2. 「動画・写真を追加」で素材を選ぶ")
+                Text("3. 編集して「書き出し」で写真アプリに保存")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            Text("編集内容は自動で保存されるので、途中でやめても大丈夫です。")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
+            Button {
+                isImporterPresented = true
+            } label: {
+                Label("別の端末からプロジェクトを受け取る", systemImage: "square.and.arrow.down")
+                    .font(.subheadline)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isImporting || exportingMeta != nil)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
@@ -230,13 +249,13 @@ struct ProjectLibraryView: View {
             VStack(spacing: 12) {
                 if let meta = exportingMeta {
                     ProgressView(value: min(max(exportProgress, 0), 1))
-                    Text("「\(meta.name)」を書き出し中… \(Int((min(max(exportProgress, 0), 1) * 100).rounded()))%")
+                    Text("「\(meta.name)」を送る準備中… \(Int((min(max(exportProgress, 0), 1) * 100).rounded()))%")
                         .font(.callout)
                         .monospacedDigit()
                         .multilineTextAlignment(.center)
                 } else {
                     ProgressView()
-                    Text("プロジェクトを読み込み中…")
+                    Text("プロジェクトを受け取り中…")
                         .font(.callout)
                 }
             }
@@ -284,7 +303,8 @@ struct ProjectLibraryView: View {
                 packageShareItem = PackageShareItem(url: url, name: meta.name)
             } catch {
                 exportingMeta = nil
-                showAlert("書き出せませんでした", error.localizedDescription)
+                showAlert("送る準備ができませんでした",
+                          "端末の空き容量を確かめて、もう一度「別の端末へ送る」を押してください。\n\n詳細: " + error.localizedDescription)
             }
         }
     }
@@ -292,7 +312,8 @@ struct ProjectLibraryView: View {
     private func handlePackageImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            showAlert("読み込みエラー", error.localizedDescription)
+            showAlert("ファイルを開けませんでした",
+                      "もう一度「プロジェクトを受け取る」から選び直してください。\n\n詳細: " + error.localizedDescription)
         case .success(let urls):
             guard let url = urls.first else { return }
             isImporting = true
@@ -300,10 +321,10 @@ struct ProjectLibraryView: View {
                 do {
                     let meta = try await ProjectPackage.importPackage(from: url)
                     isImporting = false
-                    showAlert("読み込み完了", "「\(meta.name)」を読み込みました。一覧から開けます。")
+                    showAlert("受け取りました", "「\(meta.name)」を一覧に追加しました。タップすると開けます。")
                 } catch {
                     isImporting = false
-                    showAlert("読み込めませんでした", "選んだ項目は Video Mania のプロジェクト(.videomania)ではないか、壊れている可能性があります。\n\(error.localizedDescription)")
+                    showAlert("受け取れませんでした", "「別の端末へ送る」で作ったファイル(名前が .videomania で終わるもの)を選んでください。送る途中で壊れた場合は、送り直してもらってください。\n\n詳細: " + error.localizedDescription)
                 }
             }
         }
@@ -330,15 +351,15 @@ private struct PackageShareSheet: View {
                 Image(systemName: "shippingbox")
                     .font(.system(size: 44))
                     .foregroundStyle(.secondary)
-                Text("「\(item.name)」をパッケージにしました")
+                Text("「\(item.name)」を送る準備ができました")
                     .font(.headline)
                     .multilineTextAlignment(.center)
-                Text("ファイル名: \(item.url.lastPathComponent)\n「ファイル」アプリや AirDrop で別の端末に送り、プロジェクト一覧の「読み込み」から取り込めます。素材の動画・写真も一緒に入っているため、サイズは大きくなります。")
+                Text("AirDrop や「ファイル」アプリで別の端末に送ってください。受け取った端末では、プロジェクト一覧の「プロジェクトを受け取る」から開けます。素材の動画・写真も一緒に入るため、ファイルは大きめです。\nファイル名: \(item.url.lastPathComponent)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 ShareLink(item: item.url) {
-                    Label("共有・ファイルに保存", systemImage: "square.and.arrow.up")
+                    Label("送る・ファイルに保存", systemImage: "square.and.arrow.up")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
@@ -346,7 +367,7 @@ private struct PackageShareSheet: View {
                 .buttonStyle(.borderedProminent)
             }
             .padding(24)
-            .navigationTitle("プロジェクトの書き出し")
+            .navigationTitle("別の端末へ送る")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -407,10 +428,12 @@ private struct ProjectCardView: View {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color.white.opacity(0.85))
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
-                .accessibilityLabel("その他")
+                .padding(.top, -8)
+                .padding(.trailing, -8)
+                .accessibilityLabel("その他の操作")
             }
         }
         .contextMenu {
@@ -423,8 +446,8 @@ private struct ProjectCardView: View {
     }
 
     private var subtitle: String {
-        let date = meta.updatedAt.formatted(date: .numeric, time: .shortened)
-        return "\(date) ・ \(meta.clipCount) クリップ"
+        let date = ProjectDateText.relative(meta.updatedAt)
+        return date + " ・ \(meta.clipCount) クリップ"
     }
 
     private var durationBadge: some View {
@@ -447,7 +470,7 @@ private struct ProjectCardView: View {
             Label("複製", systemImage: "plus.square.on.square")
         }
         Button(action: onExport) {
-            Label("書き出し(.videomania)", systemImage: "shippingbox")
+            Label("別の端末へ送る", systemImage: "shippingbox")
         }
         Button(role: .destructive, action: onDelete) {
             Label("削除", systemImage: "trash")
@@ -492,5 +515,28 @@ private enum ProjectDurationText {
         guard seconds.isFinite else { return "0:00" }
         let total = Int(max(0, seconds).rounded(.down))
         return "\(total / 60):" + String(format: "%02d", total % 60)
+    }
+}
+
+// MARK: - 日付表示
+
+private enum ProjectDateText {
+    /// 「今日 14:05」「昨日 9:30」「3日前」「2025/10/01」のような、わかりやすい日付
+    static func relative(_ date: Date, now: Date = Date()) -> String {
+        let calendar = Calendar.current
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDateInToday(date) {
+            return "今日 " + time
+        }
+        if calendar.isDateInYesterday(date) {
+            return "昨日 " + time
+        }
+        let startOfDate = calendar.startOfDay(for: date)
+        let startOfNow = calendar.startOfDay(for: now)
+        let days: Int = calendar.dateComponents([.day], from: startOfDate, to: startOfNow).day ?? 0
+        if days >= 2 && days < 7 {
+            return "\(days)日前"
+        }
+        return date.formatted(date: .numeric, time: .omitted)
     }
 }

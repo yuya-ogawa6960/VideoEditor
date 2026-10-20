@@ -29,7 +29,7 @@ struct MulticamEditorView: View {
             pickerItems = []
             Task { await addAngles(items) }
         }
-        .alert("エラー", isPresented: errorIsPresented) {
+        .alert("うまくいきませんでした", isPresented: errorIsPresented) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
@@ -94,7 +94,7 @@ struct MulticamEditorView: View {
                 }
 
                 if clip.multicam.angles.isEmpty {
-                    Text("アングルを追加すると、再生しながらボタンで切り替えられます。")
+                    Text("同じ場面を別のカメラで撮った動画を「アングルを追加」で入れると、再生しながらボタンで切り替えられます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -154,7 +154,7 @@ struct MulticamEditorView: View {
             } header: {
                 Text("アングル")
             } footer: {
-                Text("オフセット: アングル素材の時刻 = メイン素材の時刻 + オフセット")
+                Text("「ずれ」は、別のカメラの映像とメインの映像のタイミングの差です。まず「自動で合わせる」を押すと、音を聞き比べて自動でそろえます。手で直すときは、口の動きと声が合うまで ±ボタンで調整します(+ にするとアングルの映像が先に進みます)。")
             }
 
             // 切替一覧
@@ -213,7 +213,7 @@ struct MulticamEditorView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    Text(String(format: "オフセット %+.2f 秒", angle.offset))
+                    Text(String(format: "ずれ %+.2f 秒", angle.offset))
                         .font(.caption)
                         .monospacedDigit()
                 }
@@ -224,8 +224,11 @@ struct MulticamEditorView: View {
                     deleteAngle(id: angle.id)
                 } label: {
                     Image(systemName: "trash")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("このアングルを削除")
             }
 
             HStack(spacing: 6) {
@@ -239,7 +242,7 @@ struct MulticamEditorView: View {
                         } else {
                             Image(systemName: "waveform")
                         }
-                        Text("自動同期")
+                        Text("自動で合わせる")
                     }
                     .font(.caption)
                 }
@@ -255,6 +258,11 @@ struct MulticamEditorView: View {
             }
 
             Slider(value: offsetBinding(angleID: angle.id), in: -10...10)
+            if !clip.hasAudio {
+                Text("メインの動画に音がないため、自動で合わせられません。±ボタンで合わせてください。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 4)
     }
@@ -266,9 +274,11 @@ struct MulticamEditorView: View {
             Text(title)
                 .font(.caption2)
                 .monospacedDigit()
+                .frame(minHeight: 32)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
+        .accessibilityLabel("ずれを " + title + " 秒")
     }
 
     private func switchRow(_ item: AngleSwitch, clip: Clip, clipStart: Double) -> some View {
@@ -327,7 +337,7 @@ struct MulticamEditorView: View {
         guard let clipIndex = project.index(of: clipID),
               let location = project.locate(timelineTime: player.currentTime),
               location.index == clipIndex else {
-            errorMessage = "再生位置がこのクリップの範囲外です。クリップ内で切り替えてください。"
+            errorMessage = "「先頭へ」を押して再生位置をこのクリップの中に移してから、切り替えボタンを押してください。"
             return
         }
         let time = location.sourceTime
@@ -402,7 +412,7 @@ struct MulticamEditorView: View {
                 let offset = try await AudioSync.estimateOffset(mainURL: mainURL, angleURL: angleURL)
                 setOffset(offset, angleID: angleID)
             } catch {
-                errorMessage = "自動同期に失敗しました。\n\(error.localizedDescription)"
+                errorMessage = "±ボタンで、口の動きと声が合うまで手で調整してください(両方の動画に同じ音が入っていないと自動では合わせられません)。\n\n詳細: " + error.localizedDescription
             }
             syncingAngleIDs.remove(angleID)
         }
@@ -428,7 +438,7 @@ struct MulticamEditorView: View {
         }
         isAddingAngles = false
         if !failures.isEmpty {
-            errorMessage = "\(failures.count)件のアングルを追加できませんでした。\n" + failures.joined(separator: "\n")
+            errorMessage = "もう一度「アングルを追加」から選び直してください。\(failures.count)件の動画を追加できませんでした。\n" + failures.joined(separator: "\n")
         }
     }
 }

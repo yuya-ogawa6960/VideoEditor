@@ -53,14 +53,14 @@ struct ClipEditorView: View {
             }
 
             // トリミング
-            Section("トリミング") {
+            Section("使う部分(トリミング)") {
                 HStack(alignment: .top, spacing: 12) {
                     trimThumbnail(startThumbnail ?? current.thumbnail)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("開始 \(MediaTimeText.precise(current.startTime))")
                         Text("終了 \(MediaTimeText.precise(current.endTime))")
                         Text("長さ \(MediaTimeText.precise(current.trimmedDuration))")
-                        Text("出力 \(MediaTimeText.precise(current.outputDuration))")
+                        Text("速度を反映した長さ \(MediaTimeText.precise(current.outputDuration))")
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption)
@@ -85,7 +85,7 @@ struct ClipEditorView: View {
                         .font(.caption)
                     Slider(value: endBinding(clip), in: 0...upper)
                 }
-                Button("トリミングをリセット") {
+                Button("使う部分を元に戻す") {
                     var updated = clip.wrappedValue
                     updated.startTime = 0
                     updated.endTime = updated.duration
@@ -120,11 +120,11 @@ struct ClipEditorView: View {
             }
 
             // 音声
-            Section("音声") {
-                Toggle("ミュート", isOn: clip.isMuted)
+            Section("音") {
+                Toggle("音を消す(ミュート)", isOn: clip.isMuted)
                     .disabled(!current.hasAudio)
                 if !current.hasAudio {
-                    Text("このクリップには音声がありません")
+                    Text("このクリップには音がありません")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

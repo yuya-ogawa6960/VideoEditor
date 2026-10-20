@@ -28,17 +28,17 @@ enum TransitionType: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .none: return "なし"
-        case .dissolve: return "ディゾルブ"
-        case .fadeBlack: return "黒へフェード"
-        case .fadeWhite: return "白へフェード"
+        case .dissolve: return "じわっと切り替え"
+        case .fadeBlack: return "黒を挟む"
+        case .fadeWhite: return "白を挟む"
         case .slideLeft: return "左へスライド"
         case .slideRight: return "右へスライド"
         case .slideUp: return "上へスライド"
         case .slideDown: return "下へスライド"
         case .zoomIn: return "ズームイン"
         case .zoomOut: return "ズームアウト"
-        case .wipeLeft: return "左へワイプ"
-        case .wipeRight: return "右へワイプ"
+        case .wipeLeft: return "左へ拭き取り"
+        case .wipeRight: return "右へ拭き取り"
         case .blur: return "ぼかし"
         }
     }
@@ -59,7 +59,7 @@ enum ClipAnimationType: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .none: return "なし"
-        case .fade: return "フェード"
+        case .fade: return "ふわっと"
         case .slideFromLeft: return "左から"
         case .slideFromRight: return "右から"
         case .slideFromBottom: return "下から"
@@ -167,8 +167,8 @@ enum MarkerKind: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .note: return "メモ"
-        case .chapter: return "チャプター"
-        case .beat: return "ビート"
+        case .chapter: return "章の区切り"
+        case .beat: return "音楽の拍"
         }
     }
 }
@@ -245,7 +245,7 @@ enum TextAnimationType: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .none: return "なし"
-        case .fade: return "フェード"
+        case .fade: return "ふわっと"
         case .typewriter: return "タイプライター"
         case .pop: return "ポップ"
         case .slideUp: return "下から"

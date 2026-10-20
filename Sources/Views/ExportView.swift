@@ -2,7 +2,7 @@ import SwiftUI
 import Observation
 import UIKit
 
-// MARK: - プリセット
+// MARK: - プリセット(使いみち別)
 
 fileprivate enum ExportViewPreset: String, CaseIterable, Identifiable {
     case snsShort, youtube, longHigh, uhd4k
@@ -11,19 +11,19 @@ fileprivate enum ExportViewPreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .snsShort: return "SNSショート"
-        case .youtube: return "YouTube横"
-        case .longHigh: return "長尺・高画質"
-        case .uhd4k: return "4K高画質"
+        case .snsShort: return "SNS(縦動画)"
+        case .youtube: return "YouTube(横動画)"
+        case .longHigh: return "きれいに残す"
+        case .uhd4k: return "4K(いちばんきれい)"
         }
     }
 
     var detail: String {
         switch self {
-        case .snsShort: return "9:16・1080p・30fps・軽量"
-        case .youtube: return "16:9・1080p・30fps・標準"
-        case .longHigh: return "元のまま・1080p・30fps・高画質"
-        case .uhd4k: return "元のまま・4K・30fps・高画質"
+        case .snsShort: return "TikTok・Instagram・ショート向け。縦長で軽め"
+        case .youtube: return "横長のふつうの動画。画質と大きさのバランスが良い"
+        case .longHigh: return "元の形のまま高画質。保存用や長い動画に"
+        case .uhd4k: return "細かいところまでくっきり。ファイルは大きめ"
         }
     }
 
@@ -98,7 +98,7 @@ fileprivate enum ExportGIFRange: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .whole: return "全体"
-        case .marker: return "マーカー区間"
+        case .marker: return "目印の区間"
         case .custom: return "開始〜終了"
         }
     }
@@ -118,6 +118,8 @@ struct ExportView: View {
     @State private var isSavingToPhotos: Bool = false
     @State private var alertTitle: String = ""
     @State private var alertMessage: String?
+    @State private var alertOffersSettings: Bool = false
+    /// 「詳細設定」を開いているか
     @State private var showAdvanced: Bool = false
 
     // 縦横同時 / 比較
@@ -148,14 +150,21 @@ struct ExportView: View {
     var body: some View {
         NavigationStack {
             Form {
+                resultSection
                 presetSection
-                customSection
-                advancedSection
-                infoSection
-                storageSection
-                exportSection
-                extrasSection
+                summarySection
+                advancedToggleSection
+                if showAdvanced {
+                    savedPresetSection
+                    customSection
+                    advancedSection
+                    infoSection
+                }
+                moreSection
                 historySection
+            }
+            .safeAreaInset(edge: .bottom) {
+                bottomBar
             }
             .navigationTitle("書き出し")
             .navigationBarTitleDisplayMode(.inline)
@@ -185,6 +194,11 @@ struct ExportView: View {
                 get: { alertMessage != nil },
                 set: { if !$0 { alertMessage = nil } }
             )) {
+                if alertOffersSettings {
+                    Button("設定を開く") {
+                        openSystemSettings()
+                    }
+                }
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(alertMessage ?? "")
@@ -192,66 +206,201 @@ struct ExportView: View {
         }
     }
 
-    // MARK: プリセット
+    // MARK: プリセット(使いみち)
+
+    /// 素材の向きから選ぶおすすめ(縦の素材なら SNS、横なら YouTube)
+    private var recommendedPreset: ExportViewPreset {
+        switch project.canvas.aspect {
+        case .portrait9x16, .portrait4x5:
+            return .snsShort
+        case .landscape16x9:
+            return .youtube
+        default:
+            break
+        }
+        if let size = project.clips.first?.displaySize, size.width > 0, size.height > 0 {
+            return size.height > size.width ? .snsShort : .youtube
+        }
+        return .snsShort
+    }
 
     private var presetSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("組み込み + 保存したプリセット(長押しで名前変更・削除)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ExportPresetBar(project: project, isDisabled: exporter.isRunning)
-            }
-
+        let recommended = recommendedPreset
+        return Section {
             ForEach(ExportViewPreset.allCases) { preset in
-                Button {
-                    project.canvas = preset.apply(to: project.canvas)
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: preset.systemImage)
-                            .frame(width: 26)
-                            .foregroundStyle(Color.accentColor)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(preset.title)
-                                .foregroundStyle(Color.primary)
-                            Text(preset.detail)
-                                .font(.caption)
-                                .foregroundStyle(Color.secondary)
-                        }
-                        Spacer()
-                        if preset.matches(project.canvas) {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Color.accentColor)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .disabled(exporter.isRunning)
+                presetRow(preset, isRecommended: preset == recommended)
             }
         } header: {
-            Text("プリセット")
+            Text("どこで使いますか?")
         } footer: {
             if !ExportViewPreset.allCases.contains(where: { $0.matches(project.canvas) }) {
-                Text("カスタム設定")
+                Text("いまは「詳細設定」で決めた設定で書き出します。上から選ぶと、その使いみちに合わせて設定し直します。")
             }
         }
     }
 
-    // MARK: 個別設定
+    private func presetRow(_ preset: ExportViewPreset, isRecommended: Bool) -> some View {
+        let selected = preset.matches(project.canvas)
+        return Button {
+            project.canvas = preset.apply(to: project.canvas)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: preset.systemImage)
+                    .font(.title3)
+                    .frame(width: 30)
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(preset.title)
+                            .font(.body.weight(selected ? .semibold : .regular))
+                            .foregroundStyle(Color.primary)
+                        if isRecommended {
+                            Text("おすすめ")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(Color.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.orange))
+                        }
+                    }
+                    Text(preset.detail)
+                        .font(.caption)
+                        .foregroundStyle(Color.secondary)
+                }
+                Spacer()
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.5))
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(exporter.isRunning)
+    }
+
+    // MARK: ひとことまとめ(サイズ・長さ・空き容量)
+
+    private var orientationWord: String {
+        let size = outputSize
+        if size.width > size.height { return "横" }
+        if size.width < size.height { return "縦" }
+        return "正方形"
+    }
+
+    private var outputSize: CGSize {
+        CompositionBuilder.renderSize(for: project.snapshot(), purpose: .export)
+    }
+
+    private var summaryLine: String {
+        let size = outputSize
+        let w = Int(size.width.rounded())
+        let h = Int(size.height.rounded())
+        var text = orientationWord + " \(w)×\(h)・長さ " + exportDurationString(timelineDuration)
+        if let estimate {
+            let bytes: Int64 = dualExport ? estimate.estimatedOutputBytes * 2 : estimate.estimatedOutputBytes
+            text += "・約 " + StorageEstimator.formatBytes(bytes)
+        }
+        return text
+    }
+
+    private var summarySection: some View {
+        Section {
+            Label(summaryLine, systemImage: "film.stack")
+                .font(.subheadline)
+
+            if let estimate {
+                if estimate.canExport && dualStorageOK {
+                    Label("空き容量は足りています(空き " + StorageEstimator.formatBytes(estimate.availableBytes) + ")",
+                          systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.green)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("空き容量が足りません", systemImage: "xmark.octagon.fill")
+                            .foregroundStyle(Color.red)
+                        Text(shortfallText(estimate))
+                            .font(.caption)
+                            .foregroundStyle(Color.red)
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("容量を計算中…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Toggle("写真アプリにも保存", isOn: $saveToPhotos)
+                .disabled(exporter.isRunning)
+        } header: {
+            Text("書き出す内容")
+        }
+    }
+
+    private func shortfallText(_ estimate: StorageEstimate) -> String {
+        let need: Int64
+        if dualExport {
+            need = max(0, estimate.requiredBytes * 2 - estimate.availableBytes)
+        } else {
+            need = estimate.shortfallBytes
+        }
+        return "不要な写真・動画・アプリを削除して、あと " + StorageEstimator.formatBytes(need) + " 空けてください。画質を下げる(「SNS」を選ぶなど)と小さくなります。"
+    }
+
+    // MARK: 詳細設定
+
+    private var advancedToggleSection: some View {
+        Section {
+            Button {
+                withAnimation {
+                    showAdvanced.toggle()
+                }
+            } label: {
+                HStack {
+                    Label("詳細設定", systemImage: "slider.horizontal.3")
+                        .foregroundStyle(Color.primary)
+                    Spacer()
+                    Image(systemName: showAdvanced ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } footer: {
+            if !showAdvanced {
+                Text("画面の形・細かさ・画質などを自分で決めたいときに開きます。ふつうは上の使いみちを選ぶだけで大丈夫です。")
+            }
+        }
+    }
+
+    private var savedPresetSection: some View {
+        Section {
+            ExportPresetBar(project: project, isDisabled: exporter.isRunning)
+        } header: {
+            Text("保存した設定")
+        } footer: {
+            Text("よく使う設定を保存して呼び出せます(長押しで名前変更・削除)。")
+        }
+    }
 
     private var customSection: some View {
         Section {
-            Picker("画面比率", selection: $project.canvas.aspect) {
+            Picker("画面の形", selection: $project.canvas.aspect) {
                 ForEach(CanvasAspect.allCases) { a in
                     Text(a.displayName).tag(a)
                 }
             }
-            Picker("はみ出し・余白", selection: $project.canvas.scaling) {
+            Picker("形が合わないとき", selection: $project.canvas.scaling) {
                 ForEach(ScalingMode.allCases) { s in
                     Text(s.displayName).tag(s)
                 }
             }
-            Picker("解像度", selection: $project.canvas.resolution) {
+            Picker("細かさ(解像度)", selection: $project.canvas.resolution) {
                 ForEach(ResolutionCap.allCases) { r in
                     Text(r.displayName).tag(r)
                 }
@@ -262,12 +411,12 @@ struct ExportView: View {
                 }
             }
         } header: {
-            Text("出力設定")
+            Text("画面と画質")
+        } footer: {
+            Text("「形が合わないとき」は、素材と画面の形が違うときに、黒帯・ぼかし背景で全体を見せるか、はみ出す部分を切るかを選びます。解像度は数字が大きいほどきれいで、ファイルも大きくなります。")
         }
         .disabled(exporter.isRunning)
     }
-
-    // MARK: 詳細設定
 
     /// 画質・解像度・コーデックから自動で決まる映像ビットレート(Mbps)。
     /// 書き出しエンジン(StorageEstimator.videoBitrate)と同じ計算を、手動指定なしの状態で行う
@@ -311,75 +460,79 @@ struct ExportView: View {
 
     private var advancedSection: some View {
         Section {
-            DisclosureGroup("詳細設定", isExpanded: $showAdvanced) {
-                Picker("コーデック", selection: $project.canvas.codec) {
-                    ForEach(ExportCodec.allCases) { codec in
-                        Text(codec.displayName).tag(codec)
-                    }
+            Picker("保存形式(コーデック)", selection: $project.canvas.codec) {
+                ForEach(ExportCodec.allCases) { codec in
+                    Text(codec.displayName).tag(codec)
                 }
-
-                Toggle("ビットレートを手動で指定", isOn: manualBitrateBinding)
-
-                if let mbps = project.canvas.bitrateMbps {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("映像ビットレート")
-                            Spacer()
-                            Text("\(Int(mbps.rounded())) Mbps")
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                        Slider(value: bitrateSliderBinding, in: 2...100, step: 1)
-                        HStack {
-                            Text("2")
-                            Spacer()
-                            Text("100 Mbps")
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    }
-                } else {
-                    LabeledContent("映像ビットレート", value: "自動(約 \(autoBitrateMbps) Mbps)")
-                }
-
-                Picker("音声ビットレート", selection: $project.canvas.audioBitrateKbps) {
-                    ForEach(audioBitrates, id: \.self) { kbps in
-                        Text("\(kbps) kbps").tag(kbps)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("ファイル形式")
-                    Picker("ファイル形式", selection: $project.canvas.fileFormat) {
-                        ForEach(ExportFileFormat.allCases) { format in
-                            Text(format.displayName).tag(format)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("フレームレート")
-                    Picker("フレームレート", selection: $project.canvas.frameRate) {
-                        ForEach(frameRates, id: \.self) { fps in
-                            Text("\(fps)").tag(fps)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    Text("23.976 fps / 29.97 fps の素材はそれぞれ 24 / 30 fps に丸めて書き出します。")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Toggle("HDR を維持", isOn: $project.canvas.preserveHDR)
-                    .disabled(!hdrAvailable)
-
-                Toggle("字幕を映像に焼き込む", isOn: $project.canvas.burnInSubtitles)
             }
+
+            Toggle("データ量を自分で決める", isOn: manualBitrateBinding)
+
+            if let mbps = project.canvas.bitrateMbps {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("映像のデータ量")
+                        Spacer()
+                        Text("\(Int(mbps.rounded())) Mbps")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: bitrateSliderBinding, in: 2...100, step: 1)
+                    HStack {
+                        Text("小さい")
+                        Spacer()
+                        Text("きれい")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            } else {
+                LabeledContent("映像のデータ量", value: "自動(約 \(autoBitrateMbps) Mbps)")
+            }
+
+            Picker("音質", selection: $project.canvas.audioBitrateKbps) {
+                ForEach(audioBitrates, id: \.self) { kbps in
+                    Text(audioQualityLabel(kbps)).tag(kbps)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ファイルの種類")
+                Picker("ファイルの種類", selection: $project.canvas.fileFormat) {
+                    ForEach(ExportFileFormat.allCases) { format in
+                        Text(format.displayName).tag(format)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text("MP4 はほとんどの機器・サービスで使えます。迷ったら MP4。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("なめらかさ(1秒のコマ数)")
+                Picker("なめらかさ", selection: $project.canvas.frameRate) {
+                    ForEach(frameRates, id: \.self) { fps in
+                        Text("\(fps)").tag(fps)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text("ふつうは 30。動きの速い映像は 60 でなめらかになります(ファイルは大きめ)。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Toggle("HDR(明るさの幅が広い映像)を残す", isOn: $project.canvas.preserveHDR)
+                .disabled(!hdrAvailable)
+
+            Toggle("字幕を映像に入れる", isOn: $project.canvas.burnInSubtitles)
+        } header: {
+            Text("ファイルの細かい設定")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                Text("HDR の維持はコーデックが HEVC または自動のときだけ選べます。素材が HDR でない場合や端末が対応していない場合は SDR で書き出します。")
-                Text("字幕の焼き込みをオフにすると、字幕は映像に入りません(SRT として別に書き出す用途向け)。")
+                Text("保存形式は迷ったら「自動」。HEVC は小さくきれい、H.264 は古い機器でも再生しやすい形式です。")
+                Text("HDR は保存形式が「自動」か HEVC のときだけ選べます。素材が HDR でないときは通常の映像で書き出します。")
+                Text("「字幕を映像に入れる」をオフにすると、字幕は動画に入りません(字幕ファイルを別に使うとき向け)。")
             }
         }
         .disabled(exporter.isRunning)
@@ -388,6 +541,17 @@ struct ExportView: View {
                 project.canvas.preserveHDR = false
             }
         }
+    }
+
+    private func audioQualityLabel(_ kbps: Int) -> String {
+        let word: String
+        switch kbps {
+        case ..<160: word = "ふつう"
+        case ..<224: word = "標準"
+        case ..<288: word = "高音質"
+        default: word = "最高音質"
+        }
+        return word + "(\(kbps) kbps)"
     }
 
     // MARK: 情報
@@ -399,41 +563,89 @@ struct ExportView: View {
             LabeledContent("出力サイズ", value: "\(Int(size.width.rounded())) × \(Int(size.height.rounded()))")
             LabeledContent("長さ", value: exportDurationString(timelineDuration))
             LabeledContent("クリップ数", value: "\(snapshot.clips.count)")
+            if let estimate {
+                LabeledContent("ファイルの大きさ(目安)", value: StorageEstimator.formatBytes(estimate.estimatedOutputBytes))
+                LabeledContent("作業に必要な空き", value: StorageEstimator.formatBytes(estimate.requiredBytes))
+                LabeledContent("いまの空き容量", value: StorageEstimator.formatBytes(estimate.availableBytes))
+            }
         } header: {
-            Text("出力内容")
+            Text("書き出す内容のくわしい情報")
         }
     }
 
-    // MARK: ストレージ
+    // MARK: その他の書き出し・履歴
 
-    private var storageSection: some View {
+    private var moreSection: some View {
         Section {
-            if let estimate {
-                LabeledContent("推定サイズ", value: StorageEstimator.formatBytes(estimate.estimatedOutputBytes))
-                LabeledContent("必要空き容量", value: StorageEstimator.formatBytes(estimate.requiredBytes))
-                LabeledContent("現在の空き容量", value: StorageEstimator.formatBytes(estimate.availableBytes))
-                if estimate.canExport {
-                    Label("空き容量は十分です", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(Color.green)
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("空き容量が不足しています", systemImage: "xmark.octagon.fill")
-                            .foregroundStyle(Color.red)
-                        Text("あと \(StorageEstimator.formatBytes(estimate.shortfallBytes)) 必要です。不要な写真・動画・アプリを削除するか、解像度や画質を下げてください。")
-                            .font(.caption)
-                            .foregroundStyle(Color.red)
-                    }
-                }
-            } else {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("計算中…")
+            NavigationLink {
+                extrasPage
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label("その他の書き出し", systemImage: "ellipsis.circle")
+                    Text(dualExport ? "縦横を同時に書き出す: オン" : "縦横同時・音声だけ・GIF・チャプター一覧")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .frame(minHeight: 44, alignment: .leading)
             }
-        } header: {
-            Text("ストレージ")
         }
+    }
+
+    private var extrasPage: some View {
+        Form {
+            if exporter.isRunning {
+                Section {
+                    runningView
+                }
+            }
+            extrasSection
+        }
+        .navigationTitle("その他の書き出し")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: 下の書き出しボタン(常に表示)
+
+    private var exportButtonTitle: String {
+        let base = dualExport ? "縦横を同時に書き出す" : "書き出す"
+        var parts: [String] = []
+        if let estimate {
+            let bytes: Int64 = dualExport ? estimate.estimatedOutputBytes * 2 : estimate.estimatedOutputBytes
+            parts.append("約 " + StorageEstimator.formatBytes(bytes))
+        }
+        parts.append(saveToPhotos ? "写真に保存" : "ファイルのみ")
+        return base + "(" + parts.joined(separator: "・") + ")"
+    }
+
+    private var bottomBar: some View {
+        VStack(spacing: 6) {
+            if exporter.isRunning {
+                runningView
+            } else {
+                Button {
+                    startExport()
+                } label: {
+                    Text(exportButtonTitle)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canStart)
+
+                if let reason = disabledReason {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(Color.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.bar)
     }
 
     // MARK: 書き出し
@@ -451,10 +663,10 @@ struct ExportView: View {
     }
 
     private var disabledReason: String? {
-        if project.isEmpty { return "動画を追加してください。" }
+        if project.isEmpty { return "編集画面で動画を追加すると書き出せます。" }
         if exporter.isRunning { return nil }
-        if let estimate, !estimate.canExport { return "空き容量が不足しているため書き出せません。" }
-        if !dualStorageOK { return "縦横同時の書き出しには 2 本分の空き容量が必要です。" }
+        if let estimate, !estimate.canExport { return "空き容量を増やすか、画質を下げると書き出せます。" }
+        if !dualStorageOK { return "縦横同時は 2 本分の空きが必要です。空きを増やすか「その他の書き出し」でオフにしてください。" }
         return nil
     }
 
@@ -470,70 +682,59 @@ struct ExportView: View {
         return ["mp4", "mov", "m4v"].contains(url.pathExtension.lowercased())
     }
 
-    private var exportSection: some View {
-        Section {
-            Toggle("写真に保存", isOn: $saveToPhotos)
-                .disabled(exporter.isRunning)
-
-            if exporter.isRunning {
-                runningView
-            } else {
-                Button {
-                    startExport()
-                } label: {
-                    HStack {
-                        Spacer()
-                        Label(dualExport ? "縦横を同時に書き出し" : "書き出しを開始",
-                              systemImage: dualExport ? "rectangle.portrait.and.arrow.right" : "square.and.arrow.up.on.square")
-                            .font(.headline)
-                        Spacer()
-                    }
-                }
-                .disabled(!canStart)
-
-                if let reason = disabledReason {
-                    Text(reason)
-                        .font(.caption)
-                        .foregroundStyle(Color.red)
-                }
-
-                resultView
-            }
-        } header: {
-            Text("書き出し")
-        }
-    }
-
     private var runningView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ProgressView(value: min(max(exporter.progress, 0), 1))
-            HStack {
-                Text(verbatim: "\(Int((min(max(exporter.progress, 0), 1) * 100).rounded()))%")
+        let progress = min(max(exporter.progress, 0), 1)
+        let remaining = ExportTimeEstimator.shared.remainingText(isRunning: exporter.isRunning, progress: progress)
+        return VStack(alignment: .leading, spacing: 8) {
+            ProgressView(value: progress)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(verbatim: "\(Int((progress * 100).rounded()))%")
                     .font(.headline.monospacedDigit())
-                Text(exporter.statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let remaining {
+                        Text(remaining)
+                            .font(.subheadline.monospacedDigit())
+                    }
+                    Text(exporter.statusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
                 Spacer()
-                Button("キャンセル", role: .destructive) {
+                Button("止める", role: .destructive) {
                     exporter.cancel()
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.bordered)
             }
-            Text("ホームに戻っても書き出しは続きます(iOS 26以降。iOS 18〜25は約30秒まで)")
+            Label(BackgroundWorkNote.export, systemImage: "lock.open")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
     }
 
+    /// 書き出しの結果(完了・失敗・中止)。いちばん上に出す
+    @ViewBuilder
+    private var resultSection: some View {
+        if !exporter.isRunning {
+            switch exporter.state {
+            case .finished, .failed, .cancelled:
+                Section {
+                    resultView
+                }
+            default:
+                EmptyView()
+            }
+        }
+    }
+
     @ViewBuilder
     private var resultView: some View {
         switch exporter.state {
         case .finished:
-            VStack(alignment: .leading, spacing: 8) {
-                Label(exporter.savedToPhotos ? "書き出しが完了し、写真に保存しました"
-                      : (lastOutputIsVideo ? "書き出しが完了しました" : "音声の書き出しが完了しました"),
+            VStack(alignment: .leading, spacing: 10) {
+                Label(exporter.savedToPhotos ? "書き出して、写真アプリに保存しました"
+                      : (lastOutputIsVideo ? "書き出しが終わりました" : "音声の書き出しが終わりました"),
                       systemImage: "checkmark.circle.fill")
                     .foregroundStyle(Color.green)
                 if !exporter.savedToPhotos && lastOutputIsVideo {
@@ -550,25 +751,49 @@ struct ExportView: View {
                         }
                     }
                     .buttonStyle(.borderless)
+                    .frame(minHeight: 44)
                     .disabled(isSavingToPhotos || exporter.lastOutputURL == nil)
                 }
                 if let url = exporter.lastOutputURL {
                     ShareLink(item: url) {
-                        Label("共有・ファイルに保存", systemImage: "square.and.arrow.up")
+                        Label("送る・ファイルに保存", systemImage: "square.and.arrow.up")
                     }
                     .buttonStyle(.borderless)
+                    .frame(minHeight: 44)
                 }
             }
             .padding(.vertical, 4)
         case .failed(let message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(Color.red)
+            VStack(alignment: .leading, spacing: 6) {
+                Label("書き出せませんでした", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color.red)
+                Text(failureAction(for: message))
+                    .font(.subheadline)
+                Text("詳細: " + message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
         case .cancelled:
-            Text("書き出しをキャンセルしました")
+            Text("書き出しを止めました。もう一度書き出すときは下のボタンを押してください。")
                 .foregroundStyle(.secondary)
         default:
             EmptyView()
         }
+    }
+
+    /// 失敗理由から「次にすること」を先に伝える
+    private func failureAction(for message: String) -> String {
+        if message.contains("空き容量") {
+            return "不要な写真・動画・アプリを削除して空きを増やすか、画質を下げてから、もう一度「書き出す」を押してください。"
+        }
+        if message.contains("写真") {
+            return "設定アプリでこのアプリの「写真」を許可してから、もう一度お試しください。"
+        }
+        if message.contains("クリップがありません") {
+            return "編集画面で動画を追加してから書き出してください。"
+        }
+        return "もう一度「書き出す」を押してください。続くときは、解像度や画質を下げるか、アプリを開き直してからお試しください。"
     }
 
     // MARK: 処理
@@ -595,14 +820,25 @@ struct ExportView: View {
             do {
                 try await exporter.saveLastOutputToPhotos()
                 isSavingToPhotos = false
-                alertTitle = "保存しました"
-                alertMessage = "動画を写真アプリに保存しました。"
+                showAlert(title: "保存しました", message: "動画を写真アプリに保存しました。")
             } catch {
                 isSavingToPhotos = false
-                alertTitle = "写真に保存できませんでした"
-                alertMessage = error.localizedDescription
+                showAlert(title: "写真に保存できませんでした",
+                          message: "「設定を開く」→「写真」で写真の追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: " + error.localizedDescription,
+                          offersSettings: true)
             }
         }
+    }
+
+    private func showAlert(title: String, message: String, offersSettings: Bool = false) {
+        alertTitle = title
+        alertOffersSettings = offersSettings
+        alertMessage = message
+    }
+
+    private func openSystemSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     // MARK: その他の書き出し(縦横同時・音声のみ・GIF・チャプター)
@@ -639,24 +875,24 @@ struct ExportView: View {
     }
 
     private var gifRangeText: String {
-        guard let range = gifRange else { return "範囲が正しくありません(0.1 秒以上の区間を指定してください)" }
+        guard let range = gifRange else { return "開始と終了を 0.1 秒以上あけて入力してください" }
         let length = range.end - range.start
         var text = "\(exportDurationString(range.start)) 〜 \(exportDurationString(range.end))(\(String(format: "%.1f", length)) 秒)"
         if length > 15 {
-            text += " ・ 長いと容量が大きくなります"
+            text += " ・ 長いとファイルが大きくなります"
         }
         return text
     }
 
     private var extrasSection: some View {
         Section {
-            Toggle("縦横を同時に書き出し", isOn: $dualExport)
+            Toggle("縦横を同時に書き出す", isOn: $dualExport)
                 .disabled(exporter.isRunning)
 
             Button {
                 exporter.startAudioOnly(snapshot: project.snapshot())
             } label: {
-                Label("音声のみ書き出し(m4a)", systemImage: "waveform")
+                Label("音声だけ書き出す(m4a)", systemImage: "waveform")
             }
             .disabled(project.isEmpty || exporter.isRunning)
 
@@ -666,7 +902,7 @@ struct ExportView: View {
                 }
             } label: {
                 HStack {
-                    Label("GIFで書き出し", systemImage: "photo.stack")
+                    Label("GIF(短い動くイラスト)で書き出す", systemImage: "photo.stack")
                     Spacer()
                     Image(systemName: showGIFPanel ? "chevron.up" : "chevron.down")
                         .font(.caption)
@@ -685,10 +921,16 @@ struct ExportView: View {
                 Label("チャプター一覧をコピー", systemImage: "list.number")
             }
             .disabled(!hasChapters)
+
+            if exporter.state == .finished, !exporter.isRunning, let url = exporter.lastOutputURL, !lastOutputIsVideo {
+                ShareLink(item: url) {
+                    Label("書き出した音声を送る・保存", systemImage: "square.and.arrow.up")
+                }
+            }
         } header: {
             Text("その他の書き出し")
         } footer: {
-            Text("「縦横を同時に書き出し」をオンにすると、16:9(横)と 9:16(縦)を続けて書き出します(2 本分の空き容量が必要)。チャプター一覧は「マーカー」のチャプターから作り、YouTube の概要欄に貼り付けられます。")
+            Text("「縦横を同時に書き出す」をオンにすると、前の画面の書き出しボタンで 16:9(横)と 9:16(縦)を続けて作ります(2 本分の空き容量が必要)。チャプター一覧は「目印」のチャプターから作り、YouTube の概要欄に貼り付けられます。")
         }
     }
 
@@ -714,11 +956,11 @@ struct ExportView: View {
             EmptyView()
         case .marker:
             if gifMarkers.isEmpty {
-                Text("マーカーがありません。編集画面の「マーカー」で区間の始まりに目印を付けてください。")
+                Text("目印がありません。編集画面の「目印」で区間の始まりに目印を付けてください。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Picker("開始マーカー", selection: $gifMarkerID) {
+                Picker("始まりの目印", selection: $gifMarkerID) {
                     ForEach(gifMarkers) { marker in
                         Text("\(exportDurationString(marker.time)) \(marker.name.isEmpty ? marker.kind.displayName : marker.name)")
                             .tag(marker.id as UUID?)
@@ -748,12 +990,12 @@ struct ExportView: View {
             .font(.caption)
             .foregroundStyle(gifRange == nil ? Color.red : Color.secondary)
 
-        Picker("フレームレート", selection: $gifFPS) {
+        Picker("なめらかさ", selection: $gifFPS) {
             ForEach([8, 10, 12, 15], id: \.self) { fps in
-                Text("\(fps) fps").tag(fps)
+                Text("\(fps) コマ/秒").tag(fps)
             }
         }
-        Picker("幅", selection: $gifMaxWidth) {
+        Picker("横幅", selection: $gifMaxWidth) {
             ForEach([320, 480, 640], id: \.self) { width in
                 Text("\(width) px").tag(width)
             }
@@ -767,7 +1009,7 @@ struct ExportView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("キャンセル", role: .destructive) {
+                    Button("止める", role: .destructive) {
                         gifTask?.cancel()
                     }
                     .buttonStyle(.borderless)
@@ -778,14 +1020,14 @@ struct ExportView: View {
             Button {
                 startGIFExport()
             } label: {
-                Label("GIFを作成", systemImage: "sparkles")
+                Label("GIFを作る", systemImage: "sparkles")
             }
             .disabled(project.isEmpty || gifRange == nil)
         }
 
         if let url = gifURL {
             ShareLink(item: url) {
-                Label("GIFを共有・保存", systemImage: "square.and.arrow.up")
+                Label("GIFを送る・保存", systemImage: "square.and.arrow.up")
             }
         }
         if let gifError {
@@ -822,7 +1064,7 @@ struct ExportView: View {
                 // キャンセル時は何もしない
             } catch {
                 if !Task.isCancelled {
-                    gifError = "GIF を作成できませんでした: \(error.localizedDescription)"
+                    gifError = "範囲を短くするか横幅を小さくして、もう一度「GIFを作る」を押してください。(詳細: " + error.localizedDescription + ")"
                 }
             }
             gifTask = nil
@@ -831,8 +1073,8 @@ struct ExportView: View {
 
     private func copyChapterList() {
         UIPasteboard.general.string = project.chapterListText()
-        alertTitle = "コピーしました"
-        alertMessage = "チャプター一覧をクリップボードにコピーしました。YouTube の概要欄などに貼り付けてください。"
+        showAlert(title: "コピーしました",
+                  message: "チャプター一覧をコピーしました。YouTube の概要欄などに貼り付けてください。")
     }
 
     // MARK: 書き出し履歴
@@ -840,7 +1082,7 @@ struct ExportView: View {
     private var historySection: some View {
         Section {
             if exporter.history.isEmpty {
-                Text("まだ書き出し履歴がありません。書き出すとここに並び、共有や「比較」ができます。")
+                Text("まだ書き出した動画はありません。書き出すとここに並び、送ったり「前回と比較」したりできます。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
@@ -855,16 +1097,16 @@ struct ExportView: View {
                 }
             }
         } header: {
-            Text("書き出し履歴")
+            Text("書き出した動画")
         } footer: {
-            Text("最新 20 件まで残ります。左にスワイプで削除(書き出したファイルも削除されます)。")
+            Text("新しい 20 本まで残ります。左にスワイプで削除(書き出したファイルも消えます。写真アプリに保存したものは残ります)。")
         }
     }
 
     private func historyRow(_ record: ExportRecord) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(record.date.formatted(date: .abbreviated, time: .shortened))
+                Text(record.date.formatted(.relative(presentation: .named, unitsStyle: .wide)))
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 Text(exportDurationString(record.duration))
@@ -876,15 +1118,17 @@ struct ExportView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 20) {
                 ShareLink(item: record.url) {
-                    Label("共有", systemImage: "square.and.arrow.up")
+                    Label("送る", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.borderless)
+                .frame(minHeight: 44)
                 Button {
                     openCompare(record)
                 } label: {
-                    Label("比較を開く", systemImage: "rectangle.split.2x1")
+                    Label("前回と比較", systemImage: "rectangle.split.2x1")
                 }
                 .buttonStyle(.borderless)
+                .frame(minHeight: 44)
                 .disabled(project.isEmpty)
                 Spacer()
             }

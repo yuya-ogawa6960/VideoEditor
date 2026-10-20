@@ -326,7 +326,7 @@ enum SubtitleDisplayMode: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .original: return "原文"
-        case .translated: return "英訳"
+        case .translated: return "訳文"
         case .both: return "両方"
         }
     }

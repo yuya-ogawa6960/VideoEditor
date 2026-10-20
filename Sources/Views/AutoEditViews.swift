@@ -26,8 +26,8 @@ private func autoEditSeconds(_ value: Double) -> String {
 
 private func autoEditStyleDescription(_ style: AutoEditStyle) -> String {
     switch style {
-    case .documentary: return "落ち着いたテンポ。黒へのフェードとディゾルブ、ドキュメンタリー風の色味。話している場面を優先します。"
-    case .vlog: return "ディゾルブでテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。"
+    case .documentary: return "落ち着いたテンポ。黒へのフェードや重なるつなぎ効果、ドキュメンタリー風の色味。話している場面を優先します。"
+    case .vlog: return "重なるつなぎ効果でテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。"
     case .short: return "15〜30 秒向け。短いカットをズームでつなぎ、鮮やかな色味にします。"
     case .family: return "顔が映っている場面を優先し、やさしい色味でまとめます。"
     case .howto: return "説明している場面を優先し、カットはシンプルに。字幕と相性のよい構成です。"
@@ -98,7 +98,7 @@ struct AutoEditSheetView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("クリップの並びや長さ、トランジション、色味などが置き換わります。「元に戻す」で戻せます。")
+                Text("クリップの並びや長さ、つなぎ効果、色味などが置き換わります。「元に戻す」で戻せます。")
             }
             .alert("お知らせ", isPresented: errorIsPresented) {
                 Button("OK", role: .cancel) {}
@@ -176,7 +176,7 @@ struct AutoEditSheetView: View {
         } header: {
             Text("長さ")
         } footer: {
-            Text("元の素材の合計は \(MediaTimeText.precise(sourceTotal)) です。目標より短くするときは、見どころ(ハイライト)を選んで残します。")
+            Text("元の素材の合計は \(MediaTimeText.precise(sourceTotal)) です。目標より短くするときは、見どころを選んで残します。")
         }
     }
 
@@ -224,7 +224,7 @@ struct AutoEditSheetView: View {
 
     private var optionSection: some View {
         Section {
-            Toggle("トランジションを入れる", isOn: $settings.addTransitions)
+            Toggle("つなぎ効果を入れる", isOn: $settings.addTransitions)
             Toggle("スタイルに合った色味にする", isOn: $settings.applyLook)
             Toggle("顔が映っている場面を優先", isOn: $settings.preferFaces)
             Toggle("話している場面を優先", isOn: $settings.preferSpeech)
@@ -238,7 +238,7 @@ struct AutoEditSheetView: View {
             Button {
                 analyzeHighlights()
             } label: {
-                Label(highlights == nil ? "ハイライトを解析" : "もう一度解析", systemImage: "sparkle.magnifyingglass")
+                Label(highlights == nil ? "見どころを探す" : "もう一度探す", systemImage: "sparkle.magnifyingglass")
             }
             .disabled(project.isEmpty || analysis.isRunning)
 
@@ -254,9 +254,9 @@ struct AutoEditSheetView: View {
                 }
             }
         } header: {
-            Text("ハイライト" + (highlights.map { " (\($0.count))" } ?? ""))
+            Text("見どころ" + (highlights.map { " (\($0.count))" } ?? ""))
         } footer: {
-            Text("音の大きさ・話し声・動き・顔から見どころを点数づけします。解析せずに「作成」しても、作成時に自動で解析します。")
+            Text("音の大きさ・話し声・動き・顔から見どころを点数づけします。探さずに「作成」しても、作成するときに自動で探します。")
         }
     }
 
@@ -327,7 +327,7 @@ struct AutoEditSheetView: View {
     private func handleBGMImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            errorText = "BGM を読み込めませんでした。\n\(error.localizedDescription)"
+            errorText = "もう一度「BGMを選ぶ」から曲を選び直してください。\n\n詳細: " + error.localizedDescription
         case .success(let urls):
             guard let url = urls.first else { return }
             let accessing = url.startAccessingSecurityScopedResource()
@@ -341,7 +341,7 @@ struct AutoEditSheetView: View {
                 project.audio.bgmName = url.deletingPathExtension().lastPathComponent
                 settings.useBGMBeats = true
             } catch {
-                errorText = "BGM をコピーできませんでした。\n\(error.localizedDescription)"
+                errorText = "端末の空き容量を確かめて、もう一度曲を選んでください(Apple Music の曲は使えません)。\n\n詳細: " + error.localizedDescription
             }
         }
     }
@@ -357,12 +357,12 @@ struct AutoEditSheetView: View {
     private func analyzeHighlights() {
         let snapshot = project.snapshot()
         let current = settings
-        analysis.run(title: "ハイライトを解析中") { report in
+        analysis.run(title: "見どころを探しています") { report in
             let found = try await HighlightAnalyzer.analyze(snapshot: snapshot, settings: current, progress: report)
             if Task.isCancelled { return }
             highlights = found.sorted { $0.start < $1.start }
         } onError: { error in
-            errorText = "ハイライトを解析できませんでした。\n\(error.localizedDescription)"
+            errorText = "見どころを探せませんでした。このまま「作成」を押すと、全体から均等に選んで作ります。\n\n詳細: " + error.localizedDescription
         }
     }
 
@@ -383,7 +383,7 @@ struct AutoEditSheetView: View {
             dismiss()
             onApplied()
         } onError: { error in
-            errorText = "自動編集を作成できませんでした。\n\(error.localizedDescription)"
+            errorText = "もう一度「作成」を押してください。続くときは、目標の長さを変えるかクリップを減らしてお試しください。\n\n詳細: " + error.localizedDescription
         }
     }
 }
@@ -413,7 +413,7 @@ struct EditorAutoEditTemplatePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("いまのクリップから、決まった型でワンタップで編集します。長さに合わせて見どころを選び、トランジションと色味も整えます。")
+            Text("いまのクリップから、決まった型でワンタップで編集します。長さに合わせて見どころを選び、つなぎ効果と色味も整えます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -454,7 +454,7 @@ struct EditorAutoEditTemplatePanel: View {
                 pending = nil
             }
         } message: {
-            Text("クリップの並びや長さ、トランジション、色味が置き換わります。「元に戻す」で戻せます。")
+            Text("クリップの並びや長さ、つなぎ効果、色味が置き換わります。「元に戻す」で戻せます。")
         }
     }
 
@@ -519,7 +519,7 @@ struct EditorAutoEditTemplatePanel: View {
             message = "「\(name)」を適用しました。「元に戻す」で戻せます。"
             onApplied()
         } onError: { error in
-            errorText = "テンプレートを適用できませんでした: \(error.localizedDescription)"
+            errorText = "もう一度「適用」を押してください。続くときは別のテンプレートをお試しください。\n\n詳細: " + error.localizedDescription
         }
     }
 }
@@ -652,7 +652,7 @@ struct SlideshowSheetView: View {
                 }
                 Slider(value: $perImageSeconds, in: 1.5...8, step: 0.5)
             }
-            Toggle("トランジションを入れる", isOn: $settings.addTransitions)
+            Toggle("つなぎ効果を入れる", isOn: $settings.addTransitions)
         } header: {
             Text("時間")
         } footer: {
@@ -695,7 +695,7 @@ struct SlideshowSheetView: View {
                     }
                 }
             } else {
-                Text("BGM はまだありません。作成後に「音声」から追加できます。")
+                Text("BGM はまだありません。作成したあと、編集画面の「BGM」から追加できます。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -766,7 +766,7 @@ struct SlideshowSheetView: View {
                                                         bgm: bgm)
             if Task.isCancelled { return }
             guard !result.clips.isEmpty else {
-                errorText = "スライドショーを作れませんでした(写真を読み込めませんでした)。"
+                errorText = "写真を選び直してから、もう一度「スライドショーを作成」を押してください(写真を読み込めませんでした)。"
                 return
             }
             history.record(project)
@@ -782,7 +782,7 @@ struct SlideshowSheetView: View {
             dismiss()
             onApplied()
         } onError: { error in
-            errorText = "スライドショーを作れませんでした。\n\(error.localizedDescription)"
+            errorText = "写真の枚数を減らすか選び直して、もう一度お試しください。\n\n詳細: " + error.localizedDescription
         }
     }
 }

@@ -49,9 +49,9 @@ enum CloudTranscriptionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "OpenAI の API キーが設定されていません。文字起こし設定でキーを入力してください。"
+            return "OpenAI の API キーが設定されていません。「文字起こしの方式」の画面でキーを入力してください。"
         case .invalidAPIKey:
-            return "APIキーが正しくありません。文字起こし設定で OpenAI の API キーを確認してください。"
+            return "APIキーが正しくありません。「文字起こしの方式」の画面で OpenAI の API キーを確認してください。"
         case .rateLimited(let detail):
             return detail.isEmpty ? "利用上限です。しばらく待ってからもう一度お試しください。"
                                   : "利用上限です。\(detail)"
@@ -846,8 +846,19 @@ final class CloudTranscriber: @unchecked Sendable {
             body.addField("response_format", "json")
             body.addField("chunking_strategy", "auto")
         }
+        // 日本語: 句読点・かな漢字の書き方を例示して、ローマ字(hun? など)や句読点なしの出力を防ぐ。
+        // diarize モデルは prompt 非対応のため送らない
+        if let prompt = transcriptionPrompt(language: language), kind(of: model) != .diarize {
+            body.addField("prompt", prompt)
+        }
         body.addFile(name: "file", filename: "audio.m4a", mimeType: "audio/m4a", fileData: audioData)
         return (contentType: "multipart/form-data; boundary=\(body.boundary)", data: body.finished())
+    }
+
+    /// 認識モデルに渡す文体の例(prompt)。英語などは nil(送らない)
+    static func transcriptionPrompt(language: String) -> String? {
+        guard language.lowercased().hasPrefix("ja") else { return nil }
+        return "こんにちは。今日はよろしくお願いします。では、始めましょう。"
     }
 
     /// 1 リクエストの待ち時間の上限。whisper-1 は 120 秒、精度優先モデルは 240 秒

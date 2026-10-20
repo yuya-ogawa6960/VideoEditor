@@ -126,55 +126,105 @@ enum EditorPanel: Hashable {
         case .speed: return "速度"
         case .volume: return "音量"
         case .filter: return "フィルタ"
-        case .textEdit: return "テキスト編集"
-        case .subtitleStyle: return "字幕スタイル"
+        case .textEdit: return "文字を直す"
+        case .subtitleStyle: return "全字幕のスタイル"
         case .aspect: return "比率"
-        case .bgmVolume: return "BGM 音量"
-        case .documentary: return "ドキュメンタリー"
+        case .bgmVolume: return "BGM の音量"
+        case .documentary: return "全体の仕上げ"
         case .titleCard: return "章タイトル"
-        case .lowerThird: return "テロップ"
-        case .jlCut: return "Jカット / Lカット"
+        case .lowerThird: return "名前テロップ"
+        case .jlCut: return "音のずらし"
         case .colorAdjust: return "色調整"
-        case .overlayPlacement: return "配置"
-        case .overlayKenBurns: return "ケン・バーンズ"
-        case .overlayVolume: return "オーバーレイの音量"
-        case .overlaySpeed: return "オーバーレイの速度"
-        case .overlayFilter: return "オーバーレイのフィルタ"
-        case .narrationVolume: return "ナレーションの音量"
+        case .overlayPlacement: return "位置・サイズ"
+        case .overlayKenBurns: return "ゆっくりズーム"
+        case .overlayVolume: return "音量"
+        case .overlaySpeed: return "速度"
+        case .overlayFilter: return "フィルタ"
+        case .narrationVolume: return "音量"
         case .narrationRecord: return "ナレーション録音"
-        case .transition: return "トランジション"
-        case .clipAnimation: return "アニメーション"
-        case .geometry: return "切り抜き / 回転"
-        case .speedCurve: return "速度カーブ"
-        case .audioEffects: return "音声効果"
-        case .beatDetect: return "ビート検出"
-        case .hsl: return "HSL"
-        case .lut: return "LUT"
+        case .transition: return "つなぎ効果"
+        case .clipAnimation: return "登場の動き"
+        case .geometry: return "切り抜き・回転"
+        case .speedCurve: return "なめらか変速"
+        case .audioEffects: return "音の効果"
+        case .beatDetect: return "ビートに合わせる"
+        case .hsl: return "色ごと調整"
+        case .lut: return "カラーLUT読込"
         case .colorMatch: return "色合わせ"
-        case .textStyle: return "テキスト編集"
-        case .textAnimation: return "テキストのアニメーション"
-        case .textPlacement: return "配置"
-        case .textKeyframes: return "キーフレーム"
+        case .textStyle: return "文字・スタイル"
+        case .textAnimation: return "登場の動き"
+        case .textPlacement: return "位置・サイズ"
+        case .textKeyframes: return "動きをつける"
         case .sticker: return "ステッカー"
-        case .overlayKeyframes: return "キーフレーム"
-        case .overlayBlend: return "ブレンド"
-        case .narrationEffects: return "音声効果"
+        case .overlayKeyframes: return "動きをつける"
+        case .overlayBlend: return "重ね方"
+        case .narrationEffects: return "音の効果"
         case .drawingCanvas: return "手書き"
         case .drawingStyle: return "色・太さ"
-        case .drawingTiming: return "表示時間"
-        case .markerName: return "マーカー"
-        case .markerKind: return "マーカーの種類"
-        case .captionTemplate: return "字幕テンプレート"
-        case .watermark: return "透かし"
-        case .formatKit: return "フォーマット"
-        case .textToSpeech: return "読み上げ"
+        case .drawingTiming: return "表示する時間"
+        case .markerName: return "目印の名前"
+        case .markerKind: return "色・種類"
+        case .captionTemplate: return "字幕デザイン"
+        case .watermark: return "ロゴ・透かし"
+        case .formatKit: return "お決まりパーツ"
+        case .textToSpeech: return "AI読み上げ"
         case .mask, .overlayMask: return "マスク"
-        case .autoReframe: return "自動リフレーム"
+        case .autoReframe: return "人物を自動で中央に"
         case .stabilize: return "手ぶれ補正"
-        case .enhance: return "画質"
-        case .parallax, .overlayParallax: return "3Dズーム"
-        case .textTracking, .overlayTracking: return "トラッキング"
-        case .autoEditTemplates: return "テンプレート"
+        case .enhance: return "画質アップ"
+        case .parallax, .overlayParallax: return "写真を立体に"
+        case .textTracking, .overlayTracking: return "動きに追従"
+        case .autoEditTemplates: return "おまかせテンプレ"
+        }
+    }
+
+    /// パネルが編集する対象(タイトルに「速度 – クリップ2」のように出す)。全体設定のパネルは nil
+    var targetSelection: EditorSelection? {
+        switch self {
+        case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id),
+             .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
+             .audioEffects(let id), .beatDetect(let id), .hsl(let id), .lut(let id), .colorMatch(let id),
+             .mask(let id), .autoReframe(let id), .stabilize(let id), .enhance(let id), .parallax(let id):
+            return .clip(id)
+        case .textEdit(let id):
+            return .subtitle(id)
+        case .overlayPlacement(let id), .overlayKenBurns(let id), .overlayVolume(let id),
+             .overlaySpeed(let id), .overlayFilter(let id), .overlayKeyframes(let id), .overlayBlend(let id),
+             .overlayMask(let id), .overlayParallax(let id), .overlayTracking(let id):
+            return .overlay(id)
+        case .narrationVolume(let id), .narrationEffects(let id):
+            return .narration(id)
+        case .textStyle(let id), .textAnimation(let id), .textPlacement(let id), .textKeyframes(let id),
+             .textTracking(let id):
+            return .text(id)
+        case .drawingStyle(let id), .drawingTiming(let id):
+            return .drawing(id)
+        case .markerName(let id), .markerKind(let id):
+            return .marker(id)
+        case .bgmVolume:
+            return .bgm
+        case .subtitleStyle, .captionTemplate, .aspect, .documentary, .titleCard, .lowerThird,
+             .narrationRecord, .sticker, .drawingCanvas, .watermark, .formatKit, .textToSpeech,
+             .autoEditTemplates:
+            return nil
+        }
+    }
+
+    /// ✕「やめる」(開いたときの状態に戻す)を出すか。
+    /// 選ぶとすぐ追加される・録音するなど、入口として使うパネルでは出さない
+    var supportsCancel: Bool {
+        switch self {
+        case .sticker, .narrationRecord, .textToSpeech, .autoEditTemplates, .formatKit:
+            return false
+        case .speed, .volume, .filter, .textEdit, .subtitleStyle, .aspect, .bgmVolume, .documentary,
+             .titleCard, .lowerThird, .jlCut, .colorAdjust, .overlayPlacement, .overlayKenBurns,
+             .overlayVolume, .overlaySpeed, .overlayFilter, .narrationVolume, .transition, .clipAnimation,
+             .geometry, .speedCurve, .audioEffects, .beatDetect, .hsl, .lut, .colorMatch, .textStyle,
+             .textAnimation, .textPlacement, .textKeyframes, .overlayKeyframes, .overlayBlend,
+             .narrationEffects, .drawingCanvas, .drawingStyle, .drawingTiming, .markerName, .markerKind,
+             .captionTemplate, .watermark, .mask, .autoReframe, .stabilize, .enhance, .parallax,
+             .overlayMask, .overlayParallax, .textTracking, .overlayTracking:
+            return true
         }
     }
 
@@ -193,7 +243,9 @@ enum EditorPanel: Hashable {
         case .transition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
              .narrationEffects, .drawingStyle, .drawingCanvas,
              .stabilize, .parallax, .overlayParallax, .textTracking, .overlayTracking: return 280
-        default: return 220
+        case .speed, .volume, .textEdit, .subtitleStyle, .aspect, .bgmVolume, .overlayVolume,
+             .overlaySpeed, .narrationVolume, .overlayBlend, .drawingTiming, .markerName, .markerKind:
+            return 220
         }
     }
 
@@ -244,38 +296,73 @@ enum EditorTimeFormat {
         let total = Int(max(0, seconds).rounded(.down))
         return "\(total / 60):" + String(format: "%02d", total % 60)
     }
+
+    /// 0:05.2(停止中の表示。0.1 秒単位)
+    static func tenths(_ seconds: Double) -> String {
+        guard seconds.isFinite else { return "0:00.0" }
+        let scaled: Double = max(0, seconds) * 10
+        let tenthsTotal: Int = Int(scaled.rounded(.down))
+        let minutes: Int = tenthsTotal / 600
+        let restTenths: Int = tenthsTotal % 600
+        let secs: Int = restTenths / 10
+        let fraction: Int = restTenths % 10
+        return "\(minutes):" + String(format: "%02d", secs) + ".\(fraction)"
+    }
 }
 
 // MARK: - 共通部品
 
-/// パネルの外枠(タイトル+✓ボタン+中身)
+/// パネルの外枠(✕「やめる」+タイトル+✓ボタン+中身)
 struct EditorPanelContainer<Content: View>: View {
     let title: String
     let height: CGFloat
+    /// nil 以外なら左上に ✕「やめる」(開いたときの状態に戻して閉じる)を出す
+    var onCancel: (() -> Void)? = nil
     let onClose: () -> Void
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 4) {
+                if let onCancel {
+                    Button {
+                        EditorHaptics.tap()
+                        onCancel()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("やめる")
+                                .font(.system(size: 12))
+                        }
+                        .foregroundStyle(Color.white.opacity(0.8))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .padding(.horizontal, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("やめる")
+                }
                 Text(title)
                     .font(.subheadline.weight(.semibold))
-                Spacer()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.leading, onCancel == nil ? 10 : 0)
+                Spacer(minLength: 4)
                 Button {
                     EditorHaptics.tap()
                     onClose()
                 } label: {
                     Image(systemName: "checkmark")
                         .font(.system(size: 17, weight: .bold))
-                        .frame(width: 44, height: 36)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("完了")
             }
-            .padding(.leading, 16)
-            .padding(.trailing, 6)
-            .padding(.top, 6)
+            .padding(.horizontal, 6)
+            .padding(.top, 2)
 
             ScrollView(.vertical, showsIndicators: false) {
                 content()
@@ -310,6 +397,10 @@ struct EditorChip: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
                 .background(isSelected ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                // 見た目はそのままで、押せる範囲だけ上下に広げる(高さ 44pt 相当)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
+                .padding(.vertical, -7)
         }
         .buttonStyle(.plain)
     }
@@ -706,7 +797,7 @@ struct EditorTextEditPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("英訳(任意)")
+                Text("訳文(任意)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 TextField("Translation", text: translatedBinding, axis: .vertical)
@@ -753,6 +844,10 @@ struct EditorSubtitleStylePanel: View {
                                         .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
                                         .padding(-4)
                                 )
+                                // 見た目はそのままで、押せる範囲を 44pt に広げる
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                                .padding(-8)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(color.displayName)
