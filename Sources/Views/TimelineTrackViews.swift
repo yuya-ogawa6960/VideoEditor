@@ -213,6 +213,52 @@ enum TimelineMetrics {
     static func overlayLaneCount(_ overlays: [OverlayClip]) -> Int { laneCount(overlayLanes(overlays)) }
     static func narrationLaneCount(_ narration: [NarrationClip]) -> Int { laneCount(narrationLanes(narration)) }
 
+    /// 業務用ソフトと同じ呼び方の段の名前(V1 = メイン映像、上に重なるほど番号が大きい。A = 音声、ST = 字幕)。
+    /// キーは TimelineTrackKind.key、値は段ごとの名前(上の段から)
+    static func trackLabels(for rows: [TimelineTrackKind]) -> [String: [String]] {
+        var result: [String: [String]] = [:]
+        var nextV = 2
+        var overlayLanes = 0
+        var textLanes = 0
+        var hasDrawing = false
+        var narrationLanes = 0
+        var hasAudio = false
+        for row in rows {
+            switch row {
+            case .overlay(let lanes): overlayLanes = lanes
+            case .text(let lanes): textLanes = lanes
+            case .drawing: hasDrawing = true
+            case .narration(let lanes): narrationLanes = lanes
+            case .audio: hasAudio = true
+            case .video, .subtitle, .add: break
+            }
+        }
+        result["video"] = ["V1"]
+        // 描画の重なり順(オーバーレイ → 手書き → テキスト)に合わせて番号を振る
+        if overlayLanes > 0 {
+            result["overlay"] = (0..<overlayLanes).map { "V\(nextV + $0)" }
+            nextV += overlayLanes
+        }
+        if hasDrawing {
+            result["drawing"] = ["V\(nextV)"]
+            nextV += 1
+        }
+        if textLanes > 0 {
+            result["text"] = (0..<textLanes).map { "V\(nextV + $0)" }
+            nextV += textLanes
+        }
+        result["subtitle"] = ["ST1"]
+        var nextA = 1
+        if hasAudio {
+            result["audio"] = ["A1"]
+            nextA += 1
+        }
+        if narrationLanes > 0 {
+            result["narration"] = (0..<narrationLanes).map { "A\(nextA + $0)" }
+        }
+        return result
+    }
+
     /// 段数に応じたテキストトラックの高さ
     static func textTrackHeight(lanes: Int) -> CGFloat {
         stackedHeight(textHeight, lanes: lanes)
@@ -854,6 +900,25 @@ struct TimelineSelectionFrame: View {
         }
         .frame(width: max(0, visibleWidth), height: height, alignment: .topLeading)
         .allowsHitTesting(false)
+    }
+}
+
+/// トラック左端の段の名前(V1・A1 など。画面に固定、半透明)
+struct TimelineTrackLabelChip: View {
+    let label: String
+    let rowHeight: CGFloat
+
+    var body: some View {
+        let h = min(TimelineMetrics.trackChipSize, max(12, rowHeight - 2))
+        Text(label)
+            .font(.system(size: max(9, h * 0.46), weight: .bold, design: .rounded))
+            .foregroundStyle(Color.white)
+            .lineLimit(1)
+            .padding(.horizontal, 4)
+            .frame(minWidth: h, minHeight: h, maxHeight: h)
+            .background(Color.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .opacity(0.6)
+            .allowsHitTesting(false)
     }
 }
 

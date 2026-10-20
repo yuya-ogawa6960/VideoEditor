@@ -269,9 +269,10 @@ struct TimelineView: View {
         let placements = TimelineView.rowPlacements(rows).filter { p in
             p.y + p.kind.height > offset - 1 && p.y < offset + viewportHeight + 1
         }
+        let labels: [String: [String]] = TimelineMetrics.trackLabels(for: rows)
         ZStack(alignment: .topLeading) {
             ForEach(placements) { p in
-                trackRow(kind: p.kind, width: width, originX: originX, frame: f)
+                trackRow(kind: p.kind, width: width, originX: originX, frame: f, labels: labels[p.kind.key] ?? [])
                     .offset(y: p.y - offset)
             }
         }
@@ -279,16 +280,33 @@ struct TimelineView: View {
 
     /// 1 行(中身 + 左端のアイコン)
     private func trackRow(kind: TimelineTrackKind, width: CGFloat, originX: CGFloat,
-                          frame f: TimelineFrameData) -> some View {
-        let chipRowHeight: CGFloat = kind == .video ? TimelineMetrics.videoHeight : kind.height
-        let chipSize = min(TimelineMetrics.trackChipSize, chipRowHeight)
-        let chipY = max(0, (chipRowHeight - chipSize) / 2)
+                          frame f: TimelineFrameData, labels: [String]) -> some View {
+        // 1 段の高さ(段が複数あるトラックは段ごとに名前を出す)
+        let laneHeight: CGFloat
+        switch kind {
+        case .video: laneHeight = TimelineMetrics.videoHeight
+        case .overlay: laneHeight = TimelineMetrics.overlayHeight
+        case .text: laneHeight = TimelineMetrics.textHeight
+        case .narration: laneHeight = TimelineMetrics.narrationHeight
+        default: laneHeight = kind.height
+        }
+        let laneStep: CGFloat = laneHeight + TimelineMetrics.textLaneGap
+        let chipSize: CGFloat = min(TimelineMetrics.trackChipSize, max(12, laneHeight - 2))
+        let chipInset: CGFloat = max(0, (laneHeight - chipSize) / 2)
         return ZStack(alignment: .topLeading) {
             trackContent(kind: kind, width: width, originX: originX, frame: f)
-            if let icon = kind.iconName {
-                TimelineTrackChip(systemName: icon, rowHeight: chipRowHeight)
-                    .offset(x: 4, y: chipY)
-                    .zIndex(30)
+            if labels.isEmpty {
+                if let icon = kind.iconName {
+                    TimelineTrackChip(systemName: icon, rowHeight: laneHeight)
+                        .offset(x: 4, y: chipInset)
+                        .zIndex(30)
+                }
+            } else {
+                ForEach(Array(labels.enumerated()), id: \.offset) { entry in
+                    TimelineTrackLabelChip(label: entry.element, rowHeight: laneHeight)
+                        .offset(x: 4, y: CGFloat(entry.offset) * laneStep + chipInset)
+                        .zIndex(30)
+                }
             }
         }
         .frame(width: width, height: kind.height, alignment: .topLeading)
