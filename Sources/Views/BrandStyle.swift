@@ -108,49 +108,78 @@ struct ChamferedShape: Shape {
     }
 }
 
-/// オレンジ → ピンクの面に、明るさの違う三角の面を重ねた背景(ローポリのカット面のような見た目)
+/// ポリゴン(多面体)のボタン背景: 外形は不ぞろいな多角形、中は明るさの違う三角形の面で埋める。
+/// 色は左のオレンジから右のピンクへ。面ごとに明るさを変えて、光が当たった立体のように見せる
+enum PolygonButtonMesh {
+    /// 外形の頂点(正規化座標、時計回り)
+    static let outline: [CGPoint] = [
+        CGPoint(x: 0.10, y: 0.00), CGPoint(x: 0.45, y: 0.00), CGPoint(x: 0.80, y: 0.00),
+        CGPoint(x: 0.95, y: 0.14), CGPoint(x: 1.00, y: 0.46), CGPoint(x: 0.97, y: 0.84),
+        CGPoint(x: 0.86, y: 1.00), CGPoint(x: 0.50, y: 1.00), CGPoint(x: 0.13, y: 1.00),
+        CGPoint(x: 0.02, y: 0.80), CGPoint(x: 0.00, y: 0.38), CGPoint(x: 0.04, y: 0.10)
+    ]
+    /// 内側の頂点
+    static let inner: [CGPoint] = [
+        CGPoint(x: 0.27, y: 0.48), CGPoint(x: 0.55, y: 0.56), CGPoint(x: 0.79, y: 0.40)
+    ]
+    /// 三角形(outline の番号 0...11、inner は 100 + 番号)と明るさ
+    static let faces: [(Int, Int, Int, Double)] = [
+        (11, 0, 100, 1.18), (0, 1, 100, 1.08), (1, 101, 100, 0.92), (1, 2, 101, 1.02),
+        (2, 102, 101, 0.88), (2, 3, 102, 1.12), (3, 4, 102, 0.96), (4, 5, 102, 0.82),
+        (5, 101, 102, 0.78), (5, 6, 101, 0.88), (6, 7, 101, 0.84), (7, 100, 101, 0.97),
+        (7, 8, 100, 0.9), (8, 9, 100, 0.95), (9, 10, 100, 1.05), (10, 11, 100, 1.14)
+    ]
+
+    static func point(_ index: Int, in size: CGSize) -> CGPoint {
+        let p = index >= 100 ? inner[index - 100] : outline[index]
+        return CGPoint(x: p.x * size.width, y: p.y * size.height)
+    }
+
+    /// 左のオレンジ → 右のピンクを x で混ぜ、明るさを掛ける
+    static func color(atX x: Double, brightness: Double) -> Color {
+        let a: (Double, Double, Double) = (0.86, 0.47, 0.13)
+        let b: (Double, Double, Double) = (0.76, 0.19, 0.33)
+        let t = min(max(x, 0), 1)
+        let r = min(1, (a.0 + (b.0 - a.0) * t) * brightness)
+        let g = min(1, (a.1 + (b.1 - a.1) * t) * brightness)
+        let bl = min(1, (a.2 + (b.2 - a.2) * t) * brightness)
+        return Color(red: r, green: g, blue: bl)
+    }
+}
+
+/// 外形の多角形
+struct PolygonOutlineShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        for (i, v) in PolygonButtonMesh.outline.enumerated() {
+            let pt = CGPoint(x: rect.minX + v.x * rect.width, y: rect.minY + v.y * rect.height)
+            if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
+        }
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// ポリゴンのボタン背景(書き出し・新しいプロジェクトなど)
 struct FacetedBrandBackground: View {
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            ZStack {
-                BrandStyle.gradient
-                // 左上の明るい面
-                Path { p in
-                    p.move(to: CGPoint(x: 0, y: 0))
-                    p.addLine(to: CGPoint(x: w * 0.38, y: 0))
-                    p.addLine(to: CGPoint(x: w * 0.22, y: h * 0.62))
-                    p.addLine(to: CGPoint(x: 0, y: h))
-                    p.closeSubpath()
-                }
-                .fill(Color.white.opacity(0.14))
-                // 中央の暗い面
-                Path { p in
-                    p.move(to: CGPoint(x: w * 0.38, y: 0))
-                    p.addLine(to: CGPoint(x: w * 0.7, y: h))
-                    p.addLine(to: CGPoint(x: w * 0.22, y: h * 0.62))
-                    p.closeSubpath()
-                }
-                .fill(Color.black.opacity(0.10))
-                // 右下の暗い面
-                Path { p in
-                    p.move(to: CGPoint(x: w * 0.7, y: h))
-                    p.addLine(to: CGPoint(x: w, y: h * 0.35))
-                    p.addLine(to: CGPoint(x: w, y: h))
-                    p.closeSubpath()
-                }
-                .fill(Color.black.opacity(0.16))
-                // 右上の少し明るい面
-                Path { p in
-                    p.move(to: CGPoint(x: w * 0.62, y: 0))
-                    p.addLine(to: CGPoint(x: w, y: 0))
-                    p.addLine(to: CGPoint(x: w, y: h * 0.35))
-                    p.closeSubpath()
-                }
-                .fill(Color.white.opacity(0.08))
+        Canvas { context, size in
+            for face in PolygonButtonMesh.faces {
+                let a = PolygonButtonMesh.point(face.0, in: size)
+                let b = PolygonButtonMesh.point(face.1, in: size)
+                let c = PolygonButtonMesh.point(face.2, in: size)
+                var path = Path()
+                path.move(to: a)
+                path.addLine(to: b)
+                path.addLine(to: c)
+                path.closeSubpath()
+                let centroidX = Double((a.x + b.x + c.x) / 3 / max(size.width, 1))
+                let fill = PolygonButtonMesh.color(atX: centroidX, brightness: face.3)
+                context.fill(path, with: .color(fill))
+                // 面の境目をうっすら光らせる
+                context.stroke(path, with: .color(Color.white.opacity(0.10)), lineWidth: 0.6)
             }
         }
-        .clipShape(ChamferedShape())
+        .clipShape(PolygonOutlineShape())
     }
 }
