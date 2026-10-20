@@ -26,7 +26,7 @@ struct BrandProminentButtonStyle: ButtonStyle {
         configuration.label
             .foregroundStyle(Color.white)
             .padding(.vertical, 6)
-            .background(BrandStyle.gradient, in: PixelCornerShape(step: 3, steps: 2))
+            .background(FacetedBrandBackground())
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
@@ -79,5 +79,78 @@ struct PixelCornerShape: Shape {
         }
         p.closeSubpath()
         return p
+    }
+}
+
+/// 角を斜めに切り落とした多角形(四隅の切り方を少しずつ変えて、カット面のある石のような形にする)
+struct ChamferedShape: Shape {
+    /// 切り落とす大きさ(高さに対する比率)。左上・右上・右下・左下
+    var cuts: (CGFloat, CGFloat, CGFloat, CGFloat) = (0.42, 0.26, 0.36, 0.22)
+
+    func path(in rect: CGRect) -> Path {
+        let h = rect.height
+        let limit = min(rect.width, rect.height) / 2
+        let tl = min(h * cuts.0, limit)
+        let tr = min(h * cuts.1, limit)
+        let br = min(h * cuts.2, limit)
+        let bl = min(h * cuts.3, limit)
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX + tl, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + tr))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
+        p.addLine(to: CGPoint(x: rect.maxX - br, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX + bl, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - bl))
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// オレンジ → ピンクの面に、明るさの違う三角の面を重ねた背景(ローポリのカット面のような見た目)
+struct FacetedBrandBackground: View {
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            ZStack {
+                BrandStyle.gradient
+                // 左上の明るい面
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: 0))
+                    p.addLine(to: CGPoint(x: w * 0.38, y: 0))
+                    p.addLine(to: CGPoint(x: w * 0.22, y: h * 0.62))
+                    p.addLine(to: CGPoint(x: 0, y: h))
+                    p.closeSubpath()
+                }
+                .fill(Color.white.opacity(0.14))
+                // 中央の暗い面
+                Path { p in
+                    p.move(to: CGPoint(x: w * 0.38, y: 0))
+                    p.addLine(to: CGPoint(x: w * 0.7, y: h))
+                    p.addLine(to: CGPoint(x: w * 0.22, y: h * 0.62))
+                    p.closeSubpath()
+                }
+                .fill(Color.black.opacity(0.10))
+                // 右下の暗い面
+                Path { p in
+                    p.move(to: CGPoint(x: w * 0.7, y: h))
+                    p.addLine(to: CGPoint(x: w, y: h * 0.35))
+                    p.addLine(to: CGPoint(x: w, y: h))
+                    p.closeSubpath()
+                }
+                .fill(Color.black.opacity(0.16))
+                // 右上の少し明るい面
+                Path { p in
+                    p.move(to: CGPoint(x: w * 0.62, y: 0))
+                    p.addLine(to: CGPoint(x: w, y: 0))
+                    p.addLine(to: CGPoint(x: w, y: h * 0.35))
+                    p.closeSubpath()
+                }
+                .fill(Color.white.opacity(0.08))
+            }
+        }
+        .clipShape(ChamferedShape())
     }
 }
