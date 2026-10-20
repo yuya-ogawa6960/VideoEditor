@@ -161,16 +161,7 @@ struct EditorTransitionPanel: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "種類")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(TransitionType.allCases) { type in
-                            EditorChip(title: type.displayName,
-                                       isSelected: clip.transition.type == type) {
-                                clip.transition.type = type
-                            }
-                        }
-                    }
-                }
+                TransitionTypePicker(selection: $clip.transition.type)
             }
 
             EditorSliderRow(title: "長さ",
@@ -224,16 +215,7 @@ struct EditorClipAnimationPanel: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "始まるとき")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(ClipAnimationType.allCases) { type in
-                            EditorChip(title: type.displayName,
-                                       isSelected: clip.animation.inType == type) {
-                                clip.animation.inType = type
-                            }
-                        }
-                    }
-                }
+                ClipAnimationPicker(selection: $clip.animation.inType, isOut: false)
                 EditorSliderRow(title: "始まりの動きの時間",
                                 value: Binding(get: { clip.animation.inDuration }, set: { clip.animation.inDuration = $0 }),
                                 range: 0.1...2.0,
@@ -244,16 +226,7 @@ struct EditorClipAnimationPanel: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "終わるとき")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(ClipAnimationType.allCases) { type in
-                            EditorChip(title: type.displayName,
-                                       isSelected: clip.animation.outType == type) {
-                                clip.animation.outType = type
-                            }
-                        }
-                    }
-                }
+                ClipAnimationPicker(selection: $clip.animation.outType, isOut: true)
                 EditorSliderRow(title: "終わりの動きの時間",
                                 value: Binding(get: { clip.animation.outDuration }, set: { clip.animation.outDuration = $0 }),
                                 range: 0.1...2.0,

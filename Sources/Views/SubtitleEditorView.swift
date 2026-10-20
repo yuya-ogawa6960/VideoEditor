@@ -858,27 +858,7 @@ struct SubtitleEditorView: View {
     }
 
     private var templateChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(CaptionTemplate.allCases) { template in
-                    let selected = project.subtitleStyle.template == template
-                    Button {
-                        project.subtitleStyle.template = template
-                    } label: {
-                        Text(template.displayName)
-                            .font(.subheadline.weight(selected ? .semibold : .regular))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule().fill(selected ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
-                            )
-                            .foregroundStyle(selected ? Color.white : Color.primary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 2)
-        }
+        CaptionTemplatePicker(selection: $project.subtitleStyle.template)
     }
 
     private var highlightColorBinding: Binding<Color> {

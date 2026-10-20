@@ -524,15 +524,7 @@ struct EditorTextAnimationPanel: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "出てくるとき")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(TextAnimationType.allCases) { type in
-                            EditorChip(title: type.displayName, isSelected: text.animIn == type) {
-                                text.animIn = type
-                            }
-                        }
-                    }
-                }
+                TextAnimationPicker(selection: $text.animIn, isOut: false)
                 EditorSliderRow(title: "出てくるまでの時間",
                                 value: $text.animInDuration,
                                 range: 0.1...2.0,
@@ -543,15 +535,7 @@ struct EditorTextAnimationPanel: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "消えるとき")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(TextAnimationType.allCases) { type in
-                            EditorChip(title: type.displayName, isSelected: text.animOut == type) {
-                                text.animOut = type
-                            }
-                        }
-                    }
-                }
+                TextAnimationPicker(selection: $text.animOut, isOut: true)
                 EditorSliderRow(title: "消えるまでの時間",
                                 value: $text.animOutDuration,
                                 range: 0.1...2.0,
@@ -1632,15 +1616,7 @@ struct EditorCaptionTemplatePanel: View {
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "字幕デザイン(全字幕共通)")
                 TextPanelHint(text: "話している言葉に合わせて、文字の色や動きが変わるデザインです。")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(CaptionTemplate.allCases) { template in
-                            EditorChip(title: template.displayName, isSelected: project.subtitleStyle.template == template) {
-                                project.subtitleStyle.template = template
-                            }
-                        }
-                    }
-                }
+                CaptionTemplatePicker(selection: $project.subtitleStyle.template)
             }
 
             EditorColorRow(title: "話している言葉の色", color: EditorColorHex.binding($project.subtitleStyle.highlightColorHex))

@@ -26,8 +26,58 @@ struct BrandProminentButtonStyle: ButtonStyle {
         configuration.label
             .foregroundStyle(Color.white)
             .padding(.vertical, 6)
-            .background(BrandStyle.gradient, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(BrandStyle.gradient, in: PixelCornerShape(step: 3, steps: 2))
             .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
+    }
+}
+
+/// 角を階段状に欠いた四角(アイコンの網点のドットのような、カクカクした形)
+struct PixelCornerShape: Shape {
+    /// 1 段の大きさ(pt)
+    var step: CGFloat = 3
+    /// 段の数
+    var steps: Int = 2
+
+    func path(in rect: CGRect) -> Path {
+        let s = min(step, rect.width / CGFloat(steps * 2 + 1), rect.height / CGFloat(steps * 2 + 1))
+        let n = max(1, steps)
+        var p = Path()
+        // 上の辺(左上の階段の終わりから右上の階段の始まりまで)
+        p.move(to: CGPoint(x: rect.minX + s * CGFloat(n), y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX - s * CGFloat(n), y: rect.minY))
+        // 右上: 下へ → 右へ を繰り返す
+        for i in 0..<n {
+            let x = rect.maxX - s * CGFloat(n - i)
+            let y = rect.minY + s * CGFloat(i)
+            p.addLine(to: CGPoint(x: x, y: y + s))
+            p.addLine(to: CGPoint(x: x + s, y: y + s))
+        }
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - s * CGFloat(n)))
+        // 右下: 左へ → 下へ
+        for i in 0..<n {
+            let x = rect.maxX - s * CGFloat(i)
+            let y = rect.maxY - s * CGFloat(n - i)
+            p.addLine(to: CGPoint(x: x - s, y: y))
+            p.addLine(to: CGPoint(x: x - s, y: y + s))
+        }
+        p.addLine(to: CGPoint(x: rect.minX + s * CGFloat(n), y: rect.maxY))
+        // 左下: 上へ → 左へ
+        for i in 0..<n {
+            let x = rect.minX + s * CGFloat(n - i)
+            let y = rect.maxY - s * CGFloat(i)
+            p.addLine(to: CGPoint(x: x, y: y - s))
+            p.addLine(to: CGPoint(x: x - s, y: y - s))
+        }
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + s * CGFloat(n)))
+        // 左上: 右へ → 上へ
+        for i in 0..<n {
+            let x = rect.minX + s * CGFloat(i)
+            let y = rect.minY + s * CGFloat(n - i)
+            p.addLine(to: CGPoint(x: x + s, y: y))
+            p.addLine(to: CGPoint(x: x + s, y: y - s))
+        }
+        p.closeSubpath()
+        return p
     }
 }

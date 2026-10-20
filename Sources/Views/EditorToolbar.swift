@@ -216,7 +216,7 @@ struct EditorToolbar: View {
             .id(groupPath.joined(separator: "/"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 68)
+        .frame(height: 78)
         .background(Color(white: 0.07))
     }
 
@@ -320,18 +320,22 @@ struct EditorToolbar: View {
 
     private func label(_ item: EditorToolItem) -> some View {
         let color: Color = item.isDestructive ? Color.red : Color.white
-        return VStack(spacing: 5) {
+        return VStack(spacing: 4) {
             Image(systemName: item.systemImage)
                 .font(.system(size: 20))
                 .frame(height: 26)
-            Text(item.title)
-                .font(.system(size: 12))
-                .lineLimit(1)
+            // 長い名前は区切りのよいところで 2 行にする
+            Text(EditorToolLabel.wrapped(item.title))
+                .font(.system(size: 11))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .lineSpacing(-1)
                 .fixedSize()
+                .frame(height: 28, alignment: .top)
         }
         .foregroundStyle(color)
         .opacity(item.isEnabled ? 1 : 0.45)
-        .frame(minWidth: 58, minHeight: 56)
+        .frame(minWidth: 58, minHeight: 64)
         .padding(.horizontal, 2)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
@@ -450,5 +454,68 @@ struct EditorModeBadge: View {
                 if Task.isCancelled { return }
                 withAnimation(.easeIn(duration: 0.25)) { isVisible = false }
             }
+    }
+}
+
+/// ツールバーの名前の改行位置(長い名前は意味の切れ目で 2 行にする)
+enum EditorToolLabel {
+    private static let breaks: [String: String] = [
+        "動画・写真を追加": "動画・写真\nを追加",
+        "ビデオトランジション": "ビデオ\nトランジション",
+        "リップル削除": "リップル\n削除",
+        "Lumetri プリセット": "Lumetri\nプリセット",
+        "Lumetri カラー": "Lumetri\nカラー",
+        "Lumetri スコープ": "Lumetri\nスコープ",
+        "HSL セカンダリ": "HSL\nセカンダリ",
+        "LUT を参照": "LUT\nを参照",
+        "速度・デュレーション": "速度・\nデュレーション",
+        "タイムリマップ": "タイム\nリマップ",
+        "ボイスオーバー録音": "ボイスオーバー\n録音",
+        "キャプションを作成": "キャプション\nを作成",
+        "キャプションのスタイル": "キャプション\nのスタイル",
+        "キャプションのデザイン": "キャプション\nのデザイン",
+        "ラウドネスを自動一致": "ラウドネスを\n自動一致",
+        "無音部分を削除": "無音部分\nを削除",
+        "モーション・クロップ": "モーション・\nクロップ",
+        "フッテージを置き換え": "フッテージを\n置き換え",
+        "ワープスタビライザー": "ワープ\nスタビライザー",
+        "オーディオエフェクト": "オーディオ\nエフェクト",
+        "スピーチを強調": "スピーチ\nを強調",
+        "ビートに合わせる": "ビートに\n合わせる",
+        "顔に自動モザイク": "顔に自動\nモザイク",
+        "おまかせテンプレ": "おまかせ\nテンプレ",
+        "おまかせ編集": "おまかせ\n編集",
+        "このプロジェクトを空にする": "プロジェクト\nを空にする",
+        "パーツとして保存": "パーツとして\n保存",
+        "フレーム保持": "フレーム\n保持",
+        "オートリフレーム": "オート\nリフレーム",
+        "名前テロップ": "名前\nテロップ",
+        "ロゴ・透かし": "ロゴ・\n透かし",
+        "前回と比較": "前回と\n比較",
+        "動画の置き場所": "動画の\n置き場所",
+        "全体の仕上げ": "全体の\n仕上げ",
+        "聞きやすくする": "聞きやすく\nする",
+        "キーフレーム": "キー\nフレーム",
+        "アニメーション": "アニメー\nション",
+        "文字・スタイル": "文字・\nスタイル",
+        "位置・サイズ": "位置・\nサイズ",
+        "表示する時間": "表示する\n時間",
+        "逆再生を解除": "逆再生を\n解除",
+        "曲を変更": "曲を\n変更",
+        "文字を直す": "文字を\n直す",
+        "オーバーレイ": "オーバー\nレイ"
+    ]
+
+    static func wrapped(_ title: String) -> String {
+        if let hit = breaks[title] { return hit }
+        guard title.count > 6, !title.contains("\n") else { return title }
+        // 「・」や空白のあとで折る。なければ真ん中で
+        if let dot = title.firstIndex(where: { $0 == "・" || $0 == " " }) {
+            let head = title[...dot].trimmingCharacters(in: .whitespaces)
+            let tail = title[title.index(after: dot)...].trimmingCharacters(in: .whitespaces)
+            if !head.isEmpty, !tail.isEmpty { return head + "\n" + tail }
+        }
+        let mid = title.index(title.startIndex, offsetBy: title.count / 2)
+        return String(title[..<mid]) + "\n" + String(title[mid...])
     }
 }
