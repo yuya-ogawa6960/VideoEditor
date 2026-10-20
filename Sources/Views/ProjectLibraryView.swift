@@ -11,8 +11,6 @@ import UniformTypeIdentifiers
 
 /// アプリのルート。プロジェクトを開いていなければ一覧、開いていれば編集画面(ContentView)
 struct RootView: View {
-    /// 「新しいプロジェクト」で動画の置き場所を選ぶ
-    @State private var isChoosingMediaMode = false
     @State private var openProjectID: UUID?
     @Environment(\.scenePhase) private var scenePhase
 
@@ -52,6 +50,8 @@ struct ProjectLibraryView: View {
 
     private let library = ProjectLibrary.shared
 
+    /// 「新しいプロジェクト」で動画の置き場所を選ぶ
+    @State private var isChoosingMediaMode = false
     @State private var renameTarget: ProjectMeta?
     @State private var renameText = ""
     @State private var isRenaming = false
