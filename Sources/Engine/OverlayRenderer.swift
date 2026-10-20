@@ -83,11 +83,11 @@ enum OverlayRenderer {
 
         // 3. 枠(キーフレームがあれば中心・大きさ・回転・不透明度を置き換える)
         var frameRect = pixelFrame(overlay.frame, canvasSize: canvasSize)
-        var rotation = 0.0
+        var rotation = overlay.rotation
         var opacity = overlay.opacity
         if !overlay.keyframes.isEmpty {
             let fallback = KeyframeInterpolator.Value(center: NormalizedPoint(x: overlay.frame.midX, y: overlay.frame.midY),
-                                                      scale: 1, rotation: 0, opacity: overlay.opacity)
+                                                      scale: 1, rotation: overlay.rotation, opacity: overlay.opacity)
             let value = KeyframeInterpolator.value(at: time - overlay.start, keyframes: overlay.keyframes, fallback: fallback)
             let center = GeometryMath.point(topLeft: value.center, in: canvasSize)
             let scale = CGFloat(max(0.01, value.scale))

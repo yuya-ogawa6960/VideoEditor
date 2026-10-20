@@ -1501,6 +1501,8 @@ private struct StoredOverlay: Codable {
     // 第4弾(省略可能)
     var mask: StoredMask?
     var parallax: StoredParallax?
+    /// 回転(後から追加したので省略可能)
+    var rotation: Double?
 
     init(_ o: OverlayClip) {
         id = o.id
@@ -1530,6 +1532,7 @@ private struct StoredOverlay: Codable {
         blendMode = o.blendMode
         mask = StoredMask(o.mask)
         parallax = StoredParallax(o.parallax)
+        rotation = o.rotation
     }
 
     /// 素材ファイルが消えていれば nil
@@ -1554,6 +1557,7 @@ private struct StoredOverlay: Codable {
         o.blendMode = blendMode
         o.mask = mask?.value ?? MaskSettings()
         o.parallax = parallax?.value ?? DepthParallax()
+        o.rotation = rotation ?? 0
         return o
     }
 }

@@ -58,6 +58,7 @@ struct EditorMosaicPanel: View {
                 clip.mosaic = reset
                 clip.widthRatio = 0.3
                 clip.scale = 1
+                clip.rotation = 0
             }
             .font(.system(size: 14))
             .frame(minHeight: 44)

@@ -141,6 +141,8 @@ struct OverlayClip: Identifiable, Equatable {
     var speed: Double = 1
     /// キャンバス上の配置(full = 全面を覆う Bロール、小さければワイプ)
     var frame: NormalizedRect = .full
+    /// 枠の中心まわりの回転(度、時計回りが正)。キーフレームがあればそちらが優先
+    var rotation: Double = 0
     var fit: OverlayFit = .fit
     /// 0 ... 1
     var opacity: Double = 1
@@ -251,6 +253,7 @@ struct OverlayClip: Identifiable, Equatable {
             && lhs.sourceStart == rhs.sourceStart
             && lhs.speed == rhs.speed
             && lhs.frame == rhs.frame
+            && lhs.rotation == rhs.rotation
             && lhs.fit == rhs.fit
             && lhs.opacity == rhs.opacity
             && lhs.cornerRadius == rhs.cornerRadius

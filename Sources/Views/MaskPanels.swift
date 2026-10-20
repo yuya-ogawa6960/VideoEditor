@@ -891,7 +891,7 @@ final class EditorTrackingController {
             itemEnd = overlay.end
             itemCenter = NormalizedPoint(x: overlay.frame.midX, y: overlay.frame.midY)
             itemScale = 1
-            itemRotation = 0
+            itemRotation = overlay.rotation
             itemOpacity = overlay.opacity
         }
 

@@ -948,7 +948,7 @@ struct ContentView: View {
                                     currentValue: KeyframeInterpolator.Value(center: NormalizedPoint(x: current.frame.midX,
                                                                                                      y: current.frame.midY),
                                                                              scale: 1,
-                                                                             rotation: 0,
+                                                                             rotation: current.rotation,
                                                                              opacity: current.opacity),
                                     keyframes: overlay.keyframes)
             } else {

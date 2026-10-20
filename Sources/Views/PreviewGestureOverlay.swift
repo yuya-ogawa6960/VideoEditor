@@ -317,9 +317,9 @@ struct PreviewGestureOverlay: View {
     /// キーフレームを反映したオーバーレイの枠(ビュー座標)と角度
     private static func placedOverlayRect(_ overlay: OverlayClip, at time: Double, in size: CGSize) -> (rect: CGRect, rotation: Double) {
         let base = overlay.frame.rect(in: size)
-        guard !overlay.keyframes.isEmpty else { return (base, 0) }
+        guard !overlay.keyframes.isEmpty else { return (base, overlay.rotation) }
         let fallback = KeyframeInterpolator.Value(center: NormalizedPoint(x: overlay.frame.midX, y: overlay.frame.midY),
-                                                  scale: 1, rotation: 0, opacity: overlay.opacity)
+                                                  scale: 1, rotation: overlay.rotation, opacity: overlay.opacity)
         let local: Double = time - overlay.start
         let value = KeyframeInterpolator.value(at: local, keyframes: overlay.keyframes, fallback: fallback)
         let center = value.center.point(in: size)
@@ -852,6 +852,7 @@ struct PreviewGestureOverlay: View {
         guard !session.isActive else { return }
         history.record(project)
         session.startFrame = overlay.frame
+        session.startRotation = overlay.rotation
         session.resetDeltas()
         session.resetFlags()
         session.lastWrite = 0
@@ -861,6 +862,7 @@ struct PreviewGestureOverlay: View {
 
     private func endGesture(overlay: OverlayClip, cleanup: () -> Void) {
         session.startFrame = overlay.frame
+        session.startRotation = overlay.rotation
         session.rebase()
         cleanup()
         if !session.anyActive {
@@ -886,6 +888,12 @@ struct PreviewGestureOverlay: View {
         let cx = f.midX + Double(d.width / max(size.width, 1))
         let cy = f.midY + Double(d.height / max(size.height, 1))
         overlay.frame = NormalizedRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h).clamped()
+        var rotation = (session.startRotation + session.effectiveRotate).truncatingRemainder(dividingBy: 360)
+        // 0・90・180・270 度の近くでは吸い付く
+        for snap in [-270.0, -180.0, -90.0, 0.0, 90.0, 180.0, 270.0] where abs(rotation - snap) < 3 {
+            rotation = snap
+        }
+        overlay.rotation = rotation
         binding.wrappedValue = overlay
     }
 
@@ -922,7 +930,23 @@ struct PreviewGestureOverlay: View {
                 }
             }
 
-        return drag.simultaneously(with: magnify)
+        let rotate = RotateGesture()
+            .onChanged { value in
+                beginIfNeeded(overlay: binding.wrappedValue)
+                session.rotateActive = true
+                session.rawRotate = value.rotation.degrees
+                applyOverlay(binding, size: size, force: false)
+            }
+            .onEnded { _ in
+                applyOverlay(binding, size: size, force: true)
+                endGesture(overlay: binding.wrappedValue) {
+                    session.rawRotate = 0
+                    session.baseRotate = 0
+                    session.rotateActive = false
+                }
+            }
+
+        return drag.simultaneously(with: magnify).simultaneously(with: rotate)
     }
 }
 
