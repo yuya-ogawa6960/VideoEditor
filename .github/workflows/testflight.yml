@@ -10,6 +10,8 @@ name: TestFlight
 on:
   push:
     branches: [ main ]
+    # サーバー(server/)だけの変更ではアプリを作り直さない
+    paths-ignore: [ "server/**", ".github/workflows/deploy-server.yml" ]
   workflow_dispatch:
 
 concurrency:
