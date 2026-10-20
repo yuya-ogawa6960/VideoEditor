@@ -1266,8 +1266,11 @@ struct ContentView: View {
         let busy = mediaToolProgress != nil
 
         var items: [EditorToolItem] = []
-        items.append(EditorToolItem("分割", systemImage: "square.split.2x1") {
+        items.append(EditorToolItem("スプリット", systemImage: "square.split.2x1") {
             splitClip(clipID)
+        })
+        items.append(EditorToolItem("削除", systemImage: "trash", destructive: true) {
+            deleteClip(clipID)
         })
         if !isStill {
             var speedItems: [EditorToolItem] = []
@@ -1300,9 +1303,6 @@ struct ContentView: View {
         })
         items.append(EditorToolItem.more(clipMoreItems(clipID, clip: clip, isStill: isStill,
                                                        hasAudio: hasAudio, busy: busy)))
-        items.append(EditorToolItem("削除", systemImage: "trash", destructive: true) {
-            deleteClip(clipID)
-        })
         return items
     }
 
@@ -2453,7 +2453,7 @@ struct ContentView: View {
         }
         history.record(project)
         project.splitClip(id: clipID, atSourceTime: location.sourceTime)
-        showToast("分割しました", undo: true)
+        showToast("スプリットしました", undo: true)
     }
 
     // MARK: 保存 / プロジェクトの切り替え

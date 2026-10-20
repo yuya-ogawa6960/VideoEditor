@@ -938,7 +938,7 @@ struct EditorBeatDetectPanel: View {
                 }
             }
         }
-        message = count > 0 ? "\(count) か所で分割しました。" : "分割できる位置がありませんでした。"
+        message = count > 0 ? "\(count) か所でスプリットしました。" : "スプリットできる位置がありませんでした。"
     }
 }
 
