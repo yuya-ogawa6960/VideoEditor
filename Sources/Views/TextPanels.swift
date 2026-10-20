@@ -156,67 +156,97 @@ struct EditorFontPickerRow: View {
         return .system(size: 13)
     }
 
+    private struct FontEntry: Identifiable {
+        let name: String?
+        let label: String
+        var id: String { name ?? "" }
+    }
+
+    /// 一覧に出すフォント(システム → 内蔵 → 読み込んだもの)
+    private var entries: [FontEntry] {
+        var list: [FontEntry] = [FontEntry(name: nil, label: "システム(標準)")]
+        for entry in availableBuiltIn {
+            list.append(FontEntry(name: entry.name, label: entry.label))
+        }
+        for name in storedNames where !list.contains(where: { $0.name == name }) {
+            list.append(FontEntry(name: name, label: name))
+        }
+        if let fontName, !list.contains(where: { $0.name == fontName }) {
+            list.append(FontEntry(name: fontName, label: fontName))
+        }
+        return list
+    }
+
+    /// そのフォント自体で書いた見本(フォントが無ければシステム)
+    private static func sampleFont(_ name: String?, size: CGFloat) -> Font {
+        if let name, UIFont(name: name, size: size) != nil {
+            return .custom(name, size: size)
+        }
+        return .system(size: size)
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
                     .font(.caption)
                 Spacer()
-                Menu {
-                    Button {
-                        fontName = nil
-                    } label: {
-                        if fontName == nil {
-                            Label("システム(標準)", systemImage: "checkmark")
-                        } else {
-                            Text("システム(標準)")
-                        }
-                    }
-                    ForEach(availableBuiltIn, id: \.name) { entry in
-                        Button {
-                            fontName = entry.name
-                        } label: {
-                            if fontName == entry.name {
-                                Label(entry.label, systemImage: "checkmark")
-                            } else {
-                                Text(entry.label)
-                            }
-                        }
-                    }
-                    if !storedNames.isEmpty {
-                        Divider()
-                        ForEach(storedNames, id: \.self) { name in
+                Text(currentLabel)
+                    .font(currentFont)
+                    .foregroundStyle(Color.white.opacity(0.7))
+                    .lineLimit(1)
+            }
+            // 各フォントの名前を、そのフォントで表示する(見ながら選べるように)
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(entries) { entry in
+                            let selected: Bool = fontName == entry.name
                             Button {
-                                fontName = name
+                                fontName = entry.name
                             } label: {
-                                if fontName == name {
-                                    Label(name, systemImage: "checkmark")
-                                } else {
-                                    Text(name)
+                                VStack(spacing: 2) {
+                                    Text("あAa")
+                                        .font(Self.sampleFont(entry.name, size: 20))
+                                    Text(entry.label)
+                                        .font(Self.sampleFont(entry.name, size: 11))
+                                        .lineLimit(1)
                                 }
+                                .foregroundStyle(selected ? Color.black : Color.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .frame(minWidth: 72, minHeight: 52)
+                                .background(selected ? Color.white : Color.white.opacity(0.12),
+                                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                             }
+                            .buttonStyle(.plain)
+                            .id(entry.id)
                         }
+                        Button {
+                            showImporter = true
+                        } label: {
+                            VStack(spacing: 2) {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 18))
+                                Text("読み込む")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .frame(minWidth: 72, minHeight: 52)
+                            .background(Color.white.opacity(0.12),
+                                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("フォントを読み込む(.ttf / .otf)")
                     }
-                    Divider()
-                    Button {
-                        showImporter = true
-                    } label: {
-                        Label("フォントを読み込む(.ttf / .otf)…", systemImage: "square.and.arrow.down")
+                    .padding(.vertical, 2)
+                }
+                .onAppear {
+                    if let hit = entries.first(where: { $0.name == fontName }) {
+                        proxy.scrollTo(hit.id, anchor: .center)
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(currentLabel)
-                            .font(currentFont)
-                            .lineLimit(1)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color.white.opacity(0.12), in: Capsule())
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
                 }
             }
             if let errorText {

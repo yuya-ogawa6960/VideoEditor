@@ -947,6 +947,8 @@ struct SubtitleEditorView: View {
                         .tag(option.id)
                 }
             }
+            // 一覧画面で、各フォントの名前をそのフォントで表示する(メニュー形式だとフォントが反映されない)
+            .pickerStyle(.navigationLink)
         } header: {
             Text("字幕の見た目(詳細)")
         } footer: {
@@ -1438,7 +1440,9 @@ enum SubtitleFontCatalog {
     static func label(for option: Option) -> some View {
         Group {
             if option.id.isEmpty {
+                // 標準は字幕と同じヒラギノ角ゴ W3
                 Text(option.label)
+                    .font(.custom("HiraginoSans-W3", size: 17))
             } else {
                 Text(option.label)
                     .font(.custom(option.id, size: 17))

@@ -418,6 +418,8 @@ struct CoverMakerView: View {
                         .tag(option.id)
                 }
             }
+            // 一覧画面で、各フォントの名前をそのフォントで表示する(メニュー形式だとフォントが反映されない)
+            .pickerStyle(.navigationLink)
         } header: {
             Text("フォント")
         } footer: {
