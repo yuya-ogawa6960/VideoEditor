@@ -183,6 +183,7 @@ enum MediaTools {
 
     /// 起動時に呼ぶ。保存済みのフォントをすべて登録する
     static func registerStoredFonts() {
+        BundledFonts.registerAll()
         for url in storedFontURLs() {
             registerFont(at: url)
         }

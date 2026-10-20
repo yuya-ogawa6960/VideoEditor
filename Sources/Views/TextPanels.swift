@@ -140,12 +140,15 @@ struct EditorFontPickerRow: View {
     ]
 
     private var availableBuiltIn: [(name: String, label: String)] {
-        Self.builtIn.filter { UIFont(name: $0.name, size: 12) != nil }
+        BundledFonts.registerAll()
+        let bundled: [(name: String, label: String)] = BundledFonts.all.map { (name: $0.name, label: $0.label) }
+        return (Self.builtIn + bundled).filter { UIFont(name: $0.name, size: 12) != nil }
     }
 
     private var currentLabel: String {
         guard let fontName else { return "システム(標準)" }
         if let hit = Self.builtIn.first(where: { $0.name == fontName }) { return hit.label }
+        if let hit = BundledFonts.all.first(where: { $0.name == fontName }) { return hit.label }
         return fontName
     }
 

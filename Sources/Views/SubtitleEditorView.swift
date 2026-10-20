@@ -1424,7 +1424,8 @@ enum SubtitleFontCatalog {
 
     /// 組み込み + 「ファイル」から読み込んだフォント(MediaTools)+ 現在選ばれている名前(一覧に無ければ追加)
     static func options(including current: String?) -> [Option] {
-        var result = builtIn
+        BundledFonts.registerAll()
+        var result = builtIn + BundledFonts.all.map { Option(id: $0.name, label: $0.label) }
         var known = Set(result.map { $0.id })
         for name in MediaTools.storedFontNames() where !known.contains(name) {
             result.append(Option(id: name, label: "\(name)(読み込み)"))
