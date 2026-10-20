@@ -631,7 +631,7 @@ struct ExportView: View {
                         .minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .disabled(!canStart)
 
                 if let reason = disabledReason {

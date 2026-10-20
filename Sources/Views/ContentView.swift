@@ -452,7 +452,7 @@ struct ContentView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(BrandStyle.gradient, in: Capsule())
                     .opacity(project.isEmpty ? 0.4 : 1)
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
@@ -484,7 +484,7 @@ struct ContentView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 32)
                     .padding(.vertical, 16)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(BrandStyle.gradient, in: Capsule())
             }
             .disabled(isImporting)
         }

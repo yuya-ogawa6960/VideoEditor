@@ -189,7 +189,7 @@ struct ProjectLibraryView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 64)
-            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(BrandStyle.gradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("新しいプロジェクト")
