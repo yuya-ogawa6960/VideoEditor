@@ -1211,7 +1211,7 @@ struct EditorWatermarkPanel: View {
                                 display: textPanelPercent(project.watermark.opacity))
                 EditorSliderRow(title: "大きさ(画面幅に対して)",
                                 value: $project.watermark.sizeRatio,
-                                range: 0.05...0.5,
+                                range: 0.05...1,
                                 display: textPanelPercent(project.watermark.sizeRatio))
                 TextPanelResetRow {
                     project.watermark.opacity = 0.6

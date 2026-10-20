@@ -258,7 +258,7 @@ enum WatermarkRenderer {
         guard settings.isActive, canvasSize.width >= 2, canvasSize.height >= 2 else { return frame }
         let canvas = CGRect(origin: .zero, size: canvasSize)
         let shortSide = min(canvasSize.width, canvasSize.height)
-        let sizeRatio = GeometryMath.clamp(settings.sizeRatio, 0.03, 0.8)
+        let sizeRatio = GeometryMath.clamp(settings.sizeRatio, 0.03, 1.0)
         let targetWidth = max(8, (CGFloat(sizeRatio) * canvasSize.width).rounded())
 
         var mark: CIImage? = nil
@@ -276,7 +276,7 @@ enum WatermarkRenderer {
             style.colorHex = "#FFFFFF"
             // sizeRatio は画面幅に対する比率なので、短辺基準の文字サイズに換算する
             let widthToShort = Double(canvasSize.width / shortSide)
-            style.sizeRatio = GeometryMath.clamp(sizeRatio * 0.22 * widthToShort, 0.015, 0.3)
+            style.sizeRatio = GeometryMath.clamp(sizeRatio * 0.22 * widthToShort, 0.015, 0.6)
             style.shadow.enabled = true
             style.shadow.opacity = 0.7
             style.strokeColorHex = nil
@@ -287,22 +287,25 @@ enum WatermarkRenderer {
         let e = image.extent
         guard e.width >= 1, e.height >= 1, !e.isInfinite else { return frame }
 
+        // 大きいとき(最大で画面幅 100%)ははみ出さないよう、余白を空いている分まで縮める
         let margin = (canvasSize.width * 0.03).rounded()
+        let marginX: CGFloat = min(margin, max(0, (canvasSize.width - e.width) / 2))
+        let marginY: CGFloat = min(margin, max(0, (canvasSize.height - e.height) / 2))
         let x: CGFloat
         let y: CGFloat
         switch settings.corner {
         case .topLeft:
-            x = margin
-            y = canvasSize.height - margin - e.height
+            x = marginX
+            y = canvasSize.height - marginY - e.height
         case .topRight:
-            x = canvasSize.width - margin - e.width
-            y = canvasSize.height - margin - e.height
+            x = canvasSize.width - marginX - e.width
+            y = canvasSize.height - marginY - e.height
         case .bottomLeft:
-            x = margin
-            y = margin
+            x = marginX
+            y = marginY
         case .bottomRight:
-            x = canvasSize.width - margin - e.width
-            y = margin
+            x = canvasSize.width - marginX - e.width
+            y = marginY
         }
         let placed = GeometryMath.normalizedToOrigin(image)
             .transformed(by: CGAffineTransform(translationX: x.rounded(), y: y.rounded()))
