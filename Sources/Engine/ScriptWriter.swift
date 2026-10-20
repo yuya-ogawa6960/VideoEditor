@@ -41,13 +41,13 @@ enum ScriptWriterError: LocalizedError {
 
 enum ScriptWriter {
     static let cloudModel = "gpt-4o-mini"
-    static let cloudEndpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+    static var cloudEndpoint: URL { CloudAIGateway.chatURL }
 
     // MARK: - エンジン
 
     static func resolveEngine(settings: AppSettings) -> SubtitlePolisher.ResolvedEngine {
         let onDevice = SubtitlePolisher.isOnDeviceAvailable
-        let cloud = settings.hasOpenAIKey
+        let cloud = settings.hasCloudCredential
         switch settings.polishEngine {
         case .cloud:
             if cloud { return .cloud }
@@ -88,7 +88,7 @@ enum ScriptWriter {
         let prompt = writePrompt(topic: trimmedTopic, duration: duration, lineCount: lineCount,
                                  subtitles: subtitles, markers: markers, limit: contextLimit)
         let raw = try await generate(engine: engine, instructions: instructions, prompt: prompt,
-                                     apiKey: settings.openAIKey, temperature: 0.7)
+                                     apiKey: settings.cloudCredential, temperature: 0.7)
         try Task.checkCancellation()
         let lines = parseLines(raw, duration: duration)
         guard !lines.isEmpty else { throw ScriptWriterError.invalidResponse }
@@ -206,7 +206,7 @@ enum ScriptWriter {
         }
         prompt += body
         let raw = try await generate(engine: engine, instructions: instructions, prompt: prompt,
-                                     apiKey: settings.openAIKey, temperature: 0.3)
+                                     apiKey: settings.cloudCredential, temperature: 0.3)
         try Task.checkCancellation()
 
         let chapters = parseChapters(raw)

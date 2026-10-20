@@ -89,6 +89,16 @@ jobs:
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CURRENT_PROJECT_VERSION="$BUILD_NO"
 
+      - name: Embed entitlements (Sign in with Apple)
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          # アーカイブは署名なしで作るので、書き出し(クラウド署名)が権限を引き継げるよう、
+          # アプリに権限(entitlements)だけを付けた仮の署名をしておく
+          APP=$(find build/VideoEditor.xcarchive/Products/Applications -maxdepth 1 -name "*.app" | head -n 1)
+          test -n "$APP"
+          codesign --force --sign - --entitlements VideoEditor.entitlements --timestamp=none "$APP"
+          codesign -d --entitlements - "$APP" || true
+
       - name: Upload to TestFlight
         if: steps.check.outputs.ready == 'true'
         run: |

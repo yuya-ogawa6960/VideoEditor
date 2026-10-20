@@ -51,6 +51,9 @@ enum CloudTranscriptionError: LocalizedError {
         case .missingAPIKey:
             return "OpenAI の API キーが設定されていません。「文字起こしの方式」の画面でキーを入力してください。"
         case .invalidAPIKey:
+            if CloudAIGateway.usesPoints || AccountService.shared.source == .points {
+                return "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。"
+            }
             return "APIキーが正しくありません。「文字起こしの方式」の画面で OpenAI の API キーを確認してください。"
         case .rateLimited(let detail):
             return detail.isEmpty ? "利用上限です。しばらく待ってからもう一度お試しください。"
@@ -76,7 +79,8 @@ enum CloudTranscriptionError: LocalizedError {
 final class CloudTranscriber: @unchecked Sendable {
     static let shared = CloudTranscriber()
 
-    static let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+    /// 送り先(ポイントを使う設定なら Video Mania のサーバー。CloudAIGateway)
+    static var endpoint: URL { CloudAIGateway.transcriptionsURL }
 
     /// 精度優先で最初に試すモデル。gpt-4o-transcribe 系で時刻付き(diarized_json)を返せるもの
     static var primaryModel = "gpt-4o-transcribe-diarize"
@@ -138,7 +142,7 @@ final class CloudTranscriber: @unchecked Sendable {
                     pauseReporter: BackgroundPauseReporter? = nil,
                     progress: @escaping (Double) -> Void,
                     pieceProgress: ((_ completed: Int, _ total: Int) -> Void)? = nil) async throws -> [TimedToken] {
-        let key = (apiKey ?? AppSettings.shared.openAIKey).trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = (apiKey ?? AppSettings.shared.cloudCredential).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw CloudTranscriptionError.missingAPIKey }
         // 送信・切り出しの途中でバックグラウンドへ入ったかを判定できるように、監視を始めておく
         await BackgroundEpoch.install()
@@ -254,7 +258,7 @@ final class CloudTranscriber: @unchecked Sendable {
                          apiKey: String? = nil, quality: CloudTranscriptionQuality? = nil, projectID: UUID? = nil,
                          pauseReporter: BackgroundPauseReporter? = nil,
                          progress: @escaping (BatchProgress) -> Void) async throws -> [[TimedToken]] {
-        let key = (apiKey ?? AppSettings.shared.openAIKey).trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = (apiKey ?? AppSettings.shared.cloudCredential).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw CloudTranscriptionError.missingAPIKey }
         guard !clips.isEmpty else { throw CloudTranscriptionError.noAudio }
         // 切り出し・送信の途中でバックグラウンドへ入ったかを判定できるように、監視を始めておく

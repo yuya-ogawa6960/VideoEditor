@@ -574,7 +574,7 @@ final class TranscriptionService {
         // 送信が続く)。作業フォルダを作れないなど使えないとき(nil)は、クリップごとの従来の経路
         var cloudTokens: [[TimedToken]]? = nil
         if engine == .cloud {
-            cloudTokens = try await recognizeAllClipsWithCloud(jobs: jobs, language: language, apiKey: settings.openAIKey,
+            cloudTokens = try await recognizeAllClipsWithCloud(jobs: jobs, language: language, apiKey: settings.cloudCredential,
                                                                quality: settings.cloudQuality,
                                                                pauseReporter: pauseReporter)
             try checkCancelled()
@@ -616,7 +616,7 @@ final class TranscriptionService {
                 if let cloudTokens {
                     sourceTokens = jobIndex < cloudTokens.count ? cloudTokens[jobIndex] : []
                 } else {
-                    sourceTokens = try await recognizeClipWithCloud(job: job, language: language, apiKey: settings.openAIKey,
+                    sourceTokens = try await recognizeClipWithCloud(job: job, language: language, apiKey: settings.cloudCredential,
                                                                     quality: settings.cloudQuality,
                                                                     clipIndex: jobIndex, clipCount: jobs.count,
                                                                     doneUnits: doneUnits, totalUnits: totalUnits,

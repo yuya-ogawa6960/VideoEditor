@@ -34,9 +34,17 @@ targets:
     dependencies:
       - package: WhisperKit
         product: WhisperKit
+    entitlements:
+      path: VideoEditor.entitlements
+      properties:
+        # Apple でサインイン(ポイントのアカウント)
+        com.apple.developer.applesignin:
+          - Default
     info:
       path: Info.plist
       properties:
+        # ポイント・AI 中継サーバー(server/。空ならポイントの機能は「準備中」)
+        VMServerURL: "$(VM_SERVER_URL)"
         CFBundleDisplayName: Video Mania
         CFBundleName: VideoEditor
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
@@ -74,7 +82,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "NO"
-        MARKETING_VERSION: "1.9.7"
+        VM_SERVER_URL: ""
+        MARKETING_VERSION: "1.10"
         CURRENT_PROJECT_VERSION: "1"
 
 schemes:

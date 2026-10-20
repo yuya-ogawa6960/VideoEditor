@@ -383,10 +383,15 @@ final class AppSettings {
         return "sk-…" + suffix
     }
 
-    /// クラウド文字起こし・クラウド仕上げが使える状態か
+    /// クラウド文字起こし・クラウド仕上げが使える状態か(ポイントで使う設定のときはサインイン済みなら可)
     var isCloudConfigured: Bool {
         switch cloudProvider {
-        case .openAI: return hasOpenAIKey
+        case .openAI: return hasCloudCredential
         }
     }
+
+    /// クラウド AI に送る認証(ポイントを使うならセッショントークン、そうでなければ OpenAI キー)
+    var cloudCredential: String { CloudAIGateway.credential }
+
+    var hasCloudCredential: Bool { !cloudCredential.isEmpty }
 }

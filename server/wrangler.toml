@@ -1,0 +1,14 @@
+# Video Mania のポイント・AI 中継サーバー(Cloudflare Workers)
+# デプロイは .github/workflows/deploy-server.yml が行う(database_id もそこで埋める)
+name = "videomania-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+# アプリのバンドル ID(Apple でサインインのトークンの宛先チェック)
+APPLE_AUDIENCE = "com.yuyaogawa6960.videomania"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "videomania"
+database_id = "__D1_DATABASE_ID__"

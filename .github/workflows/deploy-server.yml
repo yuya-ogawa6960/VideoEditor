@@ -1,0 +1,74 @@
+# ポイント・AI 中継サーバー(server/)を Cloudflare Workers にデプロイする。
+# 必要な Secrets(リポジトリの Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   … Cloudflare の API トークン(「Workers を編集」+ D1 の編集権限)
+#   CLOUDFLARE_ACCOUNT_ID  … Cloudflare のアカウント ID
+#   OPENAI_API_KEY         … サーバーが使う OpenAI のキー
+# セッションの署名用の秘密(SESSION_SECRET)は、まだなければここで作ってサーバーに保存する。
+name: Deploy server
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ "server/**", ".github/workflows/deploy-server.yml" ]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$OPENAI_API_KEY" ]; then
+            echo "Secrets が未設定のためデプロイをスキップします。"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          node-version: "20"
+
+      - name: Create D1 database (first time only) and set its ID
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          npm install --no-save --silent wrangler@4
+          ID=$(npx wrangler d1 list --json | node -e 'const l=JSON.parse(require("fs").readFileSync(0,"utf8"));const d=l.find(x=>x.name==="videomania");process.stdout.write(d?d.uuid:"")')
+          if [ -z "$ID" ]; then
+            npx wrangler d1 create videomania
+            ID=$(npx wrangler d1 list --json | node -e 'const l=JSON.parse(require("fs").readFileSync(0,"utf8"));const d=l.find(x=>x.name==="videomania");process.stdout.write(d?d.uuid:"")')
+          fi
+          test -n "$ID"
+          sed -i "s/__D1_DATABASE_ID__/$ID/" wrangler.toml
+          npx wrangler d1 execute videomania --remote --file=schema.sql --yes
+
+      - name: Deploy
+        if: steps.check.outputs.ready == 'true'
+        run: npx wrangler deploy 2>&1 | tee deploy.log
+
+      - name: Set secrets
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          printf '%s' "$OPENAI_API_KEY" | npx wrangler secret put OPENAI_API_KEY
+          if ! npx wrangler secret list | grep -q SESSION_SECRET; then
+            openssl rand -hex 32 | tr -d '\n' | npx wrangler secret put SESSION_SECRET
+          fi
+
+      - name: Show URL
+        if: steps.check.outputs.ready == 'true'
+        run: grep -o 'https://[a-zA-Z0-9.-]*workers.dev' deploy.log | head -n 1

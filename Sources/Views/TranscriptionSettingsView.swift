@@ -46,6 +46,7 @@ struct TranscriptionSettingsView: View {
             if settings.transcriptionEngine == .whisper {
                 whisperSection
             }
+            AccountPointsSection()
             cloudSection
             polishSection
             diagnosticsSection

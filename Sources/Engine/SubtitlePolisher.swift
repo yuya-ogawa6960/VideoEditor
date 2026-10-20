@@ -35,7 +35,7 @@ enum SubtitlePolisher {
     }
 
     static let cloudModel = "gpt-4o-mini"
-    static let cloudEndpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
+    static var cloudEndpoint: URL { CloudAIGateway.chatURL }
 
     /// 1 回のリクエストに入れる字幕数
     static let cloudBatchSize = 40
@@ -148,7 +148,7 @@ enum SubtitlePolisher {
 
         let instructions = polishInstructions(language: language)
         let header = polishPromptHeader(language: language)
-        let apiKey = settings.openAIKey
+        let apiKey = settings.cloudCredential
         let texts: [String] = cues.map { $0.text }
         let network = CloudRequestState(pauseReporter: pauseReporter)
 
@@ -174,7 +174,7 @@ enum SubtitlePolisher {
         let instructions = translationInstructions(source: language, toEnglish: toEnglish)
         let header = toEnglish ? "Translate the following subtitles."
                                : "次の字幕を翻訳してください。"
-        let apiKey = settings.openAIKey
+        let apiKey = settings.cloudCredential
         let texts: [String] = cues.map { $0.text }
         let network = CloudRequestState(pauseReporter: nil)
 
@@ -215,7 +215,7 @@ enum SubtitlePolisher {
         """
         let prompt = "次の文章を要約してください。\n\n" + body
         guard let raw = await generate(engine: engine, instructions: instructions, prompt: prompt,
-                                       apiKey: settings.openAIKey,
+                                       apiKey: settings.cloudCredential,
                                        network: CloudRequestState(pauseReporter: nil)) else { return nil }
         if Task.isCancelled { return nil }
         if let object = extractJSON(raw) as? [String: Any] {

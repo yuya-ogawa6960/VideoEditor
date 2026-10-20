@@ -909,7 +909,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             copy.timeoutInterval = CloudTranscriber.requestTimeout(for: model)
             request = copy
         } else {
-            let key = (apiKey ?? AppSettings.shared.openAIKey).trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = (apiKey ?? AppSettings.shared.cloudCredential).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty else { return .missingAPIKey }
             request = CloudTranscriber.makeUploadRequest(apiKey: key, contentType: contentType, model: model)
         }
@@ -1125,7 +1125,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
     /// タスクの無いピース(前のプロセスが途中で終了したなど)を送り直す。待っている処理があるときだけ。
     /// API キーが無ければジョブは失敗にせず(保存済みの結果を残す)、待っている処理にだけ missingAPIKey を返す
     private func resumeOrphans(jobID: UUID) {
-        let apiKey = AppSettings.shared.openAIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = AppSettings.shared.cloudCredential.trimmingCharacters(in: .whitespacesAndNewlines)
         var delivery = CloudUploadDelivery()
         lock.lock()
         guard var job = jobs[jobID], job.status == .running, let list = waiters[jobID] else {
