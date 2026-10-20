@@ -11,7 +11,8 @@ import CryptoKit
 // cachedProcessedURL(for:effects:) が返すファイルを元素材の代わりに使う
 // (処理済みファイルは元素材と同じタイムラインを持つ)。
 //
-// ノイズ低減(noiseReduction > 0)は 2 段構え:
+// ノイズ低減(noiseReduction > 0)は、まず AI の音声分離(AudioVoiceIsolator。声だけを残す)を使い、
+// 使えないときは次の 2 段構え:
 //   1. スペクトルゲート(AudioEffectsSpectralDenoiser): STFT(窓 1024・ホップ 256・√Hann)で
 //      ファイル全体の各周波数ビンの大きさの 10 パーセンタイルをノイズプロファイルとし、
 //      各フレームで「大きさ − プロファイル × (1 + 2 × nr)」まで下げる(下限 0.1 ... 1 − 0.9nr)。
@@ -64,7 +65,7 @@ enum AudioEffectsRenderer {
         components.append(String(format: "%.3f", effects.pitchSemitones))
         components.append(effects.voicePreset.rawValue)
         components.append(String(format: "%.3f", effects.noiseReduction))
-        components.append("v2")
+        components.append("v3")
         let digest = SHA256.hash(data: Data(components.joined(separator: "|").utf8))
         return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
@@ -132,16 +133,25 @@ enum AudioEffectsRenderer {
         try await MediaTools.exportAudio(from: source, start: nil, end: nil, to: extracted)
         try Task.checkCancellation()
 
-        // スペクトルゲートによるノイズ低減(失敗したときは従来のゲート処理だけで続ける)
+        // ノイズ低減: まず AI の音声分離(声だけを残す)。使えなければスペクトルゲート。
+        // どちらも失敗したときは従来のゲート処理だけで続ける
         var chainInput = extracted
         if effects.noiseReduction > 0 {
             do {
-                try AudioEffectsSpectralDenoiser.process(input: extracted, output: denoised, amount: effects.noiseReduction)
+                try AudioVoiceIsolator.process(input: extracted, output: denoised, amount: effects.noiseReduction)
                 chainInput = denoised
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                chainInput = extracted
+                try? fm.removeItem(at: denoised)
+                do {
+                    try AudioEffectsSpectralDenoiser.process(input: extracted, output: denoised, amount: effects.noiseReduction)
+                    chainInput = denoised
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    chainInput = extracted
+                }
             }
         }
         try renderBlocking(input: chainInput, output: rendered, effects: effects)

@@ -680,7 +680,7 @@ struct EditorAudioEffectsPanel: View {
                             value: $draft.pitchSemitones,
                             range: -12...12,
                             display: String(format: "%+.1f", draft.pitchSemitones))
-            EditorSliderRow(title: "雑音を減らす",
+            EditorSliderRow(title: "雑音を消す(AI で声だけを残す)",
                             value: $draft.noiseReduction,
                             range: 0...1,
                             display: clipFXPercent(draft.noiseReduction))
