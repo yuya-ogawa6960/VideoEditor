@@ -70,7 +70,9 @@ jobs:
           echo "KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
           echo "BUILD_NO=$((BUILD_NUMBER + 1000))" >> "$GITHUB_ENV"
 
-      - name: Archive (signed)
+      # 開発用証明書は実行ごとに秘密鍵が失われ 2 回目以降に失敗するため、アーカイブは署名なしで作り、
+      # 書き出し(-exportArchive)のときに Apple のクラウド署名(配布用証明書)で署名する
+      - name: Archive (unsigned; signed by Apple cloud signing at export)
         if: steps.check.outputs.ready == 'true'
         run: |
           set -o pipefail
@@ -81,14 +83,9 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/VideoEditor.xcarchive \
             -derivedDataPath build \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             CODE_SIGN_STYLE=Automatic \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGN_IDENTITY="Apple Development" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CURRENT_PROJECT_VERSION="$BUILD_NO"
 
