@@ -58,7 +58,15 @@ jobs:
         if: steps.check.outputs.ready == 'true'
         run: |
           KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
-          printf '%s\n' "$ASC_KEY_P8" > "$KEY_PATH"
+          # 貼り付け方の違い(Windows の改行、見出し行の有無、1 行につながった本文)を吸収して PEM に整える
+          BODY=$(printf '%s' "$ASC_KEY_P8" | tr -d '\r' | sed -e 's/-----[A-Z ]*-----//g' | tr -d ' \n\t')
+          {
+            echo "-----BEGIN PRIVATE KEY-----"
+            printf '%s' "$BODY" | fold -w 64
+            echo
+            echo "-----END PRIVATE KEY-----"
+          } > "$KEY_PATH"
+          echo "key body length: ${#BODY}"
           echo "KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
           echo "BUILD_NO=$((BUILD_NUMBER + 1000))" >> "$GITHUB_ENV"
 
