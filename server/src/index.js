@@ -108,14 +108,25 @@ async function authenticate(request, env) {
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   const parts = token.split(".");
   if (parts.length !== 3 || parts[0] !== "vm1") return null;
+  let signature;
+  try {
+    signature = b64urlDecode(parts[2]);
+  } catch (_) {
+    return null;
+  }
   const ok = await crypto.subtle.verify(
     "HMAC",
     await hmacKey(env.SESSION_SECRET),
-    b64urlDecode(parts[2]),
+    signature,
     new TextEncoder().encode(parts[1])
   );
   if (!ok) return null;
-  const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1])));
+  let payload;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1])));
+  } catch (_) {
+    return null;
+  }
   if (!payload.sub || !payload.exp || payload.exp < Date.now() / 1000) return null;
   const row = await env.DB.prepare("SELECT id, points, last_daily FROM users WHERE id = ?").bind(payload.sub).first();
   return row || null;
@@ -140,8 +151,13 @@ async function appleKeys() {
 async function verifyAppleToken(idToken, audience) {
   const parts = (idToken || "").split(".");
   if (parts.length !== 3) return null;
-  const header = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
-  const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1])));
+  let header, payload;
+  try {
+    header = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
+    payload = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[1])));
+  } catch (_) {
+    return null;
+  }
   const jwk = (await appleKeys()).find((k) => k.kid === header.kid);
   if (!jwk || header.alg !== "RS256") return null;
   const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
@@ -241,6 +257,11 @@ async function balance(env, userID) {
   return row ? row.points : 0;
 }
 
+/** サーバーの OpenAI キーが使えないとき(利用者のログインの問題ではないので 401 にしない) */
+function upstreamAuthError() {
+  return error(502, "AI のサービスの設定に問題があります(サーバー側)。ポイントは戻しました。時間をおいてお試しください。", "upstream_auth");
+}
+
 function insufficient(need, have) {
   return error(
     402,
@@ -292,6 +313,7 @@ async function transcribe(request, user, env) {
   const text = await upstream.text();
   if (!upstream.ok) {
     await refund(env, user.id, estimate, "transcribe:refund");
+    if (upstream.status === 401 || upstream.status === 403) return upstreamAuthError();
     return new Response(text, { status: upstream.status, headers: { "content-type": upstream.headers.get("content-type") || "application/json" } });
   }
 
@@ -337,7 +359,10 @@ async function chat(request, user, env) {
     return error(502, "AI のサービスにつながりませんでした", "upstream_unreachable");
   }
   const text = await upstream.text();
-  if (!upstream.ok) await refund(env, user.id, POINTS.chat, "chat:refund");
+  if (!upstream.ok) {
+    await refund(env, user.id, POINTS.chat, "chat:refund");
+    if (upstream.status === 401 || upstream.status === 403) return upstreamAuthError();
+  }
   return new Response(text, {
     status: upstream.status,
     headers: { "content-type": "application/json; charset=utf-8", "x-vm-points": String(await balance(env, user.id)) },
