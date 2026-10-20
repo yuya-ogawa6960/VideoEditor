@@ -172,7 +172,7 @@ struct EditorMaskControls: View {
                                     range: -180...180,
                                     display: String(format: "%.0f°", mask.rotation))
                     if mask.shape == .roundedRectangle {
-                        EditorSliderRow(title: "角の丸み",
+                        EditorSliderRow(title: "角丸",
                                         value: cornerBinding,
                                         range: 0...0.5,
                                         display: maskPanelPercent(mask.cornerRadius))
@@ -297,7 +297,7 @@ struct EditorAutoReframePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("人物を自動で中央に: 人や顔を見つけて、縦動画などに切り出すときも映したい人が画面の中央に来るようにします。")
+            Text("オートリフレーム: 人や顔を見つけて、縦動画などに切り出すときも映したい人が画面の中央に来るようにします。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -325,7 +325,7 @@ struct EditorAutoReframePanel: View {
                 }
 
                 Toggle(isOn: enabledBinding) {
-                    Label("人物を自動で中央にする", systemImage: "person.and.background.dotted")
+                    Label("オートリフレーム", systemImage: "person.and.background.dotted")
                         .font(.subheadline)
                 }
                 .tint(.accentColor)
@@ -563,7 +563,7 @@ struct EditorEnhancePanel: View {
                                 start: clip.startTime,
                                 end: clip.endTime)
 
-            Text("画質アップ: 暗い映像のざらつきや肌、ぼやけを整えます。")
+            Text("画質補正: 暗い映像のざらつきや肌、ぼやけを整えます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -640,7 +640,7 @@ struct EditorParallaxControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Toggle(isOn: enabledBinding) {
-                Label("写真を立体に", systemImage: "cube.transparent")
+                Label("3Dズーム", systemImage: "cube.transparent")
                     .font(.subheadline)
             }
             .tint(.accentColor)
@@ -656,7 +656,7 @@ struct EditorParallaxControls: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("この写真には奥行きの情報がないため、ゆっくりズームで代わりに動かします。")
+                    Text("この写真には奥行きの情報がないため、Ken Burnsで代わりに動かします。")
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
@@ -740,7 +740,7 @@ struct EditorClipParallaxPanel: View {
                                        imageURL: clip.stillImageURL ?? clip.url,
                                        durationSeconds: clip.outputDuration)
             } else {
-                Text("「写真を立体に」は写真でのみ使えます。")
+                Text("「3Dズーム」は写真でのみ使えます。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -769,13 +769,13 @@ struct EditorOverlayParallaxPanel: View {
                                        imageURL: overlay.url,
                                        durationSeconds: overlay.duration)
                 if overlay.kenBurns.enabled {
-                    Text("「ゆっくりズーム」もオンです。「写真を立体に」をオンにすると、こちらの動きが優先されます。")
+                    Text("「Ken Burns」もオンです。「3Dズーム」をオンにすると、こちらの動きが優先されます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                Text("「写真を立体に」は重ねた写真でのみ使えます。")
+                Text("「3Dズーム」は重ねた写真でのみ使えます。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -988,7 +988,7 @@ final class EditorTrackingController {
                 }
             }
             let seconds = String(format: "%.1f", sourceEnd - sourceStart)
-            self.statusText = "\(seconds) 秒分の動きを追従させました(動きのポイント \(keyframes.count) 個)。「動きをつける」で確認・調整できます。"
+            self.statusText = "\(seconds) 秒分の動きを追従させました(動きのポイント \(keyframes.count) 個)。「キーフレーム」で確認・調整できます。"
         } onError: { [weak self] error in
             self?.errorText = "追跡できませんでした: \(error.localizedDescription)"
         }
@@ -1036,7 +1036,7 @@ struct EditorTrackingPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("動きに追従: プレビューの上で、追いかけたい人や物を囲むように指でなぞってください。\(targetName)がその動きについていきます。")
+            Text("トラッキング: プレビューの上で、追いかけたい人や物を囲むように指でなぞってください。\(targetName)がその動きについていきます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1084,7 +1084,7 @@ struct EditorTrackingPanel: View {
                 .opacity(keyframeCount == 0 ? 0.4 : 1)
             }
 
-            Text("※ 再生位置にあるメインの映像で追いかけます。切り抜き・回転・「人物を自動で中央に」を使っているクリップでは位置がずれることがあります。")
+            Text("※ 再生位置にあるメインの映像で追いかけます。切り抜き・回転・「オートリフレーム」を使っているクリップでは位置がずれることがあります。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

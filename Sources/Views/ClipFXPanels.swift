@@ -148,12 +148,12 @@ struct EditorTransitionPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if isLast {
-                Text("最後のクリップには次のクリップがないため、つなぎ効果は使えません。")
+                Text("最後のクリップには次のクリップがないため、トランジションは使えません。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("つなぎ効果: このクリップから次のクリップへの切り替わり方です。")
+                Text("トランジション: このクリップから次のクリップへの切り替わり方です。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -199,7 +199,7 @@ struct EditorTransitionPanel: View {
             }
         }
         .padding(.top, 6)
-        .confirmationDialog("このつなぎ効果をすべてのクリップに使いますか?",
+        .confirmationDialog("このトランジションをすべてのクリップに使いますか?",
                             isPresented: $showApplyAllConfirm,
                             titleVisibility: .visible) {
             Button("全クリップに適用") {
@@ -220,7 +220,7 @@ struct EditorClipAnimationPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ClipFXHint(text: "登場の動き: クリップが始まるとき・終わるときの動きを選びます。")
+            ClipFXHint(text: "アニメーション: クリップが始まるとき・終わるときの動きを選びます。")
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "始まるとき")
@@ -441,7 +441,7 @@ struct EditorSpeedCurvePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Toggle(isOn: enabledBinding) {
-                Label("なめらか変速を使う", systemImage: "waveform.path.ecg")
+                Label("速度カーブを使う", systemImage: "waveform.path.ecg")
                     .font(.subheadline)
             }
             .tint(.accentColor)
@@ -658,7 +658,7 @@ struct EditorAudioEffectsPanel: View {
                 }
             }
 
-            ClipFXHint(text: "音の効果: 声を変えたり、低い音・高い音の強さを変えたりします。")
+            ClipFXHint(text: "音声効果: 声を変えたり、低い音・高い音の強さを変えたりします。")
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "声の変化")
@@ -752,7 +752,7 @@ struct EditorAudioEffectsPanel: View {
         } catch is CancellationError {
             // 何もしない
         } catch {
-            errorText = "音の効果を反映できませんでした。もう一度お試しください(\(error.localizedDescription))"
+            errorText = "音声効果を反映できませんでした。もう一度お試しください(\(error.localizedDescription))"
         }
         isProcessing = false
     }
@@ -778,7 +778,7 @@ struct EditorBeatDetectPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("ビートに合わせる: 音楽の拍(ビート)を見つけて、タイムラインに目印を付けます。目印の位置で分割もできます。")
+            Text("ビートに合わせる: 音楽の拍(ビート)を見つけて、タイムラインにマーカーを付けます。マーカーの位置で分割もできます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -844,7 +844,7 @@ struct EditorBeatDetectPanel: View {
                     EditorPillButton(title: "ビートの位置で分割", systemImage: "square.split.2x1") {
                         splitAtBeats()
                     }
-                    EditorPillButton(title: "ビートの目印を消す", systemImage: "flag.slash") {
+                    EditorPillButton(title: "ビートのマーカーを消す", systemImage: "flag.slash") {
                         removeBeatMarkers()
                     }
                     Spacer()
@@ -877,7 +877,7 @@ struct EditorBeatDetectPanel: View {
                 beats = found.sorted()
                 bpm = BeatDetector.estimateBPM(onsets: beats)
                 addMarkers(sourceBeats: beats)
-                var text = "\(beats.count) 個のビートを見つけて目印を付けました。"
+                var text = "\(beats.count) 個のビートを見つけてマーカーを付けました。"
                 if let bpm, bpm.isFinite, bpm > 0 {
                     text += "(テンポ: 1分間に約 \(Int(bpm.rounded())) 拍)"
                 }
@@ -915,7 +915,7 @@ struct EditorBeatDetectPanel: View {
         project.markers.removeAll {
             $0.kind == .beat && $0.time >= range.lowerBound - 0.01 && $0.time <= range.upperBound + 0.01
         }
-        message = "ビートの目印を消しました。"
+        message = "ビートのマーカーを消しました。"
     }
 
     /// ビート(元素材上の秒)ごとにクリップを分割する。0.25 秒より近いビートは飛ばす
@@ -981,7 +981,7 @@ struct EditorHSLPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "調整する色")
-                ClipFXHint(text: "色ごと調整: 選んだ色だけ、色味・鮮やかさ・明るさを変えます(例: 空の青だけ濃くする)。")
+                ClipFXHint(text: "HSL: 選んだ色だけ、色味・彩度・明るさを変えます(例: 空の青だけ濃くする)。")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(0..<8, id: \.self) { index in
@@ -1026,7 +1026,7 @@ struct EditorHSLPanel: View {
                             value: bandBinding.hue,
                             range: -1...1,
                             display: String(format: "%+.2f", bandBinding.wrappedValue.hue))
-            EditorSliderRow(title: "鮮やかさ",
+            EditorSliderRow(title: "彩度",
                             value: bandBinding.saturation,
                             range: -1...1,
                             display: String(format: "%+.2f", bandBinding.wrappedValue.saturation))
@@ -1072,7 +1072,7 @@ struct EditorLUTPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("カラーLUT読込: 映画風などの「色の設定ファイル(.cube)」を読み込んで、その色合いに仕上げます。")
+            Text("LUT読み込み: 映画風などの「色の設定ファイル(.cube)」を読み込んで、その色合いに仕上げます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1175,7 +1175,7 @@ struct EditorColorMatchPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("色合わせ: お手本にするクリップをタップすると、明るさ・鮮やかさ・色味をそのクリップに近づけます。")
+            Text("色合わせ: お手本にするクリップをタップすると、明るさ・彩度・色味をそのクリップに近づけます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1316,7 +1316,7 @@ struct ScopeSheetView: View {
                 .padding()
             }
             .background(Color.black)
-            .navigationTitle("明るさグラフ")
+            .navigationTitle("スコープ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

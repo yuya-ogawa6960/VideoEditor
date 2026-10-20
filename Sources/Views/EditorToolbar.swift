@@ -154,7 +154,7 @@ struct EditorToolbar: View {
     @Binding var overlayPickerItems: [PhotosPickerItem]
     /// 「置き換え」で選ばれた動画
     @Binding var replacePickerItem: PhotosPickerItem?
-    /// 「動画から音を抽出」で選ばれた動画
+    /// 「音声抽出」で選ばれた動画
     @Binding var extractAudioPickerItem: PhotosPickerItem?
     /// 「スライドショー」で選ばれた写真
     @Binding var slideshowPickerItems: [PhotosPickerItem]

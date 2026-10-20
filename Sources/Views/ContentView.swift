@@ -265,7 +265,7 @@ struct ContentView: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーション・テキスト・手書き・目印はすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
+            Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーション・テキスト・手書き・マーカーはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
         .alert("お知らせ", isPresented: alertIsPresented) {
             Button("OK", role: .cancel) {}
@@ -670,7 +670,7 @@ struct ContentView: View {
         case .marker(let markerID):
             guard let i = project.markers.firstIndex(where: { $0.id == markerID }) else { return nil }
             let name = project.markers[i].name
-            return name.isEmpty ? "目印\(i + 1)" : name
+            return name.isEmpty ? "マーカー\(i + 1)" : name
         }
     }
 
@@ -1135,7 +1135,7 @@ struct ContentView: View {
         items.append(EditorToolItem("ステッカー", systemImage: "face.smiling") {
             openPanel(.sticker)
         })
-        items.append(EditorToolItem.addOverlay("重ねる", systemImage: "photo.on.rectangle",
+        items.append(EditorToolItem.addOverlay("オーバーレイ", systemImage: "photo.on.rectangle",
                                                enabled: !isImporting,
                                                disabledReason: Self.importingReason))
         items.append(EditorToolItem.group("録音", systemImage: "mic", items: recordGroupItems))
@@ -1169,7 +1169,7 @@ struct ContentView: View {
         return items
     }
 
-    /// 録音: ナレーション録音 / AI読み上げ / 動画から音を抽出
+    /// 録音: ナレーション録音 / AI読み上げ / 音声抽出
     private var recordGroupItems: [EditorToolItem] {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem("ナレーション録音", systemImage: "mic") {
@@ -1179,7 +1179,7 @@ struct ContentView: View {
             openPanel(.textToSpeech)
         })
         let extractBusy = isImporting || mediaToolProgress != nil
-        items.append(EditorToolItem.extractAudio("動画から音を抽出", systemImage: "waveform.badge.plus",
+        items.append(EditorToolItem.extractAudio("音声抽出", systemImage: "waveform.badge.plus",
                                                  enabled: !extractBusy,
                                                  disabledReason: Self.busyReason))
         return items
@@ -1231,16 +1231,16 @@ struct ContentView: View {
         items.append(EditorToolItem("手書き", systemImage: "pencil.tip.crop.circle") {
             startDrawing()
         })
-        items.append(EditorToolItem("目印", systemImage: "flag") {
+        items.append(EditorToolItem("マーカー", systemImage: "flag") {
             addMarkerAtPlayhead()
         })
         items.append(EditorToolItem("ロゴ・透かし", systemImage: "seal") {
             openPanel(.watermark)
         })
-        items.append(EditorToolItem("お決まりパーツ", systemImage: "rectangle.stack.badge.plus") {
+        items.append(EditorToolItem("フォーマット", systemImage: "rectangle.stack.badge.plus") {
             openPanel(.formatKit)
         })
-        items.append(EditorToolItem("表紙を作る", systemImage: "photo.badge.plus") {
+        items.append(EditorToolItem("サムネ", systemImage: "photo.badge.plus") {
             player.pause()
             activePanel = nil
             activeSheet = .coverMaker
@@ -1274,7 +1274,7 @@ struct ContentView: View {
             speedItems.append(EditorToolItem("速度", systemImage: "speedometer") {
                 openPanel(.speed(clipID))
             })
-            speedItems.append(EditorToolItem("なめらか変速", systemImage: "waveform.path.ecg") {
+            speedItems.append(EditorToolItem("速度カーブ", systemImage: "waveform.path.ecg") {
                 openPanel(.speedCurve(clipID))
             })
             items.append(EditorToolItem.group("速度", systemImage: "speedometer", id: "group-speed",
@@ -1289,10 +1289,10 @@ struct ContentView: View {
         })
         items.append(EditorToolItem.group("色調整", systemImage: "circle.lefthalf.filled", id: "group-color",
                                           items: colorGroupItems(clipID)))
-        items.append(EditorToolItem("つなぎ効果", systemImage: "arrow.left.arrow.right.square") {
+        items.append(EditorToolItem("トランジション", systemImage: "arrow.left.arrow.right.square") {
             openPanel(.transition(clipID))
         })
-        items.append(EditorToolItem("登場の動き", systemImage: "sparkles.rectangle.stack") {
+        items.append(EditorToolItem("アニメーション", systemImage: "sparkles.rectangle.stack") {
             openPanel(.clipAnimation(clipID))
         })
         items.append(EditorToolItem("切り抜き・回転", systemImage: "crop.rotate") {
@@ -1306,7 +1306,7 @@ struct ContentView: View {
         return items
     }
 
-    /// 色調整: 自動補正 / 色調整 / 色ごと調整 / 色合わせ / カラーLUT読込 / 明るさグラフ
+    /// 色調整: 自動補正 / 色調整 / HSL / 色合わせ / LUT読み込み / スコープ
     private func colorGroupItems(_ clipID: UUID) -> [EditorToolItem] {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem("自動補正", systemImage: "wand.and.stars") {
@@ -1315,7 +1315,7 @@ struct ContentView: View {
         items.append(EditorToolItem("色調整", systemImage: "circle.lefthalf.filled") {
             openPanel(.colorAdjust(clipID))
         })
-        items.append(EditorToolItem("色ごと調整", systemImage: "paintpalette") {
+        items.append(EditorToolItem("HSL", systemImage: "paintpalette") {
             openPanel(.hsl(clipID))
         })
         items.append(EditorToolItem("色合わせ", systemImage: "eyedropper.halffull",
@@ -1323,10 +1323,10 @@ struct ContentView: View {
                                     disabledReason: "クリップが 2 つ以上あるときに使えます") {
             openPanel(.colorMatch(clipID))
         })
-        items.append(EditorToolItem("カラーLUT読込", systemImage: "cube") {
+        items.append(EditorToolItem("LUT読み込み", systemImage: "cube") {
             openPanel(.lut(clipID))
         })
-        items.append(EditorToolItem("明るさグラフ", systemImage: "chart.bar.xaxis") {
+        items.append(EditorToolItem("スコープ", systemImage: "chart.bar.xaxis") {
             player.pause()
             activePanel = nil
             activeSheet = .scopes(clipID)
@@ -1356,15 +1356,15 @@ struct ContentView: View {
                                         disabledReason: Self.busyReason) {
                 toggleReverse(clipID)
             })
-            items.append(EditorToolItem("静止画にする", systemImage: "pause.rectangle",
+            items.append(EditorToolItem("フリーズ", systemImage: "pause.rectangle",
                                         enabled: !busy, disabledReason: Self.busyReason) {
                 freezeFrame(clipID)
             })
-            items.append(EditorToolItem("音の効果", systemImage: "waveform.and.magnifyingglass",
+            items.append(EditorToolItem("音声効果", systemImage: "waveform.and.magnifyingglass",
                                         enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
                 openPanel(.audioEffects(clipID))
             })
-            items.append(EditorToolItem("音のずらし", systemImage: "waveform.path",
+            items.append(EditorToolItem("J/Lカット", systemImage: "waveform.path",
                                         enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
                 openPanel(.jlCut(clipID))
             })
@@ -1376,11 +1376,11 @@ struct ContentView: View {
                 openPanel(.stabilize(clipID))
             })
         }
-        items.append(EditorToolItem("画質アップ", systemImage: "sparkles.tv") {
+        items.append(EditorToolItem("画質補正", systemImage: "sparkles.tv") {
             openPanel(.enhance(clipID))
         })
         if !isStill {
-            items.append(EditorToolItem("人物を自動で中央に", systemImage: "person.crop.rectangle") {
+            items.append(EditorToolItem("オートリフレーム", systemImage: "person.crop.rectangle") {
                 openPanel(.autoReframe(clipID))
             })
         }
@@ -1388,7 +1388,7 @@ struct ContentView: View {
             openPanel(.mask(clipID))
         })
         if isStill {
-            items.append(EditorToolItem("写真を立体に", systemImage: "cube.transparent") {
+            items.append(EditorToolItem("3Dズーム", systemImage: "cube.transparent") {
                 openPanel(.parallax(clipID))
             })
         } else {
@@ -1415,13 +1415,13 @@ struct ContentView: View {
         items.append(EditorToolItem("位置・サイズ", systemImage: "rectangle.on.rectangle") {
             openPanel(.overlayPlacement(overlayID))
         })
-        items.append(EditorToolItem("動きをつける", systemImage: "diamond") {
+        items.append(EditorToolItem("キーフレーム", systemImage: "diamond") {
             openPanel(.overlayKeyframes(overlayID))
         })
-        items.append(EditorToolItem("動きに追従", systemImage: "scope") {
+        items.append(EditorToolItem("トラッキング", systemImage: "scope") {
             openPanel(.overlayTracking(overlayID))
         })
-        items.append(EditorToolItem("重ね方", systemImage: "circle.lefthalf.striped.horizontal") {
+        items.append(EditorToolItem("ブレンド", systemImage: "circle.lefthalf.striped.horizontal") {
             openPanel(.overlayBlend(overlayID))
         })
         items.append(EditorToolItem("フィルタ", systemImage: "camera.filters") {
@@ -1444,11 +1444,11 @@ struct ContentView: View {
         more.append(EditorToolItem("マスク", systemImage: "circle.dashed") {
             openPanel(.overlayMask(overlayID))
         })
-        more.append(EditorToolItem("ゆっくりズーム", systemImage: "arrow.up.left.and.arrow.down.right") {
+        more.append(EditorToolItem("Ken Burns", systemImage: "arrow.up.left.and.arrow.down.right") {
             openPanel(.overlayKenBurns(overlayID))
         })
         if isImage {
-            more.append(EditorToolItem("写真を立体に", systemImage: "cube.transparent") {
+            more.append(EditorToolItem("3Dズーム", systemImage: "cube.transparent") {
                 openPanel(.overlayParallax(overlayID))
             })
         }
@@ -1470,7 +1470,7 @@ struct ContentView: View {
         items.append(EditorToolItem("音量", systemImage: "speaker.wave.2") {
             openPanel(.narrationVolume(narrationID))
         })
-        items.append(EditorToolItem("音の効果", systemImage: "waveform.and.magnifyingglass") {
+        items.append(EditorToolItem("音声効果", systemImage: "waveform.and.magnifyingglass") {
             openPanel(.narrationEffects(narrationID))
         })
         items.append(EditorToolItem("聞きやすくする", systemImage: "waveform",
@@ -1543,16 +1543,16 @@ struct ContentView: View {
                                     id: "textStyle") {
             openPanel(.textStyle(textID))
         })
-        items.append(EditorToolItem("登場の動き", systemImage: "sparkles") {
+        items.append(EditorToolItem("アニメーション", systemImage: "sparkles") {
             openPanel(.textAnimation(textID))
         })
         items.append(EditorToolItem("位置・サイズ", systemImage: "arrow.up.and.down.and.arrow.left.and.right") {
             openPanel(.textPlacement(textID))
         })
-        items.append(EditorToolItem("動きをつける", systemImage: "diamond") {
+        items.append(EditorToolItem("キーフレーム", systemImage: "diamond") {
             openPanel(.textKeyframes(textID))
         })
-        items.append(EditorToolItem("動きに追従", systemImage: "scope") {
+        items.append(EditorToolItem("トラッキング", systemImage: "scope") {
             openPanel(.textTracking(textID))
         })
         items.append(EditorToolItem("複製", systemImage: "plus.square.on.square") {
@@ -1587,7 +1587,7 @@ struct ContentView: View {
         return items
     }
 
-    // MARK: 目印
+    // MARK: マーカー
 
     private func markerItems(_ markerID: UUID) -> [EditorToolItem] {
         var items: [EditorToolItem] = []

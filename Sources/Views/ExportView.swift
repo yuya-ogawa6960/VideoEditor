@@ -98,7 +98,7 @@ fileprivate enum ExportGIFRange: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .whole: return "全体"
-        case .marker: return "目印の区間"
+        case .marker: return "マーカーの区間"
         case .custom: return "開始〜終了"
         }
     }
@@ -373,7 +373,7 @@ struct ExportView: View {
             .buttonStyle(.plain)
         } footer: {
             if !showAdvanced {
-                Text("画面の形・細かさ・画質などを自分で決めたいときに開きます。ふつうは上の使いみちを選ぶだけで大丈夫です。")
+                Text("画面比率・細かさ・画質などを自分で決めたいときに開きます。ふつうは上の使いみちを選ぶだけで大丈夫です。")
             }
         }
     }
@@ -390,7 +390,7 @@ struct ExportView: View {
 
     private var customSection: some View {
         Section {
-            Picker("画面の形", selection: $project.canvas.aspect) {
+            Picker("画面比率", selection: $project.canvas.aspect) {
                 ForEach(CanvasAspect.allCases) { a in
                     Text(a.displayName).tag(a)
                 }
@@ -413,7 +413,7 @@ struct ExportView: View {
         } header: {
             Text("画面と画質")
         } footer: {
-            Text("「形が合わないとき」は、素材と画面の形が違うときに、黒帯・ぼかし背景で全体を見せるか、はみ出す部分を切るかを選びます。解像度は数字が大きいほどきれいで、ファイルも大きくなります。")
+            Text("「形が合わないとき」は、素材と画面比率が違うときに、黒帯・ぼかし背景で全体を見せるか、はみ出す部分を切るかを選びます。解像度は数字が大きいほどきれいで、ファイルも大きくなります。")
         }
         .disabled(exporter.isRunning)
     }
@@ -930,7 +930,7 @@ struct ExportView: View {
         } header: {
             Text("その他の書き出し")
         } footer: {
-            Text("「縦横を同時に書き出す」をオンにすると、前の画面の書き出しボタンで 16:9(横)と 9:16(縦)を続けて作ります(2 本分の空き容量が必要)。チャプター一覧は「目印」のチャプターから作り、YouTube の概要欄に貼り付けられます。")
+            Text("「縦横を同時に書き出す」をオンにすると、前の画面の書き出しボタンで 16:9(横)と 9:16(縦)を続けて作ります(2 本分の空き容量が必要)。チャプター一覧は「マーカー」のチャプターから作り、YouTube の概要欄に貼り付けられます。")
         }
     }
 
@@ -956,11 +956,11 @@ struct ExportView: View {
             EmptyView()
         case .marker:
             if gifMarkers.isEmpty {
-                Text("目印がありません。編集画面の「目印」で区間の始まりに目印を付けてください。")
+                Text("マーカーがありません。編集画面の「マーカー」で区間の始まりにマーカーを付けてください。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Picker("始まりの目印", selection: $gifMarkerID) {
+                Picker("始まりのマーカー", selection: $gifMarkerID) {
                     ForEach(gifMarkers) { marker in
                         Text("\(exportDurationString(marker.time)) \(marker.name.isEmpty ? marker.kind.displayName : marker.name)")
                             .tag(marker.id as UUID?)

@@ -333,7 +333,7 @@ struct TimelineView: View {
             Button {
                 onAdd(.overlay)
             } label: {
-                Label("重ねる", systemImage: "photo.on.rectangle")
+                Label("オーバーレイ", systemImage: "photo.on.rectangle")
             }
             Button {
                 onAdd(.bgm)

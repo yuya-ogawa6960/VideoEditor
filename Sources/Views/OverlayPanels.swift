@@ -246,7 +246,7 @@ struct EditorOverlayPlacementPanel: View {
                             range: 0...1,
                             display: overlayPercentText(overlay.opacity))
 
-            EditorSliderRow(title: "角の丸み",
+            EditorSliderRow(title: "角丸",
                             value: $overlay.cornerRadius,
                             range: 0...0.5,
                             display: overlayPercentText(overlay.cornerRadius))
@@ -350,7 +350,7 @@ struct EditorOverlayKenBurnsPanel: View {
             OverlayHeaderRow(overlay: overlay)
 
             Toggle(isOn: $overlay.kenBurns.enabled) {
-                Label("ゆっくりズーム", systemImage: "arrow.up.left.and.arrow.down.right")
+                Label("Ken Burns", systemImage: "arrow.up.left.and.arrow.down.right")
                     .font(.subheadline)
             }
             .tint(.accentColor)
@@ -426,7 +426,7 @@ struct EditorOverlayVolumePanel: View {
                                 display: "\(Int((overlay.volume * 100).rounded()))%")
 
                 HStack(spacing: 8) {
-                    EditorChip(title: "音を消す", isSelected: overlay.volume <= 0.001) {
+                    EditorChip(title: "ミュート", isSelected: overlay.volume <= 0.001) {
                         overlay.volume = 0
                     }
                     EditorChip(title: "50%", isSelected: abs(overlay.volume - 0.5) < 0.001) {

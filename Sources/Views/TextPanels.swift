@@ -427,7 +427,7 @@ struct EditorTextStylePanel: View {
                                     value: $text.style.backgroundPadding,
                                     range: 0...1,
                                     display: String(format: "%.2f", text.style.backgroundPadding))
-                    EditorSliderRow(title: "帯の角の丸み",
+                    EditorSliderRow(title: "帯の角丸",
                                     value: $text.style.backgroundCornerRadius,
                                     range: 0...1,
                                     display: String(format: "%.2f", text.style.backgroundCornerRadius))
@@ -451,7 +451,7 @@ struct EditorTextStylePanel: View {
                                 value: $text.style.letterSpacing,
                                 range: -0.1...0.5,
                                 display: String(format: "%+.2f", text.style.letterSpacing))
-                EditorSliderRow(title: "行の間隔",
+                EditorSliderRow(title: "行間",
                                 value: $text.style.lineSpacing,
                                 range: 0.8...2.0,
                                 display: String(format: "%.2f", text.style.lineSpacing))
@@ -487,7 +487,7 @@ struct EditorTextAnimationPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextPanelHint(text: "登場の動き: 文字が出てくるとき・消えるときの動きを選びます。")
+            TextPanelHint(text: "アニメーション: 文字が出てくるとき・消えるときの動きを選びます。")
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "出てくるとき")
@@ -665,7 +665,7 @@ struct EditorKeyframePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextPanelHint(text: "動きをつける: 時間ごとに位置や大きさを記録すると、その間をなめらかに動きます。")
+            TextPanelHint(text: "キーフレーム: 時間ごとに位置や大きさを記録すると、その間をなめらかに動きます。")
 
             Text("再生位置 \(MediaTimeText.precise(player.currentTime))(先頭から \(String(format: "%.2f", playheadRelative)) 秒)")
                 .font(.caption)
@@ -810,7 +810,7 @@ struct EditorOverlayBlendPanel: View {
             EditorItemHeaderRow(systemImage: overlay.isImage ? "photo" : "film",
                                 name: overlay.name, start: overlay.start, end: overlay.end)
 
-            Text("重ね方: 下の映像との混ぜ方です。光や煙の素材は「明るく重ねる」、黒い線の素材は「暗く重ねる」がおすすめです。")
+            Text("ブレンド: 下の映像との混ぜ方です。光や煙の素材は「明るく重ねる」、黒い線の素材は「暗く重ねる」がおすすめです。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1054,7 +1054,7 @@ struct EditorMarkerNamePanel: View {
                 Image(systemName: "flag.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("目印(\(marker.kind.displayName))")
+                Text("マーカー(\(marker.kind.displayName))")
                     .font(.subheadline)
                 Spacer(minLength: 0)
                 Text(MediaTimeText.precise(marker.time))
@@ -1101,7 +1101,7 @@ struct EditorMarkerKindPanel: View {
         switch kind {
         case .note: return "自分用のメモです。書き出した動画には映りません。"
         case .chapter: return "YouTube の区切り(チャプター)に使います。「チャプター一覧をコピー」で概要欄に貼る文章を作れます。"
-        case .beat: return "「ビートに合わせる」で付く、音楽の拍の目印です。"
+        case .beat: return "「ビートに合わせる」で付く、音楽の拍のマーカーです。"
         }
     }
 
@@ -1287,7 +1287,7 @@ struct EditorFormatKitPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("お決まりパーツ: 毎回同じオープニングや区切りを、ワンタップで差し込めます。")
+            Text("フォーマット: 毎回同じオープニングや区切りを、ワンタップで差し込めます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -1304,14 +1304,14 @@ struct EditorFormatKitPanel: View {
             }
 
             if store.blocks.isEmpty {
-                Text("お決まりパーツはまだありません。下のボタンで今の動画の一部を保存できます。")
+                Text("フォーマットはまだありません。下のボタンで今の動画の一部を保存できます。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    EditorPillButton(title: showSaveForm ? "保存をやめる" : "今の範囲をお決まりパーツとして保存",
+                    EditorPillButton(title: showSaveForm ? "保存をやめる" : "今の範囲をフォーマットとして保存",
                                      systemImage: showSaveForm ? "xmark" : "square.and.arrow.down") {
                         showSaveForm.toggle()
                     }
@@ -1535,7 +1535,7 @@ struct EditorTextToSpeechPanel: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text("作った音声はナレーションとして追加され、「音量」「音の効果」で調整できます。")
+                Text("作った音声はナレーションとして追加され、「音量」「音声効果」で調整できます。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

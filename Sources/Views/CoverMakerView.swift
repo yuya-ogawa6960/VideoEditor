@@ -64,7 +64,7 @@ struct CoverMakerView: View {
                     outputSection
                 }
             }
-            .navigationTitle("表紙を作る")
+            .navigationTitle("サムネ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -465,7 +465,7 @@ struct CoverMakerView: View {
         } header: {
             Text("保存・送る")
         } footer: {
-            Text("「書き出し」で選んだ画面の形で、幅 \(Int(outputWidth)) px の画像(JPEG)を作ります。YouTube のサムネイルなどに使えます。")
+            Text("「書き出し」で選んだ画面比率で、幅 \(Int(outputWidth)) px の画像(JPEG)を作ります。YouTube のサムネイルなどに使えます。")
         }
     }
 

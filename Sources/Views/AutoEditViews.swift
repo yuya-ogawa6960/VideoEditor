@@ -26,8 +26,8 @@ private func autoEditSeconds(_ value: Double) -> String {
 
 private func autoEditStyleDescription(_ style: AutoEditStyle) -> String {
     switch style {
-    case .documentary: return "落ち着いたテンポ。黒へのフェードや重なるつなぎ効果、ドキュメンタリー風の色味。話している場面を優先します。"
-    case .vlog: return "重なるつなぎ効果でテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。"
+    case .documentary: return "落ち着いたテンポ。黒へのフェードや重なるトランジション、ドキュメンタリー風の色味。話している場面を優先します。"
+    case .vlog: return "重なるトランジションでテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。"
     case .short: return "15〜30 秒向け。短いカットをズームでつなぎ、鮮やかな色味にします。"
     case .family: return "顔が映っている場面を優先し、やさしい色味でまとめます。"
     case .howto: return "説明している場面を優先し、カットはシンプルに。字幕と相性のよい構成です。"
@@ -98,7 +98,7 @@ struct AutoEditSheetView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("クリップの並びや長さ、つなぎ効果、色味などが置き換わります。「元に戻す」で戻せます。")
+                Text("クリップの並びや長さ、トランジション、色味などが置き換わります。「元に戻す」で戻せます。")
             }
             .alert("お知らせ", isPresented: errorIsPresented) {
                 Button("OK", role: .cancel) {}
@@ -224,7 +224,7 @@ struct AutoEditSheetView: View {
 
     private var optionSection: some View {
         Section {
-            Toggle("つなぎ効果を入れる", isOn: $settings.addTransitions)
+            Toggle("トランジションを入れる", isOn: $settings.addTransitions)
             Toggle("スタイルに合った色味にする", isOn: $settings.applyLook)
             Toggle("顔が映っている場面を優先", isOn: $settings.preferFaces)
             Toggle("話している場面を優先", isOn: $settings.preferSpeech)
@@ -413,7 +413,7 @@ struct EditorAutoEditTemplatePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("いまのクリップから、決まった型でワンタップで編集します。長さに合わせて見どころを選び、つなぎ効果と色味も整えます。")
+            Text("いまのクリップから、決まった型でワンタップで編集します。長さに合わせて見どころを選び、トランジションと色味も整えます。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -454,7 +454,7 @@ struct EditorAutoEditTemplatePanel: View {
                 pending = nil
             }
         } message: {
-            Text("クリップの並びや長さ、つなぎ効果、色味が置き換わります。「元に戻す」で戻せます。")
+            Text("クリップの並びや長さ、トランジション、色味が置き換わります。「元に戻す」で戻せます。")
         }
     }
 
@@ -652,7 +652,7 @@ struct SlideshowSheetView: View {
                 }
                 Slider(value: $perImageSeconds, in: 1.5...8, step: 0.5)
             }
-            Toggle("つなぎ効果を入れる", isOn: $settings.addTransitions)
+            Toggle("トランジションを入れる", isOn: $settings.addTransitions)
         } header: {
             Text("時間")
         } footer: {

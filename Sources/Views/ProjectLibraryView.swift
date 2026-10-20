@@ -108,12 +108,12 @@ struct ProjectLibraryView: View {
                     Button {
                         isImporterPresented = true
                     } label: {
-                        Label("プロジェクトを受け取る", systemImage: "square.and.arrow.down")
+                        Label("プロジェクト読み込み", systemImage: "square.and.arrow.down")
                             .labelStyle(.titleAndIcon)
                             .font(.subheadline)
                     }
                     .disabled(isImporting || exportingMeta != nil)
-                    .accessibilityLabel("プロジェクトを受け取る")
+                    .accessibilityLabel("プロジェクト読み込み")
                 }
             }
             .fileImporter(isPresented: $isImporterPresented,
@@ -216,7 +216,7 @@ struct ProjectLibraryView: View {
             Button {
                 isImporterPresented = true
             } label: {
-                Label("別の端末からプロジェクトを受け取る", systemImage: "square.and.arrow.down")
+                Label("プロジェクト読み込み", systemImage: "square.and.arrow.down")
                     .font(.subheadline)
                     .frame(minHeight: 44)
             }
@@ -304,7 +304,7 @@ struct ProjectLibraryView: View {
             } catch {
                 exportingMeta = nil
                 showAlert("送る準備ができませんでした",
-                          "端末の空き容量を確かめて、もう一度「別の端末へ送る」を押してください。\n\n詳細: " + error.localizedDescription)
+                          "端末の空き容量を確かめて、もう一度「プロジェクト書き出し」を押してください。\n\n詳細: " + error.localizedDescription)
             }
         }
     }
@@ -313,7 +313,7 @@ struct ProjectLibraryView: View {
         switch result {
         case .failure(let error):
             showAlert("ファイルを開けませんでした",
-                      "もう一度「プロジェクトを受け取る」から選び直してください。\n\n詳細: " + error.localizedDescription)
+                      "もう一度「プロジェクト読み込み」から選び直してください。\n\n詳細: " + error.localizedDescription)
         case .success(let urls):
             guard let url = urls.first else { return }
             isImporting = true
@@ -324,7 +324,7 @@ struct ProjectLibraryView: View {
                     showAlert("受け取りました", "「\(meta.name)」を一覧に追加しました。タップすると開けます。")
                 } catch {
                     isImporting = false
-                    showAlert("受け取れませんでした", "「別の端末へ送る」で作ったファイル(名前が .videomania で終わるもの)を選んでください。送る途中で壊れた場合は、送り直してもらってください。\n\n詳細: " + error.localizedDescription)
+                    showAlert("受け取れませんでした", "「プロジェクト書き出し」で作ったファイル(名前が .videomania で終わるもの)を選んでください。送る途中で壊れた場合は、送り直してもらってください。\n\n詳細: " + error.localizedDescription)
                 }
             }
         }
@@ -354,7 +354,7 @@ private struct PackageShareSheet: View {
                 Text("「\(item.name)」を送る準備ができました")
                     .font(.headline)
                     .multilineTextAlignment(.center)
-                Text("AirDrop や「ファイル」アプリで別の端末に送ってください。受け取った端末では、プロジェクト一覧の「プロジェクトを受け取る」から開けます。素材の動画・写真も一緒に入るため、ファイルは大きめです。\nファイル名: \(item.url.lastPathComponent)")
+                Text("AirDrop や「ファイル」アプリで別の端末に送ってください。受け取った端末では、プロジェクト一覧の「プロジェクト読み込み」から開けます。素材の動画・写真も一緒に入るため、ファイルは大きめです。\nファイル名: \(item.url.lastPathComponent)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -367,7 +367,7 @@ private struct PackageShareSheet: View {
                 .buttonStyle(.borderedProminent)
             }
             .padding(24)
-            .navigationTitle("別の端末へ送る")
+            .navigationTitle("プロジェクト書き出し")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -470,7 +470,7 @@ private struct ProjectCardView: View {
             Label("複製", systemImage: "plus.square.on.square")
         }
         Button(action: onExport) {
-            Label("別の端末へ送る", systemImage: "shippingbox")
+            Label("プロジェクト書き出し", systemImage: "shippingbox")
         }
         Button(role: .destructive, action: onDelete) {
             Label("削除", systemImage: "trash")
