@@ -626,6 +626,11 @@ struct ContentView: View {
                               replacePickerItem: $replacePickerItem,
                               extractAudioPickerItem: $extractAudioPickerItem,
                               slideshowPickerItems: $slideshowPickerItems)
+                    .overlay(alignment: .topLeading) {
+                        EditorModeBadge(title: toolbarModeTitle)
+                            .padding(.leading, 12)
+                            .offset(y: -22)
+                    }
                     .transition(.opacity)
             }
         }
@@ -1129,6 +1134,22 @@ struct ContentView: View {
     //
     // 1.5: よく使う項目(9 個まで)+ グループ(2 段目の列)+「その他」。削除は最後。
     // 対象に当てはまらない項目(静止画 / 動画)は出さず、条件しだいで使えない項目はタップで理由を出す。
+
+    /// 下のボタンが何の編集か(切り替わったときに 1 秒だけ小さく表示する)
+    private var toolbarModeTitle: String {
+        if timeline.isMultiSelecting { return "複数選択" }
+        guard let current = selection else { return "全体の編集" }
+        switch current {
+        case .clip: return "クリップの編集"
+        case .subtitle: return "字幕の編集"
+        case .bgm: return "BGMの編集"
+        case .overlay: return "オーバーレイの編集"
+        case .narration: return "ナレーションの編集"
+        case .text: return "テキストの編集"
+        case .drawing: return "手書きの編集"
+        case .marker: return "マーカーの編集"
+        }
+    }
 
     private var toolbarItems: [EditorToolItem] {
         if timeline.isMultiSelecting { return multiSelectItems }

@@ -426,3 +426,29 @@ struct EditorToastView: View {
         .padding(.horizontal, 16)
     }
 }
+
+/// 下のボタンが何の編集か(「クリップの編集」「全体の編集」など)を、切り替わったときに 1 秒だけ小さく出す
+struct EditorModeBadge: View {
+    let title: String
+    @State private var isVisible = false
+    @State private var shownTitle = ""
+
+    var body: some View {
+        Text(shownTitle)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.white.opacity(0.18)))
+            .opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .task(id: title) {
+                shownTitle = title
+                withAnimation(.easeOut(duration: 0.15)) { isVisible = true }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                withAnimation(.easeIn(duration: 0.25)) { isVisible = false }
+            }
+    }
+}
