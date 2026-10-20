@@ -27,6 +27,8 @@ struct ContentView: View {
     @State private var projectNameDraft = ""
     /// 「その他」→「動画の置き場所」
     @State private var isChoosingMediaMode = false
+    /// 🔍 機能を探す
+    @State private var isSearchingTools = false
     /// 写真ライブラリの動画を読み直している途中(この間は保存しない。空の内容で上書きしないため)
     @State private var isLoadingPhotoMedia = false
 
@@ -330,6 +332,9 @@ struct ContentView: View {
             } message: {
                 Text("新しいプロジェクト名を入力してください。")
             }
+            .sheet(isPresented: $isSearchingTools) {
+                toolSearchSheet
+            }
             .confirmationDialog("動画の置き場所(いま: \(mediaMode.displayName))",
                                 isPresented: $isChoosingMediaMode, titleVisibility: .visible) {
                 Button("写真ライブラリから参照(容量を使わない)") {
@@ -419,6 +424,20 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .disabled(!history.canRedo)
             .accessibilityLabel("やり直す")
+
+            Button {
+                EditorHaptics.tap()
+                player.pause()
+                isSearchingTools = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("機能を探す")
 
             Spacer()
 
@@ -1142,6 +1161,49 @@ struct ContentView: View {
     //
     // 1.5: よく使う項目(9 個まで)+ グループ(2 段目の列)+「その他」。削除は最後。
     // 対象に当てはまらない項目(静止画 / 動画)は出さず、条件しだいで使えない項目はタップで理由を出す。
+
+    /// 🔍 機能を探す(いまのツールバー + 何かを選んでいるときは全体の編集も)
+    private var toolSearchSheet: some View {
+        let contextTitle: String = toolbarModeTitle
+        let context: [EditorToolSearchEntry] = EditorToolSearchIndex.flatten(toolbarItems, isRoot: selection == nil && !timeline.isMultiSelecting,
+                                                                             contextTitle: contextTitle)
+        let root: [EditorToolSearchEntry] = (selection == nil && !timeline.isMultiSelecting)
+            ? []
+            : EditorToolSearchIndex.flatten(rootItems, isRoot: true, contextTitle: "全体の編集")
+        return EditorToolSearchSheet(contextEntries: context,
+                                     contextTitle: contextTitle,
+                                     rootEntries: root,
+                                     onPick: { entry in runSearchedTool(entry) })
+    }
+
+    /// 検索で選んだ機能を実行する。写真を選ぶ機能など、ここから実行できないものはツールバーをその場所まで開く
+    private func runSearchedTool(_ entry: EditorToolSearchEntry) {
+        let item = entry.item
+        let needsDeselect: Bool = entry.isRoot && (selection != nil || timeline.isMultiSelecting)
+        // シートが閉じてから実行する(パネルやシートを開く機能があるため)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            if needsDeselect {
+                timeline.endMultiSelect()
+                selection = nil
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                guard item.isEnabled else {
+                    if let reason = item.disabledReason {
+                        showToast(reason, style: .warning)
+                    }
+                    toolbarGroupPath = entry.groupPath
+                    return
+                }
+                if case .action(let action) = item.kind {
+                    action()
+                } else {
+                    // 写真の選択などはボタンから開く必要があるので、その列を開いて知らせる
+                    toolbarGroupPath = entry.groupPath
+                    showToast("下の「\(item.title)」を押してください")
+                }
+            }
+        }
+    }
 
     /// 下のボタンが何の編集か(切り替わったときに 1 秒だけ小さく表示する)
     private var toolbarModeTitle: String {
