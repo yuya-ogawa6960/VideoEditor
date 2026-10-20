@@ -56,6 +56,8 @@ struct VideoCompositorOverlay {
     let speed: Double
     let sourceStart: Double
     let frame: NormalizedRect
+    /// 枠の中心まわりの回転(度、時計回りが正)
+    let rotation: Double
     let fit: OverlayFit
     let opacity: Double
     let cornerRadius: Double
@@ -84,6 +86,7 @@ struct VideoCompositorOverlay {
         self.speed = max(overlay.speed, 0.01)
         self.sourceStart = overlay.sourceStart
         self.frame = overlay.frame.clamped()
+        self.rotation = overlay.rotation
         self.fit = overlay.fit
         self.opacity = min(max(overlay.opacity, 0), 1)
         self.cornerRadius = min(max(overlay.cornerRadius, 0), 0.5)
