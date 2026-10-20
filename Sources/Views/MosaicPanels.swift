@@ -114,3 +114,73 @@ enum MosaicFaceFinder {
         return faces
     }
 }
+
+// MARK: - 中だるみチェック
+
+/// 中だるみチェックの結果(黄・赤の区間の理由と直し方。タップでその位置へ移動)
+struct EditorPacingPanel: View {
+    let timeline: TimelineState
+    let player: PlayerController
+    let onRerun: () -> Void
+
+    private func seconds(_ level: PacingLevel) -> Int {
+        Int(timeline.pacing.filter { $0.level == level }.reduce(0) { $0 + ($1.end - $1.start) })
+    }
+
+    var body: some View {
+        let issues: [PacingSegment] = timeline.pacing.filter { $0.level != .good }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                summary(.good)
+                summary(.loose)
+                summary(.dull)
+                Spacer()
+                EditorChip(title: "もう一度", isSelected: false) { onRerun() }
+                EditorChip(title: "帯を消す", isSelected: false) { timeline.pacing = [] }
+            }
+            Text("景色のきれいさ・表情・笑い声や自然の音などの雰囲気も見て判定しています。タップするとその場所へ移動します。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if issues.isEmpty {
+                Text(timeline.pacing.isEmpty ? "まだチェックしていません。" : "中だるみしそうな所は見つかりませんでした。")
+                    .font(.callout)
+            }
+            ForEach(issues) { segment in
+                Button {
+                    player.seek(to: segment.start)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Circle().fill(TimelinePacingStrip.color(for: segment.level)).frame(width: 10, height: 10)
+                            Text("\(EditorTimeFormat.short(segment.start)) 〜 \(EditorTimeFormat.short(segment.end))")
+                                .font(.subheadline.monospacedDigit().weight(.semibold))
+                            Text(segment.level.title)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(segment.reasons, id: \.self) { reason in
+                            Text("・" + reason).font(.caption)
+                        }
+                        ForEach(segment.suggestions, id: \.self) { tip in
+                            Text("→ " + tip).font(.caption).foregroundStyle(BrandStyle.coral)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func summary(_ level: PacingLevel) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(TimelinePacingStrip.color(for: level)).frame(width: 9, height: 9)
+            Text("\(seconds(level))秒").font(.caption.monospacedDigit())
+        }
+        .accessibilityLabel("\(level.title) \(seconds(level))秒")
+    }
+}

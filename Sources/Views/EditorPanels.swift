@@ -120,6 +120,9 @@ enum EditorPanel: Hashable {
     /// モザイク / ぼかしの種類・形・強さ・大きさ
     case mosaic(UUID)
 
+    /// 中だるみチェックの結果
+    case pacing
+
     // ---- 第4弾: ルート ----
     /// おまかせ編集のテンプレート一覧
     case autoEditTemplates
@@ -178,6 +181,7 @@ enum EditorPanel: Hashable {
         case .parallax, .overlayParallax: return "3Dズーム"
         case .textTracking, .overlayTracking: return "トラッキング"
         case .mosaic: return "モザイク"
+        case .pacing: return "中だるみチェック"
         case .autoEditTemplates: return "おまかせテンプレ"
         }
     }
@@ -209,7 +213,7 @@ enum EditorPanel: Hashable {
             return .bgm
         case .subtitleStyle, .captionTemplate, .aspect, .documentary, .titleCard, .lowerThird,
              .narrationRecord, .sticker, .drawingCanvas, .watermark, .formatKit, .textToSpeech,
-             .autoEditTemplates:
+             .autoEditTemplates, .pacing:
             return nil
         }
     }
@@ -218,7 +222,7 @@ enum EditorPanel: Hashable {
     /// 選ぶとすぐ追加される・録音するなど、入口として使うパネルでは出さない
     var supportsCancel: Bool {
         switch self {
-        case .sticker, .narrationRecord, .textToSpeech, .autoEditTemplates, .formatKit:
+        case .sticker, .narrationRecord, .textToSpeech, .autoEditTemplates, .formatKit, .pacing:
             return false
         case .speed, .volume, .filter, .textEdit, .subtitleStyle, .aspect, .bgmVolume, .documentary,
              .titleCard, .lowerThird, .jlCut, .colorAdjust, .overlayPlacement, .overlayKenBurns,
@@ -242,6 +246,7 @@ enum EditorPanel: Hashable {
         case .textStyle, .formatKit, .autoEditTemplates: return 360
         case .mask, .overlayMask: return 340
         case .mosaic: return 300
+        case .pacing: return 340
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
              .overlayKeyframes, .watermark, .textToSpeech, .sticker, .captionTemplate,
              .autoReframe, .enhance: return 320
@@ -283,6 +288,8 @@ enum EditorPanel: Hashable {
             return selection == .drawing(id)
         case .markerName(let id), .markerKind(let id):
             return selection == .marker(id)
+        case .pacing:
+            return true
         case .formatKit:
             // ルートからも、クリップ選択中(選択範囲を保存)からも開ける
             return selection == nil || selection?.clipID != nil

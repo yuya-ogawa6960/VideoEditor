@@ -460,10 +460,19 @@ struct TimelineView: View {
             .map { originX + CGFloat($0.time) * pps }
         let hasMarkers = !markers.isEmpty
 
+        let pacing: [PacingSegment] = timeline.pacing
         return ZStack(alignment: .topLeading) {
             TimelineRulerView(originX: originX, pointsPerSecond: pps, totalDuration: total)
                 .frame(width: width, height: h)
                 .allowsHitTesting(false)
+
+            // 中だるみチェックの結果(緑・黄・赤の帯)
+            if !pacing.isEmpty {
+                TimelinePacingStrip(segments: pacing, originX: originX, pointsPerSecond: pps)
+                    .frame(width: width, height: 4)
+                    .offset(y: h - 4)
+                    .allowsHitTesting(false)
+            }
 
             if hasMarkers {
                 // 旗の外(ビートの点など)をタップしたら最寄りのマーカーを選ぶ(無ければ選択解除)

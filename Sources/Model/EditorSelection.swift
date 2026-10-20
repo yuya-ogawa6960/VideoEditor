@@ -63,6 +63,9 @@ final class TimelineState {
     /// ユーザーがタイムラインを指でスクロール中か(再生位置の自動追従を止めるため)
     var isUserScrolling: Bool = false
 
+    /// 中だるみチェックの結果(目盛りの下に緑・黄・赤の帯で出す。空なら出さない)
+    var pacing: [PacingSegment] = []
+
     /// クリップの複数選択モード中か(タップで選択を足したり外したりする)
     var isMultiSelecting: Bool = false
     /// 複数選択中のクリップ

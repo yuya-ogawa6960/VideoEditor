@@ -215,7 +215,7 @@ struct EditorClipAnimationPanel: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "始まるとき")
-                ClipAnimationPicker(selection: $clip.animation.inType, isOut: false)
+                ClipAnimationPicker(selection: Binding(get: { clip.animation.inType }, set: { clip.animation.inType = $0 }), isOut: false)
                 EditorSliderRow(title: "始まりの動きの時間",
                                 value: Binding(get: { clip.animation.inDuration }, set: { clip.animation.inDuration = $0 }),
                                 range: 0.1...2.0,
@@ -226,7 +226,7 @@ struct EditorClipAnimationPanel: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: "終わるとき")
-                ClipAnimationPicker(selection: $clip.animation.outType, isOut: true)
+                ClipAnimationPicker(selection: Binding(get: { clip.animation.outType }, set: { clip.animation.outType = $0 }), isOut: true)
                 EditorSliderRow(title: "終わりの動きの時間",
                                 value: Binding(get: { clip.animation.outDuration }, set: { clip.animation.outDuration = $0 }),
                                 range: 0.1...2.0,

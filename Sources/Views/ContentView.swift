@@ -29,6 +29,8 @@ struct ContentView: View {
     @State private var isChoosingMediaMode = false
     /// 🔍 機能を探す
     @State private var isSearchingTools = false
+    /// 中だるみチェックをしたときのクリップの並び
+    @State private var pacingClipsKey = ""
     /// 写真ライブラリの動画を読み直している途中(この間は保存しない。空の内容で上書きしないため)
     @State private var isLoadingPhotoMedia = false
 
@@ -1095,6 +1097,8 @@ struct ContentView: View {
                 EditorMissingPanelContent()
             }
 
+        case .pacing:
+            EditorPacingPanel(timeline: timeline, player: player, onRerun: { runPacingCheck() })
         case .mosaic(let textID):
             if let clip = project.textClipBinding(id: textID) {
                 EditorMosaicPanel(clip: clip)
@@ -1381,6 +1385,11 @@ struct ContentView: View {
         items.append(EditorToolItem("おまかせテンプレ", systemImage: "square.grid.2x2",
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
             openPanel(.autoEditTemplates)
+        })
+        items.append(EditorToolItem("中だるみチェック", systemImage: "gauge.with.dots.needle.33percent",
+                                    enabled: !running && !project.clips.isEmpty,
+                                    disabledReason: project.clips.isEmpty ? "先に動画を追加してください" : Self.analysisBusyReason) {
+            runPacingCheck()
         })
         items.append(EditorToolItem("AI台本", systemImage: "text.badge.star") {
             player.pause()
@@ -1796,6 +1805,27 @@ struct ContentView: View {
         items.append(EditorToolItem.group("モーション", systemImage: "move.3d", id: "group-motion", items: motion))
         items.append(EditorToolItem.more([textDuplicateItem(textID)]))
         return items
+    }
+
+    /// 中だるみチェック(端末内の AI で 1 秒ごとに判定し、目盛りの下に緑・黄・赤の帯を出す)
+    private func runPacingCheck() {
+        player.pause()
+        let snapshot = project.snapshot()
+        analysis.run(title: "中だるみをチェックしています") { report in
+            let result = try await PacingAnalyzer.analyze(snapshot: snapshot, progress: report)
+            if Task.isCancelled { return }
+            timeline.pacing = result
+            pacingClipsKey = Self.clipsKey(snapshot)
+            selection = nil
+            activePanel = .pacing
+        } onError: { error in
+            showToast("チェックできませんでした(\(error.localizedDescription))", style: .warning)
+        }
+    }
+
+    /// クリップの並びと長さ(変わったら中だるみチェックの帯を消す)
+    private static func clipsKey(_ snapshot: ProjectSnapshot) -> String {
+        snapshot.clips.map { "\($0.id.uuidString):\(Int($0.outputDuration * 10))" }.joined(separator: "|")
     }
 
     /// 再生位置にモザイクを追加して選択し、設定パネルを開く
@@ -2843,6 +2873,10 @@ struct ContentView: View {
     /// 変更内容を保存し、一覧のメタデータとサムネイルを更新する(書き込みはまとめて行われる)
     private func persist(_ snapshot: ProjectSnapshot) {
         if isLoadingPhotoMedia { return }
+        if !timeline.pacing.isEmpty, Self.clipsKey(snapshot) != pacingClipsKey {
+            // クリップを編集したら結果は古くなるので帯を消す
+            timeline.pacing = []
+        }
         isDirty = true
         ProjectStore.scheduleSave(snapshot, projectID: projectID)
         ProjectLibrary.shared.touch(id: projectID,

@@ -1531,3 +1531,30 @@ struct TimelineMultiSelectBadge: View {
         .frame(width: 18, height: 18)
     }
 }
+
+/// 中だるみチェックの帯(緑 = テンポよい、黄 = 少しゆるい、赤 = 中だるみ)
+struct TimelinePacingStrip: View {
+    let segments: [PacingSegment]
+    let originX: CGFloat
+    let pointsPerSecond: CGFloat
+
+    static func color(for level: PacingLevel) -> Color {
+        switch level {
+        case .good: return Color(red: 0.25, green: 0.78, blue: 0.42)
+        case .loose: return Color(red: 0.98, green: 0.78, blue: 0.20)
+        case .dull: return Color(red: 0.93, green: 0.27, blue: 0.27)
+        }
+    }
+
+    var body: some View {
+        Canvas { context, size in
+            for segment in segments {
+                let x0 = originX + CGFloat(segment.start) * pointsPerSecond
+                let x1 = originX + CGFloat(segment.end) * pointsPerSecond
+                guard x1 > 0, x0 < size.width else { continue }
+                let rect = CGRect(x: x0, y: 0, width: max(1, x1 - x0 - 1), height: size.height)
+                context.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(Self.color(for: segment.level)))
+            }
+        }
+    }
+}

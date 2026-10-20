@@ -48,7 +48,7 @@ private struct LoopingProgress<Content: View>: View {
     @ViewBuilder let content: (Double) -> Content
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let phase = (t.truncatingRemainder(dividingBy: period)) / period
             // 0 ... 0.15 は始めの状態で止める、0.15 ... 0.8 で動く、0.8 ... 1 は終わりの状態で止める
