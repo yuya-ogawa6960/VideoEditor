@@ -119,7 +119,7 @@ enum TextRenderer {
     /// 時刻 time のテキストレイヤーをキャンバスに配置した画像(キーフレーム・アニメーション込み、左下原点)。
     /// 表示中でなければ nil
     static func layer(for clip: TextClip, time: Double, canvasSize: CGSize) -> CIImage? {
-        guard clip.duration > 0, clip.contains(timelineTime: time),
+        guard !clip.isMosaic, clip.duration > 0, clip.contains(timelineTime: time),
               canvasSize.width >= 2, canvasSize.height >= 2 else { return nil }
         let canvas = CGRect(origin: .zero, size: canvasSize)
         let local = time - clip.start

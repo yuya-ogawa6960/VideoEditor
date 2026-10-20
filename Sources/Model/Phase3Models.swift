@@ -339,6 +339,8 @@ struct TextClip: Identifiable, Equatable {
     var keyframes: [Keyframe] = []
     /// 絵文字ステッカーとして扱う(大きな絵文字1つ、背景なし)
     var isSticker: Bool = false
+    /// モザイク / ぼかし(nil 以外ならテキストは描かず、この範囲の映像にモザイクをかける。MosaicModels.swift)
+    var mosaic: MosaicStyle? = nil
 
     var end: Double { start + duration }
     func contains(timelineTime t: Double) -> Bool { t >= start && t < end }

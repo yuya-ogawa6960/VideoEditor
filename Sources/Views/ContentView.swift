@@ -716,6 +716,7 @@ struct ContentView: View {
         case .text(let textID):
             guard let item = project.textClips.first(where: { $0.id == textID }) else { return nil }
             let trimmed = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if item.isMosaic { return "モザイク" }
             if trimmed.isEmpty { return item.isSticker ? "ステッカー" : "テキスト" }
             let firstLine = trimmed.components(separatedBy: .newlines).first ?? trimmed
             return firstLine.count > 10 ? String(firstLine.prefix(10)) + "…" : firstLine
@@ -1075,6 +1076,13 @@ struct ContentView: View {
                 EditorMissingPanelContent()
             }
 
+        case .mosaic(let textID):
+            if let clip = project.textClipBinding(id: textID) {
+                EditorMosaicPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+
         // ---- 第4弾: トラッキング ----
         case .textTracking(let textID):
             EditorTrackingPanel(project: project,
@@ -1145,7 +1153,8 @@ struct ContentView: View {
         case .bgm: return "BGMの編集"
         case .overlay: return "オーバーレイの編集"
         case .narration: return "ナレーションの編集"
-        case .text: return "テキストの編集"
+        case .text(let id):
+            return project.textClips.first(where: { $0.id == id })?.isMosaic == true ? "モザイクの編集" : "テキストの編集"
         case .drawing: return "手書きの編集"
         case .marker: return "マーカーの編集"
         }
@@ -1207,6 +1216,17 @@ struct ContentView: View {
         items.append(EditorToolItem("ステッカー", systemImage: "face.smiling") {
             openPanel(.sticker)
         })
+        var mosaicGroupItems: [EditorToolItem] = []
+        mosaicGroupItems.append(EditorToolItem("モザイクを追加", systemImage: "square.grid.3x3") {
+            addMosaicAtPlayhead()
+        })
+        mosaicGroupItems.append(EditorToolItem("顔に自動でかける", systemImage: "face.dashed",
+                                               enabled: !analysis.isRunning && !project.clips.isEmpty,
+                                               disabledReason: project.clips.isEmpty ? "先に動画を追加してください" : Self.analysisBusyReason) {
+            autoMosaicFaces()
+        })
+        items.append(EditorToolItem.group("モザイク", systemImage: "square.grid.3x3", id: "group-mosaic",
+                                          items: mosaicGroupItems))
         items.append(EditorToolItem.addOverlay("オーバーレイ", systemImage: "photo.on.rectangle",
                                                enabled: !isImporting,
                                                disabledReason: Self.importingReason))
@@ -1616,6 +1636,9 @@ struct ContentView: View {
     // MARK: テキスト・ステッカー
 
     private func textItems(_ textID: UUID) -> [EditorToolItem] {
+        if project.textClips.first(where: { $0.id == textID })?.isMosaic == true {
+            return mosaicItems(textID)
+        }
         let isSticker = project.textClips.first(where: { $0.id == textID })?.isSticker ?? false
         var items: [EditorToolItem] = []
         items.append(EditorToolItem(isSticker ? "ステッカー" : "文字・スタイル", systemImage: "pencil",
@@ -1645,6 +1668,120 @@ struct ContentView: View {
             showToast("削除しました", undo: true)
         })
         return items
+    }
+
+    // MARK: モザイク
+
+    private func mosaicItems(_ textID: UUID) -> [EditorToolItem] {
+        var items: [EditorToolItem] = []
+        items.append(EditorToolItem("モザイク", systemImage: "square.grid.3x3", id: "mosaicStyle") {
+            openPanel(.mosaic(textID))
+        })
+        items.append(EditorToolItem("トラッキング", systemImage: "scope") {
+            openPanel(.textTracking(textID))
+        })
+        items.append(EditorToolItem("キーフレーム", systemImage: "diamond") {
+            openPanel(.textKeyframes(textID))
+        })
+        items.append(EditorToolItem("複製", systemImage: "plus.square.on.square") {
+            duplicateText(textID)
+            showToast("複製しました", undo: true)
+        })
+        items.append(EditorToolItem("削除", systemImage: "trash", destructive: true) {
+            history.record(project)
+            selection = nil
+            project.removeTextClip(id: textID)
+            showToast("削除しました", undo: true)
+        })
+        return items
+    }
+
+    /// 再生位置にモザイクを追加して選択し、設定パネルを開く
+    private func addMosaicAtPlayhead() {
+        let before = project.snapshot()
+        history.record(project)
+        let clip = TextClip.newMosaic(start: max(0, player.currentTime))
+        project.textClips.append(clip)
+        project.sortTextClips()
+        selection = .text(clip.id)
+        panelSnapshot = before
+        activePanel = .mosaic(clip.id)
+    }
+
+    /// 再生位置のコマで顔を探し、顔ごとにモザイクを置いて、クリップの終わりまで追いかけさせる
+    private func autoMosaicFaces() {
+        let t = player.currentTime
+        guard let location = project.locate(timelineTime: t), location.index < project.clips.count else {
+            showToast("再生位置にクリップがありません", style: .warning)
+            return
+        }
+        let clip = project.clips[location.index]
+        if clip.isStill || clip.isReversed {
+            showToast(clip.isStill ? "静止画では顔を追いかけられません" : "逆再生中のクリップでは使えません", style: .warning)
+            return
+        }
+        player.pause()
+        let snapshot = project.snapshot()
+        let canvasSize = CompositionBuilder.renderSize(for: snapshot, purpose: .preview)
+        let scaling: ScalingMode = (snapshot.canvas.aspect == .original) ? .fit : snapshot.canvas.scaling
+        let sourceStart = min(max(location.sourceTime, clip.startTime), clip.endTime)
+        let sourceEnd = clip.endTime
+        let outputStartInClip: Double = ClipFXTimeline.outputOffset(sourceTime: sourceStart, clip: clip)
+        let outputEndInClip: Double = ClipFXTimeline.outputOffset(sourceTime: sourceEnd, clip: clip)
+        let duration: Double = max(0.5, outputEndInClip - outputStartInClip)
+        let clipRect = PreviewTrackingMath.clipRect(clipSize: clip.displaySize, canvasSize: canvasSize, scaling: scaling)
+        let url = clip.url
+        let project = self.project
+        let history = self.history
+
+        analysis.run(title: "顔を探しています") { report in
+            let faces = try await MosaicFaceFinder.findFaces(in: clip, sourceTime: sourceStart,
+                                                            canvasSize: canvasSize, scaling: scaling)
+            guard !faces.isEmpty else {
+                showToast("この位置のコマに顔が見つかりませんでした", style: .warning)
+                return
+            }
+            var mosaics: [TextClip] = []
+            for (n, face) in faces.enumerated() {
+                var mosaic = TextClip.newMosaic(start: t, duration: duration)
+                // 顔より少し大きめに
+                mosaic.center = NormalizedPoint(x: face.canvasRect.midX, y: face.canvasRect.midY)
+                mosaic.widthRatio = min(1, face.canvasRect.width * 1.35)
+                mosaic.mosaic?.heightRatio = min(1, face.canvasRect.height * 1.5)
+                // 顔を追いかける(見失ったらそこで止まり、以降は最後の位置)
+                if sourceEnd - sourceStart >= 0.2 {
+                    let base = Double(n) / Double(faces.count)
+                    let share = 1 / Double(faces.count)
+                    if let tracked = try? await MotionTracker.track(url: url, start: sourceStart, end: sourceEnd,
+                                                                    initialRect: face.sourceRect, fps: 15,
+                                                                    progress: { report(base + $0 * share) }) {
+                        var keyframes: [Keyframe] = []
+                        for tracker in tracked {
+                            let out = ClipFXTimeline.outputOffset(sourceTime: sourceStart + tracker.time, clip: clip)
+                                - outputStartInClip
+                            let p = PreviewTrackingMath.canvasPoint(fromSource: tracker.center,
+                                                                    clipRect: clipRect, canvasSize: canvasSize)
+                            keyframes.append(Keyframe(time: max(0, out),
+                                                      center: NormalizedPoint(x: min(max(p.x, -0.25), 1.25),
+                                                                              y: min(max(p.y, -0.25), 1.25)),
+                                                      scale: 1, rotation: 0, opacity: 1, easing: .linear))
+                        }
+                        mosaic.keyframes = keyframes.sorted { $0.time < $1.time }
+                    }
+                }
+                mosaics.append(mosaic)
+            }
+            if Task.isCancelled { return }
+            history.record(project)
+            project.textClips.append(contentsOf: mosaics)
+            project.sortTextClips()
+            if let first = mosaics.first {
+                selection = .text(first.id)
+            }
+            showToast("\(mosaics.count) 人の顔にモザイクをかけました", undo: true)
+        } onError: { error in
+            showToast("顔を探せませんでした(\(error.localizedDescription))", style: .warning)
+        }
     }
 
     // MARK: 手書き

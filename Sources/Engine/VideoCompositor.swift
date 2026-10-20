@@ -458,6 +458,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                                              canvasSize: size)
             }
 
+            // 2.5 モザイク / ぼかし(映像とオーバーレイだけにかける。文字や字幕はこの後に重なる)
+            frame = MosaicRenderer.apply(scene.textClips, to: frame, time: seconds, canvasSize: size)
+
             // 3. 周辺減光 → フィルム粒子 → 章タイトル / テロップ
             frame = DocumentaryRenderer.applyTexture(frame, time: seconds, info: documentary, canvasSize: size)
             frame = DocumentaryRenderer.applyOverlays(frame, time: seconds, info: documentary, canvasSize: size)
@@ -470,7 +473,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             }
 
             // 5. テキストレイヤー / ステッカー
-            for textClip in scene.textClips where textClip.contains(timelineTime: seconds) {
+            for textClip in scene.textClips where !textClip.isMosaic && textClip.contains(timelineTime: seconds) {
                 if let layer = TextRenderer.layer(for: textClip, time: seconds, canvasSize: size) {
                     frame = layer.composited(over: frame)
                 }

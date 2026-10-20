@@ -604,6 +604,13 @@ struct PreviewGestureOverlay: View {
 
     /// テキストの表示範囲のおおよその推定(描画はエンジン側なので近似)
     static func estimatedRect(for clip: TextClip, in size: CGSize) -> CGRect {
+        // モザイクは実際の範囲(clip はキーフレーム反映済みなので、キーフレームを外して計算する)
+        if let mosaic = clip.mosaic {
+            let w: CGFloat = size.width * CGFloat(clip.widthRatio) * CGFloat(clip.scale)
+            let h: CGFloat = size.height * CGFloat(mosaic.heightRatio) * CGFloat(clip.scale)
+            let c = clip.center.point(in: size)
+            return CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h)
+        }
         let short = min(size.width, size.height)
         let fontPx = CGFloat(clip.style.sizeRatio) * short
         let lineCount = max(1, clip.text.split(separator: "\n", omittingEmptySubsequences: false).count)

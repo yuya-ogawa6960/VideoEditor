@@ -117,6 +117,9 @@ enum EditorPanel: Hashable {
     case textTracking(UUID)
     case overlayTracking(UUID)
 
+    /// モザイク / ぼかしの種類・形・強さ・大きさ
+    case mosaic(UUID)
+
     // ---- 第4弾: ルート ----
     /// おまかせ編集のテンプレート一覧
     case autoEditTemplates
@@ -174,6 +177,7 @@ enum EditorPanel: Hashable {
         case .enhance: return "画質補正"
         case .parallax, .overlayParallax: return "3Dズーム"
         case .textTracking, .overlayTracking: return "トラッキング"
+        case .mosaic: return "モザイク"
         case .autoEditTemplates: return "おまかせテンプレ"
         }
     }
@@ -195,7 +199,7 @@ enum EditorPanel: Hashable {
         case .narrationVolume(let id), .narrationEffects(let id):
             return .narration(id)
         case .textStyle(let id), .textAnimation(let id), .textPlacement(let id), .textKeyframes(let id),
-             .textTracking(let id):
+             .textTracking(let id), .mosaic(let id):
             return .text(id)
         case .drawingStyle(let id), .drawingTiming(let id):
             return .drawing(id)
@@ -223,7 +227,7 @@ enum EditorPanel: Hashable {
              .textAnimation, .textPlacement, .textKeyframes, .overlayKeyframes, .overlayBlend,
              .narrationEffects, .drawingCanvas, .drawingStyle, .drawingTiming, .markerName, .markerKind,
              .captionTemplate, .watermark, .mask, .autoReframe, .stabilize, .enhance, .parallax,
-             .overlayMask, .overlayParallax, .textTracking, .overlayTracking:
+             .overlayMask, .overlayParallax, .textTracking, .overlayTracking, .mosaic:
             return true
         }
     }
@@ -237,6 +241,7 @@ enum EditorPanel: Hashable {
         case .jlCut: return 250
         case .textStyle, .formatKit, .autoEditTemplates: return 360
         case .mask, .overlayMask: return 340
+        case .mosaic: return 300
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
              .overlayKeyframes, .watermark, .textToSpeech, .sticker, .captionTemplate,
              .autoReframe, .enhance: return 320
@@ -272,7 +277,7 @@ enum EditorPanel: Hashable {
         case .narrationVolume(let id), .narrationEffects(let id):
             return selection == .narration(id)
         case .textStyle(let id), .textAnimation(let id), .textPlacement(let id), .textKeyframes(let id),
-             .textTracking(let id):
+             .textTracking(let id), .mosaic(let id):
             return selection == .text(id)
         case .drawingStyle(let id), .drawingTiming(let id):
             return selection == .drawing(id)

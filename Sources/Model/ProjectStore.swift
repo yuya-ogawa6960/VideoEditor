@@ -814,6 +814,8 @@ struct StoredTextClip: Codable {
     var animOutDuration: Double
     var keyframes: [StoredKeyframe]
     var isSticker: Bool
+    /// モザイク(後から追加したので省略可能)
+    var mosaic: StoredMosaic?
 
     init(_ t: TextClip) {
         id = t.id
@@ -833,6 +835,7 @@ struct StoredTextClip: Codable {
         animOutDuration = t.animOutDuration
         keyframes = t.keyframes.map { StoredKeyframe($0) }
         isSticker = t.isSticker
+        mosaic = t.mosaic.map { StoredMosaic($0) }
     }
 
     var value: TextClip {
@@ -852,7 +855,32 @@ struct StoredTextClip: Codable {
         t.animOutDuration = animOutDuration
         t.keyframes = keyframes.map { $0.value }
         t.isSticker = isSticker
+        t.mosaic = mosaic?.value
         return t
+    }
+}
+
+/// モザイク / ぼかし
+struct StoredMosaic: Codable {
+    var kind: String
+    var shape: String
+    var strength: Double
+    var heightRatio: Double
+
+    init(_ m: MosaicStyle) {
+        kind = m.kind.rawValue
+        shape = m.shape.rawValue
+        strength = m.strength
+        heightRatio = m.heightRatio
+    }
+
+    var value: MosaicStyle {
+        var m = MosaicStyle()
+        m.kind = MosaicKind(rawValue: kind) ?? .pixelate
+        m.shape = MosaicShape(rawValue: shape) ?? .ellipse
+        m.strength = strength
+        m.heightRatio = heightRatio
+        return m
     }
 }
 
