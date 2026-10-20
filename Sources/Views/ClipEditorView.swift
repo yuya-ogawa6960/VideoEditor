@@ -95,7 +95,7 @@ struct ClipEditorView: View {
             }
 
             // 速度
-            Section("速度") {
+            Section("速度・デュレーション") {
                 HStack(spacing: 6) {
                     ForEach(speedPresets, id: \.self) { preset in
                         Button {
@@ -131,7 +131,7 @@ struct ClipEditorView: View {
             }
 
             // フィルタ
-            Section("フィルタ") {
+            Section("Lumetri プリセット") {
                 FilterPickerView(filter: clip.filter,
                                  sourceImage: current.thumbnail,
                                  onApplyToAll: {

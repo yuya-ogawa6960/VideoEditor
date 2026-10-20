@@ -680,7 +680,7 @@ struct EditorAudioEffectsPanel: View {
                             value: $draft.pitchSemitones,
                             range: -12...12,
                             display: String(format: "%+.1f", draft.pitchSemitones))
-            EditorSliderRow(title: "雑音を消す(AI で声だけを残す)",
+            EditorSliderRow(title: "スピーチを強調(AI)",
                             value: $draft.noiseReduction,
                             range: 0...1,
                             display: clipFXPercent(draft.noiseReduction))
@@ -1316,7 +1316,7 @@ struct ScopeSheetView: View {
                 .padding()
             }
             .background(Color.black)
-            .navigationTitle("スコープ")
+            .navigationTitle("Lumetri スコープ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -1149,7 +1149,7 @@ struct ContentView: View {
         guard let current = selection else { return "全体の編集" }
         switch current {
         case .clip: return "クリップの編集"
-        case .subtitle: return "字幕の編集"
+        case .subtitle: return "キャプションの編集"
         case .bgm: return "BGMの編集"
         case .overlay: return "オーバーレイの編集"
         case .narration: return "ナレーションの編集"
@@ -1245,10 +1245,10 @@ struct ContentView: View {
         items.append(EditorToolItem("テキスト", systemImage: "textformat") {
             addTextAtPlayhead()
         })
-        items.append(EditorToolItem("字幕", systemImage: "captions.bubble") {
+        items.append(EditorToolItem("キャプション", systemImage: "captions.bubble") {
             addSubtitleAtPlayhead()
         })
-        items.append(EditorToolItem("自動字幕", systemImage: "text.bubble") {
+        items.append(EditorToolItem("キャプションを作成", systemImage: "text.bubble") {
             history.record(project)
             activeSheet = .subtitles
         })
@@ -1264,7 +1264,7 @@ struct ContentView: View {
     /// 録音: ナレーション録音 / AI読み上げ / 音声抽出
     private var recordGroupItems: [EditorToolItem] {
         var items: [EditorToolItem] = []
-        items.append(EditorToolItem("ナレーション録音", systemImage: "mic") {
+        items.append(EditorToolItem("ボイスオーバー録音", systemImage: "mic") {
             openPanel(.narrationRecord)
         })
         items.append(EditorToolItem("AI読み上げ", systemImage: "waveform.badge.mic") {
@@ -1292,12 +1292,12 @@ struct ContentView: View {
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
             openPanel(.autoEditTemplates)
         })
-        items.append(EditorToolItem("無音カット", systemImage: "waveform.slash",
+        items.append(EditorToolItem("無音部分を削除", systemImage: "waveform.slash",
                                     enabled: hasAudioClips,
                                     disabledReason: "音声のあるクリップがありません") {
             showSilenceCutConfirm = true
         })
-        items.append(EditorToolItem("音量そろえ", systemImage: "speaker.wave.2",
+        items.append(EditorToolItem("ラウドネスを自動一致", systemImage: "speaker.wave.2",
                                     enabled: hasAudioClips || hasNarration,
                                     disabledReason: "音声のあるクリップやナレーションがありません") {
             showNormalizeConfirm = true
@@ -1364,10 +1364,10 @@ struct ContentView: View {
         items.append(EditorToolItem("スプリット", systemImage: "square.split.2x1") {
             splitClip(clipID)
         })
-        items.append(EditorToolItem("削除", systemImage: "trash", destructive: true) {
+        items.append(EditorToolItem("リップル削除", systemImage: "trash", destructive: true) {
             deleteClip(clipID)
         })
-        items.append(EditorToolItem("トランジション", systemImage: "arrow.left.arrow.right.square") {
+        items.append(EditorToolItem("ビデオトランジション", systemImage: "arrow.left.arrow.right.square") {
             openPanel(.transition(clipID))
         })
         items.append(EditorToolItem("複数選択", systemImage: "checkmark.circle") {
@@ -1376,28 +1376,28 @@ struct ContentView: View {
         })
         if !isStill {
             var speedItems: [EditorToolItem] = []
-            speedItems.append(EditorToolItem("速度", systemImage: "speedometer") {
+            speedItems.append(EditorToolItem("速度・デュレーション", systemImage: "speedometer") {
                 openPanel(.speed(clipID))
             })
-            speedItems.append(EditorToolItem("速度カーブ", systemImage: "waveform.path.ecg") {
+            speedItems.append(EditorToolItem("タイムリマップ", systemImage: "waveform.path.ecg") {
                 openPanel(.speedCurve(clipID))
             })
-            items.append(EditorToolItem.group("速度", systemImage: "speedometer", id: "group-speed",
+            items.append(EditorToolItem.group("速度・デュレーション", systemImage: "speedometer", id: "group-speed",
                                               items: speedItems))
-            items.append(EditorToolItem("音量", systemImage: "speaker.wave.2",
+            items.append(EditorToolItem("ボリューム", systemImage: "speaker.wave.2",
                                         enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
                 openPanel(.volume(clipID))
             })
         }
-        items.append(EditorToolItem("フィルタ", systemImage: "camera.filters") {
+        items.append(EditorToolItem("Lumetri プリセット", systemImage: "camera.filters") {
             openPanel(.filter(clipID))
         })
-        items.append(EditorToolItem.group("色調整", systemImage: "circle.lefthalf.filled", id: "group-color",
+        items.append(EditorToolItem.group("Lumetri カラー", systemImage: "circle.lefthalf.filled", id: "group-color",
                                           items: colorGroupItems(clipID)))
         items.append(EditorToolItem("アニメーション", systemImage: "sparkles.rectangle.stack") {
             openPanel(.clipAnimation(clipID))
         })
-        items.append(EditorToolItem("切り抜き・回転", systemImage: "crop.rotate") {
+        items.append(EditorToolItem("モーション・クロップ", systemImage: "crop.rotate") {
             openPanel(.geometry(clipID))
         })
         items.append(EditorToolItem.more(clipMoreItems(clipID, clip: clip, isStill: isStill,
@@ -1411,21 +1411,21 @@ struct ContentView: View {
         items.append(EditorToolItem("自動補正", systemImage: "wand.and.stars") {
             autoEnhance(clipID)
         })
-        items.append(EditorToolItem("色調整", systemImage: "circle.lefthalf.filled") {
+        items.append(EditorToolItem("Lumetri カラー", systemImage: "circle.lefthalf.filled") {
             openPanel(.colorAdjust(clipID))
         })
-        items.append(EditorToolItem("HSL", systemImage: "paintpalette") {
+        items.append(EditorToolItem("HSL セカンダリ", systemImage: "paintpalette") {
             openPanel(.hsl(clipID))
         })
-        items.append(EditorToolItem("色合わせ", systemImage: "eyedropper.halffull",
+        items.append(EditorToolItem("カラーマッチ", systemImage: "eyedropper.halffull",
                                     enabled: project.clips.count > 1,
                                     disabledReason: "クリップが 2 つ以上あるときに使えます") {
             openPanel(.colorMatch(clipID))
         })
-        items.append(EditorToolItem("LUT読み込み", systemImage: "cube") {
+        items.append(EditorToolItem("LUT を参照", systemImage: "cube") {
             openPanel(.lut(clipID))
         })
-        items.append(EditorToolItem("スコープ", systemImage: "chart.bar.xaxis") {
+        items.append(EditorToolItem("Lumetri スコープ", systemImage: "chart.bar.xaxis") {
             player.pause()
             activePanel = nil
             activeSheet = .scopes(clipID)
@@ -1444,7 +1444,7 @@ struct ContentView: View {
             showToast("複製しました", undo: true)
         })
         let replaceBlocked = isImporting || busy
-        items.append(EditorToolItem.replaceMedia("置き換え", systemImage: "arrow.triangle.2.circlepath",
+        items.append(EditorToolItem.replaceMedia("フッテージを置き換え", systemImage: "arrow.triangle.2.circlepath",
                                                  enabled: !replaceBlocked,
                                                  disabledReason: Self.busyReason))
         if !isStill {
@@ -1455,11 +1455,11 @@ struct ContentView: View {
                                         disabledReason: Self.busyReason) {
                 toggleReverse(clipID)
             })
-            items.append(EditorToolItem("フリーズ", systemImage: "pause.rectangle",
+            items.append(EditorToolItem("フレーム保持", systemImage: "pause.rectangle",
                                         enabled: !busy, disabledReason: Self.busyReason) {
                 freezeFrame(clipID)
             })
-            items.append(EditorToolItem("音声効果", systemImage: "waveform.and.magnifyingglass",
+            items.append(EditorToolItem("オーディオエフェクト", systemImage: "waveform.and.magnifyingglass",
                                         enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
                 openPanel(.audioEffects(clipID))
             })
@@ -1471,7 +1471,7 @@ struct ContentView: View {
                                         enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
                 openPanel(.beatDetect(clipID))
             })
-            items.append(EditorToolItem("手ぶれ補正", systemImage: "camera.metering.center.weighted") {
+            items.append(EditorToolItem("ワープスタビライザー", systemImage: "camera.metering.center.weighted") {
                 openPanel(.stabilize(clipID))
             })
         }
@@ -1520,17 +1520,17 @@ struct ContentView: View {
         items.append(EditorToolItem("トラッキング", systemImage: "scope") {
             openPanel(.overlayTracking(overlayID))
         })
-        items.append(EditorToolItem("ブレンド", systemImage: "circle.lefthalf.striped.horizontal") {
+        items.append(EditorToolItem("描画モード", systemImage: "circle.lefthalf.striped.horizontal") {
             openPanel(.overlayBlend(overlayID))
         })
-        items.append(EditorToolItem("フィルタ", systemImage: "camera.filters") {
+        items.append(EditorToolItem("Lumetri プリセット", systemImage: "camera.filters") {
             openPanel(.overlayFilter(overlayID))
         })
         if !isImage {
-            items.append(EditorToolItem("音量", systemImage: "speaker.wave.2") {
+            items.append(EditorToolItem("ボリューム", systemImage: "speaker.wave.2") {
                 openPanel(.overlayVolume(overlayID))
             })
-            items.append(EditorToolItem("速度", systemImage: "speedometer") {
+            items.append(EditorToolItem("速度・デュレーション", systemImage: "speedometer") {
                 openPanel(.overlaySpeed(overlayID))
             })
         }
@@ -1566,10 +1566,10 @@ struct ContentView: View {
 
     private func narrationItems(_ narrationID: UUID) -> [EditorToolItem] {
         var items: [EditorToolItem] = []
-        items.append(EditorToolItem("音量", systemImage: "speaker.wave.2") {
+        items.append(EditorToolItem("ボリューム", systemImage: "speaker.wave.2") {
             openPanel(.narrationVolume(narrationID))
         })
-        items.append(EditorToolItem("音声効果", systemImage: "waveform.and.magnifyingglass") {
+        items.append(EditorToolItem("オーディオエフェクト", systemImage: "waveform.and.magnifyingglass") {
             openPanel(.narrationEffects(narrationID))
         })
         items.append(EditorToolItem("聞きやすくする", systemImage: "waveform",
@@ -1593,13 +1593,13 @@ struct ContentView: View {
         items.append(EditorToolItem("文字を直す", systemImage: "pencil") {
             openPanel(.textEdit(cueID))
         })
-        items.append(EditorToolItem("全字幕のスタイル", systemImage: "textformat.size") {
+        items.append(EditorToolItem("キャプションのスタイル", systemImage: "textformat.size") {
             openPanel(.subtitleStyle)
         })
-        items.append(EditorToolItem("字幕デザイン", systemImage: "rectangle.3.group") {
+        items.append(EditorToolItem("キャプションのデザイン", systemImage: "rectangle.3.group") {
             openPanel(.captionTemplate)
         })
-        items.append(EditorToolItem("自動字幕", systemImage: "text.bubble") {
+        items.append(EditorToolItem("キャプションを作成", systemImage: "text.bubble") {
             history.record(project)
             activeSheet = .subtitles
         })
@@ -1616,7 +1616,7 @@ struct ContentView: View {
 
     private var bgmItems: [EditorToolItem] {
         var items: [EditorToolItem] = []
-        items.append(EditorToolItem("音量", systemImage: "speaker.wave.2") {
+        items.append(EditorToolItem("ボリューム", systemImage: "speaker.wave.2") {
             openPanel(.bgmVolume)
         })
         items.append(EditorToolItem("曲を変更", systemImage: "arrow.triangle.2.circlepath") {
@@ -1851,7 +1851,7 @@ struct ContentView: View {
                                     enabled: hasSelection, disabledReason: Self.noMultiSelectionReason) {
             moveMultiSelected(by: 1)
         })
-        items.append(EditorToolItem(hasSelection ? "削除(\(ids.count))" : "削除", systemImage: "trash",
+        items.append(EditorToolItem(hasSelection ? "リップル削除(\(ids.count))" : "リップル削除", systemImage: "trash",
                                     id: "multi-delete", destructive: true,
                                     enabled: hasSelection, disabledReason: Self.noMultiSelectionReason) {
             deleteMultiSelected()
@@ -2381,7 +2381,7 @@ struct ContentView: View {
                                  preferredTransform: .identity,
                                  hasAudio: false,
                                  thumbnail: thumb,
-                                 name: "フリーズ")
+                                 name: "フレーム保持")
                 still.stillImageURL = imageURL
                 still.startTime = 0
                 still.endTime = 2

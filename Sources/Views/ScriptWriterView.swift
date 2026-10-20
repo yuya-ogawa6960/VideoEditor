@@ -427,7 +427,7 @@ struct ScriptWriterSheetView: View {
             }
             .disabled(nonEmptyLines.isEmpty || analysis.isRunning)
         } header: {
-            Text("字幕")
+            Text("キャプション")
         } footer: {
             Text("各行をその時刻からの字幕にします。長さは文字数から見積もり、次の行と重ならないようにします。")
         }

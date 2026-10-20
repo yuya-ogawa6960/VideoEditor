@@ -119,7 +119,7 @@ struct AudioSettingsView: View {
                 Slider(value: $project.audio.originalVolume, in: 0...1)
             }
         } header: {
-            Text("音量")
+            Text("ボリューム")
         }
     }
 

@@ -28,18 +28,18 @@ enum TransitionType: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .none: return "なし"
-        case .dissolve: return "じわっと切り替え"
-        case .fadeBlack: return "黒を挟む"
-        case .fadeWhite: return "白を挟む"
-        case .slideLeft: return "左へスライド"
-        case .slideRight: return "右へスライド"
-        case .slideUp: return "上へスライド"
-        case .slideDown: return "下へスライド"
-        case .zoomIn: return "ズームイン"
-        case .zoomOut: return "ズームアウト"
-        case .wipeLeft: return "左へ拭き取り"
-        case .wipeRight: return "右へ拭き取り"
-        case .blur: return "ぼかし"
+        case .dissolve: return "クロスディゾルブ"
+        case .fadeBlack: return "暗転"
+        case .fadeWhite: return "ホワイトアウト"
+        case .slideLeft: return "スライド(左)"
+        case .slideRight: return "スライド(右)"
+        case .slideUp: return "スライド(上)"
+        case .slideDown: return "スライド(下)"
+        case .zoomIn: return "クロスズーム(イン)"
+        case .zoomOut: return "クロスズーム(アウト)"
+        case .wipeLeft: return "ワイプ(左)"
+        case .wipeRight: return "ワイプ(右)"
+        case .blur: return "ブラー"
         }
     }
 }

@@ -171,7 +171,7 @@ struct SubtitleEditorView: View {
                     }
                 }
             }
-            .navigationTitle("字幕")
+            .navigationTitle("キャプション")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

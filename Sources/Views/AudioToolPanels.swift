@@ -266,7 +266,7 @@ struct EditorNarrationVolumePanel: View {
                     .foregroundStyle(.secondary)
             }
 
-            EditorSliderRow(title: "音量",
+            EditorSliderRow(title: "ボリューム",
                             value: $narration.volume,
                             range: 0...1,
                             display: "\(Int((narration.volume * 100).rounded()))%")

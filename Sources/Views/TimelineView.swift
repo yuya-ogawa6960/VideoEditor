@@ -349,7 +349,7 @@ struct TimelineView: View {
             Button {
                 onAdd(.subtitle)
             } label: {
-                Label("字幕", systemImage: "captions.bubble")
+                Label("キャプション", systemImage: "captions.bubble")
             }
             Button {
                 onAdd(.overlay)
