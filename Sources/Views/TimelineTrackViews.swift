@@ -1370,3 +1370,23 @@ struct TimelinePlayheadView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
+
+/// 複数選択モードでクリップの左上に出すチェック
+struct TimelineMultiSelectBadge: View {
+    let isOn: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(isOn ? Color.white : Color.black.opacity(0.45))
+            Circle()
+                .stroke(Color.white, lineWidth: 1.5)
+            if isOn {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color.black)
+            }
+        }
+        .frame(width: 18, height: 18)
+    }
+}

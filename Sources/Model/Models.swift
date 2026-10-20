@@ -626,6 +626,41 @@ final class EditorProject {
         removeTimelineRange(from: range.start, to: range.start + removed)
     }
 
+    /// 複数のクリップをまとめて削除する(後ろから 1 本ずつ removeClip して詰める)
+    func removeClips(ids: Set<UUID>) {
+        let ordered: [UUID] = clips.map { $0.id }.filter { ids.contains($0) }
+        for id in ordered.reversed() {
+            removeClip(id: id)
+        }
+    }
+
+    /// 選んだクリップを(元の並び順のまま)ひとかたまりに寄せる。かたまりの先頭の位置を返す
+    @discardableResult
+    func gatherClips(ids: Set<UUID>) -> Range<Int>? {
+        guard let first = clips.firstIndex(where: { ids.contains($0.id) }) else { return nil }
+        let selected: [Clip] = clips.filter { ids.contains($0.id) }
+        let before: [Clip] = clips[..<first].filter { !ids.contains($0.id) }
+        let after: [Clip] = clips[first...].filter { !ids.contains($0.id) }
+        clips = before + selected + after
+        return before.count..<(before.count + selected.count)
+    }
+
+    /// 選んだクリップをひとかたまりにして、1 本ぶん前(-1)または後ろ(+1)へ動かす
+    @discardableResult
+    func moveClips(ids: Set<UUID>, by step: Int) -> Bool {
+        guard let block = gatherClips(ids: ids), !block.isEmpty else { return false }
+        if step < 0 {
+            guard block.lowerBound > 0 else { return false }
+            let moved = clips.remove(at: block.lowerBound - 1)
+            clips.insert(moved, at: block.upperBound - 1)
+        } else {
+            guard block.upperBound < clips.count else { return false }
+            let moved = clips.remove(at: block.upperBound)
+            clips.insert(moved, at: block.lowerBound)
+        }
+        return true
+    }
+
     func duplicateClip(id: UUID) {
         guard let i = index(of: id) else { return }
         clips.insert(clips[i].duplicated(), at: i + 1)

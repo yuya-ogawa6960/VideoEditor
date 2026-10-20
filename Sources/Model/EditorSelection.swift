@@ -63,6 +63,29 @@ final class TimelineState {
     /// ユーザーがタイムラインを指でスクロール中か(再生位置の自動追従を止めるため)
     var isUserScrolling: Bool = false
 
+    /// クリップの複数選択モード中か(タップで選択を足したり外したりする)
+    var isMultiSelecting: Bool = false
+    /// 複数選択中のクリップ
+    var multiSelectedClipIDs: Set<UUID> = []
+
+    func beginMultiSelect(with clipID: UUID?) {
+        multiSelectedClipIDs = clipID.map { [$0] } ?? []
+        isMultiSelecting = true
+    }
+
+    func endMultiSelect() {
+        isMultiSelecting = false
+        multiSelectedClipIDs = []
+    }
+
+    func toggleMultiSelect(_ clipID: UUID) {
+        if multiSelectedClipIDs.contains(clipID) {
+            multiSelectedClipIDs.remove(clipID)
+        } else {
+            multiSelectedClipIDs.insert(clipID)
+        }
+    }
+
     /// 縮小できる下限をこれより小さくはしない(長い動画でも極端に潰れないように)
     static let absoluteMinPointsPerSecond: Double = 0.05
 

@@ -22,6 +22,9 @@ struct ContentView: View {
     @State private var history = EditorHistory()
     @State private var timeline = TimelineState()
     @State private var selection: EditorSelection?
+    /// 上部バーからプロジェクト名を変更する
+    @State private var isRenamingProject = false
+    @State private var projectNameDraft = ""
 
     @State private var activePanel: EditorPanel?
     @State private var activeSheet: EditorSheet?
@@ -267,6 +270,15 @@ struct ContentView: View {
         } message: {
             Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーション・テキスト・手書き・マーカーはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
+        .alert("名前を変更", isPresented: $isRenamingProject) {
+            TextField("プロジェクト名", text: $projectNameDraft)
+            Button("キャンセル", role: .cancel) {}
+            Button("保存") {
+                ProjectLibrary.shared.rename(id: projectID, to: projectNameDraft)
+            }
+        } message: {
+            Text("新しいプロジェクト名を入力してください。")
+        }
         .alert("お知らせ", isPresented: alertIsPresented) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -317,6 +329,12 @@ struct ContentView: View {
 
     // MARK: - 上部バー
 
+    /// 一覧に表示されているこのプロジェクトの名前
+    private var projectName: String {
+        let name: String = ProjectLibrary.shared.projects.first(where: { $0.id == projectID })?.name ?? ""
+        return name.isEmpty ? "無題" : name
+    }
+
     private var topBar: some View {
         HStack(spacing: 8) {
             Button {
@@ -335,6 +353,27 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("プロジェクト一覧へ戻る")
+
+            Button {
+                EditorHaptics.tap()
+                projectNameDraft = projectName
+                isRenamingProject = true
+            } label: {
+                HStack(spacing: 4) {
+                    Text(projectName)
+                        .font(.system(size: 14, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Image(systemName: "pencil")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.6))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: 130, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("プロジェクト名「\(projectName)」を変更")
 
             Spacer()
 
@@ -1081,6 +1120,7 @@ struct ContentView: View {
     // 対象に当てはまらない項目(静止画 / 動画)は出さず、条件しだいで使えない項目はタップで理由を出す。
 
     private var toolbarItems: [EditorToolItem] {
+        if timeline.isMultiSelecting { return multiSelectItems }
         guard let current = selection else { return rootItems }
         switch current {
         case .clip(let clipID):
@@ -1274,6 +1314,10 @@ struct ContentView: View {
         })
         items.append(EditorToolItem("トランジション", systemImage: "arrow.left.arrow.right.square") {
             openPanel(.transition(clipID))
+        })
+        items.append(EditorToolItem("複数選択", systemImage: "checkmark.circle") {
+            timeline.beginMultiSelect(with: clipID)
+            showToast("クリップをタップして選択を追加・解除できます")
         })
         if !isStill {
             var speedItems: [EditorToolItem] = []
@@ -1604,6 +1648,71 @@ struct ContentView: View {
             showToast("削除しました", undo: true)
         })
         return items
+    }
+
+    // MARK: 複数選択
+
+    private static let noMultiSelectionReason = "クリップをタップして選んでください"
+
+    private var multiSelectItems: [EditorToolItem] {
+        let ids = timeline.multiSelectedClipIDs.filter { id in project.clips.contains(where: { $0.id == id }) }
+        let hasSelection = !ids.isEmpty
+        let allSelected = ids.count == project.clips.count && !project.clips.isEmpty
+        var items: [EditorToolItem] = []
+        items.append(EditorToolItem("完了", systemImage: "checkmark", id: "multi-done") {
+            endMultiSelect()
+        })
+        items.append(EditorToolItem(allSelected ? "選択を解除" : "すべて選択",
+                                    systemImage: allSelected ? "circle" : "checkmark.circle.fill",
+                                    id: "multi-all") {
+            if allSelected {
+                timeline.multiSelectedClipIDs = []
+            } else {
+                timeline.multiSelectedClipIDs = Set(project.clips.map { $0.id })
+            }
+        })
+        items.append(EditorToolItem("前へ", systemImage: "arrow.left", id: "multi-left",
+                                    enabled: hasSelection, disabledReason: Self.noMultiSelectionReason) {
+            moveMultiSelected(by: -1)
+        })
+        items.append(EditorToolItem("後ろへ", systemImage: "arrow.right", id: "multi-right",
+                                    enabled: hasSelection, disabledReason: Self.noMultiSelectionReason) {
+            moveMultiSelected(by: 1)
+        })
+        items.append(EditorToolItem(hasSelection ? "削除(\(ids.count))" : "削除", systemImage: "trash",
+                                    id: "multi-delete", destructive: true,
+                                    enabled: hasSelection, disabledReason: Self.noMultiSelectionReason) {
+            deleteMultiSelected()
+        })
+        return items
+    }
+
+    private func endMultiSelect() {
+        timeline.endMultiSelect()
+        selection = nil
+    }
+
+    private func moveMultiSelected(by step: Int) {
+        let ids = timeline.multiSelectedClipIDs
+        guard !ids.isEmpty else { return }
+        history.record(project)
+        let moved: Bool = project.moveClips(ids: ids, by: step)
+        if moved {
+            UISelectionFeedbackGenerator().selectionChanged()
+        } else {
+            showToast(step < 0 ? "これ以上前には動かせません" : "これ以上後ろには動かせません", style: .warning)
+        }
+    }
+
+    private func deleteMultiSelected() {
+        let ids = timeline.multiSelectedClipIDs
+        guard !ids.isEmpty else { return }
+        let count = ids.count
+        history.record(project)
+        timeline.endMultiSelect()
+        selection = nil
+        project.removeClips(ids: ids)
+        showToast("\(count) 本のクリップを削除しました", undo: true)
     }
 
     /// クリップを削除(「元に戻す」つきのトースト)

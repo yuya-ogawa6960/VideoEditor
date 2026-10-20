@@ -95,6 +95,8 @@ struct TimelineView: View {
     @State private var reorderClipID: UUID? = nil
     @State private var reorderAnchorX: CGFloat = 0
     @State private var reorderTranslation: CGFloat = 0
+    /// 複数選択したクリップをまとめて動かしているときの、かたまりのクリップ(並び順)
+    @State private var reorderGroupIDs: [UUID] = []
 
     /// スナップ中の時刻(黄色の縦線を出す)
     @State private var snapGuideTime: Double? = nil
@@ -587,6 +589,13 @@ struct TimelineView: View {
         let gap = TimelineMetrics.clipGap
         let margin = TimelineMetrics.cullMargin
         let laneH = TimelineMetrics.splitAudioLaneHeight
+        // 複数のクリップをまとめて動かしているときの、かたまりの先頭の位置(秒)
+        let groupSet: Set<UUID> = Set(reorderGroupIDs)
+        var groupStart: Double? = nil
+        if !groupSet.isEmpty, let firstIndex = clips.firstIndex(where: { groupSet.contains($0.id) }),
+           firstIndex < ranges.count {
+            groupStart = ranges[firstIndex].start
+        }
         // ranges が足りないときの保険(重なりなしで並べた位置)
         var t = 0.0
         for (i, clip) in clips.enumerated() {
@@ -599,7 +608,11 @@ struct TimelineView: View {
                 contentX += CGFloat(shift) * pps
             }
             var lifted = false
-            if let reorderClipID, reorderClipID == clip.id {
+            if let groupStart, groupSet.contains(clip.id) {
+                let offsetInGroup = CGFloat(range.start - groupStart) * pps
+                contentX = reorderAnchorX + reorderTranslation + offsetInGroup
+                lifted = true
+            } else if let reorderClipID, reorderClipID == clip.id {
                 contentX = reorderAnchorX + reorderTranslation
                 lifted = true
             }
@@ -649,7 +662,9 @@ struct TimelineView: View {
         let splitBars = layout.splitBars
         let transitions = layout.transitions
         let selectedClipID: UUID? = selection?.clipID
-        let selectedItem: TimelineClipItem? = (reorderClipID == nil && selectedClipID != nil)
+        let isMulti: Bool = timeline.isMultiSelecting
+        let multiIDs: Set<UUID> = timeline.multiSelectedClipIDs
+        let selectedItem: TimelineClipItem? = (reorderClipID == nil && !isMulti && selectedClipID != nil)
             ? items.first(where: { $0.id == selectedClipID })
             : nil
         let isEmpty = project.clips.isEmpty
@@ -694,11 +709,23 @@ struct TimelineView: View {
                                  visibleWidth: item.visibleWidth,
                                  pointsPerSecond: pps,
                                  height: h,
-                                 isSelected: item.id == selectedClipID,
+                                 isSelected: isMulti ? multiIDs.contains(item.id) : item.id == selectedClipID,
                                  isLifted: item.isLifted)
+                    .overlay(alignment: .topLeading) {
+                        if isMulti {
+                            TimelineMultiSelectBadge(isOn: multiIDs.contains(item.id))
+                                .padding(4)
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .offset(x: item.visibleX)
                     .onTapGesture {
-                        selection = .clip(item.id)
+                        if timeline.isMultiSelecting {
+                            timeline.toggleMultiSelect(item.id)
+                            UISelectionFeedbackGenerator().selectionChanged()
+                        } else {
+                            selection = .clip(item.id)
+                        }
                     }
                     .gesture(reorderGesture(clipID: item.id))
                     .zIndex(item.isLifted ? 10 : (item.id == selectedClipID ? 1 : 0))
@@ -1317,6 +1344,7 @@ struct TimelineView: View {
             withAnimation(.easeOut(duration: 0.18)) {
                 reorderClipID = nil
                 reorderTranslation = 0
+                reorderGroupIDs = []
             }
         case .moveOverlay, .trimOverlay:
             project.sortOverlays()
@@ -1437,21 +1465,84 @@ struct TimelineView: View {
     }
 
     private func beginReorder(clipID: UUID) {
-        guard let i = project.index(of: clipID) else { return }
+        guard project.index(of: clipID) != nil else { return }
         beginEdit(.reorder(id: clipID), snaps: false)
+        // 複数選択中に選んだクリップを持ち上げたら、選んだクリップをひとかたまりにして一緒に動かす
+        var group: [UUID] = []
+        if timeline.isMultiSelecting {
+            if !timeline.multiSelectedClipIDs.contains(clipID) {
+                timeline.multiSelectedClipIDs.insert(clipID)
+            }
+            let ids = timeline.multiSelectedClipIDs
+            if ids.count > 1 {
+                project.gatherClips(ids: ids)
+                group = project.clips.map { $0.id }.filter { ids.contains($0) }
+            }
+        }
         let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
         let ranges = clipRanges()
-        reorderAnchorX = i < ranges.count ? CGFloat(ranges[i].start) * pps : 0
+        let anchorID: UUID = group.first ?? clipID
+        let anchorIndex: Int = project.index(of: anchorID) ?? 0
+        reorderAnchorX = anchorIndex < ranges.count ? CGFloat(ranges[anchorIndex].start) * pps : 0
         reorderTranslation = 0
         withAnimation(.easeOut(duration: 0.15)) {
             reorderClipID = clipID
+            reorderGroupIDs = group
         }
-        selection = .clip(clipID)
+        if !timeline.isMultiSelecting {
+            selection = .clip(clipID)
+        }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    /// 複数のクリップのかたまりを動かす: かたまりの中心が隣のクリップの中点を越えたら、そのクリップを反対側へ回す
+    private func updateGroupReorder() {
+        let ids: Set<UUID> = Set(reorderGroupIDs)
+        let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
+        var iterations = 0
+        while iterations < project.clips.count {
+            iterations += 1
+            let clips = project.clips
+            let ranges = clipRanges()
+            guard ranges.count == clips.count,
+                  let lo = clips.firstIndex(where: { ids.contains($0.id) }),
+                  let hi = clips.lastIndex(where: { ids.contains($0.id) }) else { return }
+            let blockStart: Double = ranges[lo].start
+            let blockEnd: Double = ranges[hi].end
+            let blockWidth = CGFloat(blockEnd - blockStart) * pps
+            let center = reorderAnchorX + reorderTranslation + blockWidth / 2
+            if hi + 1 < clips.count {
+                let nextMid = CGFloat((ranges[hi + 1].start + ranges[hi + 1].end) / 2) * pps
+                if center > nextMid {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        let moved = project.clips.remove(at: hi + 1)
+                        project.clips.insert(moved, at: lo)
+                    }
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    continue
+                }
+            }
+            if lo > 0 {
+                let previousMid = CGFloat((ranges[lo - 1].start + ranges[lo - 1].end) / 2) * pps
+                if center < previousMid {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        let moved = project.clips.remove(at: lo - 1)
+                        project.clips.insert(moved, at: hi)
+                    }
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    continue
+                }
+            }
+            break
+        }
     }
 
     /// 持ち上げたクリップの中心が隣のクリップの中点を越えたら入れ替える
     private func updateReorder() {
+        if !reorderGroupIDs.isEmpty {
+            updateGroupReorder()
+            return
+        }
         guard let id = reorderClipID else { return }
         let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
         var iterations = 0
