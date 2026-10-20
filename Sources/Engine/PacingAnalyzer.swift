@@ -507,7 +507,7 @@ enum PacingAnalyzer {
             request.windowDuration = CMTime(seconds: 1.5, preferredTimescale: 600)
             request.overlapFactor = 0.5
             try? analyzer.add(request, withObserver: observer)
-            analyzer.analyze()
+            _ = await analyzer.analyze()
         }
         var result = observer.seconds
         for i in result.indices { result[i].loud = loud[i] }
