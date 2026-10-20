@@ -72,6 +72,8 @@ enum ProjectPackage {
         } catch {
             throw ProjectPackageError.invalidProjectFile
         }
+        // 写真ライブラリを参照している動画は、読み出せるようにしてからパッケージに入れる
+        _ = await PhotoMediaResolver.prepare(references: references.mediaFileNames.filter { PhotoMediaResolver.isReference($0) })
         let snapshot = ProjectStore.snapshot(fromProjectFileData: projectData)
         let info = PackageInfo(formatVersion: formatVersion,
                                app: "Video Mania",
@@ -104,6 +106,19 @@ enum ProjectPackage {
         let mediaDir = package.appendingPathComponent(mediaFolderName, isDirectory: true)
         try fm.createDirectory(at: mediaDir, withIntermediateDirectories: true)
 
+        // 写真ライブラリを参照している動画("photos:<id>")は、ふつうのファイル名にして中身を入れる
+        var photoMapping: [String: String] = [:]
+        for name in references.mediaFileNames where PhotoMediaResolver.isReference(name) {
+            if let url = ProjectStore.resolveMedia(name) {
+                photoMapping[name] = PhotoMediaResolver.packageFileName(forReference: name, url: url)
+            }
+        }
+        var projectData = projectData
+        if !photoMapping.isEmpty {
+            projectData = try ProjectStore.rewritingMediaFileNames(inProjectFileData: projectData,
+                                                                    mediaMapping: photoMapping, lutMapping: [:])
+        }
+
         try projectData.write(to: package.appendingPathComponent(ProjectStore.projectFileName), options: .atomic)
         if fm.fileExists(atPath: thumbnailURL.path) {
             try? fm.copyItem(at: thumbnailURL, to: package.appendingPathComponent(ProjectStore.thumbnailFileName))
@@ -117,7 +132,7 @@ enum ProjectPackage {
         var jobs: [(source: URL, destination: URL)] = []
         for name in references.mediaFileNames {
             if let url = ProjectStore.resolveMedia(name) {
-                jobs.append((url, mediaDir.appendingPathComponent(name)))
+                jobs.append((url, mediaDir.appendingPathComponent(photoMapping[name] ?? name)))
             }
         }
         if !references.lutFileNames.isEmpty {

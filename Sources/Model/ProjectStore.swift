@@ -413,10 +413,63 @@ enum ProjectStore {
 
     // MARK: - 素材の解決
 
-    /// 素材のファイル名 → 現在の mediaDirectory 内の URL
+    /// 素材のファイル名 → 現在の mediaDirectory 内の URL。
+    /// "photos:<id>"(写真ライブラリを参照)は、PhotoMediaResolver で取り直し済みの URL
     static func resolveMedia(_ fileName: String) -> URL? {
+        if PhotoMediaResolver.isReference(fileName) {
+            return PhotoMediaResolver.cachedURL(forReference: fileName)
+        }
         let url = MediaStore.mediaDirectory.appendingPathComponent(fileName)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// 素材の URL → 保存する名前(写真ライブラリを参照している動画は "photos:<id>")
+    static func storedMediaName(for url: URL) -> String {
+        PhotoMediaResolver.reference(for: url) ?? url.lastPathComponent
+    }
+
+    /// このプロジェクトが参照している写真ライブラリの動画("photos:<id>")
+    static func photoReferences(projectID: UUID) -> [String] {
+        guard let data = projectFileData(projectID: projectID) else { return [] }
+        return PhotoMediaResolver.references(inProjectFileData: data)
+    }
+
+    /// どのプロジェクト・フォーマットからも参照されていない素材ファイルを消す(iPhone の容量を空ける)。
+    /// 取り込み直後のファイルを消さないよう、アプリに入ってから 1 日以上たったものだけを対象にする。
+    /// 読めないプロジェクトが 1 つでもあれば、安全のため何も消さない。消した合計バイト数を返す
+    @discardableResult
+    static func cleanUpUnusedMedia() -> Int64 {
+        let fm = FileManager.default
+        var referenced = Set<String>()
+        for id in storedProjectIDs() {
+            guard let data = projectFileData(projectID: id),
+                  let file = try? JSONDecoder().decode(ProjectFile.self, from: data) else { return 0 }
+            referenced.formUnion(file.referencedFileNames().media)
+        }
+        let formatsText: String = (try? String(contentsOf: FormatKitStore.fileURL, encoding: .utf8)) ?? ""
+        let keys: [URLResourceKey] = [.isDirectoryKey, .addedToDirectoryDateKey, .creationDateKey,
+                                      .contentModificationDateKey, .fileSizeKey]
+        guard let items = try? fm.contentsOfDirectory(at: MediaStore.mediaDirectory,
+                                                      includingPropertiesForKeys: keys,
+                                                      options: [.skipsHiddenFiles]) else { return 0 }
+        let cutoff = Date().addingTimeInterval(-24 * 3600)
+        var freed: Int64 = 0
+        for url in items {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+            if values.isDirectory == true { continue }
+            let name = url.lastPathComponent
+            if referenced.contains(name) || formatsText.contains(name) { continue }
+            let dates: [Date] = [values.addedToDirectoryDate, values.creationDate, values.contentModificationDate]
+                .compactMap { $0 }
+            guard let newest = dates.max(), newest < cutoff else { continue }
+            do {
+                try fm.removeItem(at: url)
+                freed += Int64(values.fileSize ?? 0)
+            } catch {
+                print("ProjectStore: could not remove unused media \(name): \(error)")
+            }
+        }
+        return freed
     }
 
     /// 静止画クリップの画像の解決。mediaDirectory になければ、生成した単色 PNG(black.png など)を
@@ -1261,7 +1314,7 @@ private struct StoredClip: Codable {
 
     init(_ c: Clip) {
         id = c.id
-        file = c.url.lastPathComponent
+        file = ProjectStore.storedMediaName(for: c.url)
         duration = c.duration
         width = Double(c.naturalSize.width)
         height = Double(c.naturalSize.height)
@@ -1274,7 +1327,7 @@ private struct StoredClip: Codable {
         filter = StoredFilter(c.filter)
         isMuted = c.isMuted
         angles = c.multicam.angles.map { a in
-            StoredAngle(id: a.id, file: a.url.lastPathComponent, duration: a.duration,
+            StoredAngle(id: a.id, file: ProjectStore.storedMediaName(for: a.url), duration: a.duration,
                         width: Double(a.naturalSize.width), height: Double(a.naturalSize.height),
                         transform: StoredTransform(a.preferredTransform), name: a.name, offset: a.offset)
         }
@@ -1423,7 +1476,7 @@ private struct StoredOverlay: Codable {
 
     init(_ o: OverlayClip) {
         id = o.id
-        file = o.url.lastPathComponent
+        file = ProjectStore.storedMediaName(for: o.url)
         isImage = o.isImage
         name = o.name
         width = Double(o.naturalSize.width)

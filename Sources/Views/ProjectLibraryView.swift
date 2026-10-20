@@ -11,6 +11,8 @@ import UniformTypeIdentifiers
 
 /// アプリのルート。プロジェクトを開いていなければ一覧、開いていれば編集画面(ContentView)
 struct RootView: View {
+    /// 「新しいプロジェクト」で動画の置き場所を選ぶ
+    @State private var isChoosingMediaMode = false
     @State private var openProjectID: UUID?
     @Environment(\.scenePhase) private var scenePhase
 
@@ -176,8 +178,7 @@ struct ProjectLibraryView: View {
 
     private var newProjectButton: some View {
         Button {
-            let meta = library.create()
-            onOpen(meta)
+            isChoosingMediaMode = true
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "plus")
@@ -192,6 +193,29 @@ struct ProjectLibraryView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("新しいプロジェクト")
+        .confirmationDialog("動画の置き場所", isPresented: $isChoosingMediaMode, titleVisibility: .visible) {
+            Button("写真ライブラリから参照(容量を使わない)") {
+                createProject(mediaMode: .photoLibrary)
+            }
+            Button("アプリに取り込む(写真を消しても安心)") {
+                createProject(mediaMode: .appCopy)
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("「写真ライブラリから参照」は動画をコピーしないので iPhone の容量を使いません。ただし写真アプリで動画を消すと、このプロジェクトでも使えなくなります。
+「アプリに取り込む」は動画をアプリ内にコピーします。あとから編集画面の「その他」で変えられます。")
+        }
+        .task {
+            // どのプロジェクトからも使われなくなった動画を消して容量を空ける(1 日以上前に取り込んだものだけ)
+            _ = await Task.detached(priority: .utility) {
+                ProjectStore.cleanUpUnusedMedia()
+            }.value
+        }
+    }
+
+    private func createProject(mediaMode: ProjectMediaMode) {
+        let meta = library.create(mediaMode: mediaMode)
+        onOpen(meta)
     }
 
     private var emptyHint: some View {

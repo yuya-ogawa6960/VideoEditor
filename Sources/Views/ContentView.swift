@@ -25,6 +25,10 @@ struct ContentView: View {
     /// 上部バーからプロジェクト名を変更する
     @State private var isRenamingProject = false
     @State private var projectNameDraft = ""
+    /// 「その他」→「動画の置き場所」
+    @State private var isChoosingMediaMode = false
+    /// 写真ライブラリの動画を読み直している途中(この間は保存しない。空の内容で上書きしないため)
+    @State private var isLoadingPhotoMedia = false
 
     @State private var activePanel: EditorPanel?
     @State private var activeSheet: EditorSheet?
@@ -243,19 +247,7 @@ struct ContentView: View {
             isKeyboardVisible = false
         }
         .onAppear {
-            // 読み込んだフォントをテキスト描画の前に登録しておく(起動時にも呼ばれるが、念のため)
-            MediaTools.registerStoredFonts()
-            if !didRestore {
-                didRestore = true
-                if let saved = ProjectStore.load(projectID: projectID) {
-                    project.restore(saved)
-                    restoredSnapshot = project.snapshot()
-                    if !saved.isEmpty {
-                        Task { await reloadThumbnails() }
-                    }
-                }
-            }
-            player.update(with: project.snapshot())
+            handleAppear()
         }
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
@@ -337,6 +329,20 @@ struct ContentView: View {
                 }
             } message: {
                 Text("新しいプロジェクト名を入力してください。")
+            }
+            .confirmationDialog("動画の置き場所(いま: \(mediaMode.displayName))",
+                                isPresented: $isChoosingMediaMode, titleVisibility: .visible) {
+                Button("写真ライブラリから参照(容量を使わない)") {
+                    ProjectLibrary.shared.setMediaMode(id: projectID, to: .photoLibrary)
+                    showToast("これから追加する動画は写真ライブラリから参照します")
+                }
+                Button("アプリに取り込む(写真を消しても安心)") {
+                    ProjectLibrary.shared.setMediaMode(id: projectID, to: .appCopy)
+                    showToast("これから追加する動画はアプリに取り込みます")
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("これから追加する動画に使われます。追加済みの動画はそのままです。\n「写真ライブラリから参照」では、写真アプリで動画を消すとこのプロジェクトでも使えなくなります。スローモーションの動画はアプリに取り込みます。")
             }
     }
 
@@ -1296,6 +1302,9 @@ struct ContentView: View {
             activeSheet = .compare
         })
         items.append(EditorToolItem.section("設定"))
+        items.append(EditorToolItem("動画の置き場所", systemImage: mediaMode == .photoLibrary ? "photo.on.rectangle" : "internaldrive") {
+            isChoosingMediaMode = true
+        })
         items.append(EditorToolItem("このプロジェクトを空にする", systemImage: "trash", destructive: true) {
             showClearProjectConfirm = true
         })
@@ -2064,7 +2073,7 @@ struct ContentView: View {
             do {
                 var overlay: OverlayClip?
                 if Self.looksLikeMovie(item) {
-                    let movieURL = try await MovieImporter.importMovie(item)
+                    let movieURL = try await importMovieURL(item)
                     var video = try await MediaStore.makeOverlay(fromVideo: movieURL)
                     OverlayPreset.bRollFull.apply(to: &video)
                     overlay = video
@@ -2075,7 +2084,7 @@ struct ContentView: View {
                     overlay = image
                 } else {
                     // 種類が判定できなかった場合の保険
-                    let movieURL = try await MovieImporter.importMovie(item)
+                    let movieURL = try await importMovieURL(item)
                     var video = try await MediaStore.makeOverlay(fromVideo: movieURL)
                     OverlayPreset.bRollFull.apply(to: &video)
                     overlay = video
@@ -2574,6 +2583,7 @@ struct ContentView: View {
 
     /// 変更内容を保存し、一覧のメタデータとサムネイルを更新する(書き込みはまとめて行われる)
     private func persist(_ snapshot: ProjectSnapshot) {
+        if isLoadingPhotoMedia { return }
         isDirty = true
         ProjectStore.scheduleSave(snapshot, projectID: projectID)
         ProjectLibrary.shared.touch(id: projectID,
@@ -2594,6 +2604,11 @@ struct ContentView: View {
         activePanel = nil
         activeSheet = nil
         selection = nil
+        if isLoadingPhotoMedia {
+            // まだ読み込み終わっていない(保存すると空の内容で上書きしてしまう)
+            onClose()
+            return
+        }
         let snapshot = project.snapshot()
         ProjectStore.saveNow(snapshot, projectID: projectID)
         if snapshot.clips.isEmpty {
@@ -2628,6 +2643,62 @@ struct ContentView: View {
         player.seek(to: 0)
     }
 
+    /// 画面を開いたとき(初回だけ保存済みの内容を復元する)
+    @MainActor
+    private func handleAppear() {
+        // 読み込んだフォントをテキスト描画の前に登録しておく(起動時にも呼ばれるが、念のため)
+        MediaTools.registerStoredFonts()
+        if !didRestore {
+            didRestore = true
+            let photoReferences: [String] = ProjectStore.photoReferences(projectID: projectID)
+            if photoReferences.isEmpty {
+                restoreSavedProject()
+            } else {
+                // 写真ライブラリを参照している動画は、読み出せるようにしてから開く
+                isLoadingPhotoMedia = true
+                showToast("写真ライブラリから動画を読み込んでいます…")
+                Task { @MainActor in
+                    let missing: [String] = await PhotoMediaResolver.prepare(references: photoReferences)
+                    restoreSavedProject()
+                    isLoadingPhotoMedia = false
+                    if !missing.isEmpty {
+                        alertMessage = "写真ライブラリに見つからない動画が \(missing.count) 本ありました。写真アプリで削除したか、写真へのアクセスが許可されていない可能性があります(設定アプリの「Video Mania」→「写真」で「フルアクセス」を選んでください)。"
+                    }
+                }
+            }
+        }
+        player.update(with: project.snapshot())
+    }
+
+    /// 保存済みの内容を読み込んで表示する
+    @MainActor
+    private func restoreSavedProject() {
+        if let saved = ProjectStore.load(projectID: projectID) {
+            project.restore(saved)
+            restoredSnapshot = project.snapshot()
+            if !saved.isEmpty {
+                Task { await reloadThumbnails() }
+            }
+        }
+        player.update(with: project.snapshot())
+    }
+
+    /// このプロジェクトの動画の置き場所
+    private var mediaMode: ProjectMediaMode {
+        ProjectLibrary.shared.project(id: projectID)?.effectiveMediaMode ?? .appCopy
+    }
+
+    /// 動画を取り込む。「写真ライブラリから参照」なら写真ライブラリの動画をそのまま使い、
+    /// 参照できない動画(スローモーションなど)や「アプリに取り込む」ではアプリにコピーする
+    @MainActor
+    private func importMovieURL(_ item: PhotosPickerItem) async throws -> URL {
+        if mediaMode == .photoLibrary, let id = item.itemIdentifier,
+           let url = await PhotoMediaResolver.resolve(assetID: id) {
+            return url
+        }
+        return try await MovieImporter.importMovie(item)
+    }
+
     /// 復元したクリップのサムネイルを読み直す(保存ファイルには画像を含めないため)
     @MainActor
     private func reloadThumbnails() async {
@@ -2656,14 +2727,14 @@ struct ContentView: View {
             do {
                 let clip: Clip
                 if Self.looksLikeMovie(item) {
-                    let movieURL = try await MovieImporter.importMovie(item)
+                    let movieURL = try await importMovieURL(item)
                     clip = try await MediaStore.makeClip(from: movieURL)
                 } else if let photo = try? await item.loadTransferable(type: PickedPhoto.self) {
                     // 写真は静止画クリップになる
                     clip = try makeStillClip(from: photo.url)
                 } else {
                     // 種類が判定できなかった場合の保険
-                    let movieURL = try await MovieImporter.importMovie(item)
+                    let movieURL = try await importMovieURL(item)
                     clip = try await MediaStore.makeClip(from: movieURL)
                 }
                 if !recorded {

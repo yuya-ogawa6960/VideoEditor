@@ -18,6 +18,10 @@ struct ProjectMeta: Identifiable, Codable, Equatable {
     /// 出力タイムラインの長さ(秒)
     var duration: Double
     var clipCount: Int
+    /// 動画の置き場所(後から追加したので、古いデータでは nil = アプリに取り込む)
+    var mediaMode: ProjectMediaMode? = nil
+
+    var effectiveMediaMode: ProjectMediaMode { mediaMode ?? .appCopy }
 }
 
 private struct LibraryFile: Codable {
@@ -105,7 +109,7 @@ final class ProjectLibrary {
 
     /// 新しい空のプロジェクトを作る。名前を省略すると「プロジェクト N」
     @discardableResult
-    func create(name: String? = nil) -> ProjectMeta {
+    func create(name: String? = nil, mediaMode: ProjectMediaMode? = nil) -> ProjectMeta {
         let now = Date()
         let trimmed = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let meta = ProjectMeta(id: UUID(),
@@ -113,7 +117,8 @@ final class ProjectLibrary {
                                createdAt: now,
                                updatedAt: now,
                                duration: 0,
-                               clipCount: 0)
+                               clipCount: 0,
+                               mediaMode: mediaMode)
         ProjectStore.ensureProjectDirectory(projectID: meta.id)
         projects.insert(meta, at: 0)
         writeNow()
@@ -139,7 +144,8 @@ final class ProjectLibrary {
                                createdAt: now,
                                updatedAt: now,
                                duration: source.duration,
-                               clipCount: source.clipCount)
+                               clipCount: source.clipCount,
+                               mediaMode: source.mediaMode)
         guard ProjectStore.copyProjectFiles(from: source.id, to: copy.id) else {
             ProjectStore.delete(projectID: copy.id)
             return nil
@@ -147,6 +153,14 @@ final class ProjectLibrary {
         projects.insert(copy, at: 0)
         writeNow()
         return copy
+    }
+
+    /// 動画の置き場所を変える(これから取り込む動画に使う。取り込み済みの動画はそのまま)
+    func setMediaMode(id: UUID, to mode: ProjectMediaMode) {
+        guard let i = projects.firstIndex(where: { $0.id == id }),
+              projects[i].mediaMode != mode else { return }
+        projects[i].mediaMode = mode
+        writeNow()
     }
 
     /// 一覧から外し、保存フォルダも削除する(素材ファイルは消さない)
