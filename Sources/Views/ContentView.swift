@@ -3055,6 +3055,8 @@ struct ContentView: View {
 
 struct EditorTransportRow: View {
     let player: PlayerController
+    /// 横向きの全画面プレビュー
+    @State private var isFullScreen = false
 
     var body: some View {
         let current: Double = player.currentTime
@@ -3083,7 +3085,49 @@ struct EditorTransportRow: View {
             .buttonStyle(.plain)
             .disabled(player.duration <= 0)
             .accessibilityLabel(playing ? "一時停止" : "再生")
+
+            HStack {
+                Spacer()
+                Button {
+                    EditorHaptics.tap()
+                    openFullScreen(.landscapeRight)
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(player.duration <= 0)
+                .accessibilityLabel("横向きの全画面で見る")
+            }
         }
+        .onAppear {
+            UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            // iPhone を横にしたら全画面で見る
+            let device = UIDevice.current.orientation
+            if device.isLandscape, !isFullScreen, player.duration > 0 {
+                openFullScreen(OrientationController.landscapeMask(for: device))
+            }
+        }
+        .fullScreenCover(isPresented: $isFullScreen) {
+            LandscapePreviewView(player: player) {
+                closeFullScreen()
+            }
+        }
+    }
+
+    private func openFullScreen(_ orientation: UIInterfaceOrientationMask) {
+        isFullScreen = true
+        OrientationController.rotate(to: orientation)
+    }
+
+    private func closeFullScreen() {
+        OrientationController.rotate(to: .portrait)
+        isFullScreen = false
     }
 }
 

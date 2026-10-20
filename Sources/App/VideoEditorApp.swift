@@ -26,6 +26,12 @@ struct VideoEditorApp: App {
 
 /// UIKit のアプリデリゲート(SwiftUI の App から @UIApplicationDelegateAdaptor で使う)
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// 画面の向き(ふだんはたて固定。全画面プレビューのときだけ横)
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationController.mask
+    }
+
     /// 背景 URLSession の転送が終わり、アプリが(終了していても)バックグラウンドで起こされたとき。
     /// 同じ識別子のセッションを作り直して(CloudBackgroundUploader.shared)完了ハンドラを預ける。
     /// ハンドラはすべてのイベントを受け取り終えたとき(urlSessionDidFinishEvents)にメインスレッドで呼ばれる
