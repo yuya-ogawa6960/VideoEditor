@@ -2850,21 +2850,20 @@ struct ContentView: View {
     }
 
     private func splitClip(_ clipID: UUID) {
-        guard let location = project.locate(timelineTime: player.currentTime),
-              location.index < project.clips.count,
-              project.clips[location.index].id == clipID else {
+        // 選んでいるクリップの中で、再生位置(トランジションの重なり・速度カーブを反映)を元素材の時刻にする
+        guard let clip = project.clips.first(where: { $0.id == clipID }),
+              let sourceTime = project.sourceTime(timelineTime: player.currentTime, inClip: clipID) else {
             showToast("再生位置をクリップの上に合わせてください", style: .warning)
             return
         }
-        let clip = project.clips[location.index]
         let minimum = 0.2
-        guard location.sourceTime > clip.startTime + minimum,
-              location.sourceTime < clip.endTime - minimum else {
+        guard sourceTime > clip.startTime + minimum,
+              sourceTime < clip.endTime - minimum else {
             showToast("クリップの端に近すぎます。端から0.2秒以上離してください", style: .warning)
             return
         }
         history.record(project)
-        project.splitClip(id: clipID, atSourceTime: location.sourceTime)
+        project.splitClip(id: clipID, atSourceTime: sourceTime)
         showToast("スプリットしました", undo: true)
     }
 

@@ -577,18 +577,31 @@ final class EditorProject {
     }
 
     /// 出力タイムライン上の時刻 → (クリップ番号, 元素材上の時刻)
+    /// 出力タイムライン上の時刻 → (クリップの番号, 元素材上の時刻)。
+    /// トランジションの重なり(CompositionBuilder.timelineLayout)と速度カーブを反映する。
+    /// 重なりの中では前のクリップを返す
     func locate(timelineTime: Double) -> (index: Int, sourceTime: Double)? {
         guard !clips.isEmpty else { return nil }
-        var t = 0.0
-        for (i, clip) in clips.enumerated() {
-            let end = t + clip.outputDuration
-            if timelineTime < end || i == clips.count - 1 {
-                let local = max(0, min(timelineTime - t, clip.outputDuration))
-                return (i, clip.startTime + local * clip.speed)
+        let layout = CompositionBuilder.timelineLayout(for: snapshot())
+        for (i, clip) in clips.enumerated() where i < layout.count {
+            let placement = layout[i]
+            if timelineTime < placement.end || i == clips.count - 1 {
+                let local = max(0, min(timelineTime - placement.start, clip.outputDuration))
+                return (i, clip.sourceTime(atOutputOffset: local))
             }
-            t = end
         }
         return nil
+    }
+
+    /// 指定したクリップの中での、出力タイムライン上の時刻 → 元素材上の時刻(クリップの外なら nil)
+    func sourceTime(timelineTime: Double, inClip clipID: UUID) -> Double? {
+        guard let i = index(of: clipID) else { return nil }
+        let layout = CompositionBuilder.timelineLayout(for: snapshot())
+        guard i < layout.count else { return nil }
+        let placement = layout[i]
+        guard timelineTime >= placement.start - 0.001, timelineTime <= placement.end + 0.001 else { return nil }
+        let clip = clips[i]
+        return clip.sourceTime(atOutputOffset: min(max(timelineTime - placement.start, 0), clip.outputDuration))
     }
 
     // MARK: クリップ操作
@@ -822,5 +835,29 @@ extension EditorProject {
     func clipTimelineStart(id: UUID) -> Double? {
         guard let i = index(of: id) else { return nil }
         return clipStartTimes()[i]
+    }
+}
+
+extension Clip {
+    /// クリップ先頭からの出力秒 → 元素材上の時刻(速度・速度カーブを考慮。ClipFXTimeline.outputOffset の逆)
+    func sourceTime(atOutputOffset offset: Double) -> Double {
+        let trimmed = trimmedDuration
+        guard trimmed > 0 else { return startTime }
+        if speedCurve.enabled {
+            let n = 256
+            let step = trimmed / Double(n)
+            var total = 0.0
+            for i in 0..<n {
+                let p = (Double(i) + 0.5) / Double(n)
+                let d = step / max(speedCurve.speed(at: p), 0.01)
+                if total + d >= offset {
+                    let fraction = d > 0 ? (offset - total) / d : 0
+                    return startTime + (Double(i) + min(max(fraction, 0), 1)) * step
+                }
+                total += d
+            }
+            return endTime
+        }
+        return startTime + min(max(offset, 0), outputDuration) * speed
     }
 }
