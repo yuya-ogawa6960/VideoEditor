@@ -125,7 +125,7 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                topBar
+                topBarWithDialogs
                 ExportProgressBanner()
                 if project.isEmpty {
                     emptyState
@@ -270,15 +270,6 @@ struct ContentView: View {
         } message: {
             Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーション・テキスト・手書き・マーカーはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
-        .alert("名前を変更", isPresented: $isRenamingProject) {
-            TextField("プロジェクト名", text: $projectNameDraft)
-            Button("キャンセル", role: .cancel) {}
-            Button("保存") {
-                ProjectLibrary.shared.rename(id: projectID, to: projectNameDraft)
-            }
-        } message: {
-            Text("新しいプロジェクト名を入力してください。")
-        }
         .alert("お知らせ", isPresented: alertIsPresented) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -333,6 +324,20 @@ struct ContentView: View {
     private var projectName: String {
         let name: String = ProjectLibrary.shared.projects.first(where: { $0.id == projectID })?.name ?? ""
         return name.isEmpty ? "無題" : name
+    }
+
+    /// 上部バーと、そこから開くダイアログ(body の型チェックを軽くするため分けている)
+    private var topBarWithDialogs: some View {
+        topBar
+            .alert("名前を変更", isPresented: $isRenamingProject) {
+                TextField("プロジェクト名", text: $projectNameDraft)
+                Button("キャンセル", role: .cancel) {}
+                Button("保存") {
+                    ProjectLibrary.shared.rename(id: projectID, to: projectNameDraft)
+                }
+            } message: {
+                Text("新しいプロジェクト名を入力してください。")
+            }
     }
 
     private var topBar: some View {
