@@ -15,8 +15,15 @@ import FoundationModels
 //   (b) クラウド: OpenAI Chat Completions(gpt-4o-mini、ユーザーの API キー)
 //   (c) なし
 //
+// 字幕はバッチ(クラウド 40 件 / 端末内 16 件)に分けて送る。クラウドは最大 3 バッチを同時に送り、
+// 端末内モデルは 1 本ずつ。結果はバッチ順にまとめる。
 // 失敗しても例外は投げず、入力をそのまま返す(バッチ単位で部分的に適用される)。
 // id・時刻・単語タイミングはできる限り保持し、本文が変わった cue の単語は新しい本文に合わせて再配分する。
+//
+// クラウドの一時的な通信エラー(タイムアウト・回線切れ・NSPOSIXErrorDomain の接続中断など)はバッチごとに送り直す:
+// 送信中にバックグラウンド(画面ロックなど)へ入っていたなら(戻ってから失敗が届いた場合も含む)
+// フォアグラウンドに戻るまで待ってから(回数に数えない)、
+// フォアグラウンドなら 2・4・8・16 秒おいて合計 6 回まで。使い切ったら同じ実行の残りのリクエストはすぐに諦める。
 // =====================================================================
 
 enum SubtitlePolisher {
@@ -34,6 +41,16 @@ enum SubtitlePolisher {
     static let cloudBatchSize = 40
     /// 端末内モデルはコンテキストが小さいので少なめ
     static let onDeviceBatchSize = 16
+    /// クラウドで同時に送るバッチ数の上限(端末内モデルは 1 本ずつ)
+    static let cloudMaxConcurrentBatches = 3
+
+    private static func batchSize(for engine: ResolvedEngine) -> Int {
+        engine == .onDevice ? onDeviceBatchSize : cloudBatchSize
+    }
+
+    private static func maxConcurrentBatches(for engine: ResolvedEngine) -> Int {
+        engine == .cloud ? cloudMaxConcurrentBatches : 1
+    }
 
     // MARK: - 直近のエラー(表示・デバッグ用。キーは含めない)
 
@@ -50,6 +67,33 @@ enum SubtitlePolisher {
         errorLock.lock()
         storedLastError = message
         errorLock.unlock()
+    }
+
+    // MARK: - クラウド通信の状態(1 回の polish / translate / summarize で共有)
+
+    private final class CloudRequestState: @unchecked Sendable {
+        /// バックグラウンド待ちの通知先(文字起こしの状態表示用。無ければ nil)
+        let pauseReporter: BackgroundPauseReporter?
+        private let lock = NSLock()
+        private var gaveUp = false
+
+        init(pauseReporter: BackgroundPauseReporter?) {
+            self.pauseReporter = pauseReporter
+        }
+
+        /// どれかのリクエストが一時的な通信エラーの再試行を使い切ったか
+        /// (それ以降のバッチや、半分に割った再試行はすぐに諦める)
+        var hasGivenUp: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return gaveUp
+        }
+
+        func giveUp() {
+            lock.lock()
+            gaveUp = true
+            lock.unlock()
+        }
     }
 
     // MARK: - エンジンの解決
@@ -94,20 +138,25 @@ enum SubtitlePolisher {
     // MARK: - 公開 API
 
     /// 字幕を校正して返す。失敗した部分は入力のまま。例外は投げない
-    static func polish(_ cues: [SubtitleCue], language: TranscriptionLanguage, settings: AppSettings) async -> [SubtitleCue] {
+    /// - pauseReporter: クラウドのリクエストがバックグラウンド待ちになったときの通知先(任意)
+    static func polish(_ cues: [SubtitleCue], language: TranscriptionLanguage, settings: AppSettings,
+                       pauseReporter: BackgroundPauseReporter? = nil) async -> [SubtitleCue] {
         guard !cues.isEmpty else { return cues }
         let engine = resolveEngine(settings: settings)
         guard engine != .none else { return cues }
         setLastError(nil)
 
         let instructions = polishInstructions(language: language)
+        let header = polishPromptHeader(language: language)
         let apiKey = settings.openAIKey
-        let batchSize = (engine == .onDevice) ? onDeviceBatchSize : cloudBatchSize
+        let texts: [String] = cues.map { $0.text }
+        let network = CloudRequestState(pauseReporter: pauseReporter)
 
-        let replies = await runBatches(count: cues.count, batchSize: batchSize) { indices in
-            let prompt = itemsPrompt(header: polishPromptHeader(language: language),
-                                     items: indices.map { ($0, cues[$0].text) })
-            return await generate(engine: engine, instructions: instructions, prompt: prompt, apiKey: apiKey)
+        let replies = await runBatches(count: cues.count, batchSize: batchSize(for: engine),
+                                       maxConcurrent: maxConcurrentBatches(for: engine)) { indices in
+            let prompt = SubtitlePolisher.itemsPrompt(header: header, items: indices.map { ($0, texts[$0]) })
+            return await SubtitlePolisher.generate(engine: engine, instructions: instructions, prompt: prompt,
+                                                   apiKey: apiKey, network: network)
         }
         if Task.isCancelled || replies.isEmpty { return cues }
         return apply(replies, to: cues, language: language)
@@ -123,14 +172,17 @@ enum SubtitlePolisher {
         setLastError(nil)
 
         let instructions = translationInstructions(source: language, toEnglish: toEnglish)
+        let header = toEnglish ? "Translate the following subtitles."
+                               : "次の字幕を翻訳してください。"
         let apiKey = settings.openAIKey
-        let batchSize = (engine == .onDevice) ? onDeviceBatchSize : cloudBatchSize
+        let texts: [String] = cues.map { $0.text }
+        let network = CloudRequestState(pauseReporter: nil)
 
-        let replies = await runBatches(count: cues.count, batchSize: batchSize) { indices in
-            let header = toEnglish ? "Translate the following subtitles."
-                                   : "次の字幕を翻訳してください。"
-            let prompt = itemsPrompt(header: header, items: indices.map { ($0, cues[$0].text) })
-            return await generate(engine: engine, instructions: instructions, prompt: prompt, apiKey: apiKey)
+        let replies = await runBatches(count: cues.count, batchSize: batchSize(for: engine),
+                                       maxConcurrent: maxConcurrentBatches(for: engine)) { indices in
+            let prompt = SubtitlePolisher.itemsPrompt(header: header, items: indices.map { ($0, texts[$0]) })
+            return await SubtitlePolisher.generate(engine: engine, instructions: instructions, prompt: prompt,
+                                                   apiKey: apiKey, network: network)
         }
         if Task.isCancelled || replies.isEmpty { return nil }
 
@@ -163,7 +215,8 @@ enum SubtitlePolisher {
         """
         let prompt = "次の文章を要約してください。\n\n" + body
         guard let raw = await generate(engine: engine, instructions: instructions, prompt: prompt,
-                                       apiKey: settings.openAIKey) else { return nil }
+                                       apiKey: settings.openAIKey,
+                                       network: CloudRequestState(pauseReporter: nil)) else { return nil }
         if Task.isCancelled { return nil }
         if let object = extractJSON(raw) as? [String: Any] {
             for key in ["summary", "text", "result", "output"] {
@@ -245,17 +298,53 @@ enum SubtitlePolisher {
 
     // MARK: - バッチ実行
 
-    /// count 件を batchSize ごとに処理し、index → 応答テキストを集める。失敗したバッチは半分に割って再試行
-    private static func runBatches(count: Int, batchSize: Int,
-                                   generate: ([Int]) async -> String?) async -> [Int: String] {
+    /// count 件を batchSize ごとに処理し、index → 応答テキストを集める。失敗したバッチは半分に割って再試行。
+    /// maxConcurrent > 1 なら最大その数のバッチを同時に処理する(クラウド用)。結果はバッチ順にまとめる
+    private static func runBatches(count: Int, batchSize: Int, maxConcurrent: Int,
+                                   generate: @escaping @Sendable ([Int]) async -> String?) async -> [Int: String] {
+        let size = max(1, batchSize)
+        let batches: [[Int]] = stride(from: 0, to: count, by: size).map { (first: Int) -> [Int] in
+            Array(first..<min(count, first + size))
+        }
+        guard !batches.isEmpty else { return [:] }
+
+        var perBatch: [[Int: String]] = []
+        if maxConcurrent <= 1 || batches.count == 1 {
+            // 1 本ずつ(端末内モデルは同時に 1 セッションだけ)
+            for indices in batches {
+                if Task.isCancelled { return [:] }
+                let got = await SubtitlePolisher.process(indices: indices, depth: 0, generate: generate)
+                perBatch.append(got)
+            }
+        } else {
+            let batchCount = batches.count
+            let limit = maxConcurrent
+            perBatch = await withTaskGroup(of: (Int, [Int: String]).self, returning: [[Int: String]].self) { group in
+                var collected = [[Int: String]](repeating: [:], count: batchCount)
+                var launched = 0
+                var finished = 0
+                while finished < batchCount {
+                    while launched < batchCount, launched - finished < limit, !Task.isCancelled {
+                        let batchIndex = launched
+                        let indices = batches[batchIndex]
+                        group.addTask {
+                            let got = await SubtitlePolisher.process(indices: indices, depth: 0, generate: generate)
+                            return (batchIndex, got)
+                        }
+                        launched += 1
+                    }
+                    guard let item = await group.next() else { break }
+                    collected[item.0] = item.1
+                    finished += 1
+                }
+                return collected
+            }
+        }
+        if Task.isCancelled { return [:] }
+
         var replies: [Int: String] = [:]
-        var start = 0
-        while start < count {
-            if Task.isCancelled { return [:] }
-            let end = min(count, start + max(1, batchSize))
-            let got = await process(indices: Array(start..<end), depth: 0, generate: generate)
+        for got in perBatch {
             replies.merge(got) { _, new in new }
-            start = end
         }
         return replies
     }
@@ -276,12 +365,13 @@ enum SubtitlePolisher {
 
     // MARK: - 生成
 
-    private static func generate(engine: ResolvedEngine, instructions: String, prompt: String, apiKey: String) async -> String? {
+    private static func generate(engine: ResolvedEngine, instructions: String, prompt: String, apiKey: String,
+                                 network: CloudRequestState) async -> String? {
         switch engine {
         case .onDevice:
             return await generateOnDevice(instructions: instructions, prompt: prompt)
         case .cloud:
-            return await chatCompletion(instructions: instructions, prompt: prompt, apiKey: apiKey)
+            return await chatCompletion(instructions: instructions, prompt: prompt, apiKey: apiKey, network: network)
         case .none:
             return nil
         }
@@ -305,7 +395,12 @@ enum SubtitlePolisher {
         return nil
     }
 
-    private static func chatCompletion(instructions: String, prompt: String, apiKey: String) async -> String? {
+    /// OpenAI Chat Completions を呼んで本文を返す。失敗したら nil(例外は投げない)。
+    /// 一時的な通信エラーは、送信中にバックグラウンドへ入っていたならフォアグラウンドに戻るまで待って送り直し(回数に数えない)、
+    /// フォアグラウンドなら 2・4・8・16 秒おいて合計 TransientNetworkRetry.maxAttempts 回まで送り直す。
+    /// 使い切ったら network に記録し、同じ実行の残りのリクエストはすぐに諦める
+    private static func chatCompletion(instructions: String, prompt: String, apiKey: String,
+                                       network: CloudRequestState) async -> String? {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             setLastError("OpenAI の API キーが設定されていません")
@@ -321,16 +416,62 @@ enum SubtitlePolisher {
             ],
         ]
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+        // 通信の途中でバックグラウンドへ入ったかを判定できるように、監視を始めておく
+        await BackgroundEpoch.install()
 
-        var request = URLRequest(url: cloudEndpoint)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
-        request.timeoutInterval = 120
+        /// フォアグラウンドで起きた一時的な通信エラーの回数
+        var networkFailures = 0
 
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+        while true {
+            if Task.isCancelled || network.hasGivenUp { return nil }
+            // 画面ロック中などは新しいリクエストを始めず、フォアグラウンドに戻るまで待つ
+            do {
+                try await AppForegroundWaiter.wait(reporter: network.pauseReporter)
+            } catch {
+                return nil
+            }
+
+            // リクエストは送るたびに作り直す
+            var request = URLRequest(url: cloudEndpoint)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+            request.timeoutInterval = 120
+
+            // 送信のたびに読み直す(前後で変わったら、この送信の間にバックグラウンドへ入った)
+            let epochBefore = BackgroundEpoch.current
+            let received: (Data, URLResponse)
+            do {
+                received = try await URLSession.shared.data(for: request)
+            } catch {
+                if error is CancellationError || Task.isCancelled { return nil }
+                // Task がキャンセルされていない .cancelled や NSPOSIXErrorDomain の接続中断(53 など)は、
+                // 画面ロックなどでシステムが通信を打ち切ったもの → 一時的
+                guard TransientNetworkRetry.isTransient(error) else {
+                    setLastError("通信エラー: \(error.localizedDescription)")
+                    return nil
+                }
+                if AppLifecycle.shared.isInBackground || BackgroundEpoch.current != epochBefore {
+                    // 画面ロックなどで切れた(戻ってから失敗が届いた場合も含む)
+                    // → ループの先頭で戻るまで待ってから送り直す(回数に数えない)
+                    continue
+                }
+                networkFailures += 1
+                if networkFailures >= TransientNetworkRetry.maxAttempts {
+                    network.giveUp()
+                    setLastError("通信エラー: \(error.localizedDescription)")
+                    return nil
+                }
+                do {
+                    try await Task.sleep(nanoseconds: TransientNetworkRetry.delayNanoseconds(afterFailures: networkFailures))
+                } catch {
+                    return nil
+                }
+                continue
+            }
+
+            let (data, response) = received
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
                 switch status {
@@ -348,11 +489,6 @@ enum SubtitlePolisher {
                 return nil
             }
             return content
-        } catch {
-            if error is CancellationError { return nil }
-            if let urlError = error as? URLError, urlError.code == .cancelled { return nil }
-            setLastError("通信エラー: \(error.localizedDescription)")
-            return nil
         }
     }
 

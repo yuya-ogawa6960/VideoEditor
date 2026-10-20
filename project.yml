@@ -52,8 +52,14 @@ targets:
         NSMicrophoneUsageDescription: ナレーションを録音するためにマイクを使用します。
         UIBackgroundModes:
           - processing
+        # 継続処理(BGContinuedProcessingTask)の識別子は実行時のバンドル ID から作る("<bundleID>.export.<UUID>" など)。
+        # AltStore はバンドル ID を "com.personal.videoeditor.<TEAMID>" に書き換えるが、この一覧は書き換えないため、
+        # ワイルドカード "com.personal.videoeditor.*" で書き換え後の ID にも一致させる。先頭の固定 ID は以前のバージョン用。
         BGTaskSchedulerPermittedIdentifiers:
           - com.personal.videoeditor.export
+          - "com.personal.videoeditor.*"
+          - "com.personal.videoeditor.export.*"
+          - "com.personal.videoeditor.transcribe.*"
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         ITSAppUsesNonExemptEncryption: false

@@ -6,7 +6,6 @@ import VideoToolbox
 import UIKit
 import Photos
 import UserNotifications
-import BackgroundTasks
 import Observation
 
 // =====================================================================
@@ -20,9 +19,12 @@ import Observation
 //
 // バックグラウンド:
 //   - 書き出し全体を UIApplication.beginBackgroundTask で包む。
-//   - iOS 26 以降は BGContinuedProcessingTaskRequest も submit し、システム UI に進捗を出しつつ
-//     バックグラウンドでも書き出しを続けられる(AppLifecycle.start() でハンドラ登録済み)。
-//   - iOS 26 未満では、バックグラウンドに移ってから iOS が許すのは約 30 秒だけ。長い書き出しは
+//   - iOS 26 以降は ContinuedProcessing.begin(kind: .export) で BGContinuedProcessingTask も開始し、
+//     システム UI(ロック画面)に進捗を出しつつ、ロック中・バックグラウンドでも書き出しを続ける。
+//     GPU の使用が許可されれば、その間は AppLifecycle.shared.backgroundGPUAllowed が true になり、
+//     バックグラウンドでも合成に GPU を使う(許可がなければ CPU)。停止されたら書き出しをキャンセルする。
+//   - 継続処理が使えない場合(iOS 26 未満・開始できなかった等)、バックグラウンドに移ってから
+//     iOS が許すのは約 30 秒だけ。長い書き出しは
 //     その時間内に終わらないので、時間切れ(expirationHandler)で書き出しを安全に中断し、
 //     `.failed("バックグラウンドの時間制限で中断しました。…")` にする(クラッシュさせない)。
 //     中途半端な mp4 は再生できないため削除するが、progress は中断時点の値を残す。
@@ -93,8 +95,11 @@ final class ExportManager {
     @ObservationIgnored private var expiredInBackground = false
     @ObservationIgnored private var continuedTaskExpired = false
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier?
-    /// iOS 26+ の BGContinuedProcessingTask(型を iOS 18 でも扱えるよう AnyObject で保持)
-    @ObservationIgnored private var continuedTask: AnyObject?
+    /// iOS 26+ の継続処理(ロック中も書き出しを続ける)。使えないときは nil
+    @ObservationIgnored private var continuedHandle: ContinuedProcessingHandle?
+    /// 縦横同時書き出しの全体進捗用(終わった本数 / 全体の本数)
+    @ObservationIgnored private var jobsCompleted = 0
+    @ObservationIgnored private var jobsTotal = 1
     @ObservationIgnored private var didRequestNotificationAuthorization = false
     /// 続けて書き出す予定(縦横同時)
     @ObservationIgnored private var queuedJobs: [ExportJob] = []
@@ -116,6 +121,8 @@ final class ExportManager {
             guard let self, !self.isRunning else { return }
             self.queuedJobs = []
             self.jobLabel = ""
+            self.jobsCompleted = 0
+            self.jobsTotal = 1
             self.startOnMain(snapshot: snapshot, saveToPhotos: saveToPhotos)
         }
     }
@@ -221,7 +228,8 @@ final class ExportManager {
             PHPhotoLibrary.requestAuthorization(for: .addOnly) { _ in }
         }
         beginBackgroundWork()
-        submitContinuedProcessingRequest()
+        beginContinuedProcessing(title: jobsTotal > 1 ? "動画を書き出し中(\(jobsTotal) 本)" : "動画を書き出し中",
+                                 wantsGPU: true)
 
         Task.detached(priority: .userInitiated) { [weak self] in
             await self?.runExport(snapshot: snapshot, saveToPhotos: saveToPhotos)
@@ -256,7 +264,14 @@ final class ExportManager {
 
         queuedJobs = [ExportJob(snapshot: portrait, saveToPhotos: saveToPhotos, label: "(2/2 縦 9:16)")]
         jobLabel = "(1/2 横 16:9)"
+        jobsCompleted = 0
+        jobsTotal = 2
         startOnMain(snapshot: landscape, saveToPhotos: saveToPhotos)
+        if !isRunning {
+            // 1 本目を始められなかった(容量不足など)
+            queuedJobs = []
+            jobLabel = ""
+        }
     }
 
     @MainActor
@@ -270,6 +285,8 @@ final class ExportManager {
         }
         queuedJobs = []
         jobLabel = ""
+        jobsCompleted = 0
+        jobsTotal = 1
         isRunning = true
         state = .preparing
         progress = 0
@@ -286,6 +303,7 @@ final class ExportManager {
         progressLock.unlock()
 
         beginBackgroundWork()
+        beginContinuedProcessing(title: "音声を書き出し中", wantsGPU: false)
 
         Task.detached(priority: .userInitiated) { [weak self] in
             await self?.runAudioExport(snapshot: snapshot)
@@ -589,12 +607,26 @@ final class ExportManager {
         lastOutputURL = outputURL
         appendHistory(url: outputURL, duration: duration, canvasDescription: canvasDescription)
 
+        if (cancelRequested || continuedTaskExpired) && jobsCompleted + 1 < jobsTotal {
+            // 縦横同時の 1 本目の検証・写真への保存中にキャンセル / 停止された(cancelOnMain が残りを消している)。
+            // 書き出せた 1 本目は残し、2 本目は中止したことを伝える
+            finishStoppedAfterFirstJob(saved: saved, photoError: photoError, fellBackToSDR: fellBackToSDR)
+            return
+        }
+
         if !queuedJobs.isEmpty {
-            // 縦横同時: 続けて次の 1 本を書き出す(バックグラウンド処理は続行したまま)
+            // 縦横同時: 続けて次の 1 本を書き出す(バックグラウンド処理・継続処理は続行したまま)
             let next = queuedJobs.removeFirst()
             isRunning = false
             jobLabel = next.label
+            jobsCompleted += 1
             startOnMain(snapshot: next.snapshot, saveToPhotos: next.saveToPhotos)
+            if !isRunning {
+                // 次の 1 本を始められなかった(容量不足など)。バックグラウンド処理を終える
+                queuedJobs = []
+                jobLabel = ""
+                endBackgroundWork(success: false)
+            }
             return
         }
 
@@ -621,6 +653,39 @@ final class ExportManager {
                                            : (audioOnly ? "音声の書き出しが完了しました" : "動画の書き出しが完了しました"))
         }
         endBackgroundWork(success: true)
+    }
+
+    /// 縦横同時で 1 本目は書き出せたが、その直後にキャンセル / 停止されて 2 本目を始めなかった
+    @MainActor
+    private func finishStoppedAfterFirstJob(saved: Bool, photoError: Error?, fellBackToSDR: Bool) {
+        queuedJobs = []
+        jobLabel = ""
+        progress = 1
+        savedToPhotos = saved
+        state = .finished
+        isRunning = false
+        let reason: String
+        if continuedTaskExpired {
+            reason = "ロック画面またはシステムにより停止されたため"
+        } else if expiredInBackground {
+            reason = "バックグラウンドの時間制限のため"
+        } else {
+            reason = "キャンセルしたため"
+        }
+        var text = saved ? "1 本目のみ書き出して写真に保存しました" : "1 本目のみ書き出しました"
+        text += "(\(reason)、2 本目は中止)"
+        if let photoError {
+            text += "(写真への保存に失敗: \(photoError.localizedDescription))"
+        }
+        if fellBackToSDR {
+            text += "(\(Self.sdrFallbackNote))"
+        }
+        statusText = text
+        if (continuedTaskExpired || expiredInBackground) && AppLifecycle.shared.isInBackground {
+            Self.postLocalNotification(title: "書き出しが停止されました",
+                                       body: "1 本目のみ書き出しました。アプリを開いて 2 本目を書き出してください")
+        }
+        endBackgroundWork(success: false)
     }
 
     /// 書き出し自体は終わったが検証に通らなかった。ファイルは残し、lastOutputURL からたどれるようにする
@@ -659,7 +724,11 @@ final class ExportManager {
             }
         } else {
             state = .cancelled
-            statusText = continuedTaskExpired ? "システムにより書き出しが停止されました" : "書き出しをキャンセルしました"
+            statusText = continuedTaskExpired ? "ロック画面またはシステムにより書き出しが停止されました" : "書き出しをキャンセルしました"
+            if continuedTaskExpired && AppLifecycle.shared.isInBackground {
+                Self.postLocalNotification(title: "書き出しが停止されました",
+                                           body: "アプリを開いて再度書き出してください")
+            }
         }
         endBackgroundWork(success: false)
     }
@@ -674,9 +743,10 @@ final class ExportManager {
             try? FileManager.default.removeItem(at: outputURL)
         }
         isRunning = false
-        // iOS 26 未満でバックグラウンド中に失敗した場合は、時間制限 / GPU 制限による中断とみなす
+        // 継続処理なしでバックグラウンド中に失敗した場合は、時間制限 / GPU 制限による中断とみなす
+        let continuing = continuedHandle?.isActive ?? false
         let backgroundInterrupted = expiredInBackground
-            || (AppLifecycle.shared.isInBackground && continuedTask == nil)
+            || (AppLifecycle.shared.isInBackground && !continuing)
         let finalMessage = backgroundInterrupted ? Self.backgroundLimitMessage : message
         state = .failed(finalMessage)
         statusText = finalMessage
@@ -710,12 +780,11 @@ final class ExportManager {
         progress = value
         let percent = Int((value * 100).rounded(.down))
         statusText = currentAudioSession != nil ? "音声を書き出し中… \(percent)%" : jobLabel + "書き出し中… \(percent)%"
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *), let task = continuedTask as? BGContinuedProcessingTask {
-            task.progress.totalUnitCount = 1000
-            task.progress.completedUnitCount = Int64(value * 1000)
+        if let handle = continuedHandle {
+            // 縦横同時のときは 2 本分を通した進捗にする
+            let overall = (Double(jobsCompleted) + value) / Double(max(1, jobsTotal))
+            handle.update(completed: overall, subtitle: statusText)
         }
-        #endif
     }
 
     // MARK: - Background execution
@@ -741,9 +810,10 @@ final class ExportManager {
 
     @MainActor
     private func handleBackgroundTimeExpired() {
-        // iOS 26 で BGContinuedProcessingTask が動いていれば書き出しは継続できる。
-        // それ以外(iOS 26 未満など)は約 30 秒の猶予しかないため、ここで安全に中断する。
-        if continuedTask == nil && isRunning {
+        // iOS 26 で継続処理(BGContinuedProcessingTask)が動いていれば書き出しは続けられる。
+        // それ以外(iOS 26 未満・継続処理を開始できなかった等)は約 30 秒の猶予しかないため、ここで安全に中断する。
+        let continuing = continuedHandle?.isActive ?? false
+        if !continuing && isRunning {
             cancelOnMain(dueToBackgroundLimit: true)
         }
         if let id = backgroundTaskID {
@@ -754,66 +824,33 @@ final class ExportManager {
 
     @MainActor
     private func endBackgroundWork(success: Bool) {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *), let task = continuedTask as? BGContinuedProcessingTask {
-            if success {
-                task.progress.totalUnitCount = 1000
-                task.progress.completedUnitCount = 1000
-            }
-            task.setTaskCompleted(success: success)
+        if let handle = continuedHandle {
+            continuedHandle = nil
+            handle.finish(success: success)
         }
-        #endif
-        continuedTask = nil
         if let id = backgroundTaskID {
             UIApplication.shared.endBackgroundTask(id)
             backgroundTaskID = nil
         }
     }
 
+    /// iOS 26+ の継続処理を始める(ユーザー操作の直後、アプリが前面にある間に呼ばれる)。
+    /// 縦横同時の 2 本目は 1 本目の継続処理をそのまま使う(バックグラウンドからは開始できないため)。
+    /// 使えないときは何もしない(beginBackgroundTask のフォールバックで続行。理由は ContinuedProcessing.lastDiagnostic)。
     @MainActor
-    private func submitContinuedProcessingRequest() {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            let request = BGContinuedProcessingTaskRequest(identifier: AppLifecycle.exportTaskIdentifier,
-                                                           title: "動画を書き出し中",
-                                                           subtitle: "書き出しが終わるまでお待ちください")
-            do {
-                try BGTaskScheduler.shared.submit(request)
-            } catch {
-                // submit に失敗しても beginBackgroundTask のフォールバックで続行する
-            }
+    private func beginContinuedProcessing(title: String, wantsGPU: Bool) {
+        guard continuedHandle == nil, jobsCompleted == 0 else { return }
+        guard let handle = ContinuedProcessing.begin(kind: .export, title: title,
+                                                     subtitle: "書き出しの準備中…", wantsGPU: wantsGPU) else {
+            return
         }
-        #endif
+        handle.onExpire = { [weak self] in
+            self?.continuedProcessingTaskExpired()
+        }
+        continuedHandle = handle
     }
 
-    #if compiler(>=6.2)
-    /// AppLifecycle に登録した起動ハンドラから呼ばれる(任意スレッド)
-    @available(iOS 26.0, *)
-    func attachContinuedProcessingTask(_ task: BGContinuedProcessingTask) {
-        task.expirationHandler = {
-            ExportManager.shared.continuedProcessingTaskExpired()
-        }
-        exportOnMain { [weak self] in
-            guard let self else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            guard self.isRunning else {
-                // 書き出しがすでに終わっている
-                task.setTaskCompleted(success: self.state == .finished)
-                return
-            }
-            if let previous = self.continuedTask as? BGContinuedProcessingTask, previous !== task {
-                previous.setTaskCompleted(success: false)
-            }
-            self.continuedTask = task
-            task.progress.totalUnitCount = 1000
-            task.progress.completedUnitCount = Int64(min(max(self.progress, 0), 1) * 1000)
-        }
-    }
-    #endif
-
-    /// BGContinuedProcessingTask の期限切れ(ユーザー停止 / システム)→ 書き出しをキャンセル
+    /// 継続処理の期限切れ(ロック画面などからのユーザー停止 / システム)→ 書き出しをキャンセル
     private func continuedProcessingTaskExpired() {
         exportOnMain { [weak self] in
             guard let self else { return }

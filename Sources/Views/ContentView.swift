@@ -171,6 +171,10 @@ struct ContentView: View {
             extractAudioPickerItem = nil
             Task { await extractAudio(from: item) }
         }
+        // 書き出し中は画面の自動ロックを止める
+        .onChange(of: ExportManager.shared.isRunning) { _, running in
+            IdleTimerGuard.set(running, for: "export")
+        }
         .onChange(of: project.snapshot()) { _, newSnapshot in
             player.update(with: newSnapshot)
             if let restored = restoredSnapshot {

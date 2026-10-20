@@ -32,6 +32,11 @@ struct TranscriptionSettingsView: View {
     @State private var alertTitle: String = ""
     @State private var alertMessage: String? = nil
 
+    // 診断(ロック中の継続・バックグラウンド送信)
+    @State private var diagnosticBundleID: String = ""
+    @State private var diagnosticContinued: String = ""
+    @State private var diagnosticUploads: String = ""
+
     init() {}
 
     var body: some View {
@@ -42,10 +47,14 @@ struct TranscriptionSettingsView: View {
             }
             cloudSection
             polishSection
+            diagnosticsSection
         }
         .navigationTitle("文字起こし設定")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { refreshModelState() }
+        .onAppear {
+            refreshModelState()
+            refreshDiagnostics()
+        }
         .alert(alertTitle, isPresented: alertBinding) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -159,6 +168,17 @@ struct TranscriptionSettingsView: View {
                 }
             }
 
+            if settings.transcriptionEngine == .cloud {
+                Picker("文字起こしの方式", selection: $settings.cloudQuality) {
+                    ForEach(CloudTranscriptionQuality.allCases) { quality in
+                        Text(quality.displayName).tag(quality)
+                    }
+                }
+                Text(settings.cloudQuality.detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             if settings.hasOpenAIKey, !isEditingKey {
                 HStack {
                     Text("API キー")
@@ -211,7 +231,7 @@ struct TranscriptionSettingsView: View {
         } header: {
             Text("クラウドAI(OpenAI)")
         } footer: {
-            Text("クラウドAI を使うと、動画の音声(文字起こし)や字幕テキスト(AI 仕上げ)が OpenAI のサーバーへ送信されます。料金は OpenAI の従量課金で、文字起こしは目安 約0.9円/分($0.006/分換算)です。API キーはこの端末の Keychain にのみ保存され、外部には送られません。")
+            Text("クラウドAI を使うと、動画の音声(文字起こし)や字幕テキスト(AI 仕上げ)が OpenAI のサーバーへ送信されます。料金は OpenAI の従量課金で、文字起こしは速度優先(whisper-1)・精度優先とも目安 約0.9円/分($0.006/分換算)です。音声は約 2 分ごとに分けて最大 4 本ずつ同時に送るため、長い動画でも待ち時間が短くなります。API キーはこの端末の Keychain にのみ保存され、外部には送られません。")
         }
     }
 
@@ -245,6 +265,45 @@ struct TranscriptionSettingsView: View {
         } footer: {
             Text("音声認識のあとに、句読点の補正・言いよどみの削除・長い字幕の分割を AI が行います。端末内(Apple Intelligence)は iOS 26 以降で Apple Intelligence が有効な端末のみ使えます。クラウドは OpenAI の API キーが必要で、字幕テキストが送信されます。")
         }
+    }
+
+    // MARK: - 診断
+
+    private var diagnosticsSection: some View {
+        Section {
+            diagnosticRow(title: "実行時のバンドル ID", value: diagnosticBundleID, monospaced: true)
+            diagnosticRow(title: "ロック中の継続", value: diagnosticContinued, monospaced: false)
+            diagnosticRow(title: "バックグラウンド送信(クラウドAI)", value: diagnosticUploads, monospaced: false)
+            Button {
+                refreshDiagnostics()
+            } label: {
+                Label("診断を更新", systemImage: "arrow.clockwise")
+            }
+        } header: {
+            Text("診断")
+        } footer: {
+            Text("画面ロック中も書き出し・文字起こしを続けられるかの状態です。「ロック中の継続」は最後に書き出しか文字起こしを始めたときの結果です。うまく動かないときは、この内容を伝えてください。")
+        }
+    }
+
+    private func diagnosticRow(title: String, value: String, monospaced: Bool) -> some View {
+        let valueFont: Font = monospaced ? Font.system(.footnote, design: .monospaced) : Font.footnote
+        let valueText: String = value.isEmpty ? "—" : value
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.subheadline)
+            Text(valueText)
+                .font(valueFont)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func refreshDiagnostics() {
+        diagnosticBundleID = ContinuedProcessing.runtimeBundleIdentifier
+        diagnosticContinued = ContinuedProcessing.lastDiagnostic
+        diagnosticUploads = CloudBackgroundUploader.shared.diagnosticSummary()
     }
 
     // MARK: - 操作

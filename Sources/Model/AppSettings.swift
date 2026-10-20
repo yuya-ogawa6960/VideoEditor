@@ -43,7 +43,7 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
         case .whisper:
             return "OpenAI Whisper を端末内で実行します(WhisperKit)。日本語でも精度が高く、音声が端末の外に出ません。初回にモデルのダウンロード(150MB〜1.6GB)が必要で、処理には時間がかかります。"
         case .cloud:
-            return "OpenAI の音声認識モデル(gpt-4o-transcribe 系)をクラウドで実行します。最高精度で端末の負荷も小さい反面、音声を OpenAI のサーバーへ送信し、API 利用料(目安 約0.9円/分)がかかります。"
+            return "OpenAI の音声認識(速度優先: whisper-1 / 精度優先: gpt-4o-transcribe 系)をクラウドで実行します。高精度で端末の負荷も小さい反面、音声を OpenAI のサーバーへ送信し、API 利用料(目安 約0.9円/分)がかかります。"
         }
     }
 
@@ -74,6 +74,41 @@ enum CloudProvider: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .openAI: return "OpenAI"
+        }
+    }
+}
+
+// MARK: - クラウド文字起こしの方式
+
+enum CloudTranscriptionQuality: String, CaseIterable, Identifiable {
+    /// whisper-1(単語時刻付き)。応答が速い
+    case fast
+    /// gpt-4o-transcribe 系(話者分離対応モデル)。使えなければ whisper-1 に切り替え
+    case accurate
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .fast: return "速度優先(おすすめ)"
+        case .accurate: return "精度優先(遅い)"
+        }
+    }
+
+    /// 進捗表示などで使う短い名前
+    var shortName: String {
+        switch self {
+        case .fast: return "速度優先"
+        case .accurate: return "精度優先"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .fast:
+            return "whisper-1 で認識します。応答が速く、単語ごとの時刻も付くので字幕のタイミングが正確です。長い動画でも短時間で終わります。料金の目安は 約0.9円/分($0.006/分)。"
+        case .accurate:
+            return "gpt-4o-transcribe 系(話者分離対応モデル)で認識します。聞き取りにくい音声や固有名詞で誤認識が少し減ることがありますが、処理にかなり時間がかかります。料金の目安は速度優先とほぼ同じです。"
         }
     }
 }
@@ -196,6 +231,7 @@ final class AppSettings {
         static let engine = "transcription.engine"
         static let whisperModel = "transcription.whisperModel"
         static let cloudProvider = "transcription.cloudProvider"
+        static let cloudQuality = "transcription.cloudQuality"
         static let polish = "transcription.polishSubtitles"
         static let polishEngine = "transcription.polishEngine"
         /// Keychain のアカウント名
@@ -207,6 +243,7 @@ final class AppSettings {
     @ObservationIgnored private var storedEngine: TranscriptionEngine
     @ObservationIgnored private var storedWhisperModel: String
     @ObservationIgnored private var storedCloudProvider: CloudProvider
+    @ObservationIgnored private var storedCloudQuality: CloudTranscriptionQuality
     @ObservationIgnored private var storedPolish: Bool
     @ObservationIgnored private var storedPolishEngine: PolishEngine
     @ObservationIgnored private var cachedOpenAIKey: String
@@ -217,6 +254,7 @@ final class AppSettings {
         let model = defaults.string(forKey: Keys.whisperModel) ?? AppSettings.defaultWhisperModel
         storedWhisperModel = model.isEmpty ? AppSettings.defaultWhisperModel : model
         storedCloudProvider = CloudProvider(rawValue: defaults.string(forKey: Keys.cloudProvider) ?? "") ?? .openAI
+        storedCloudQuality = CloudTranscriptionQuality(rawValue: defaults.string(forKey: Keys.cloudQuality) ?? "") ?? .fast
         storedPolish = defaults.object(forKey: Keys.polish) == nil ? true : defaults.bool(forKey: Keys.polish)
         storedPolishEngine = PolishEngine(rawValue: defaults.string(forKey: Keys.polishEngine) ?? "") ?? .auto
         cachedOpenAIKey = KeychainStore.get(Keys.openAIKey) ?? ""
@@ -264,6 +302,21 @@ final class AppSettings {
             withMutation(keyPath: \.cloudProvider) {
                 lock.lock(); storedCloudProvider = newValue; lock.unlock()
                 defaults.set(newValue.rawValue, forKey: Keys.cloudProvider)
+            }
+        }
+    }
+
+    /// クラウド文字起こしの方式(速度優先 / 精度優先)
+    var cloudQuality: CloudTranscriptionQuality {
+        get {
+            access(keyPath: \.cloudQuality)
+            lock.lock(); defer { lock.unlock() }
+            return storedCloudQuality
+        }
+        set {
+            withMutation(keyPath: \.cloudQuality) {
+                lock.lock(); storedCloudQuality = newValue; lock.unlock()
+                defaults.set(newValue.rawValue, forKey: Keys.cloudQuality)
             }
         }
     }

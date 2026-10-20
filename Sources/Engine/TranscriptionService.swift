@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Speech
 import Observation
+import UIKit
 
 // =====================================================================
 // 自動文字起こし
@@ -18,6 +19,20 @@ import Observation
 // SubtitleSegmenter で文・文節単位に区切る(チャンク境界で文が切れない)。
 // セグメンタは各字幕に単語タイミング(cue.words)も付ける。
 // 最後に設定が有効なら SubtitlePolisher(LLM)で句読点・フィラー・分割を仕上げる。
+//
+// 画面ロック対策:
+// - iOS 26+: 1 回の実行全体を ContinuedProcessing(BGContinuedProcessingTask)で包む。動いている間は
+//   ロック中もアプリが止められないので、クラウド・AI 仕上げはバックグラウンドでも待たずに進める
+//   (Whisper は GPU / Neural Engine を使うので、これまでどおりフォアグラウンドに戻るまで待つ)。
+//   進捗はシステムの表示(ロック画面など)にも出す。システム/利用者が止めたら、以降はフォアグラウンド待ちに戻る。
+// - 併せて(継続処理が使えない iOS / 状況でも)beginBackgroundTask で包み、ロック直後も送信中のリクエストが
+//   終わるまで(約 30 秒)動けるようにする(時間切れで終了しても、フォアグラウンドに戻るたびに取り直す)。
+// - クラウドは全ピースを先に切り出して背景 URLSession(CloudBackgroundUploader)にまとめて預けるので、
+//   アプリが止められても送信は続く。アプリごと終了したときは、次に字幕画面を開いたときに
+//   cues(fromPendingJob:snapshot:language:) で取り込める。
+// - 継続処理も背景送信も無いときは、クラウド・Whisper・AI 仕上げはバックグラウンド中は新しい処理を始めず、
+//   フォアグラウンドに戻ると続きから再開する(待っている間は状態表示を「一時停止中」にする)。
+//   継続処理か背景送信が動いているあいだのロック中は「ロック中も処理を続けています」と表示する。
 // =====================================================================
 
 enum TranscriptionLanguage: String, CaseIterable, Identifiable {
@@ -51,6 +66,8 @@ enum TranscriptionError: LocalizedError {
     case noAudioClips
     case audioExportFailed(String)
     case recognitionFailed(String)
+    /// 前回の文字起こし結果を、今のプロジェクトに取り込めない
+    case pendingResultUnusable(String)
 
     var errorDescription: String? {
         switch self {
@@ -66,6 +83,8 @@ enum TranscriptionError: LocalizedError {
             return "音声の切り出しに失敗しました: \(detail)"
         case .recognitionFailed(let detail):
             return "音声認識に失敗しました: \(detail)"
+        case .pendingResultUnusable(let detail):
+            return detail
         }
     }
 }
@@ -96,6 +115,79 @@ private struct ClipJob {
     var clipTimelineEnd: Double { clipTimelineStart + clip.outputDuration }
 }
 
+/// 文字起こし 1 回分の beginBackgroundTask。
+/// 時間切れで終了したあとも、アプリがフォアグラウンドに戻るたびに取り直す(2 回目以降の画面ロックでも猶予を得るため)。
+/// 同時に持つタスクは 1 つだけ。実行の終わりに finish() を 1 回呼ぶ(以降は取り直さない)
+private final class TranscriptionBackgroundTask: @unchecked Sendable {
+    private let lock = NSLock()
+    private var identifier: UIBackgroundTaskIdentifier?
+    /// 実行が終わったか(finish 後は取り直さない)
+    private var finished = false
+    /// フォアグラウンド復帰の監視(メインアクターからだけ触る)
+    private var foregroundObserver: NSObjectProtocol?
+
+    /// 実行の開始時に呼ぶ。バックグラウンドタスクを始め、フォアグラウンドに戻るたびに取り直す監視を登録する
+    @MainActor
+    func begin() {
+        renewIfNeeded()
+        guard foregroundObserver == nil else { return }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            // queue: .main なのでメインスレッドで呼ばれる
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.renewIfNeeded()
+            }
+        }
+    }
+
+    /// バックグラウンドタスクが無いときだけ始める(時間切れで終了したあとにフォアグラウンドへ戻ったときなど)。
+    /// すでにあるときは何もしない(上書きすると前のタスクを終了できなくなり、アプリが強制終了される)
+    @MainActor
+    func renewIfNeeded() {
+        lock.lock()
+        let skip = finished || identifier != nil
+        lock.unlock()
+        if skip { return }
+        let id = UIApplication.shared.beginBackgroundTask(withName: "Transcription") {
+            // 時間切れ(メインスレッドで同期的に呼ばれる)。ここで終了しないとアプリが強制終了される。
+            // 処理そのものは止めない(バックグラウンド中は各エンジンがフォアグラウンドに戻るまで待つ)
+            MainActor.assumeIsolated {
+                self.end()
+            }
+        }
+        guard id != .invalid else { return }
+        lock.lock()
+        identifier = id
+        lock.unlock()
+    }
+
+    /// 実行の終わりに 1 回呼ぶ。監視を外し、バックグラウンドタスクを終了する
+    @MainActor
+    func finish() {
+        lock.lock()
+        finished = true
+        lock.unlock()
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            foregroundObserver = nil
+        }
+        end()
+    }
+
+    /// 今のバックグラウンドタスクを終了する(時間切れ・実行の終わり)。何度呼んでもよい
+    @MainActor
+    func end() {
+        lock.lock()
+        let id = identifier
+        identifier = nil
+        lock.unlock()
+        if let id {
+            UIApplication.shared.endBackgroundTask(id)
+        }
+    }
+}
+
 /// continuation の二重 resume 防止
 private final class TranscriptionResumeGuard {
     private let lock = NSLock()
@@ -119,11 +211,31 @@ final class TranscriptionService {
     /// SFSpeech 経路の 1チャンクの最大長(秒)
     private static let chunkLength: Double = 50
 
+    /// バックグラウンド待ちの間の状態表示
+    private static let pausedStatusText = "画面がロックされたため一時停止中。アプリに戻ると続きから再開します"
+    /// 継続処理か背景送信が動いているあいだのロック中の状態表示
+    private static let lockedStatusText = "ロック中も処理を続けています"
+
+    /// 「一時停止中」「ロック中も…」のどちらかを表示しているか
+    private static func isInterruptionStatus(_ text: String) -> Bool {
+        text == pausedStatusText || text == lockedStatusText
+    }
+
     private let lock = NSLock()
     @ObservationIgnored private var busy = false
     @ObservationIgnored private var cancelRequested = false
     @ObservationIgnored private var currentTask: SFSpeechRecognitionTask?
     @ObservationIgnored private var runningWork: Task<[SubtitleCue], Error>?
+    /// 「一時停止中」「ロック中も…」を表示する直前の状態表示(再開したら戻す)。メインアクターからだけ触る
+    @ObservationIgnored private var statusBeforePause: String?
+    /// 実行中の継続処理(lock で保護)
+    @ObservationIgnored private var continuedHandleStorage: ContinuedProcessingHandle?
+    /// 状態表示の切り替えに使う、実行中の reporter(メインアクターからだけ触る)
+    @ObservationIgnored private var activeReporters: [BackgroundPauseReporter] = []
+    /// アプリがバックグラウンドにいるか(この実行の間だけ通知で更新する。メインアクターからだけ触る)
+    @ObservationIgnored private var appInBackground = false
+    @ObservationIgnored private var lifecycleObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var lifecycleGeneration = 0
 
     init() {}
 
@@ -160,10 +272,40 @@ final class TranscriptionService {
         cancelRequested = false
         lock.unlock()
 
+        // 画面ロック・アプリ切り替えの直後も、送信中のリクエストが終わるまで(約 30 秒)動けるようにする。
+        // 時間切れで終了しても、フォアグラウンドに戻るたびに取り直す(willEnterForeground の監視はこの実行の間だけ)。
+        // 継続処理が使えるときも併せて持つ(継続処理の開始が遅れた間・使えなかったときの代わり)。
+        // 監視の解除と終了は成功・失敗・キャンセルのどの場合も defer で(メインアクターで)行う
+        let backgroundTask = TranscriptionBackgroundTask()
+        await backgroundTask.begin()
+
+        // 画面ロックなどでバックグラウンド待ちになったら状態表示を「一時停止中」にし、再開したら元に戻す。
+        // reporter はクラウド・AI 仕上げ用(継続処理が動いている間はバックグラウンドでも待たない)、
+        // whisperReporter は Whisper 用(常にフォアグラウンドに戻るまで待つ)
+        let reporter = makePauseReporter()
+        let whisperReporter = makePauseReporter()
+
+        // iOS 26+: ロック中も続けられるよう継続処理を始める(使えなければ nil。beginBackgroundTask だけで動く)
+        let subtitle = Self.continuedProcessingSubtitle(for: snapshot)
+        let handle = await beginContinuedProcessing(subtitle: subtitle, reporter: reporter)
+        let lifecycleToken = await startObservingLifecycle(reporters: [reporter, whisperReporter])
+        var succeeded = false
+        defer {
+            handle?.finish(success: succeeded)
+            if let handle {
+                clearContinuedHandle(handle)
+            }
+            Task { @MainActor in
+                backgroundTask.finish()
+                self.stopObservingLifecycle(generation: lifecycleToken)
+            }
+        }
+
         await updateUI(running: true, progress: 0, status: "準備中…")
 
         let work = Task<[SubtitleCue], Error> {
-            try await self.performTranscription(snapshot: snapshot, language: language, removeFillers: removeFillers)
+            try await self.performTranscription(snapshot: snapshot, language: language, removeFillers: removeFillers,
+                                                pauseReporter: reporter, whisperReporter: whisperReporter)
         }
         lock.lock()
         runningWork = work
@@ -175,6 +317,7 @@ final class TranscriptionService {
             } onCancel: {
                 work.cancel()
             }
+            succeeded = true
             finishRun()
             await updateUI(running: false, progress: 1, status: "完了(\(cues.count)件)")
             return cues
@@ -197,11 +340,59 @@ final class TranscriptionService {
         work?.cancel()
     }
 
+    /// 前回(アプリの終了などで)取り込めなかったクラウド文字起こしのジョブから、出力タイムライン秒の字幕を作り直す。
+    /// - まだ送信中のジョブなら残りを待つ(キャンセルしても待つのをやめるだけで、ジョブの送信は続く)。
+    /// - 時刻は今のプロジェクト(snapshot)のクリップ配置・トリミング・速度で出力タイムラインに直す。
+    ///   今のトリミング範囲の外のトークンと、プロジェクトに無いクリップの結果は捨てる。
+    /// - 字幕の区切り方はジョブの言語(無ければ language)。AI 仕上げが有効なら仕上げてから返す。
+    /// 実行中は isRunning / progress / statusText が変わり、cancel() で止められる。
+    /// 取り込みが済んだら呼び出し側で CloudBackgroundUploader.shared.discard(jobID:) すること
+    func cues(fromPendingJob job: CloudJobManifest, snapshot: ProjectSnapshot,
+              language: TranscriptionLanguage, removeFillers: Bool = true) async throws -> [SubtitleCue] {
+        lock.lock()
+        if busy {
+            lock.unlock()
+            throw TranscriptionError.alreadyRunning
+        }
+        busy = true
+        cancelRequested = false
+        lock.unlock()
+
+        await updateUI(running: true, progress: 0, status: "前回の文字起こし結果を取り込み中…")
+
+        let work = Task<[SubtitleCue], Error> {
+            try await self.rebuildCues(fromPendingJob: job, snapshot: snapshot, language: language,
+                                       removeFillers: removeFillers)
+        }
+        lock.lock()
+        runningWork = work
+        lock.unlock()
+
+        do {
+            let cues = try await withTaskCancellationHandler {
+                try await work.value
+            } onCancel: {
+                work.cancel()
+            }
+            finishRun()
+            await updateUI(running: false, progress: 1, status: "取り込みました(\(cues.count)件)")
+            return cues
+        } catch {
+            finishRun()
+            let cancelled = error is CancellationError
+            await updateUI(running: false, progress: 0,
+                           status: cancelled ? "キャンセルしました" : "取り込めませんでした")
+            throw error
+        }
+    }
+
     // MARK: - 本体
 
     private func performTranscription(snapshot: ProjectSnapshot,
                                       language: TranscriptionLanguage,
-                                      removeFillers: Bool) async throws -> [SubtitleCue] {
+                                      removeFillers: Bool,
+                                      pauseReporter: BackgroundPauseReporter,
+                                      whisperReporter: BackgroundPauseReporter) async throws -> [SubtitleCue] {
         let settings = AppSettings.shared
         let engine = settings.transcriptionEngine
 
@@ -247,7 +438,17 @@ final class TranscriptionService {
 
         var cues: [SubtitleCue] = []
 
-        for job in jobs {
+        // クラウド: 全クリップの音声を先に切り出し、背景 URLSession にまとめて預ける(ロック中・アプリが止められた後も
+        // 送信が続く)。作業フォルダを作れないなど使えないとき(nil)は、クリップごとの従来の経路
+        var cloudTokens: [[TimedToken]]? = nil
+        if engine == .cloud {
+            cloudTokens = try await recognizeAllClipsWithCloud(jobs: jobs, language: language, apiKey: settings.openAIKey,
+                                                               quality: settings.cloudQuality,
+                                                               pauseReporter: pauseReporter)
+            try checkCancelled()
+        }
+
+        for (jobIndex, job) in jobs.enumerated() {
             try checkCancelled()
 
             // 元素材上の秒で揃えたトークン列
@@ -273,11 +474,20 @@ final class TranscriptionService {
                                                                        doneUnits: doneUnits, totalUnits: totalUnits)
                 }
             case .whisper:
+                // Whisper は継続処理中でもバックグラウンドでは推論しない(フォアグラウンドに戻るまで待つ)
                 sourceTokens = try await recognizeClipWithWhisper(job: job, language: language,
-                                                                  doneUnits: doneUnits, totalUnits: totalUnits)
+                                                                  doneUnits: doneUnits, totalUnits: totalUnits,
+                                                                  pauseReporter: whisperReporter)
             case .cloud:
-                sourceTokens = try await recognizeClipWithCloud(job: job, language: language, apiKey: settings.openAIKey,
-                                                                doneUnits: doneUnits, totalUnits: totalUnits)
+                if let cloudTokens {
+                    sourceTokens = jobIndex < cloudTokens.count ? cloudTokens[jobIndex] : []
+                } else {
+                    sourceTokens = try await recognizeClipWithCloud(job: job, language: language, apiKey: settings.openAIKey,
+                                                                    quality: settings.cloudQuality,
+                                                                    clipIndex: jobIndex, clipCount: jobs.count,
+                                                                    doneUnits: doneUnits, totalUnits: totalUnits,
+                                                                    pauseReporter: pauseReporter)
+                }
             }
             doneUnits += job.chunks.count
             try checkCancelled()
@@ -288,23 +498,95 @@ final class TranscriptionService {
             segmenter.hardEnd = job.clipTimelineEnd
             cues.append(contentsOf: segmenter.segment(timelineTokens))
 
-            await updateUI(progress: Double(doneUnits) / Double(totalUnits), status: nil)
-        }
-
-        var result = Self.finalize(cues)
-
-        // AI 仕上げ(句読点・フィラー・分割)。失敗しても result はそのまま返る
-        if settings.polishSubtitles, !result.isEmpty {
-            let polishEngine = SubtitlePolisher.resolveEngine(settings: settings)
-            if polishEngine != .none {
-                try checkCancelled()
-                await updateUI(progress: 1, status: "AIで字幕を仕上げ中(\(SubtitlePolisher.displayName(of: polishEngine)))…")
-                result = await SubtitlePolisher.polish(result, language: language, settings: settings)
-                try checkCancelled()
-                result = Self.finalize(result)
+            // まとめて送った経路は、送信の進捗ですでに 1 まで進めている
+            if cloudTokens == nil {
+                await updateUI(progress: Double(doneUnits) / Double(totalUnits), status: nil)
             }
         }
 
+        let result = Self.finalize(cues)
+
+        // AI 仕上げ(句読点・フィラー・分割)。失敗しても result はそのまま返る。
+        // 継続処理が動いている間は pauseReporter.allowsBackgroundWork が true なので、ロック中でも待たずに進む
+        return try await polishIfEnabled(result, language: language, settings: settings, pauseReporter: pauseReporter)
+    }
+
+    /// AI 仕上げが有効なら仕上げて並べ直す(失敗した部分は入力のまま)
+    private func polishIfEnabled(_ cues: [SubtitleCue], language: TranscriptionLanguage, settings: AppSettings,
+                                 pauseReporter: BackgroundPauseReporter) async throws -> [SubtitleCue] {
+        guard settings.polishSubtitles, !cues.isEmpty else { return cues }
+        let polishEngine = SubtitlePolisher.resolveEngine(settings: settings)
+        guard polishEngine != .none else { return cues }
+        try checkCancelled()
+        await updateUI(progress: 1, status: "AIで字幕を仕上げ中(\(SubtitlePolisher.displayName(of: polishEngine)))…")
+        let polished = await SubtitlePolisher.polish(cues, language: language, settings: settings,
+                                                     pauseReporter: pauseReporter)
+        try checkCancelled()
+        return Self.finalize(polished)
+    }
+
+    // MARK: - 前回のクラウド文字起こしの取り込み
+
+    private func rebuildCues(fromPendingJob job: CloudJobManifest, snapshot: ProjectSnapshot,
+                             language: TranscriptionLanguage, removeFillers: Bool) async throws -> [SubtitleCue] {
+        let uploader = CloudBackgroundUploader.shared
+        let jobLanguage = job.localeIdentifier.flatMap { TranscriptionLanguage(rawValue: $0) } ?? language
+
+        // まだ送信中なら残りを待つ(すでにそろっていればすぐに返る)
+        let results: [Int: Data]
+        do {
+            results = try await uploader.waitForCompletion(jobID: job.id, cancelsTasksOnCancellation: false) { [weak self] done, total in
+                guard let self else { return }
+                let value = total > 0 ? Double(done) / Double(total) : 0
+                let text = done < total
+                    ? "前回の文字起こしの残りを待っています \(done)/\(total)"
+                    : "前回の文字起こし結果を取り込み中…"
+                // 後続の段階(AI 仕上げなど)に進んだあとに遅れて届いた通知では書き換えない
+                Task { await self.applyRunningStatus(text, progress: value, prefix: "前回の文字起こし") }
+            }
+        } catch {
+            if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            throw error
+        }
+        try checkCancelled()
+
+        let latest = uploader.job(withID: job.id) ?? job
+        let perClip = try CloudTranscriber.tokensByClipOrder(job: latest, results: results)
+
+        // 今のプロジェクトのクリップ配置で出力タイムラインに直す
+        let placements = Self.clipPlacements(for: snapshot)
+        var cues: [SubtitleCue] = []
+        var matchedClips = 0
+        for info in latest.clips {
+            guard info.order >= 0, info.order < perClip.count,
+                  let placement = placements[info.clipID] else { continue }
+            matchedClips += 1
+            let clip = placement.clip
+            // 今のトリミング範囲から外れたトークンは捨てる(残りは mapToTimeline が範囲内に収める)
+            let inside = perClip[info.order].filter { $0.end >= clip.startTime && $0.start <= clip.endTime }
+            let timelineTokens = Self.mapToTimeline(inside, job: placement)
+            var segmenter = SubtitleSegmenter(language: jobLanguage, removeFillers: removeFillers)
+            segmenter.hardEnd = placement.clipTimelineEnd
+            cues.append(contentsOf: segmenter.segment(timelineTokens))
+        }
+        guard matchedClips > 0 else {
+            throw TranscriptionError.pendingResultUnusable("このプロジェクトには、前回の文字起こしに使ったクリップがありません。")
+        }
+
+        let result = Self.finalize(cues)
+        await updateUI(progress: 1, status: nil)
+        return try await polishIfEnabled(result, language: jobLanguage, settings: AppSettings.shared,
+                                         pauseReporter: makePauseReporter())
+    }
+
+    /// プロジェクトの全クリップの出力タイムライン上の配置(クリップ ID → ClipJob。chunks は使わない)
+    private static func clipPlacements(for snapshot: ProjectSnapshot) -> [UUID: ClipJob] {
+        var result: [UUID: ClipJob] = [:]
+        var timelineStart = 0.0
+        for clip in snapshot.clips {
+            result[clip.id] = ClipJob(clip: clip, clipTimelineStart: timelineStart, chunks: [])
+            timelineStart += clip.outputDuration
+        }
         return result
     }
 
@@ -312,14 +594,16 @@ final class TranscriptionService {
 
     /// クリップ全体を WhisperKit で認識し、元素材上の秒のトークン列を返す
     private func recognizeClipWithWhisper(job: ClipJob, language: TranscriptionLanguage,
-                                          doneUnits: Int, totalUnits: Int) async throws -> [TimedToken] {
+                                          doneUnits: Int, totalUnits: Int,
+                                          pauseReporter: BackgroundPauseReporter) async throws -> [TimedToken] {
         let clip = job.clip
         await updateUI(progress: Double(doneUnits) / Double(totalUnits),
                        status: "文字起こし中(Whisper) \(doneUnits + 1)/\(totalUnits)")
         let unitCount = Double(job.chunks.count)
         do {
             return try await WhisperTranscriber.shared.transcribe(sourceURL: clip.url, start: clip.startTime, end: clip.endTime,
-                                                                   language: language.languageCode) { [weak self] fraction in
+                                                                   language: language.languageCode,
+                                                                   pauseReporter: pauseReporter) { [weak self] fraction in
                 guard let self else { return }
                 let value = (Double(doneUnits) + fraction * unitCount) / Double(totalUnits)
                 Task { await self.updateUI(progress: value, status: nil) }
@@ -330,23 +614,119 @@ final class TranscriptionService {
         }
     }
 
-    /// クリップ全体をクラウド(OpenAI)で認識し、元素材上の秒のトークン列を返す
+    /// クリップ全体をクラウド(OpenAI)で認識し、元素材上の秒のトークン列を返す。
+    /// 状態表示は「文字起こし中(クラウドAI・速度優先) 3/12」(完了ピース数/全ピース数。複数クリップならクリップ番号も)
     private func recognizeClipWithCloud(job: ClipJob, language: TranscriptionLanguage, apiKey: String,
-                                        doneUnits: Int, totalUnits: Int) async throws -> [TimedToken] {
+                                        quality: CloudTranscriptionQuality, clipIndex: Int, clipCount: Int,
+                                        doneUnits: Int, totalUnits: Int,
+                                        pauseReporter: BackgroundPauseReporter) async throws -> [TimedToken] {
         let clip = job.clip
-        await updateUI(progress: Double(doneUnits) / Double(totalUnits),
-                       status: "文字起こし中(クラウドAI) \(doneUnits + 1)/\(totalUnits)")
+        let label = "文字起こし中(クラウドAI・\(quality.shortName))"
+        let clipPrefix = clipCount > 1 ? "\(label) クリップ\(clipIndex + 1)/\(clipCount)" : label
+        let separator = clipCount > 1 ? "・" : " "
+        await updateUI(progress: Double(doneUnits) / Double(totalUnits), status: clipPrefix + "…")
         let unitCount = Double(job.chunks.count)
         do {
-            return try await CloudTranscriber.shared.transcribe(sourceURL: clip.url, start: clip.startTime, end: clip.endTime,
-                                                                 language: language.languageCode, apiKey: apiKey) { [weak self] fraction in
-                guard let self else { return }
-                let value = (Double(doneUnits) + fraction * unitCount) / Double(totalUnits)
-                Task { await self.updateUI(progress: value, status: nil) }
-            }
+            return try await CloudTranscriber.shared.transcribe(
+                sourceURL: clip.url, start: clip.startTime, end: clip.endTime,
+                language: language.languageCode, apiKey: apiKey, quality: quality,
+                pauseReporter: pauseReporter,
+                progress: { [weak self] fraction in
+                    guard let self else { return }
+                    let value = (Double(doneUnits) + fraction * unitCount) / Double(totalUnits)
+                    Task { await self.updateUI(progress: value, status: nil) }
+                },
+                pieceProgress: { [weak self] completed, total in
+                    guard let self else { return }
+                    let text = clipPrefix + separator + "\(completed)/\(total)"
+                    // 投げっぱなしの Task は後続の状態更新(次のクリップ・AI仕上げ・完了など)より遅れて届くことがあるので、
+                    // まだこのクリップの表示中のときだけ書き換える
+                    Task {
+                        await self.applyRunningStatus(text, progress: nil, prefix: clipPrefix)
+                    }
+                })
         } catch {
             if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
             throw error
+        }
+    }
+
+    /// 全クリップをまとめてクラウド(OpenAI)で認識し、jobs と同じ順に元素材上の秒のトークン列を返す
+    /// (CloudTranscriber.transcribeClips: 全ピースを先に切り出して背景 URLSession に預ける)。
+    /// 作業フォルダを作れないなど、この経路を使えないときは nil(呼び出し側はクリップごとの従来の経路へ)。
+    /// 状態表示は「文字起こし中(クラウドAI・速度優先) 音声を準備中 3/12」→「文字起こし中(クラウドAI・速度優先) 5/12」
+    private func recognizeAllClipsWithCloud(jobs: [ClipJob], language: TranscriptionLanguage, apiKey: String,
+                                            quality: CloudTranscriptionQuality,
+                                            pauseReporter: BackgroundPauseReporter) async throws -> [[TimedToken]]? {
+        let label = "文字起こし中(クラウドAI・\(quality.shortName))"
+        await updateUI(progress: 0, status: label + "…")
+        let sources: [CloudTranscriber.ClipSource] = jobs.map { job in
+            CloudTranscriber.ClipSource(clipID: job.clip.id, name: job.clip.name, sourceURL: job.clip.url,
+                                        sourceStart: job.clip.startTime, sourceEnd: job.clip.endTime,
+                                        speed: job.clip.speed, timelineStart: job.clipTimelineStart,
+                                        timelineEnd: job.clipTimelineEnd)
+        }
+        do {
+            return try await CloudTranscriber.shared.transcribeClips(
+                sources, language: language.languageCode, localeIdentifier: language.rawValue,
+                apiKey: apiKey, quality: quality, pauseReporter: pauseReporter) { [weak self] update in
+                    guard let self else { return }
+                    let text = TranscriptionService.cloudBatchStatus(label: label, update: update)
+                    let value = TranscriptionService.cloudBatchProgress(update)
+                    Task {
+                        await self.applyRunningStatus(text, progress: value, prefix: label)
+                    }
+                }
+        } catch let error as CloudBackgroundUploaderError {
+            if case .unavailable(_) = error { return nil }
+            throw error
+        } catch {
+            if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
+            throw error
+        }
+    }
+
+    private static func cloudBatchStatus(label: String, update: CloudTranscriber.BatchProgress) -> String {
+        let counts = "\(update.completed)/\(update.total)"
+        switch update.phase {
+        case .preparing:
+            return label + " 音声を準備中 " + counts
+        case .transcribing:
+            return label + " " + counts
+        }
+    }
+
+    /// 切り出しを全体の 1 割、送信・認識を 9 割として数える
+    private static func cloudBatchProgress(_ update: CloudTranscriber.BatchProgress) -> Double {
+        let fraction = update.fraction
+        switch update.phase {
+        case .preparing:
+            return fraction * 0.1
+        case .transcribing:
+            return 0.1 + fraction * 0.9
+        }
+    }
+
+    /// 投げっぱなしの Task から届く進捗の表示。まだ prefix で始まる表示のとき(後続の段階に進んでいないとき)だけ書き換える。
+    /// 「一時停止中」「ロック中も…」の表示中は、戻したときに出す文言だけを最新にする。progress は戻さない(大きいときだけ進める)
+    private func applyRunningStatus(_ text: String, progress value: Double?, prefix: String) async {
+        let handle = continuedHandle
+        await MainActor.run {
+            guard self.isRunning else { return }
+            var applied = false
+            if self.statusText.hasPrefix(prefix) {
+                self.statusText = text
+                applied = true
+            } else if TranscriptionService.isInterruptionStatus(self.statusText),
+                      let saved = self.statusBeforePause, saved.hasPrefix(prefix) {
+                self.statusBeforePause = text
+                applied = true
+            }
+            guard applied else { return }
+            if let value {
+                self.progress = max(self.progress, min(max(value, 0), 1))
+            }
+            handle?.update(completed: self.progress, subtitle: text)
         }
     }
 
@@ -678,11 +1058,173 @@ final class TranscriptionService {
         lock.unlock()
     }
 
+    /// 状態表示を更新する。実行中に「一時停止中」「ロック中も…」を表示しているときは、
+    /// status は戻したときに出す文言として覚えておく(running を指定したとき=開始・終了は常に書き換える)。
+    /// 継続処理が動いていれば、進捗と状態をシステムの表示にも渡す
     private func updateUI(running: Bool? = nil, progress: Double? = nil, status: String? = nil) async {
+        let handle = continuedHandle
         await MainActor.run {
             if let running { self.isRunning = running }
             if let progress { self.progress = min(max(progress, 0), 1) }
-            if let status { self.statusText = status }
+            if let status {
+                if running == nil, self.isRunning, TranscriptionService.isInterruptionStatus(self.statusText) {
+                    self.statusBeforePause = status
+                } else {
+                    self.statusText = status
+                    self.statusBeforePause = nil
+                }
+            }
+            if self.isRunning, let handle, progress != nil || status != nil {
+                handle.update(completed: self.progress, subtitle: status)
+            }
         }
+    }
+
+    /// 状態表示の「一時停止中」「ロック中も処理を続けています」を今の状態に合わせる。
+    /// - どれかの reporter がフォアグラウンド待ち中 → 一時停止中
+    /// - バックグラウンドにいて、継続処理か背景送信が動いている → ロック中も処理を続けています
+    /// - それ以外 → 元の表示に戻す
+    /// 通知は順不同に届くので、通知の中身ではなくメインアクター上で今の状態を読み直す。
+    /// 実行中のときだけ書き換える(完了・失敗の表示を上書きしない)
+    @MainActor
+    private func refreshInterruptionStatus() {
+        guard isRunning else { return }
+        let paused = activeReporters.contains { $0.isPaused }
+        let desired: String?
+        if paused {
+            desired = TranscriptionService.pausedStatusText
+        } else if appInBackground, keepsWorkingInBackground {
+            desired = TranscriptionService.lockedStatusText
+        } else {
+            desired = nil
+        }
+        let showingInterruption = TranscriptionService.isInterruptionStatus(statusText)
+        if let desired {
+            if !showingInterruption {
+                statusBeforePause = statusText
+            }
+            if statusText != desired {
+                statusText = desired
+            }
+        } else if showingInterruption {
+            statusText = statusBeforePause ?? "文字起こし中…"
+            statusBeforePause = nil
+        }
+    }
+
+    /// 継続処理(期限切れでないもの)か、このプロセスの背景送信が動いているか
+    private var keepsWorkingInBackground: Bool {
+        if let handle = continuedHandle, !handle.wasExpired {
+            return true
+        }
+        return CloudBackgroundUploader.shared.hasActiveUploads
+    }
+
+    private func makePauseReporter() -> BackgroundPauseReporter {
+        BackgroundPauseReporter { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.refreshInterruptionStatus()
+            }
+        }
+    }
+
+    /// この実行の間だけ、バックグラウンドへの出入りを監視して状態表示を切り替える。返す番号は stopObservingLifecycle に渡す
+    @MainActor
+    private func startObservingLifecycle(reporters: [BackgroundPauseReporter]) -> Int {
+        removeLifecycleObservers()
+        lifecycleGeneration += 1
+        activeReporters = reporters
+        appInBackground = UIApplication.shared.applicationState == .background
+        let center = NotificationCenter.default
+        let enter = center.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+                                       object: nil, queue: .main) { [weak self] _ in
+            // queue: .main なのでメインスレッドで呼ばれる
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.appInBackground = true
+                self.refreshInterruptionStatus()
+            }
+        }
+        let leave = center.addObserver(forName: UIApplication.willEnterForegroundNotification,
+                                       object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.appInBackground = false
+                self.refreshInterruptionStatus()
+            }
+        }
+        lifecycleObservers = [enter, leave]
+        return lifecycleGeneration
+    }
+
+    /// startObservingLifecycle の監視を外す(その後に別の実行が始めた監視は外さない)
+    @MainActor
+    private func stopObservingLifecycle(generation: Int) {
+        guard generation == lifecycleGeneration else { return }
+        removeLifecycleObservers()
+        activeReporters = []
+        appInBackground = false
+    }
+
+    @MainActor
+    private func removeLifecycleObservers() {
+        for observer in lifecycleObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        lifecycleObservers = []
+    }
+
+    // MARK: - 継続処理(iOS 26+)
+
+    private var continuedHandle: ContinuedProcessingHandle? {
+        lock.lock()
+        defer { lock.unlock() }
+        return continuedHandleStorage
+    }
+
+    /// 実行の終わりに呼ぶ(その後に別の実行が始めた継続処理は外さない)
+    private func clearContinuedHandle(_ handle: ContinuedProcessingHandle) {
+        lock.lock()
+        if continuedHandleStorage === handle {
+            continuedHandleStorage = nil
+        }
+        lock.unlock()
+    }
+
+    /// 継続処理を始める(ユーザー操作の直後、アプリが前面にある間に呼ぶ)。使えなければ nil。
+    /// 動いている間は reporter.allowsBackgroundWork を true にする(クラウド・AI 仕上げがロック中も待たない)。
+    /// システムまたは利用者が止めたら false に戻す(以降はフォアグラウンド待ち。処理そのものは止めない)
+    private func beginContinuedProcessing(subtitle: String,
+                                          reporter: BackgroundPauseReporter) async -> ContinuedProcessingHandle? {
+        let started: ContinuedProcessingHandle? = await MainActor.run {
+            ContinuedProcessing.begin(kind: .transcribe, title: "文字起こし", subtitle: subtitle, wantsGPU: false)
+        }
+        guard let handle = started else { return nil }
+        reporter.allowsBackgroundWork = true
+        handle.onExpire = { [weak self] in
+            reporter.allowsBackgroundWork = false
+            guard let self else { return }
+            Task { @MainActor in
+                self.refreshInterruptionStatus()
+            }
+        }
+        lock.lock()
+        continuedHandleStorage = handle
+        lock.unlock()
+        return handle
+    }
+
+    /// システムの表示(ロック画面など)に出すサブタイトル。例:「クラウドAI・クリップ 2 本(12:34)」
+    private static func continuedProcessingSubtitle(for snapshot: ProjectSnapshot) -> String {
+        let jobs = makeJobs(for: snapshot)
+        var seconds = 0.0
+        for job in jobs {
+            seconds += job.clip.trimmedDuration
+        }
+        let totalSeconds = Int(seconds.rounded())
+        let length = String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+        let engineName = AppSettings.shared.transcriptionEngine.shortName
+        return "\(engineName)・クリップ \(jobs.count) 本(\(length))"
     }
 }

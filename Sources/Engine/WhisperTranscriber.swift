@@ -13,6 +13,10 @@ import WhisperKit
 // - 入力音声は TranscriptionAudioExtractor で 16kHz モノラル WAV にしてから渡す
 // - 長い音声は約 5 分ごとの「最も静かな所」で区切って順に認識し、進捗を返す
 //   (各ピース内は WhisperKit の VAD チャンク分割に任せる)
+// - CoreML(GPU / Neural Engine)はバックグラウンドでは使えないので、画面ロックなどでバックグラウンドにいる間は
+//   次のピースを始めず、フォアグラウンドに戻るまで待つ。認識中にバックグラウンドへ入ったら(進捗コールバックで気づいた時点で)
+//   そのピースの推論を打ち切り、戻ってからやり直す。戻ってから結果や失敗が届いた場合も、ピースの前後で
+//   BackgroundEpoch が変わっていればやり直す(やり直しは必ずフォアグラウンド待ちを通るので回数の上限は設けない)
 // =====================================================================
 
 enum WhisperTranscriberError: LocalizedError {
@@ -229,10 +233,14 @@ final class WhisperTranscriber {
 
     /// 元素材 sourceURL の start〜end(秒。end が nil なら末尾まで)を認識し、
     /// 元素材上の秒に揃えたトークン列を返す。
+    /// バックグラウンド中は次のピースを始めずに待つ(待っている間は pauseReporter に伝える)
     func transcribe(sourceURL: URL, start: Double, end: Double?, language: String,
+                    pauseReporter: BackgroundPauseReporter? = nil,
                     progress: @escaping (Double) -> Void) async throws -> [TimedToken] {
         #if canImport(WhisperKit)
         guard let kit = currentKit() else { throw WhisperTranscriberError.modelNotReady }
+        // 認識の途中でバックグラウンドへ入ったかを判定できるように、監視を始めておく
+        await BackgroundEpoch.install()
 
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("whisper-\(UUID().uuidString).wav")
@@ -272,6 +280,9 @@ final class WhisperTranscriber {
             while position < totalFrames {
                 try Task.checkCancellation()
                 if isStopRequested { throw CancellationError() }
+                // バックグラウンドでは推論(GPU / Neural Engine)を始めない。フォアグラウンドに戻るまで待つ
+                try await AppForegroundWaiter.wait(reporter: pauseReporter)
+                if isStopRequested { throw CancellationError() }
 
                 let remaining = totalFrames - position
                 let wantFrames = min(remaining, pieceFrames + lookAhead)
@@ -294,14 +305,39 @@ final class WhisperTranscriber {
                 }
 
                 let pieceStart = Double(position) / sampleRate
-                let results = try await kit.transcribe(audioArray: samples,
-                                                       decodeOptions: options,
-                                                       callback: { [weak self] _ in
-                                                           if self?.isStopRequested == true { return false }
-                                                           return nil
-                                                       })
+                let pieceTokens: [TimedToken]
+                /// このピースの認識中にバックグラウンドへ入ったか(進捗コールバックで立てる)
+                let backgroundFlag = WhisperBackgroundFlag()
+                /// ピースの前後で変わったら、その間にバックグラウンドへ入った(一時停止だけで戻った場合も含む)
+                let epochBefore = BackgroundEpoch.current
+                do {
+                    let results = try await kit.transcribe(audioArray: samples,
+                                                           decodeOptions: options,
+                                                           callback: { [weak self] _ in
+                                                               if self?.isStopRequested == true { return false }
+                                                               // バックグラウンドへ入った → 推論を打ち切る(新しい窓も始めない)。戻ってからやり直す
+                                                               if AppLifecycle.shared.isInBackground {
+                                                                   backgroundFlag.set()
+                                                                   return false
+                                                               }
+                                                               return nil
+                                                           })
+                    pieceTokens = Self.tokens(from: results, offset: extracted.startOffset + pieceStart)
+                } catch {
+                    if error is CancellationError || Task.isCancelled || isStopRequested { throw CancellationError() }
+                    // 認識中にバックグラウンドへ入って失敗した(戻ってから失敗が届いた場合も含む)
+                    // → ループの先頭で戻るまで待ち、同じピースをやり直す
+                    if backgroundFlag.isSet || AppLifecycle.shared.isInBackground || BackgroundEpoch.current != epochBefore {
+                        continue
+                    }
+                    throw error
+                }
                 if isStopRequested { throw CancellationError() }
-                tokens.append(contentsOf: Self.tokens(from: results, offset: extracted.startOffset + pieceStart))
+                // 認識の途中でバックグラウンドへ入った(打ち切った・GPU が使えず結果が欠けている可能性がある) → 戻ってからやり直す
+                if backgroundFlag.isSet || AppLifecycle.shared.isInBackground || BackgroundEpoch.current != epochBefore {
+                    continue
+                }
+                tokens.append(contentsOf: pieceTokens)
 
                 position += AVAudioFramePosition(cut)
                 progress(min(1, Double(position) / Double(totalFrames)))
@@ -478,6 +514,24 @@ final class WhisperTranscriber {
             total += Int64(values.fileSize ?? 0)
         }
         return total
+    }
+}
+
+/// 1 ピースの認識中にバックグラウンドへ入ったかの印(WhisperKit の進捗コールバックから立てる。スレッドセーフ)
+private final class WhisperBackgroundFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return flag
+    }
+
+    func set() {
+        lock.lock()
+        flag = true
+        lock.unlock()
     }
 }
 

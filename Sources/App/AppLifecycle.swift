@@ -1,18 +1,15 @@
 import Foundation
 import UIKit
-import BackgroundTasks
 
 /// アプリのフォアグラウンド / バックグラウンド状態を管理する。
-/// `isInBackground` はどのスレッドからでも読める(NSLock で保護)。
+/// `isInBackground` / `backgroundGPUAllowed` はどのスレッドからでも読める(NSLock で保護)。
 /// 合成エンジン(Team A)はこれを見て GPU / CPU の CIContext を切り替える。
 final class AppLifecycle {
     static let shared = AppLifecycle()
 
-    /// BGContinuedProcessingTask(iOS 26+)の識別子。Info.plist の BGTaskSchedulerPermittedIdentifiers に必要。
-    static let exportTaskIdentifier = "com.personal.videoeditor.export"
-
     private let lock = NSLock()
     private var backgroundFlag = false
+    private var gpuAllowedFlag = false
     private var started = false
     private var observers: [NSObjectProtocol] = []
 
@@ -23,6 +20,22 @@ final class AppLifecycle {
         lock.lock()
         defer { lock.unlock() }
         return backgroundFlag
+    }
+
+    /// バックグラウンドでも GPU を使ってよいか(スレッドセーフ)。
+    /// iOS 26+ の継続処理(ContinuedProcessing)で GPU の使用が許可されたタスクが動いている間だけ true。
+    /// ContinuedProcessing が設定する。
+    var backgroundGPUAllowed: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return gpuAllowedFlag
+        }
+        set {
+            lock.lock()
+            gpuAllowedFlag = newValue
+            lock.unlock()
+        }
     }
 
     private func setInBackground(_ value: Bool) {
@@ -42,7 +55,10 @@ final class AppLifecycle {
         started = true
         lock.unlock()
 
-        registerBackgroundTasks()
+        // 以前のバージョンが固定の識別子で submit した要求のためのハンドラ(すぐ完了させるだけ)。
+        // 許可リストに無い識別子は登録しないので、AltStore でバンドル ID が書き換えられていても落ちない。
+        // 書き出し・文字起こしの継続処理は、開始時に ContinuedProcessing.begin が識別子ごとに登録する。
+        ContinuedProcessing.registerLegacyLaunchHandler()
 
         if Thread.isMainThread {
             MainActor.assumeIsolated {
@@ -74,23 +90,5 @@ final class AppLifecycle {
 
         // 起動直後の状態(バックグラウンド起動の場合に備える)
         setInBackground(UIApplication.shared.applicationState == .background)
-    }
-
-    private func registerBackgroundTasks() {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            // iOS 26 以降: 書き出しをバックグラウンドで継続するための BGContinuedProcessingTask。
-            // ExportManager が書き出し開始時に BGContinuedProcessingTaskRequest を submit し、
-            // システムがこのハンドラを呼ぶ。進捗報告と完了通知は ExportManager が行う。
-            _ = BGTaskScheduler.shared.register(forTaskWithIdentifier: AppLifecycle.exportTaskIdentifier,
-                                                using: nil) { task in
-                guard let continued = task as? BGContinuedProcessingTask else {
-                    task.setTaskCompleted(success: false)
-                    return
-                }
-                ExportManager.shared.attachContinuedProcessingTask(continued)
-            }
-        }
-        #endif
     }
 }

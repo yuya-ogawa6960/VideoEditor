@@ -97,6 +97,8 @@ struct SubtitleEditorView: View {
     @State private var selectedLanguage: TranscriptionLanguage = .japanese
     @State private var replaceExisting: Bool = true
     @State private var transcriptionTask: Task<Void, Never>?
+    /// 前回(アプリが終了するなどして)取り込めなかったクラウド文字起こし(CloudBackgroundUploader.pendingJobs)
+    @State private var pendingCloudJobs: [CloudJobManifest] = []
 
     @State private var translationRequest: TranslationRequest?
     /// AI 翻訳(SubtitlePolisher.translate)の実行中タスク
@@ -142,6 +144,7 @@ struct SubtitleEditorView: View {
             VStack(spacing: 0) {
                 previewHeader
                 Form {
+                    pendingCloudJobSection
                     transcriptionSection
                     translationSection
                     subtitleFileSection
@@ -155,6 +158,24 @@ struct SubtitleEditorView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { dismiss() }
                 }
+            }
+            // 文字起こし中は画面の自動ロックを止める(ロックで通信が切れて止まるため)
+            .onChange(of: transcriber.isRunning) { _, running in
+                IdleTimerGuard.set(running, for: "transcription")
+                // 前回の文字起こし結果のバナーを、文字起こし・取り込みが終わったら読み直す
+                if !running {
+                    refreshPendingCloudJobs()
+                }
+            }
+            .onDisappear {
+                IdleTimerGuard.set(false, for: "transcription")
+            }
+            // 前回の文字起こし結果のバナー: 開いたとき・前面に戻ったときに読み直す
+            .onAppear {
+                refreshPendingCloudJobs()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                refreshPendingCloudJobs()
             }
             .navigationDestination(item: $editingCueID) { cueID in
                 SubtitleCueEditView(project: project, player: player, cueID: cueID)
@@ -355,6 +376,107 @@ struct SubtitleEditorView: View {
         }
         transcriptionTask?.cancel()
         transcriptionTask = nil
+    }
+
+    // MARK: 前回の文字起こし結果(クラウド・背景送信)
+
+    /// このプロジェクトのクリップを使った、未取り込みのクラウド文字起こし(新しいもの)
+    private var pendingCloudJob: CloudJobManifest? {
+        let clipIDs = Set(project.clips.map { $0.id })
+        guard !clipIDs.isEmpty else { return nil }
+        return pendingCloudJobs.first { $0.matches(clipIDs: clipIDs) }
+    }
+
+    @ViewBuilder
+    private var pendingCloudJobSection: some View {
+        if let job = pendingCloudJob, !isTranscribing {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(job.isComplete ? "前回の文字起こし結果があります" : "前回の文字起こしが途中です",
+                          systemImage: "tray.and.arrow.down")
+                        .font(.subheadline.weight(.semibold))
+                    Text(pendingCloudJobDetail(job))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button {
+                        importPendingCloudJob(job)
+                    } label: {
+                        Label("取り込む", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(isTranslating)
+                    Spacer()
+                    Button("破棄", role: .destructive) {
+                        discardPendingCloudJob(job)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            } footer: {
+                Text("「取り込む」と、下の「既存の字幕」の選択(置き換え / 追加)に従って字幕に入ります。")
+            }
+        }
+    }
+
+    private func pendingCloudJobDetail(_ job: CloudJobManifest) -> String {
+        let date = job.createdAt.formatted(date: .abbreviated, time: .shortened)
+        let quality = CloudTranscriptionQuality(rawValue: job.quality)?.shortName ?? job.model
+        var text = date + "・クリップ \(job.clips.count) 本・" + quality
+        if !job.isComplete {
+            text += "\n\(job.totalPieceCount) 件中 \(job.completedPieceCount) 件が完了。「取り込む」で残りを待ってから取り込みます。"
+        }
+        return text
+    }
+
+    private func refreshPendingCloudJobs() {
+        pendingCloudJobs = CloudBackgroundUploader.shared.pendingJobs()
+    }
+
+    /// 前回の結果から字幕を作り直し(区切り・AI 仕上げ)、「既存の字幕」の選択に従って置き換え / 追加する
+    private func importPendingCloudJob(_ job: CloudJobManifest) {
+        guard transcriptionTask == nil else { return }
+        let snapshot = project.snapshot()
+        let language = selectedLanguage
+        let replace = replaceExisting
+        transcriptionTask = Task { @MainActor in
+            do {
+                let rebuilt = try await transcriber.cues(fromPendingJob: job, snapshot: snapshot, language: language)
+                let cues = SubtitleWordTiming.fillingMissing(rebuilt)
+                if Task.isCancelled {
+                    transcriptionTask = nil
+                    refreshPendingCloudJobs()
+                    return
+                }
+                if replace {
+                    project.subtitles = cues
+                } else {
+                    project.subtitles.append(contentsOf: cues)
+                }
+                project.sortSubtitles()
+                CloudBackgroundUploader.shared.discard(jobID: job.id)
+                transcriptionTask = nil
+                refreshPendingCloudJobs()
+                if cues.isEmpty {
+                    showAlert(title: "取り込み完了", message: "音声が検出されませんでした。")
+                }
+            } catch is CancellationError {
+                transcriptionTask = nil
+                refreshPendingCloudJobs()
+            } catch {
+                let cancelled = Task.isCancelled
+                transcriptionTask = nil
+                refreshPendingCloudJobs()
+                if !cancelled {
+                    showAlert(title: "前回の結果を取り込めませんでした", message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func discardPendingCloudJob(_ job: CloudJobManifest) {
+        CloudBackgroundUploader.shared.discard(jobID: job.id)
+        refreshPendingCloudJobs()
     }
 
     // MARK: 翻訳

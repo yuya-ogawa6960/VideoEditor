@@ -10,6 +10,7 @@ import CoreImage
 
 /// CIContext を一度だけ生成して共有する(GPU / CPU)。
 /// バックグラウンドでは GPU が使えないため CPU (software renderer) に切り替える。
+/// ただし iOS 26+ の継続処理で GPU の使用が許可されている間(AppLifecycle.shared.backgroundGPUAllowed)は GPU のまま。
 enum FilterEngineContexts {
     static let colorSpace: CGColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
@@ -30,7 +31,11 @@ enum FilterEngineContexts {
 
     /// 現在の状態に応じたコンテキスト
     static var current: CIContext {
-        AppLifecycle.shared.isInBackground ? cpu : gpu
+        let lifecycle = AppLifecycle.shared
+        if lifecycle.isInBackground && !lifecycle.backgroundGPUAllowed {
+            return cpu
+        }
+        return gpu
     }
 }
 
