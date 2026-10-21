@@ -21966,6 +21966,29 @@
         }
       }
     },
+    "再生位置の後ろに %lld件を差し込みました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserted %lld after the playhead"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se insertaron %lld después de la posición de reproducción"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld inseridos após a posição de reprodução"
+          }
+        }
+      }
+    },
     "再生位置をクリップの上に合わせてください": {
       "extractionState": "manual",
       "localizations": {
@@ -23158,6 +23181,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anterior"
+          }
+        }
+      }
+    },
+    "前へ移動": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move earlier"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover antes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover para antes"
+          }
+        }
+      }
+    },
+    "前へ移動しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved earlier"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movido antes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movido para antes"
           }
         }
       }
@@ -28701,6 +28770,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Próximo"
+          }
+        }
+      }
+    },
+    "後ろへ移動": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move later"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover después"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover para depois"
+          }
+        }
+      }
+    },
+    "後ろへ移動しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved later"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movido después"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movido para depois"
           }
         }
       }

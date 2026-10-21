@@ -82,6 +82,8 @@ struct ContentView: View {
     @State private var panelSnapshot: ProjectSnapshot?
     /// 1.5: タイムラインの「+」から開く PhotosPicker
     @State private var showMediaPicker = false
+    /// タイムライン末尾の「+」から追加したときは末尾に足す(それ以外は再生位置のクリップの後ろに差し込む)
+    @State private var importAppendsAtEnd = false
     @State private var showOverlayPicker = false
     /// 「オーバーレイ」を押したときの「動画だけ / 写真だけ / 両方」の選択
     @State private var showOverlayKindDialog = false
@@ -626,6 +628,7 @@ struct ContentView: View {
         switch kind {
         case .media:
             guard !isImporting else { return }
+            importAppendsAtEnd = true
             showMediaPicker = true
         case .text:
             addTextAtPlayhead()
@@ -1701,6 +1704,18 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "複数選択"), systemImage: "checkmark.circle") {
             timeline.beginMultiSelect(with: clipID)
             showToast(String(localized: "クリップをタップして選択を追加・解除できます"))
+        })
+        // 並べ替え(長押しドラッグのほかに、ボタンでも 1 つずつ動かせる)
+        let index = project.index(of: clipID) ?? 0
+        items.append(EditorToolItem(String(localized: "前へ移動"), systemImage: "arrow.left.to.line",
+                                    enabled: index > 0, disabledReason: String(localized: "これ以上前には動かせません")) {
+            history.record(project)
+            if project.moveClips(ids: [clipID], by: -1) { showToast(String(localized: "前へ移動しました"), undo: true) }
+        })
+        items.append(EditorToolItem(String(localized: "後ろへ移動"), systemImage: "arrow.right.to.line",
+                                    enabled: index < project.clips.count - 1, disabledReason: String(localized: "これ以上後ろには動かせません")) {
+            history.record(project)
+            if project.moveClips(ids: [clipID], by: 1) { showToast(String(localized: "後ろへ移動しました"), undo: true) }
         })
         let replaceBlocked = isImporting || busy
         items.append(EditorToolItem.replaceMedia(String(localized: "フッテージを置き換え"), systemImage: "arrow.triangle.2.circlepath",
@@ -3189,6 +3204,14 @@ struct ContentView: View {
         var failures: [String] = []
         var recorded = false
         var added = 0
+        // 差し込む位置: 再生位置のクリップの後ろ(末尾の「+」からのときと、クリップが無いときは末尾)
+        var insertAt: Int? = nil
+        if !importAppendsAtEnd, !project.clips.isEmpty,
+           let location = project.locate(timelineTime: player.currentTime), location.index < project.clips.count {
+            insertAt = location.index + 1
+        }
+        importAppendsAtEnd = false
+        var firstAddedID: UUID? = nil
         for item in items {
             do {
                 let clip: Clip
@@ -3207,7 +3230,13 @@ struct ContentView: View {
                     history.record(project)
                     recorded = true
                 }
-                project.clips.append(clip)
+                if let i = insertAt, i <= project.clips.count {
+                    project.clips.insert(clip, at: i)
+                    insertAt = i + 1
+                } else {
+                    project.clips.append(clip)
+                }
+                if firstAddedID == nil { firstAddedID = clip.id }
                 added += 1
             } catch {
                 // MovieImporter / MediaStore のエラーは日本語の説明(LocalizedError)を持つ
@@ -3219,7 +3248,10 @@ struct ContentView: View {
         if !failures.isEmpty {
             alertMessage = String(localized: "\(failures.count)件の動画・写真を読み込めませんでした。\n") + failures.joined(separator: "\n")
         } else if added > 0 {
-            showToast(String(localized: "\(added)件を追加しました"), undo: true)
+            if let id = firstAddedID { selection = .clip(id) }
+            showToast(insertAt != nil
+                      ? String(localized: "再生位置の後ろに \(added)件を差し込みました")
+                      : String(localized: "\(added)件を追加しました"), undo: true)
         }
     }
 }
