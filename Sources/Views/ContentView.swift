@@ -873,6 +873,12 @@ struct ContentView: View {
             } else {
                 EditorMissingPanelContent()
             }
+        case .slip(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorSlipPanel(project: project, clip: clip, player: player)
+            } else {
+                EditorMissingPanelContent()
+            }
         case .clipAnimation(let clipID):
             if let clip = project.clipBinding(id: clipID) {
                 EditorClipAnimationPanel(clip: clip)
@@ -1716,6 +1722,12 @@ struct ContentView: View {
                                     enabled: index < project.clips.count - 1, disabledReason: String(localized: "これ以上後ろには動かせません")) {
             history.record(project)
             if project.moveClips(ids: [clipID], by: 1) { showToast(String(localized: "後ろへ移動しました"), undo: true) }
+        })
+        let canSlip = !isStill && (clip.map { $0.duration - ($0.endTime - $0.startTime) > 0.05 } ?? false)
+        items.append(EditorToolItem(String(localized: "使う部分を調整(スリップ)"), systemImage: "arrow.left.and.right.square",
+                                    enabled: canSlip,
+                                    disabledReason: String(localized: "元の動画をすべて使っているので、ずらせません")) {
+            openPanel(.slip(clipID))
         })
         let replaceBlocked = isImporting || busy
         items.append(EditorToolItem.replaceMedia(String(localized: "フッテージを置き換え"), systemImage: "arrow.triangle.2.circlepath",
@@ -2791,16 +2803,20 @@ struct ContentView: View {
                                 thumbnail: fresh.thumbnail,
                                 name: fresh.name)
             replaced.stillImageURL = fresh.stillImageURL
+            // クリップの長さはそのまま。新しい動画が長ければ同じ位置から同じ長さだけ使い、
+            // 短ければ全部使う(そのぶん短くなる)
+            let length = max(0.2, old.endTime - old.startTime)
+            var shortened = false
             if fresh.isStill {
                 replaced.startTime = 0
-                replaced.endTime = max(0.2, min(fresh.duration, old.endTime - old.startTime))
+                replaced.endTime = max(0.2, min(fresh.duration, length))
+            } else if fresh.duration >= length {
+                replaced.startTime = min(max(0, old.startTime), fresh.duration - length)
+                replaced.endTime = replaced.startTime + length
             } else {
-                replaced.startTime = min(max(0, old.startTime), max(0, fresh.duration - 0.2))
-                replaced.endTime = min(old.endTime, fresh.duration)
-                if replaced.endTime - replaced.startTime < 0.2 {
-                    replaced.startTime = 0
-                    replaced.endTime = fresh.duration
-                }
+                replaced.startTime = 0
+                replaced.endTime = fresh.duration
+                shortened = true
             }
             replaced.speed = old.speed
             replaced.filter = old.filter
@@ -2817,7 +2833,15 @@ struct ContentView: View {
             history.record(project)
             project.clips[i] = replaced
             importDone = 1
-            showToast(String(localized: "置き換えました"), undo: true)
+            if shortened {
+                showToast(String(localized: "置き換えました(新しい動画が短いため、クリップも短くなりました)"), undo: true)
+            } else if !fresh.isStill, fresh.duration - length > 0.05 {
+                // 長さはそのままで、どこを使うかを細かく合わせられるように
+                showToast(String(localized: "置き換えました。使う部分を調整できます"), undo: true)
+                openPanel(.slip(clipID))
+            } else {
+                showToast(String(localized: "置き換えました"), undo: true)
+            }
         } catch {
             alertMessage = String(localized: "動画を置き換えられませんでした。\n\(error.localizedDescription)")
         }

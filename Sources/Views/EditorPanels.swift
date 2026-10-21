@@ -41,6 +41,8 @@ enum EditorPanel: Hashable {
     case narrationRecord
 
     // ---- 第3弾: クリップ ----
+    /// スリップ(長さはそのままで、元の動画のどこを使うかをずらす)
+    case slip(UUID)
     /// クリップの終わりから次のクリップへのトランジション
     case transition(UUID)
     /// クリップのイン・アウト アニメーション
@@ -148,6 +150,7 @@ enum EditorPanel: Hashable {
         case .overlayFilter: return String(localized: "カラープリセット")
         case .narrationVolume: return String(localized: "ボリューム")
         case .narrationRecord: return String(localized: "ボイスオーバー録音")
+        case .slip: return String(localized: "使う部分を調整(スリップ)")
         case .transition: return String(localized: "ビデオトランジション")
         case .clipAnimation: return String(localized: "アニメーション")
         case .geometry: return String(localized: "モーション・クロップ")
@@ -190,7 +193,7 @@ enum EditorPanel: Hashable {
     var targetSelection: EditorSelection? {
         switch self {
         case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id),
-             .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
+             .slip(let id), .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
              .audioEffects(let id), .beatDetect(let id), .hsl(let id), .lut(let id), .colorMatch(let id),
              .mask(let id), .autoReframe(let id), .stabilize(let id), .enhance(let id), .parallax(let id):
             return .clip(id)
@@ -263,7 +266,7 @@ enum EditorPanel: Hashable {
     func isCompatible(with selection: EditorSelection?) -> Bool {
         switch self {
         case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id),
-             .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
+             .slip(let id), .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
              .audioEffects(let id), .beatDetect(let id), .hsl(let id), .lut(let id), .colorMatch(let id),
              .mask(let id), .autoReframe(let id), .stabilize(let id), .enhance(let id), .parallax(let id):
             return selection == .clip(id)

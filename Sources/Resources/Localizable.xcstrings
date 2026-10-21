@@ -990,6 +990,52 @@
         }
       }
     },
+    "+1コマ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+1 frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+1 fotograma"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+1 quadro"
+          }
+        }
+      }
+    },
+    "-1コマ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-1 frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-1 fotograma"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-1 quadro"
+          }
+        }
+      }
+    },
     "0 秒にすると、線がいきなり全部表示されます。": {
       "extractionState": "manual",
       "localizations": {
@@ -12697,6 +12743,29 @@
         }
       }
     },
+    "スリップ: クリップの長さは変えずに、元の動画のどの部分を使うかをずらします。帯をドラッグするか、ボタンで細かく動かせます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slip: shifts which part of the source video is used without changing the clip length. Drag the bar or use the buttons for fine control."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslizar: cambia qué parte del video original se usa sin cambiar la duración del clip. Arrastra la barra o usa los botones para ajustar con precisión."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslizar: muda qual parte do vídeo original é usada sem alterar a duração do clipe. Arraste a barra ou use os botões para ajustar com precisão."
+          }
+        }
+      }
+    },
     "スロー": {
       "extractionState": "manual",
       "localizations": {
@@ -20264,6 +20333,29 @@
         }
       }
     },
+    "使う部分の始まり": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start of the used part"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio de la parte usada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Início da parte usada"
+          }
+        }
+      }
+    },
     "使う部分を元に戻す": {
       "extractionState": "manual",
       "localizations": {
@@ -20283,6 +20375,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Redefinir trecho usado"
+          }
+        }
+      }
+    },
+    "使う部分を調整(スリップ)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust used part (Slip)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar la parte usada (deslizar)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar a parte usada (deslizar)"
           }
         }
       }
@@ -21019,6 +21134,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Original"
+          }
+        }
+      }
+    },
+    "元の動画をすべて使っているので、ずらせません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The whole source video is in use, so it cannot be shifted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se usa todo el video original, así que no se puede desplazar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vídeo original inteiro está em uso, então não dá para deslocar"
           }
         }
       }
@@ -26562,6 +26700,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "feminina, clara"
+          }
+        }
+      }
+    },
+    "始まり": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Início"
           }
         }
       }
@@ -35467,6 +35628,29 @@
         }
       }
     },
+    "終わり": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fin"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fim"
+          }
+        }
+      }
+    },
     "終わりだけ速く": {
       "extractionState": "manual",
       "localizations": {
@@ -36406,6 +36590,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Substituído"
+          }
+        }
+      }
+    },
+    "置き換えました(新しい動画が短いため、クリップも短くなりました)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replaced (the new video is shorter, so the clip got shorter too)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazado (el nuevo video es más corto, así que el clip también se acortó)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituído (o novo vídeo é mais curto, então o clipe também encurtou)"
+          }
+        }
+      }
+    },
+    "置き換えました。使う部分を調整できます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replaced. You can adjust which part is used"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazado. Puedes ajustar qué parte se usa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituído. Você pode ajustar qual parte é usada"
           }
         }
       }
@@ -41788,6 +42018,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Duração %@ → %@"
+          }
+        }
+      }
+    },
+    "長さ %@(変わりません)・元の動画 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Length %@ (unchanged) · source video %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duración %@ (sin cambios) · video original %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duração %@ (inalterada) · vídeo original %@"
           }
         }
       }
