@@ -77,7 +77,7 @@ enum ClipFXTimeline {
 }
 
 /// 操作の下に出す 1 行の説明(やさしい言葉で)
-private struct ClipFXHint: View {
+struct ClipFXHint: View {
     let text: String
     var body: some View {
         Text(text)
@@ -87,7 +87,7 @@ private struct ClipFXHint: View {
     }
 }
 
-private func clipFXSeconds(_ value: Double) -> String {
+func clipFXSeconds(_ value: Double) -> String {
     String(format: "%.1f 秒", value)
 }
 
