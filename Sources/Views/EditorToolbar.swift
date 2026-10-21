@@ -429,6 +429,40 @@ struct EditorToastView: View {
         .shadow(color: Color.black.opacity(0.4), radius: 8, y: 2)
         .padding(.horizontal, 16)
     }
+
+    /// 出るとき: ゆっくりふわっと(少し下からにじむように)
+    static let showAnimation: Animation = .spring(duration: 0.6, bounce: 0.18)
+    /// 消えるとき: 真ん中へスッと吸い込まれる
+    static let hideAnimation: Animation = .easeIn(duration: 0.3)
+}
+
+/// トーストの出入りの見た目(ぼかし・大きさ・透明度・位置)
+struct ToastCloudModifier: ViewModifier {
+    var scale: CGFloat
+    var opacity: Double
+    var blur: CGFloat
+    var offsetY: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale, anchor: .center)
+            .blur(radius: blur)
+            .opacity(opacity)
+            .offset(y: offsetY)
+    }
+}
+
+extension AnyTransition {
+    /// 雲のようにふわっと現れ(ぼけた小さな姿から、少し浮き上がりながらはっきりする)、
+    /// 消えるときは真ん中にスッと吸い込まれる(中心へ縮みながら薄くなる)
+    static var toastCloud: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(active: ToastCloudModifier(scale: 0.82, opacity: 0, blur: 12, offsetY: 16),
+                                 identity: ToastCloudModifier(scale: 1, opacity: 1, blur: 0, offsetY: 0)),
+            removal: .modifier(active: ToastCloudModifier(scale: 0.04, opacity: 0, blur: 3, offsetY: 0),
+                               identity: ToastCloudModifier(scale: 1, opacity: 1, blur: 0, offsetY: 0))
+        )
+    }
 }
 
 /// 下のボタンが何の編集か(「クリップの編集」「全体の編集」など)を、切り替わったときに 1 秒だけ小さく出す

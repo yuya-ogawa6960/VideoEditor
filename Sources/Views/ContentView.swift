@@ -291,14 +291,15 @@ struct ContentView: View {
                 undoFromToast()
             }
             .padding(.bottom, 84)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            // 雲のようにふわっと現れ、消えるときは真ん中にスッと吸い込まれる
+            .transition(.toastCloud)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: current.id) {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
             if Task.isCancelled { return }
             if toast?.id == current.id {
-                withAnimation(.easeOut(duration: 0.2)) {
+                withAnimation(EditorToastView.hideAnimation) {
                     toast = nil
                 }
             }
@@ -312,13 +313,15 @@ struct ContentView: View {
         case .warning: EditorHaptics.warning()
         case .info: break
         }
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(EditorToastView.showAnimation) {
             toast = EditorToast(message, style: style, canUndo: undo)
         }
     }
 
     private func undoFromToast() {
-        toast = nil
+        withAnimation(EditorToastView.hideAnimation) {
+            toast = nil
+        }
         activePanel = nil
         history.undo(project)
     }
