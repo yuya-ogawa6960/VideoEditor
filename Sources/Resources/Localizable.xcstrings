@@ -5866,6 +5866,29 @@
         }
       }
     },
+    "うず巻き": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swirl"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remolino"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redemoinho"
+          }
+        }
+      }
+    },
     "うまくいきませんでした": {
       "extractionState": "manual",
       "localizations": {
@@ -8810,6 +8833,52 @@
         }
       }
     },
+    "アイリス(閉じる)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris (close)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris (cerrar)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Íris (fechar)"
+          }
+        }
+      }
+    },
+    "アイリス(開く)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris (open)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris (abrir)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Íris (abrir)"
+          }
+        }
+      }
+    },
     "アウト": {
       "extractionState": "manual",
       "localizations": {
@@ -9841,6 +9910,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "capa"
+          }
+        }
+      }
+    },
+    "カバー(右)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cover (right)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cubrir (derecha)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cobrir (direita)"
+          }
+        }
+      }
+    },
+    "カバー(左)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cover (left)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cubrir (izquierda)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cobrir (esquerda)"
           }
         }
       }
@@ -11179,6 +11294,29 @@
         }
       }
     },
+    "グリッチ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glitch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glitch"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glitch"
+          }
+        }
+      }
+    },
     "コピー": {
       "extractionState": "manual",
       "localizations": {
@@ -12099,6 +12237,29 @@
         }
       }
     },
+    "スピン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spin"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giro"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giro"
+          }
+        }
+      }
+    },
     "スピーチを強調": {
       "extractionState": "manual",
       "localizations": {
@@ -12578,6 +12739,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aproximar"
+          }
+        }
+      }
+    },
+    "ズームブラー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom blur"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenfoque de zoom"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfoque de zoom"
           }
         }
       }
@@ -13824,6 +14008,29 @@
         }
       }
     },
+    "ドア(開く)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barn door"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puerta (abrir)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porta (abrir)"
+          }
+        }
+      }
+    },
     "ドキュメンタリー": {
       "extractionState": "manual",
       "localizations": {
@@ -14303,6 +14510,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não é possível alocar um buffer"
+          }
+        }
+      }
+    },
+    "バー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bars"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barras"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barras"
           }
         }
       }
@@ -15618,6 +15848,29 @@
         }
       }
     },
+    "フラッシュ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destello"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash"
+          }
+        }
+      }
+    },
     "フリーズ": {
       "extractionState": "manual",
       "localizations": {
@@ -16212,6 +16465,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "caneta"
+          }
+        }
+      }
+    },
+    "ページめくり": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page curl"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasar página"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Virar página"
+          }
+        }
+      }
+    },
+    "ホイップパン(右)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whip pan (right)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barrido rápido (derecha)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chicote (direita)"
+          }
+        }
+      }
+    },
+    "ホイップパン(左)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whip pan (left)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barrido rápido (izquierda)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chicote (esquerda)"
           }
         }
       }
@@ -16958,19 +17280,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosaic"
+            "value": "Pixelate"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosaico"
+            "value": "Pixelado"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosaico"
+            "value": "Pixelizar"
           }
         }
       }
@@ -17868,6 +18190,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "cortina"
+          }
+        }
+      }
+    },
+    "ワイプ(上)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wipe (up)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortinilla (arriba)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortina (cima)"
+          }
+        }
+      }
+    },
+    "ワイプ(下)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wipe (down)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortinilla (abajo)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortina (baixo)"
           }
         }
       }
@@ -20789,6 +21157,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Para o início"
+          }
+        }
+      }
+    },
+    "光漏れ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light leak"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuga de luz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vazamento de luz"
           }
         }
       }

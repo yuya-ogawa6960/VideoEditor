@@ -24,6 +24,7 @@ struct NormalizedPoint: Equatable {
 
 enum TransitionType: String, CaseIterable, Identifiable {
     case none, dissolve, fadeBlack, fadeWhite, slideLeft, slideRight, slideUp, slideDown, zoomIn, zoomOut, wipeLeft, wipeRight, blur
+    case wipeUp, wipeDown, coverLeft, coverRight, irisOpen, irisClose, doorOpen, spin, swirl, zoomBlur, whipLeft, whipRight, flash, lightLeak, glitch, pixelate, bars, pageCurl
     var id: String { rawValue }
     var displayName: String {
         switch self {
@@ -40,6 +41,24 @@ enum TransitionType: String, CaseIterable, Identifiable {
         case .wipeLeft: return String(localized: "ワイプ(左)")
         case .wipeRight: return String(localized: "ワイプ(右)")
         case .blur: return String(localized: "ブラー")
+        case .wipeUp: return String(localized: "ワイプ(上)")
+        case .wipeDown: return String(localized: "ワイプ(下)")
+        case .coverLeft: return String(localized: "カバー(左)")
+        case .coverRight: return String(localized: "カバー(右)")
+        case .irisOpen: return String(localized: "アイリス(開く)")
+        case .irisClose: return String(localized: "アイリス(閉じる)")
+        case .doorOpen: return String(localized: "ドア(開く)")
+        case .spin: return String(localized: "スピン")
+        case .swirl: return String(localized: "うず巻き")
+        case .zoomBlur: return String(localized: "ズームブラー")
+        case .whipLeft: return String(localized: "ホイップパン(左)")
+        case .whipRight: return String(localized: "ホイップパン(右)")
+        case .flash: return String(localized: "フラッシュ")
+        case .lightLeak: return String(localized: "光漏れ")
+        case .glitch: return String(localized: "グリッチ")
+        case .pixelate: return String(localized: "モザイク")
+        case .bars: return String(localized: "バー")
+        case .pageCurl: return String(localized: "ページめくり")
         }
     }
 }

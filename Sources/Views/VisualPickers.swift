@@ -139,6 +139,101 @@ struct TransitionPreview: View {
             } else {
                 b.blur(radius: (1 - p) * 2 * 8)
             }
+        default:
+            extendedContent(p: p, w: w, h: h, a: a, b: b)
+        }
+    }
+
+    @ViewBuilder
+    private func extendedContent(p: Double, w: CGFloat, h: CGFloat, a: PreviewPanel, b: PreviewPanel) -> some View {
+        let k = sin(Double.pi * p)
+        let d = max(0.1, (w + h) * 1.2 * p)
+        switch type {
+        case .wipeUp:
+            ZStack { a; b.mask(alignment: .bottom) { Rectangle().frame(height: max(0.1, h * p)) } }
+        case .wipeDown:
+            ZStack { a; b.mask(alignment: .top) { Rectangle().frame(height: max(0.1, h * p)) } }
+        case .coverLeft:
+            ZStack { a; b.offset(x: w * (1 - p)) }
+        case .coverRight:
+            ZStack { a; b.offset(x: -w * (1 - p)) }
+        case .irisOpen:
+            ZStack { a; b.mask { Circle().frame(width: d, height: d) } }
+        case .irisClose:
+            let dc = max(0.1, (w + h) * 1.2 * (1 - p))
+            ZStack { b; a.mask { Circle().frame(width: dc, height: dc) } }
+        case .doorOpen:
+            ZStack { a; b.mask { Rectangle().frame(width: max(0.1, w * p)) } }
+        case .spin:
+            ZStack {
+                a.rotationEffect(.degrees(90 * p)).scaleEffect(1 - 0.3 * p).opacity(1 - p)
+                b.rotationEffect(.degrees(-90 * (1 - p))).scaleEffect(0.7 + 0.3 * p).opacity(p)
+            }
+        case .swirl:
+            ZStack { a.opacity(1 - p); b.opacity(p) }
+                .rotationEffect(.degrees(k * 160))
+                .scaleEffect(1 + 0.4 * k)
+        case .zoomBlur:
+            ZStack {
+                a.scaleEffect(1 + p).opacity(1 - p)
+                b.scaleEffect(1.5 - 0.5 * p).opacity(p)
+            }
+            .blur(radius: k * 4)
+        case .whipLeft:
+            ZStack { a.offset(x: -w * p); b.offset(x: w * (1 - p)) }.blur(radius: k * 5)
+        case .whipRight:
+            ZStack { a.offset(x: w * p); b.offset(x: -w * (1 - p)) }.blur(radius: k * 5)
+        case .flash:
+            ZStack {
+                if p < 0.5 { a } else { b }
+                Color.white.opacity(k)
+            }
+        case .lightLeak:
+            ZStack {
+                a
+                b.opacity(p)
+                RadialGradient(colors: [Color.orange.opacity(0.9), Color.red.opacity(0)],
+                               center: UnitPoint(x: -0.2 + 1.4 * p, y: 0.4), startRadius: 0, endRadius: w)
+                    .opacity(k)
+                    .blendMode(.screen)
+            }
+        case .glitch:
+            ZStack {
+                if p < 0.5 { a } else { b }
+                Color.red.opacity(0.35 * k).offset(x: k * 6).blendMode(.screen)
+                Color.cyan.opacity(0.35 * k).offset(x: -k * 6).blendMode(.screen)
+            }
+            .offset(x: Int(p * 24) % 2 == 0 ? k * 2 : -k * 2)
+        case .pixelate:
+            ZStack {
+                if p < 0.5 { a } else { b }
+            }
+            .blur(radius: k * 3)
+            .overlay {
+                Image(systemName: "square.grid.3x3.fill")
+                    .font(.system(size: 18))
+                    .foregroundStyle(Color.white.opacity(0.5 * k))
+            }
+        case .bars:
+            ZStack {
+                a
+                b.mask {
+                    HStack(spacing: 0) {
+                        ForEach(0..<6, id: \.self) { i in
+                            Rectangle()
+                                .scaleEffect(x: 1, y: CGFloat(min(1, max(0, p * 1.6 - Double(i) * 0.12))), anchor: .top)
+                        }
+                    }
+                }
+            }
+        case .pageCurl:
+            ZStack {
+                b
+                a.mask(alignment: .leading) { Rectangle().frame(width: max(0.1, w * (1 - p))) }
+                    .shadow(color: .black.opacity(0.5), radius: 3, x: 2)
+            }
+        default:
+            ZStack { a; b.opacity(p) }
         }
     }
 }
