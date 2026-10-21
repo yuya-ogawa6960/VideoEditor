@@ -35,8 +35,8 @@ final class AdsManager: NSObject {
     /// インタースティシャルどうしの最短間隔(秒)
     static let minimumInterval: TimeInterval = 120
 
-    /// TestFlight(サンドボックスのレシート)かデバッグビルド → テスト広告
-    static var usesTestAds: Bool {
+    /// TestFlight(サンドボックスのレシート)かデバッグビルド → テスト広告(どのスレッドからでも読める)
+    nonisolated static var usesTestAds: Bool {
         #if DEBUG
         return true
         #else
@@ -48,7 +48,7 @@ final class AdsManager: NSObject {
     private var rewardedUnit: String { Self.usesTestAds ? Self.testRewardedUnit : Self.liveRewardedUnit }
 
     /// リワード広告(見てポイント)を使えるか
-    static var hasRewarded: Bool { usesTestAds || !liveRewardedUnit.isEmpty }
+    nonisolated static var hasRewarded: Bool { usesTestAds || !liveRewardedUnit.isEmpty }
 
     private(set) var isStarted = false
     /// リワード広告の準備ができているか(ボタンの有効・無効に使う)
