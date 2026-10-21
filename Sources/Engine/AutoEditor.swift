@@ -323,7 +323,8 @@ enum AutoEditor {
                 // ビートに寄せるときは 1 枚あたり 1.5 倍まで延ばしてよい
                 var limits = clips
                 for i in limits.indices { limits[i].endTime = per * 1.5 }
-                alignToBeats(&pieces, transitions: transitions, beats: beats, clips: limits)
+                // 写真だけなので話し声はない(空のガード)
+                alignToBeats(&pieces, transitions: transitions, beats: beats, clips: limits, guardSpeech: SpeechGuard())
             }
         }
         try Task.checkCancellation()
@@ -817,6 +818,9 @@ enum AutoEditor {
 struct SpeechGuard {
     /// クリップの番号 → 重なりをまとめた区間(前後に 0.1 秒の余白)
     private var intervals: [Int: [ClosedRange<Double>]] = [:]
+
+    /// 話し声の区間なし(写真だけのスライドショーなど)
+    init() {}
 
     init(snapshot: ProjectSnapshot) {
         let layout = CompositionBuilder.timelineLayout(for: snapshot)

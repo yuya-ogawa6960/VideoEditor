@@ -83,6 +83,9 @@ struct ContentView: View {
     /// 1.5: タイムラインの「+」から開く PhotosPicker
     @State private var showMediaPicker = false
     @State private var showOverlayPicker = false
+    /// 「オーバーレイ」を押したときの「動画だけ / 写真だけ / 両方」の選択
+    @State private var showOverlayKindDialog = false
+    @State private var overlayPickerFilter: PHPickerFilter = .any(of: [.videos, .images])
     /// 1.5: 「聞きやすくする」(ナレーション 1 件の音量そろえ)の確認対象
     @State private var normalizeNarrationTarget: UUID?
 
@@ -590,9 +593,28 @@ struct ContentView: View {
                       selection: $overlayPickerItems,
                       maxSelectionCount: nil,
                       selectionBehavior: .ordered,
-                      matching: .any(of: [.videos, .images]),
+                      matching: overlayPickerFilter,
                       preferredItemEncoding: .current,
                       photoLibrary: .shared())
+        .confirmationDialog("オーバーレイに追加するもの",
+                            isPresented: $showOverlayKindDialog,
+                            titleVisibility: .visible) {
+            Button("動画だけ") { openOverlayPicker(.videos) }
+            Button("写真だけ") { openOverlayPicker(.images) }
+            Button("動画と写真") { openOverlayPicker(.any(of: [.videos, .images])) }
+            Button("キャンセル", role: .cancel) {}
+        }
+    }
+
+    /// 「オーバーレイ」ボタン・タイムラインの「+」から。種類を選んでから写真ライブラリを開く
+    private func requestOverlayAdd() {
+        guard !isImporting else { return }
+        showOverlayKindDialog = true
+    }
+
+    private func openOverlayPicker(_ filter: PHPickerFilter) {
+        overlayPickerFilter = filter
+        showOverlayPicker = true
     }
 
     /// タイムラインの「+」(空のトラックをまとめた行・最後のクリップの後ろ)から追加する
@@ -610,8 +632,7 @@ struct ContentView: View {
             history.record(project)
             activeSheet = .subtitles
         case .overlay:
-            guard !isImporting else { return }
-            showOverlayPicker = true
+            requestOverlayAdd()
         case .bgm:
             player.pause()
             activePanel = nil
@@ -1273,9 +1294,11 @@ struct ContentView: View {
                                           items: textGroupItems))
         items.append(EditorToolItem.group("オーディオ", systemImage: "music.note", id: "group-audio",
                                           items: audioGroupItems))
-        items.append(EditorToolItem.addOverlay("オーバーレイ", systemImage: "photo.on.rectangle",
-                                               enabled: !isImporting,
-                                               disabledReason: Self.importingReason))
+        items.append(EditorToolItem("オーバーレイ", systemImage: "photo.on.rectangle",
+                                    enabled: !isImporting,
+                                    disabledReason: Self.importingReason) {
+            requestOverlayAdd()
+        })
         items.append(EditorToolItem.group("エフェクト", systemImage: "sparkles", id: "group-effects",
                                           items: effectGroupItems))
         items.append(EditorToolItem.group("全体", systemImage: "rectangle.3.group", id: "group-whole",
