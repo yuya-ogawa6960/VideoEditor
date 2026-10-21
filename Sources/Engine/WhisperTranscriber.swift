@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import UIKit
 #if canImport(WhisperKit)
 import WhisperKit
 #endif
@@ -17,6 +18,9 @@ import WhisperKit
 //   文の途中で切れにくく、ピースごとの準備(配列化・VAD)の無駄も少ない。ピースが長くて進捗が止まって見えないよう、
 //   ピース内の進み具合を WhisperKit の Progress と処理速度から見積もって約 0.25 秒ごとに返す
 // - モデルの読み込み(初回は CoreML の Neural Engine 向け特殊化で数分)の間は経過時間を状態文で返す
+// - 読み込みには 2 回目以降も時間がかかるので、使い終わってもすぐには解放せず keepLoadedSeconds 置いておく
+//   (作り直すときに待たない)。字幕の画面を開いたら先に読み込んでおく(preload)。
+//   メモリが足りないとき・バックグラウンドに入ったときは、使っていなければすぐ解放する
 // - CoreML(GPU / Neural Engine)はバックグラウンドでは使えないので、画面ロックなどでバックグラウンドにいる間は
 //   次のピースを始めず、フォアグラウンドに戻るまで待つ。認識中にバックグラウンドへ入ったら(進捗コールバックで気づいた時点で)
 //   そのピースの推論を打ち切り、戻ってからやり直す。戻ってから結果や失敗が届いた場合も、ピースの前後で
@@ -74,17 +78,35 @@ final class WhisperTranscriber {
     static let lookBackSeconds: Double = 10
     static let lookAheadSeconds: Double = 3
 
+    /// 使い終わってから解放するまでの秒(すぐに作り直すとき、読み込み直さずに済むように)
+    static let keepLoadedSeconds: Double = 180
+
     private let lock = NSLock()
     private var loadedModel: String?
     private var stopRequested = false
     private var preparing = false
+    /// いま文字起こしに使っている数(使っている間は解放しない)
+    private var activeUses = 0
+    /// 使い終わってからしばらくして解放する予定
+    private var unloadTask: Task<Void, Never>?
+    /// 先読みの印(先読み中は次の先読みを始めない)
+    private var preloadToken: UUID?
+    private var observers: [NSObjectProtocol] = []
     /// 直近のモデル読み込みにかかった秒数(未読み込みなら nil。調査用)
     private(set) var lastLoadDuration: TimeInterval?
     #if canImport(WhisperKit)
     private var whisperKit: WhisperKit?
     #endif
 
-    private init() {}
+    private init() {
+        // メモリが足りないとき・バックグラウンドに入ったとき(CoreML はバックグラウンドで使えない)は、使っていなければ解放する
+        let center = NotificationCenter.default
+        for name in [UIApplication.didReceiveMemoryWarningNotification, UIApplication.didEnterBackgroundNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+                self?.unloadIfIdle()
+            })
+        }
+    }
 
     // MARK: - 状態
 
@@ -147,13 +169,82 @@ final class WhisperTranscriber {
         lock.unlock()
     }
 
+    // MARK: - 使い回し(すぐには解放しない)
+
+    /// 文字起こしに使い始める(使っている間は解放しない)。prepare のあとに呼び、終わったら必ず endUse を呼ぶ
+    func beginUse() {
+        lock.lock()
+        activeUses += 1
+        let pending = unloadTask
+        unloadTask = nil
+        lock.unlock()
+        pending?.cancel()
+    }
+
+    /// 使い終わった。すぐに作り直すときに読み込み直さないよう、keepLoadedSeconds 置いてから解放する
+    func endUse() {
+        lock.lock()
+        activeUses = max(0, activeUses - 1)
+        let idle = activeUses == 0
+        lock.unlock()
+        if idle { scheduleUnload() }
+    }
+
+    /// ダウンロード済みのモデルを先に読み込んでおく(字幕の画面を開いたときなど。押してから待たないように)。
+    /// 使われなければ keepLoadedSeconds 後に解放する。準備中・使用中・読み込み済みなら何もしない(解放の予定だけ延ばす)
+    func preload(model: String) {
+        #if canImport(WhisperKit)
+        guard isModelDownloaded(model) else { return }
+        let token = UUID()
+        lock.lock()
+        let busy = preloadToken != nil || preparing || activeUses > 0
+        let ready = loadedModel == model && whisperKit != nil
+        if !busy && !ready { preloadToken = token }
+        lock.unlock()
+        if busy { return }
+        if ready {
+            scheduleUnload()
+            return
+        }
+        Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            try? await self.prepare(model: model) { _, _ in }
+            self.lock.lock()
+            if self.preloadToken == token { self.preloadToken = nil }
+            let idle = self.activeUses == 0
+            self.lock.unlock()
+            if idle { self.scheduleUnload() }
+        }
+        #endif
+    }
+
+    private func scheduleUnload(after seconds: Double = WhisperTranscriber.keepLoadedSeconds) {
+        let task = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.unloadIfIdle()
+        }
+        lock.lock()
+        let old = unloadTask
+        unloadTask = task
+        lock.unlock()
+        old?.cancel()
+    }
+
+    /// 使っていない(文字起こし中でも読み込み中でもない)ときだけ解放する
+    private func unloadIfIdle() {
+        lock.lock()
+        let idle = activeUses == 0 && !preparing
+        lock.unlock()
+        if idle { unload() }
+    }
+
     // MARK: - ダウンロード・読み込み
 
     /// モデルをダウンロードする(読み込みはしない)。progress は (0...1, 状態文)
     func download(model: String, progress: @escaping (Double, String) -> Void) async throws {
         #if canImport(WhisperKit)
-        try await waitUntilIdle()
-        setPreparing(true)
+        try await beginPreparing()
         defer { setPreparing(false) }
 
         try Self.prepareDirectory(Self.modelsDirectory)
@@ -192,17 +283,18 @@ final class WhisperTranscriber {
         #if canImport(WhisperKit)
         if isModelReady, loadedModelName == model { return }
 
-        try await download(model: model, progress: progress)
+        // ダウンロード済みなら download を通さない(通すと、先読みの読み込みが終わるまで「確認中」のまま待つため)
+        if !isModelDownloaded(model) {
+            try await download(model: model, progress: progress)
+        }
         try Task.checkCancellation()
 
-        try await waitUntilIdle()
-        setPreparing(true)
-        defer { setPreparing(false) }
-
-        unload()
         // 読み込み(CoreML の Neural Engine 向け特殊化を含む)は初回に数分かかり、その間は進捗が取れない。
-        // 止まっていると思われないよう、20 秒を過ぎたら経過時間を 5 秒ごとに添えて知らせる
-        let loadingText = String(localized: "Whisperモデルを準備中(初回のみ数分かかります)…")
+        // 止まっていると思われないよう、20 秒を過ぎたら経過時間を 5 秒ごとに添えて知らせる。
+        // 先読み(preload)が読み込み中なら、それが終わるのを待つ間もこの表示にする
+        let loadingText = Self.hasLoadedBefore(model)
+            ? String(localized: "Whisperモデルを読み込み中…")
+            : String(localized: "Whisperモデルを準備中(初回のみ数分かかります)…")
         progress(1, loadingText)
         let loadStart = Date()
         let ticker = Task {
@@ -214,6 +306,13 @@ final class WhisperTranscriber {
             }
         }
         defer { ticker.cancel() }
+
+        try await beginPreparing()
+        defer { setPreparing(false) }
+        // 先読みが先に読み込み終えていれば、それをそのまま使う
+        if isModelReady, loadedModelName == model { return }
+
+        unload()
 
         let folder = Self.modelFolder(for: model)
         let config = WhisperKitConfig(model: model,
@@ -234,6 +333,7 @@ final class WhisperTranscriber {
             loadedModel = model
             lastLoadDuration = Date().timeIntervalSince(loadStart)
             lock.unlock()
+            UserDefaults.standard.set(true, forKey: Self.loadedOnceKey(model))
         } catch {
             ticker.cancel()
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
@@ -571,24 +671,34 @@ final class WhisperTranscriber {
         lock.unlock()
     }
 
-    private var isPreparing: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return preparing
-    }
-
     private func setPreparing(_ value: Bool) {
         lock.lock()
         preparing = value
         lock.unlock()
     }
 
-    /// 別の prepare/download が走っていれば終わるまで待つ
-    private func waitUntilIdle() async throws {
-        while isPreparing {
+    /// 別の prepare/download が走っていれば終わるまで待ってから、準備中にする(待つのと印を付けるのを 1 回の lock で行う)
+    private func beginPreparing() async throws {
+        while true {
             try Task.checkCancellation()
+            lock.lock()
+            if !preparing {
+                preparing = true
+                lock.unlock()
+                return
+            }
+            lock.unlock()
             try await Task.sleep(nanoseconds: 200_000_000)
         }
+    }
+
+    /// このモデルを一度でも読み込めたか(2 回目以降は「初回のみ数分」と出さない)
+    private static func hasLoadedBefore(_ model: String) -> Bool {
+        UserDefaults.standard.bool(forKey: loadedOnceKey(model))
+    }
+
+    private static func loadedOnceKey(_ model: String) -> String {
+        "whisper.loadedOnce." + model
     }
 
     private static func prepareDirectory(_ url: URL) throws {

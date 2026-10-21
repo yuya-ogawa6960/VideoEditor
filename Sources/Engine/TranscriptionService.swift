@@ -204,6 +204,24 @@ private final class TranscriptionResumeGuard {
 
 /// 投げっぱなしの Task から届く状態表示の順番づけ。next() は通知を作った順の番号、
 /// claim(_:) はそれまでに反映した番号より新しいときだけ true(古い通知を捨てる)。スレッドセーフ
+/// 準備中の状態文を受け付ける間だけ true。準備が終わったあとに遅れて届いた状態文で、次の表示を上書きしないため
+private final class PhaseFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = true
+
+    var isActive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return active
+    }
+
+    func end() {
+        lock.lock()
+        active = false
+        lock.unlock()
+    }
+}
+
 private final class StatusSequence: @unchecked Sendable {
     private let lock = NSLock()
     private var issued = 0
@@ -542,27 +560,33 @@ final class TranscriptionService {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        // Whisper: モデルの準備(ダウンロード・読み込み)。終わったらメモリを解放する。
-        // 状態文は「Whisperモデルをダウンロード中 45%」→「Whisperモデルを準備中(初回のみ数分かかります)… — 経過 1分20秒」。
-        // 投げっぱなしの Task は順不同・遅れて届くことがあるので、番号が新しく、まだ「Whisperモデル」の表示中のときだけ書き換える
+        // Whisper: モデルの準備(ダウンロード・読み込み)。字幕の画面を開いたときに先読みしていれば、すぐ終わる。
+        // 状態文は「Whisperモデルをダウンロード中 45%」→「Whisperモデルを読み込み中… — 経過 20秒」。
+        // 投げっぱなしの Task は順不同・遅れて届くことがあるので、番号が新しく、まだ準備の段階のときだけ書き換える
+        // (文の書き出しでは見分けない。訳文では「Whisperモデル」で始まらないため)
         var whisperRun: WhisperRunState? = nil
         if engine == .whisper {
             await updateUI(status: String(localized: "Whisperモデルを確認中…"))
             let prepareSequence = StatusSequence()
+            let preparePhase = PhaseFlag()
+            defer { preparePhase.end() }
             try await WhisperTranscriber.shared.prepare(model: settings.whisperModel) { [weak self] fraction, status in
                 guard let self else { return }
                 let seq = prepareSequence.next()
                 Task {
-                    await self.applyRunningStatus(status, progress: fraction, prefix: String(localized: "Whisperモデル"),
-                                                  isCurrent: { prepareSequence.claim(seq) })
+                    await self.applyRunningStatus(status, progress: fraction, prefix: "",
+                                                  isCurrent: { preparePhase.isActive && prepareSequence.claim(seq) })
                 }
             }
+            preparePhase.end()
             try checkCancelled()
             whisperRun = WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
             await updateUI(progress: 0, status: TranscriptionService.whisperStatusPrefix + "…")
         }
+        // 使い終わってもすぐには解放しない(すぐ作り直すときに読み込み直さないよう、しばらく置いてから解放する)
+        if engine == .whisper { WhisperTranscriber.shared.beginUse() }
         defer {
-            if engine == .whisper { WhisperTranscriber.shared.unload() }
+            if engine == .whisper { WhisperTranscriber.shared.endUse() }
         }
 
         // 従来の認識器は必要になったときだけ作る

@@ -79,6 +79,9 @@ struct AIWorkingCard: View {
     let noteIcon: String
     /// カードの中に小さな広告を入れる(上に大きな広告を出せないときだけ)
     let inlineAd: Bool
+    /// 上に出すコマ(nil なら解析中に AI が見ているコマ)と、その上の札の文
+    let peekImage: CGImage?
+    let peekLabel: String?
     let onCancel: (() -> Void)?
 
     @State private var peek = AnalysisPeek.shared
@@ -92,25 +95,30 @@ struct AIWorkingCard: View {
         note = BackgroundWorkNote.analysis
         noteIcon = BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle"
         self.inlineAd = inlineAd
+        peekImage = nil
+        peekLabel = nil
         self.onCancel = onCancel
     }
 
-    /// 書き出しなど、タイトルと進み具合を直接渡す
+    /// 書き出し・字幕の自動作成など、タイトルと進み具合を直接渡す
     init(title: String, fraction: Double?, detail: String? = nil,
-         note: String, noteIcon: String, inlineAd: Bool = true, onCancel: (() -> Void)?) {
+         note: String, noteIcon: String, inlineAd: Bool = true,
+         peekImage: CGImage? = nil, peekLabel: String? = nil, onCancel: (() -> Void)?) {
         self.title = title
         self.fraction = fraction
         self.detail = detail
         self.note = note
         self.noteIcon = noteIcon
         self.inlineAd = inlineAd
+        self.peekImage = peekImage
+        self.peekLabel = peekLabel
         self.onCancel = onCancel
     }
 
     var body: some View {
         VStack(spacing: 14) {
-            if let frame = peek.frame {
-                AIScanningFrame(image: frame)
+            if let frame = peekImage ?? peek.frame {
+                AIScanningFrame(image: frame, label: peekLabel ?? String(localized: "AI が見ています"))
                     .frame(height: 150)
             }
             RobotWorkshop()
@@ -218,6 +226,8 @@ struct WorkingCardWithAd<Card: View>: View {
 /// AI が見ているコマ + 上下に動く走査線と四隅の枠
 struct AIScanningFrame: View {
     let image: CGImage
+    /// 左下の札の文
+    var label: String = String(localized: "AI が見ています")
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -248,7 +258,7 @@ struct AIScanningFrame: View {
                     HStack(spacing: 4) {
                         Circle().fill(Color.red).frame(width: 6, height: 6)
                             .opacity(reduceMotion || Int(t * 2) % 2 == 0 ? 1 : 0.3)
-                        Text("AI が見ています")
+                        Text(label)
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.white)
                     }
@@ -339,23 +349,32 @@ struct RobotWorkshop: View {
     }
 }
 
-/// 字幕の自動作成中: いま読み取っている位置のコマ + ロボット。
-/// 進み具合(0...1)から作品の時刻を求め、そこのコマを元素材から取り出す(1 秒以上動いたら取り直す)
-struct TranscriptionPeekView: View {
+/// 字幕の自動作成中の表示(見どころ探しなどと同じ作業カードを、画面全体を暗くした上に出す)。
+/// 上には、いま読み取っている位置のコマを元素材から取り出して見せる(進み具合から作品の時刻を求め、1 秒以上動いたら取り直す)
+struct TranscriptionWorkingOverlay: View {
     let project: EditorProject
     let fraction: Double
+    let status: String
+    let onCancel: () -> Void
 
     @State private var frame: CGImage?
     @State private var lastTime: Double = -10
 
     var body: some View {
-        VStack(spacing: 10) {
-            if let frame {
-                AIScanningFrame(image: frame)
-                    .frame(height: 120)
-                    .frame(maxWidth: .infinity)
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+            WorkingCardWithAd { inlineAd in
+                AIWorkingCard(title: String(localized: "字幕を作っています"),
+                              fraction: fraction,
+                              detail: status.isEmpty ? nil : status,
+                              note: BackgroundWorkNote.transcription,
+                              noteIcon: BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle",
+                              inlineAd: inlineAd,
+                              peekImage: frame,
+                              peekLabel: String(localized: "AI が聞いています"),
+                              onCancel: onCancel)
             }
-            RobotWorkshop()
         }
         .task(id: Int((min(max(fraction, 0), 1) * 100).rounded())) {
             await reload()

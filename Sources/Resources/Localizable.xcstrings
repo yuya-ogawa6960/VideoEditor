@@ -2278,6 +2278,29 @@
         }
       }
     },
+    "AI が聞いています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI is listening"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La IA está escuchando"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A IA está ouvindo"
+          }
+        }
+      }
+    },
     "AI が見ています": {
       "extractionState": "manual",
       "localizations": {
@@ -4850,6 +4873,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verificando o modelo Whisper…"
+          }
+        }
+      }
+    },
+    "Whisperモデルを読み込み中…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading the Whisper model…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando el modelo Whisper…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregando o modelo Whisper…"
           }
         }
       }
@@ -28816,6 +28862,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "As legendas estão em um comprimento legível."
+          }
+        }
+      }
+    },
+    "字幕を作っています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating captions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creando subtítulos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criando legendas"
           }
         }
       }

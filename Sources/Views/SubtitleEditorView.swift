@@ -205,6 +205,11 @@ struct SubtitleEditorView: View {
             // 前回の文字起こし結果のバナー: 開いたとき・前面に戻ったときに読み直す
             .onAppear {
                 refreshPendingCloudJobs()
+                // Whisper を使う設定なら、押してから待たないようにモデルを先に読み込んでおく(字幕がまだ無いとき)
+                let settings = AppSettings.shared
+                if settings.transcriptionEngine == .whisper, project.subtitles.isEmpty {
+                    WhisperTranscriber.shared.preload(model: settings.whisperModel)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                 refreshPendingCloudJobs()
@@ -241,6 +246,15 @@ struct SubtitleEditorView: View {
                 Button("キャンセル", role: .cancel) { }
             } message: {
                 Text("この操作は取り消せません。")
+            }
+        }
+        // 字幕の自動作成中は、見どころ探しなどと同じ作業カードを画面全体に重ねる
+        .overlay {
+            if isTranscribing {
+                TranscriptionWorkingOverlay(project: project,
+                                            fraction: transcriber.progress,
+                                            status: transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText,
+                                            onCancel: { cancelTranscription() })
             }
         }
         .subtitleTranslation(project: project, request: $translationRequest, onFinish: { result in
@@ -324,11 +338,8 @@ struct SubtitleEditorView: View {
                 .disabled(isTranscribing)
             }
 
-            if isTranscribing {
-                transcriptionProgressView
-            } else {
-                autoCaptionButton(isFirstTime: isFirstTime)
-            }
+            // 文字起こし中は、画面全体に作業カードを重ねる(body の overlay)
+            autoCaptionButton(isFirstTime: isFirstTime)
 
             NavigationLink {
                 TranscriptionSettingsView()
@@ -376,27 +387,7 @@ struct SubtitleEditorView: View {
                 .frame(maxWidth: .infinity, minHeight: isFirstTime ? 44 : 32)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(project.isEmpty || isTranslating)
-    }
-
-    private var transcriptionProgressView: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // いま読み取っている位置の映像と、聞き取り中のロボットたち
-            TranscriptionPeekView(project: project, fraction: transcriber.progress)
-            ProgressView(value: min(max(transcriber.progress, 0), 1))
-            Text(transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Label(BackgroundWorkNote.transcription, systemImage: "lock.open")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            NativeAdCard()
-            Button("文字起こしを止める", role: .destructive) {
-                cancelTranscription()
-            }
-            .buttonStyle(.borderless)
-        }
-        .padding(.vertical, 4)
+        .disabled(project.isEmpty || isTranslating || isTranscribing)
     }
 
     private var transcriptionFooterText: String {
