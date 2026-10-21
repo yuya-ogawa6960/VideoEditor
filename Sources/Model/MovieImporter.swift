@@ -44,11 +44,11 @@ enum MovieImporterError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupported:
-            return "この動画は読み込めませんでした。写真アプリで動画を開き、iCloud から本体にダウンロードしてからもう一度お試しください。"
+            return String(localized: "この動画は読み込めませんでした。写真アプリで動画を開き、iCloud から本体にダウンロードしてからもう一度お試しください。")
         case .noLibraryAccess:
-            return "写真ライブラリへのアクセスが許可されていません。設定アプリの「Video Mania」→「写真」で「フルアクセス」を選んでください。"
+            return String(localized: "写真ライブラリへのアクセスが許可されていません。設定アプリの「Video Mania」→「写真」で「フルアクセス」を選んでください。")
         case .exportFailed(let detail):
-            return "動画の変換に失敗しました(\(detail))。"
+            return String(localized: "動画の変換に失敗しました(\(detail))。")
         }
     }
 }
@@ -120,7 +120,7 @@ enum MovieImporter {
         let baseName = "Imported_\(UUID().uuidString.prefix(8)).mov"
         let destination = MediaStore.uniqueDestination(forFileName: baseName)
         guard let session = AVAssetExportSession(asset: avAsset, presetName: AVAssetExportPresetHighestQuality) else {
-            throw MovieImporterError.exportFailed("書き出しを開始できません")
+            throw MovieImporterError.exportFailed(String(localized: "書き出しを開始できません"))
         }
         do {
             try await session.export(to: destination, as: .mov)

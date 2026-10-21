@@ -16,8 +16,8 @@ enum AudioVoiceIsolatorError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unavailable: return "この端末では AI の音声分離を使えません"
-        case .renderFailed: return "AI の音声分離に失敗しました"
+        case .unavailable: return String(localized: "この端末では AI の音声分離を使えません")
+        case .renderFailed: return String(localized: "AI の音声分離に失敗しました")
         }
     }
 }

@@ -111,7 +111,7 @@ final class PlayerController {
                 if Task.isCancelled { return }
                 guard let self, self.generation == currentGeneration else { return }
                 self.isRebuilding = false
-                self.errorMessage = "プレビューを作成できませんでした: \(error.localizedDescription)"
+                self.errorMessage = String(localized: "プレビューを作成できませんでした: \(error.localizedDescription)")
             }
         }
     }

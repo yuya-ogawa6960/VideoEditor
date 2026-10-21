@@ -167,27 +167,27 @@ final class FormatKitStore {
 
     /// 初回起動時に入れるひな形
     static let starters: [FormatBlock] = {
-        var opening = FormatBlock(name: "シンプルなオープニング", kind: .opening)
+        var opening = FormatBlock(name: String(localized: "シンプルなオープニング"), kind: .opening)
         opening.id = FormatKitStore.fixedID("F0A7C2E0-0002-4000-8000-000000000001")
         opening.duration = 4
         opening.backgroundColorHex = "#000000"
         opening.titleCards = [
             TitleCard(id: FormatKitStore.fixedID("F0A7C2E0-0002-4000-8000-000000000011"), start: 0.4, duration: 3.2,
-                      heading: "第1章", title: "はじまり", opaqueBackground: false)
+                      heading: String(localized: "第1章"), title: String(localized: "はじまり"), opaqueBackground: false)
         ]
         opening.transitionOut = ClipTransition(type: .fadeBlack, duration: 0.6)
 
-        var closing = FormatBlock(name: "クロージング", kind: .closing)
+        var closing = FormatBlock(name: String(localized: "クロージング"), kind: .closing)
         closing.id = FormatKitStore.fixedID("F0A7C2E0-0002-4000-8000-000000000002")
         closing.duration = 4
         closing.backgroundColorHex = "#000000"
         closing.textClips = [
-            FormatKitStore.centeredText("ご視聴ありがとうございました", id: "F0A7C2E0-0002-4000-8000-000000000021",
+            FormatKitStore.centeredText(String(localized: "ご視聴ありがとうございました"), id: "F0A7C2E0-0002-4000-8000-000000000021",
                                         start: 0.4, duration: 3.4, sizeRatio: 0.06, fade: 0.6)
         ]
         closing.transitionOut = ClipTransition(type: .fadeBlack, duration: 0.6)
 
-        var divider = FormatBlock(name: "ディバイダー", kind: .divider)
+        var divider = FormatBlock(name: String(localized: "ディバイダー"), kind: .divider)
         divider.id = FormatKitStore.fixedID("F0A7C2E0-0002-4000-8000-000000000003")
         divider.duration = 1.5
         divider.backgroundColorHex = "#000000"

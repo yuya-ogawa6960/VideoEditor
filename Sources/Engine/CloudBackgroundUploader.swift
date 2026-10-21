@@ -209,7 +209,7 @@ extension CloudJobManifest.Failure {
         case "server": return CloudTranscriptionError.server(status: status ?? 0, message: message)
         case "badResponse": return CloudTranscriptionError.badResponse
         case "noAudio": return CloudTranscriptionError.noAudio
-        default: return CloudTranscriptionError.network(message.isEmpty ? "不明なエラー" : message)
+        default: return CloudTranscriptionError.network(message.isEmpty ? String(localized: "不明なエラー") : message)
         }
     }
 }
@@ -223,9 +223,9 @@ enum CloudBackgroundUploaderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable(let reason):
-            return "バックグラウンド送信を使えません: \(reason)"
+            return String(localized: "バックグラウンド送信を使えません: \(reason)")
         case .jobNotFound:
-            return "前回の文字起こしのデータが見つかりません。"
+            return String(localized: "前回の文字起こしのデータが見つかりません。")
         }
     }
 }
@@ -334,7 +334,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
     private var reconcileWaiters: [CheckedContinuation<Void, Never>] = []
     private var storedCompletionHandler: (() -> Void)?
     private var eventsFinishedAt: Date?
-    private var lastEvent: String = "まだありません"
+    private var lastEvent: String = String(localized: "まだありません")
     private var activationObserver: NSObjectProtocol?
 
     private static let stampFormatter: DateFormatter = {
@@ -437,7 +437,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
         if !finishedEarlier {
             storedCompletionHandler = completionHandler
         }
-        noteLocked("送信の完了でアプリが起こされました")
+        noteLocked(String(localized: "送信の完了でアプリが起こされました"))
         lock.unlock()
         if finishedEarlier {
             DispatchQueue.main.async { completionHandler() }
@@ -447,7 +447,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
     /// ジョブの作業フォルダを作って返す(切り出した音声などを置く)。保存先が無ければ投げる
     func makeJobDirectory(for jobID: UUID) throws -> URL {
         guard let directory = jobDirectoryURL(for: jobID) else {
-            throw CloudBackgroundUploaderError.unavailable("保存先(Application Support)を使えません")
+            throw CloudBackgroundUploaderError.unavailable(String(localized: "保存先(Application Support)を使えません"))
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
@@ -464,10 +464,10 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
         guard !key.isEmpty else { throw CloudTranscriptionError.missingAPIKey }
         guard !job.pieces.isEmpty else { throw CloudTranscriptionError.noAudio }
         guard let session, let directory = jobDirectoryURL(for: job.id) else {
-            throw CloudBackgroundUploaderError.unavailable("背景セッションを作れません")
+            throw CloudBackgroundUploaderError.unavailable(String(localized: "背景セッションを作れません"))
         }
         for (position, piece) in job.pieces.enumerated() where piece.index != position {
-            throw CloudBackgroundUploaderError.unavailable("ピースの番号が不正です")
+            throw CloudBackgroundUploaderError.unavailable(String(localized: "ピースの番号が不正です"))
         }
 
         var manifest = job
@@ -490,7 +490,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             }
             try writeManifest(manifest)
         } catch {
-            throw CloudBackgroundUploaderError.unavailable("送信の準備に失敗しました(\(error.localizedDescription))")
+            throw CloudBackgroundUploaderError.unavailable(String(localized: "送信の準備に失敗しました(\(error.localizedDescription))"))
         }
 
         let inBackground = AppLifecycle.shared.isInBackground
@@ -508,7 +508,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             registerTaskLocked(task, key: pieceKey, createdInBackground: inBackground)
             tasks.append(task)
         }
-        noteLocked("送信開始(ピース \(requests.count) 本)")
+        noteLocked(String(localized: "送信開始(ピース \(requests.count) 本)"))
         lock.unlock()
         for task in tasks {
             task.resume()
@@ -588,7 +588,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             }
         }
         if existed {
-            noteLocked("ジョブを片付けました")
+            noteLocked(String(localized: "ジョブを片付けました"))
         }
         lock.unlock()
         delivery.run()
@@ -617,17 +617,17 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
         lock.unlock()
 
         var lines: [String] = []
-        lines.append("セッション: \(sessionIdentifier)")
+        lines.append(String(localized: "セッション: \(sessionIdentifier)"))
         if rootDirectory == nil {
-            lines.append("状態: 使えません(保存先を作れません)")
+            lines.append(String(localized: "状態: 使えません(保存先を作れません)"))
         } else if checked {
-            lines.append("状態: 使えます")
+            lines.append(String(localized: "状態: 使えます"))
         } else {
-            lines.append("状態: 使えます(前回の送信を確認中)")
+            lines.append(String(localized: "状態: 使えます(前回の送信を確認中)"))
         }
-        lines.append("送信中のジョブ: \(runningCount) 件(送信中のピース \(livePieces) 本)")
-        lines.append("未取り込みの結果: \(pendingCount) 件")
-        lines.append("最後のイベント: \(event)")
+        lines.append(String(localized: "送信中のジョブ: \(runningCount) 件(送信中のピース \(livePieces) 本)"))
+        lines.append(String(localized: "未取り込みの結果: \(pendingCount) 件"))
+        lines.append(String(localized: "最後のイベント: \(event)"))
         return lines.joined(separator: "\n")
     }
 
@@ -696,11 +696,11 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             // 「取り込む」で送り直す(resumeOrphans)。「破棄」なら費用はかからない
             var resumeLater = false
             if isCurrent {
-                job.pieces[key.index].lastError = "アプリの強制終了で送信が取り消されました"
+                job.pieces[key.index].lastError = String(localized: "アプリの強制終了で送信が取り消されました")
                 job.updatedAt = Date()
                 jobs[key.jobID] = job
                 persistLocked(job)
-                noteLocked("アプリの強制終了で止まったピースがあります(「取り込む」で送り直します)")
+                noteLocked(String(localized: "アプリの強制終了で止まったピースがあります(「取り込む」で送り直します)"))
                 // すでに「取り込む」で待っているなら、利用者の操作なので送り直す
                 resumeLater = waiters[key.jobID] != nil
             }
@@ -796,9 +796,9 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             if writeResult(data, jobID: key.jobID, index: key.index) {
                 job.pieces[key.index].status = .done
                 job.pieces[key.index].lastError = nil
-                noteLocked("ピース \(pieceNumber)/\(pieceTotal) 完了")
+                noteLocked(String(localized: "ピース \(pieceNumber)/\(pieceTotal) 完了"))
             } else {
-                failLocked(&job, error: .network("結果を保存できませんでした(空き容量を確認してください)"),
+                failLocked(&job, error: .network(String(localized: "結果を保存できませんでした(空き容量を確認してください)")),
                            delivery: &delivery)
             }
         case .retry(let delay):
@@ -809,7 +809,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
                                                delivery: &delivery) {
                 failLocked(&job, error: failure, delivery: &delivery)
             } else {
-                noteLocked("ピース \(pieceNumber)/\(pieceTotal) を送り直します(\(reason))")
+                noteLocked(String(localized: "ピース \(pieceNumber)/\(pieceTotal) を送り直します(\(reason))"))
             }
         case .useFallbackModel:
             job.usesFallback = true
@@ -820,12 +820,12 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
                                                delivery: &delivery) {
                 failLocked(&job, error: failure, delivery: &delivery)
             } else {
-                noteLocked("ピース \(pieceNumber)/\(pieceTotal) を \(job.fallbackModel) で送り直します")
+                noteLocked(String(localized: "ピース \(pieceNumber)/\(pieceTotal) を \(job.fallbackModel) で送り直します"))
                 // まだ送り始めていないピースも、前面にいる今のうちにフォールバックモデルで作り直す
                 if !AppLifecycle.shared.isInBackground {
                     let switched = switchUnsentPiecesToFallbackLocked(&job, delivery: &delivery)
                     if switched > 0, job.status == .running {
-                        noteLocked("まだ送っていないピース \(switched) 本も \(job.fallbackModel) に切り替えました")
+                        noteLocked(String(localized: "まだ送っていないピース \(switched) 本も \(job.fallbackModel) に切り替えました"))
                     }
                 }
             }
@@ -837,7 +837,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
 
         if job.status == .running, job.isComplete {
             job.status = .completed
-            noteLocked("すべてのピース(\(pieceTotal) 本)の結果がそろいました")
+            noteLocked(String(localized: "すべてのピース(\(pieceTotal) 本)の結果がそろいました"))
         }
         job.updatedAt = Date()
         jobs[key.jobID] = job
@@ -884,7 +884,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
                                    rebuildBody: Bool, delay: Double, createdInBackground: Bool?,
                                    delivery: inout CloudUploadDelivery) -> CloudTranscriptionError? {
         guard let session, let directory = jobDirectoryURL(for: job.id) else {
-            return .network("バックグラウンド送信を使えません")
+            return .network(String(localized: "バックグラウンド送信を使えません"))
         }
         let piece = job.pieces[index]
         let model = piece.model
@@ -896,11 +896,11 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
                 resolvedContentType = built
                 job.pieces[index].bodyContentType = built
             } catch {
-                return .network("送信内容を作れませんでした(\(error.localizedDescription))")
+                return .network(String(localized: "送信内容を作れませんでした(\(error.localizedDescription))"))
             }
         }
         guard let contentType = resolvedContentType else {
-            return .network("送信内容を作れませんでした")
+            return .network(String(localized: "送信内容を作れませんでした"))
         }
 
         let request: URLRequest
@@ -991,7 +991,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             delivery.tasksToCancel.append(task)
         }
         cancelInProcessUploadsLocked(jobID: job.id, delivery: &delivery)
-        noteLocked("失敗: \(error.localizedDescription)")
+        noteLocked(String(localized: "失敗: \(error.localizedDescription)"))
     }
 
     private func registerTaskLocked(_ task: URLSessionTask, key: PieceKey, createdInBackground: Bool) {
@@ -1116,7 +1116,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             jobs[jobID] = job
             persistLocked(job)
             collectWaiterUpdatesLocked(for: job, into: &delivery)
-            noteLocked("キャンセルしました")
+            noteLocked(String(localized: "キャンセルしました"))
         }
         lock.unlock()
         delivery.run()
@@ -1140,7 +1140,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
                     delivery.completions.append((continuation: waiter.continuation,
                                                  result: .failure(CloudTranscriptionError.missingAPIKey)))
                 }
-                noteLocked("API キーが無いため、中断していたピースを送り直せません")
+                noteLocked(String(localized: "API キーが無いため、中断していたピースを送り直せません"))
             }
             lock.unlock()
             delivery.run()
@@ -1165,7 +1165,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             }
         }
         if restarted > 0 {
-            noteLocked("中断していたピース \(restarted) 本を送り直しました")
+            noteLocked(String(localized: "中断していたピース \(restarted) 本を送り直しました"))
         }
         job.updatedAt = Date()
         jobs[jobID] = job
@@ -1213,7 +1213,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             collectWaiterUpdatesLocked(for: job, into: &delivery)
         }
         if restarted > 0 {
-            noteLocked("後回しになっていたピース \(restarted) 本を送り直しました")
+            noteLocked(String(localized: "後回しになっていたピース \(restarted) 本を送り直しました"))
         }
         lock.unlock()
         delivery.run()
@@ -1258,7 +1258,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
             }
         }
         if !tasks.isEmpty {
-            noteLocked("前回の送信 \(tasks.count) 件を確認しました")
+            noteLocked(String(localized: "前回の送信 \(tasks.count) 件を確認しました"))
         }
         let waiting = finishReconcileLocked()
         lock.unlock()
@@ -1366,7 +1366,7 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
 
     private func writeManifest(_ job: CloudJobManifest) throws {
         guard let directory = jobDirectoryURL(for: job.id) else {
-            throw CloudBackgroundUploaderError.unavailable("保存先を使えません")
+            throw CloudBackgroundUploaderError.unavailable(String(localized: "保存先を使えません"))
         }
         let data = try JSONEncoder().encode(job)
         try data.write(to: directory.appendingPathComponent(Self.manifestFileName), options: Self.writeOptions)
@@ -1428,11 +1428,11 @@ final class CloudBackgroundUploader: NSObject, URLSessionDataDelegate, @unchecke
     private static func describe(error: Error?, status: Int?) -> String {
         if let error {
             let nsError = error as NSError
-            return "通信エラー \(nsError.domain) \(nsError.code)"
+            return String(localized: "通信エラー \(nsError.domain) \(nsError.code)")
         }
         if let status {
             return "HTTP \(status)"
         }
-        return "不明"
+        return String(localized: "不明")
     }
 }

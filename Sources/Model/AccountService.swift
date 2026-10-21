@@ -21,8 +21,8 @@ enum CloudAISource: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .points: return "ポイントで使う"
-        case .ownKey: return "自分の OpenAI キーで使う"
+        case .points: return String(localized: "ポイントで使う")
+        case .ownKey: return String(localized: "自分の OpenAI キーで使う")
         }
     }
 }
@@ -34,9 +34,9 @@ enum AccountError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: return "ポイントのサーバーがまだ用意されていません。"
+        case .notConfigured: return String(localized: "ポイントのサーバーがまだ用意されていません。")
         case .server(let message): return message
-        case .invalidResponse: return "サーバーの応答を読めませんでした。時間をおいてお試しください。"
+        case .invalidResponse: return String(localized: "サーバーの応答を読めませんでした。時間をおいてお試しください。")
         }
     }
 }
@@ -114,12 +114,12 @@ final class AccountService {
         switch result {
         case .failure(let error):
             if (error as? ASAuthorizationError)?.code == .canceled { return }
-            lastError = "Apple でのサインインに失敗しました: \(error.localizedDescription)"
+            lastError = String(localized: "Apple でのサインインに失敗しました: \(error.localizedDescription)")
         case .success(let authorization):
             guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
                   let data = credential.identityToken,
                   let identityToken = String(data: data, encoding: .utf8) else {
-                lastError = "Apple のサインイン情報を読めませんでした。"
+                lastError = String(localized: "Apple のサインイン情報を読めませんでした。")
                 return
             }
             isWorking = true
@@ -201,7 +201,7 @@ final class AccountService {
             await MainActor.run { self.signOut() }
         }
         guard (200..<300).contains(status) else {
-            let message = ((json["error"] as? [String: Any])?["message"] as? String) ?? "サーバーでエラーが起きました(\(status))"
+            let message = ((json["error"] as? [String: Any])?["message"] as? String) ?? String(localized: "サーバーでエラーが起きました(\(status))")
             throw AccountError.server(message)
         }
         return json

@@ -12,12 +12,12 @@ struct GoogleFontsBrowser: View {
     @State private var errorText: String?
     @State private var query = ""
     @State private var japaneseOnly = true
-    @State private var category = "すべて"
+    @State private var category = String(localized: "すべて")
     @State private var installing: String?
     @State private var installed: Set<String> = GoogleFontsService.installedFamilies()
 
     private var categories: [String] {
-        ["すべて"] + Array(Set(scope.map { $0.categoryName })).sorted()
+        [String(localized: "すべて")] + Array(Set(scope.map { $0.categoryName })).sorted()
     }
 
     private var scope: [GoogleFontFamily] {
@@ -27,7 +27,7 @@ struct GoogleFontsBrowser: View {
     private var shown: [GoogleFontFamily] {
         let q = query.trimmingCharacters(in: .whitespaces)
         return scope.filter { item in
-            (category == "すべて" || item.categoryName == category)
+            (category == String(localized: "すべて") || item.categoryName == category)
                 && (q.isEmpty || item.family.localizedCaseInsensitiveContains(q))
         }
     }
@@ -64,7 +64,7 @@ struct GoogleFontsBrowser: View {
                     .listStyle(.plain)
                 }
             }
-            .searchable(text: $query, prompt: "フォント名で探す")
+            .searchable(text: $query, prompt: String(localized: "フォント名で探す"))
             .navigationTitle("フォントを探す")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -80,7 +80,7 @@ struct GoogleFontsBrowser: View {
                 }
                 loading = false
             }
-            .onChange(of: japaneseOnly) { _, _ in category = "すべて" }
+            .onChange(of: japaneseOnly) { _, _ in category = String(localized: "すべて") }
         }
         .preferredColorScheme(.dark)
     }
@@ -112,7 +112,7 @@ private struct GoogleFontRow: View {
     @State private var preview: CTFont?
 
     private var sampleText: String {
-        family.japanese ? "あいう 動画編集 Aa" : "The quick fox 123"
+        family.japanese ? String(localized: "あいう 動画編集 Aa") : "The quick fox 123"
     }
 
     var body: some View {

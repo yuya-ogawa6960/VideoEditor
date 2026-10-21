@@ -17,8 +17,8 @@ enum MosaicKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .pixelate: return "モザイク"
-        case .blur: return "ぼかし"
+        case .pixelate: return String(localized: "モザイク")
+        case .blur: return String(localized: "ぼかし")
         }
     }
 }
@@ -30,8 +30,8 @@ enum MosaicShape: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .ellipse: return "楕円"
-        case .rectangle: return "四角"
+        case .ellipse: return String(localized: "楕円")
+        case .rectangle: return String(localized: "四角")
         }
     }
 }
@@ -77,7 +77,7 @@ extension TextClip {
 
     /// 新しいモザイク(画面中央、表示 3 秒)
     static func newMosaic(start: Double, duration: Double = 3) -> TextClip {
-        var clip = TextClip(text: "モザイク", start: start)
+        var clip = TextClip(text: String(localized: "モザイク"), start: start)
         clip.duration = duration
         clip.widthRatio = 0.3
         clip.mosaic = MosaicStyle()

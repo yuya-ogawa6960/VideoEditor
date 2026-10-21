@@ -39,9 +39,9 @@ enum PacingLevel: Int, Comparable {
 
     var title: String {
         switch self {
-        case .good: return "テンポよい"
-        case .loose: return "少しゆるい"
-        case .dull: return "中だるみ"
+        case .good: return String(localized: "テンポよい")
+        case .loose: return String(localized: "少しゆるい")
+        case .dull: return String(localized: "中だるみ")
         }
     }
 }
@@ -52,9 +52,9 @@ enum PacingSensitivity: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .strict: return "厳しめ"
-        case .normal: return "ふつう"
-        case .relaxed: return "ゆるめ"
+        case .strict: return String(localized: "厳しめ")
+        case .normal: return String(localized: "ふつう")
+        case .relaxed: return String(localized: "ゆるめ")
         }
     }
     /// 点数に足す値(厳しいほど赤くなりやすい)
@@ -300,7 +300,7 @@ enum PacingAnalyzer {
         while index < chunks.count {
             if Task.isCancelled { break }
             let upper = min(index + batchSize, chunks.count)
-            var prompt = "次の区間を採点してください。\n"
+            var prompt = String(localized: "次の区間を採点してください。\n")
             for k in index..<upper {
                 prompt += "\(k + 1): \(chunks[k].text.prefix(400))\n"
             }
@@ -463,35 +463,35 @@ enum PacingAnalyzer {
             }
         }
         if pretty > 0.25 {
-            good.append(scene.map { "\($0)がきれいに撮れていて、見ていられる画です" } ?? "画がきれいで、見ていられます")
+            good.append(scene.map { String(localized: "\($0)がきれいに撮れていて、見ていられる画です") } ?? String(localized: "画がきれいで、見ていられます"))
         }
         if smile > 0.3 {
-            good.append("笑顔が映っています")
+            good.append(String(localized: "笑顔が映っています"))
         } else if faces > 0.5 {
-            good.append("人の表情が見えています")
+            good.append(String(localized: "人の表情が見えています"))
         }
-        if laughter > 0.3 { good.append("笑い声が入っていて盛り上がっています") }
+        if laughter > 0.3 { good.append(String(localized: "笑い声が入っていて盛り上がっています")) }
         if max(music, nature) > 0.4 && pretty > 0.1 {
-            good.append(nature > music ? "自然の音と景色で、雰囲気のある「間」になっています" : "音楽と画で雰囲気が出ています")
+            good.append(nature > music ? String(localized: "自然の音と景色で、雰囲気のある「間」になっています") : String(localized: "音楽と画で雰囲気が出ています"))
         }
-        if let rate, rate > 6 { good.append("話のテンポがよいです") }
+        if let rate, rate > 6 { good.append(String(localized: "話のテンポがよいです")) }
 
-        if maxAge > 10 { bad.append("同じカットが \(Int(maxAge)) 秒続いています") }
-        if motion < 0.2 && slice.contains(where: { $0.hasVideo }) { bad.append("画面の動きが少なめです") }
-        if pauses >= 2 { bad.append("話の途中で \(pauses) 秒ほど間があいています") }
-        if let rate, rate < 3 { bad.append("話がゆっくりで、間延びしやすいです") }
+        if maxAge > 10 { bad.append(String(localized: "同じカットが \(Int(maxAge)) 秒続いています")) }
+        if motion < 0.2 && slice.contains(where: { $0.hasVideo }) { bad.append(String(localized: "画面の動きが少なめです")) }
+        if pauses >= 2 { bad.append(String(localized: "話の途中で \(pauses) 秒ほど間があいています")) }
+        if let rate, rate < 3 { bad.append(String(localized: "話がゆっくりで、間延びしやすいです")) }
         if speech < 0.3 && laughter < 0.2 && music < 0.3 && nature < 0.3 && loud < 0.15 {
-            bad.append("声や音がほとんどありません")
+            bad.append(String(localized: "声や音がほとんどありません"))
         }
-        if speech > 0.5 && maxAge > 12 && motion < 0.3 { bad.append("画面が変わらないまま話が続いています") }
+        if speech > 0.5 && maxAge > 12 && motion < 0.3 { bad.append(String(localized: "画面が変わらないまま話が続いています")) }
 
         if level != .good {
-            if pauses >= 2 { suggestions.append("話の間をスプリットで詰める(ジャンプカット)") }
-            if maxAge > 10 { suggestions.append("途中で別のカットやズームを挟む(5〜10 秒ごとに画を変える)") }
-            if speech > 0.5 && motion < 0.3 { suggestions.append("話の内容に合う写真や動画をオーバーレイで重ねる") }
-            if let aiAverage, aiAverage <= 2.5 { suggestions.append("話が長い所は要点だけ残してカットする") }
-            if speech < 0.3 && loud < 0.15 { suggestions.append("無音部分を削除する、または BGM を足す") }
-            suggestions.append("テキストで要点を見せる")
+            if pauses >= 2 { suggestions.append(String(localized: "話の間をスプリットで詰める(ジャンプカット)")) }
+            if maxAge > 10 { suggestions.append(String(localized: "途中で別のカットやズームを挟む(5〜10 秒ごとに画を変える)")) }
+            if speech > 0.5 && motion < 0.3 { suggestions.append(String(localized: "話の内容に合う写真や動画をオーバーレイで重ねる")) }
+            if let aiAverage, aiAverage <= 2.5 { suggestions.append(String(localized: "話が長い所は要点だけ残してカットする")) }
+            if speech < 0.3 && loud < 0.15 { suggestions.append(String(localized: "無音部分を削除する、または BGM を足す")) }
+            suggestions.append(String(localized: "テキストで要点を見せる"))
         }
         let reasons = (level == .good ? good + bad : bad + good)
         return (Array(reasons.prefix(3)), Array(suggestions.prefix(3)))
@@ -508,19 +508,19 @@ enum PacingAnalyzer {
         let opening = Array(timeline.prefix(3))
         let hook = opening.contains { $0.speech > 0.5 || $0.motion > 0.35 || $0.decorated || $0.smile > 0.5 || $0.laughter > 0.3 }
         if hook {
-            checks.append(EditingCheck(level: .good, title: "冒頭 3 秒のつかみ",
-                                       detail: "最初の 3 秒に話・動き・テキストのどれかがあり、引きつけられます。"))
+            checks.append(EditingCheck(level: .good, title: String(localized: "冒頭 3 秒のつかみ"),
+                                       detail: String(localized: "最初の 3 秒に話・動き・テキストのどれかがあり、引きつけられます。")))
         } else {
-            checks.append(EditingCheck(level: .dull, title: "冒頭 3 秒のつかみ",
-                                       detail: "最初の 3 秒が静かです。結論や一番いい場面を先に見せる、テキストで「何の動画か」を出すと離脱が減ります。",
-                                       fix: .seek(0), fixTitle: "冒頭を見る"))
+            checks.append(EditingCheck(level: .dull, title: String(localized: "冒頭 3 秒のつかみ"),
+                                       detail: String(localized: "最初の 3 秒が静かです。結論や一番いい場面を先に見せる、テキストで「何の動画か」を出すと離脱が減ります。"),
+                                       fix: .seek(0), fixTitle: String(localized: "冒頭を見る")))
         }
 
         // 2. 最初が静かすぎないか
         if let first = timeline.first, first.loud < 0.08, first.motion < 0.05, first.speech < 0.3, !first.decorated {
-            checks.append(EditingCheck(level: .loose, title: "始まりの無音・止まった画面",
-                                       detail: "最初の 1 秒が無音で動きもありません。頭を少し切ると、テンポよく始まります。",
-                                       fix: .seek(0), fixTitle: "冒頭を見る"))
+            checks.append(EditingCheck(level: .loose, title: String(localized: "始まりの無音・止まった画面"),
+                                       detail: String(localized: "最初の 1 秒が無音で動きもありません。頭を少し切ると、テンポよく始まります。"),
+                                       fix: .seek(0), fixTitle: String(localized: "冒頭を見る")))
         }
 
         // 3. 字幕(音を出さずに見る人向け)
@@ -530,22 +530,22 @@ enum PacingAnalyzer {
             let ratio: Double = Double(covered) / Double(speechSeconds)
             if ratio < 0.5 {
                 let missing = Int(((1 - ratio) * 100).rounded())
-                checks.append(EditingCheck(level: .dull, title: "字幕",
+                checks.append(EditingCheck(level: .dull, title: String(localized: "字幕"),
                                            detail: "話している所の \(missing)% に字幕がありません。SNS では音を出さずに見る人が多いので、字幕があると最後まで見てもらいやすくなります。",
-                                           fix: .openCaptions, fixTitle: "字幕を作る"))
+                                           fix: .openCaptions, fixTitle: String(localized: "字幕を作る")))
             } else {
-                checks.append(EditingCheck(level: .good, title: "字幕", detail: "話している所にほぼ字幕が付いています。"))
+                checks.append(EditingCheck(level: .good, title: String(localized: "字幕"), detail: String(localized: "話している所にほぼ字幕が付いています。")))
             }
         }
 
         // 4. BGM と声
         if snapshot.audio.bgmURL != nil && speechSeconds >= 5 {
             if snapshot.documentary.autoDucking {
-                checks.append(EditingCheck(level: .good, title: "BGM と声", detail: "話している間は BGM が自動で下がります。"))
+                checks.append(EditingCheck(level: .good, title: String(localized: "BGM と声"), detail: String(localized: "話している間は BGM が自動で下がります。")))
             } else {
-                checks.append(EditingCheck(level: .loose, title: "BGM と声",
-                                           detail: "BGM と声が重なっています。話している間だけ BGM を下げる(ダッキング)と聞き取りやすくなります。",
-                                           fix: .enableDucking, fixTitle: "ダッキングをオン"))
+                checks.append(EditingCheck(level: .loose, title: String(localized: "BGM と声"),
+                                           detail: String(localized: "BGM と声が重なっています。話している間だけ BGM を下げる(ダッキング)と聞き取りやすくなります。"),
+                                           fix: .enableDucking, fixTitle: String(localized: "ダッキングをオン")))
             }
         }
 
@@ -556,33 +556,33 @@ enum PacingAnalyzer {
             return clip.duration < 0.8 + Double(chars) * 0.12
         }
         if let firstShort = shortTexts.min(by: { $0.start < $1.start }) {
-            checks.append(EditingCheck(level: .loose, title: "テキストの表示時間",
-                                       detail: "\(shortTexts.count) 個のテキストが、文字数に対して表示が短く読み切れない可能性があります(目安: 0.8 秒 + 1 文字 0.12 秒)。",
-                                       fix: .seek(firstShort.start), fixTitle: "最初の 1 つを見る"))
+            checks.append(EditingCheck(level: .loose, title: String(localized: "テキストの表示時間"),
+                                       detail: String(localized: "\(shortTexts.count) 個のテキストが、文字数に対して表示が短く読み切れない可能性があります(目安: 0.8 秒 + 1 文字 0.12 秒)。"),
+                                       fix: .seek(firstShort.start), fixTitle: String(localized: "最初の 1 つを見る")))
         }
 
         // 6. 縦動画の安全な範囲(下や右のボタン・説明文に隠れる)
         if vertical {
             let unsafe = snapshot.textClips.filter { !$0.isMosaic && ($0.center.y > 0.8 || $0.center.x > 0.85 || $0.center.y < 0.08) }
             if let firstUnsafe = unsafe.min(by: { $0.start < $1.start }) {
-                checks.append(EditingCheck(level: .loose, title: "縦動画の安全な範囲",
-                                           detail: "\(unsafe.count) 個のテキストが画面の端にあり、TikTok・リール・ショートのボタンや説明文に隠れる可能性があります。少し内側に寄せましょう。",
-                                           fix: .seek(firstUnsafe.start), fixTitle: "見る"))
+                checks.append(EditingCheck(level: .loose, title: String(localized: "縦動画の安全な範囲"),
+                                           detail: String(localized: "\(unsafe.count) 個のテキストが画面の端にあり、TikTok・リール・ショートのボタンや説明文に隠れる可能性があります。少し内側に寄せましょう。"),
+                                           fix: .seek(firstUnsafe.start), fixTitle: String(localized: "見る")))
             }
             if snapshot.subtitleStyle.position == .bottom, !snapshot.subtitles.isEmpty {
-                checks.append(EditingCheck(level: .loose, title: "縦動画の字幕の位置",
-                                           detail: "縦動画で字幕がいちばん下にあると、説明文に隠れることがあります。「中央」寄りがおすすめです。"))
+                checks.append(EditingCheck(level: .loose, title: String(localized: "縦動画の字幕の位置"),
+                                           detail: String(localized: "縦動画で字幕がいちばん下にあると、説明文に隠れることがあります。「中央」寄りがおすすめです。")))
             }
         }
 
         // 7. 長さと比率
         if !vertical && total <= 60 {
-            checks.append(EditingCheck(level: .loose, title: "長さと比率",
-                                       detail: "1 分以内の動画です。ショート・リール・TikTok に出すなら 9:16 の縦にすると画面いっぱいに見てもらえます。",
-                                       fix: .makeVertical, fixTitle: "9:16 にする"))
+            checks.append(EditingCheck(level: .loose, title: String(localized: "長さと比率"),
+                                       detail: String(localized: "1 分以内の動画です。ショート・リール・TikTok に出すなら 9:16 の縦にすると画面いっぱいに見てもらえます。"),
+                                       fix: .makeVertical, fixTitle: String(localized: "9:16 にする")))
         } else if vertical && total > 180 {
-            checks.append(EditingCheck(level: .loose, title: "長さと比率",
-                                       detail: "縦動画で 3 分を超えています。ショート向けなら要点にしぼるか、長い動画なら 16:9 の横も検討しましょう。"))
+            checks.append(EditingCheck(level: .loose, title: String(localized: "長さと比率"),
+                                       detail: String(localized: "縦動画で 3 分を超えています。ショート向けなら要点にしぼるか、長い動画なら 16:9 の横も検討しましょう。")))
         }
 
         // 8. カットの頻度
@@ -591,11 +591,11 @@ enum PacingAnalyzer {
             let perMinute: Double = Double(cuts) / (total / 60)
             let text = String(format: "%.1f", perMinute)
             if perMinute < 3 {
-                checks.append(EditingCheck(level: .loose, title: "カットの頻度",
-                                           detail: "1 分あたり \(text) 回しか画が変わっていません。5〜10 秒ごとにカット・ズーム・テキストなどで変化をつけると、見続けてもらいやすくなります。"))
+                checks.append(EditingCheck(level: .loose, title: String(localized: "カットの頻度"),
+                                           detail: String(localized: "1 分あたり \(text) 回しか画が変わっていません。5〜10 秒ごとにカット・ズーム・テキストなどで変化をつけると、見続けてもらいやすくなります。")))
             } else {
-                checks.append(EditingCheck(level: .good, title: "カットの頻度",
-                                           detail: "1 分あたり \(text) 回、画が変わっていてテンポがあります。"))
+                checks.append(EditingCheck(level: .good, title: String(localized: "カットの頻度"),
+                                           detail: String(localized: "1 分あたり \(text) 回、画が変わっていてテンポがあります。")))
             }
         }
 
@@ -604,9 +604,9 @@ enum PacingAnalyzer {
         if ending.count == 5 {
             let quiet = ending.filter { $0.speech < 0.3 && $0.motion < 0.15 && !$0.decorated }.count
             if quiet >= 4 {
-                checks.append(EditingCheck(level: .loose, title: "終わり方",
-                                           detail: "最後の 5 秒が静かです。余韻が長いと最後まで見られにくいので、短くするか、次の動画やチャンネル登録への一言を入れましょう。",
-                                           fix: .seek(max(0, total - 5)), fixTitle: "最後を見る"))
+                checks.append(EditingCheck(level: .loose, title: String(localized: "終わり方"),
+                                           detail: String(localized: "最後の 5 秒が静かです。余韻が長いと最後まで見られにくいので、短くするか、次の動画やチャンネル登録への一言を入れましょう。"),
+                                           fix: .seek(max(0, total - 5)), fixTitle: String(localized: "最後を見る")))
             }
         }
 
@@ -614,11 +614,11 @@ enum PacingAnalyzer {
         let cover = snapshot.cover
         let hasCover: Bool = cover.imageURL != nil || !cover.title.isEmpty || !cover.memoText.isEmpty
         if hasCover {
-            checks.append(EditingCheck(level: .good, title: "サムネ", detail: "サムネが作られています。"))
+            checks.append(EditingCheck(level: .good, title: String(localized: "サムネ"), detail: String(localized: "サムネが作られています。")))
         } else {
-            checks.append(EditingCheck(level: .loose, title: "サムネ",
-                                       detail: "サムネがまだありません。一覧で選ばれるかはサムネで決まるので、顔や一番いい場面と短い言葉で作りましょう。",
-                                       fix: .openCover, fixTitle: "サムネを作る"))
+            checks.append(EditingCheck(level: .loose, title: String(localized: "サムネ"),
+                                       detail: String(localized: "サムネがまだありません。一覧で選ばれるかはサムネで決まるので、顔や一番いい場面と短い言葉で作りましょう。"),
+                                       fix: .openCover, fixTitle: String(localized: "サムネを作る")))
         }
 
         // 気になる順(赤 → 黄 → 緑)
@@ -771,13 +771,13 @@ enum PacingAnalyzer {
     /// Vision の分類名 → 理由の文に使う日本語(景色に関係するものだけ)
     private static func sceneName(_ identifier: String) -> String? {
         let table: [(String, String)] = [
-            ("sunset", "夕焼け"), ("sunrise", "朝焼け"), ("sky", "空"), ("cloud", "空"),
-            ("beach", "海辺"), ("ocean", "海"), ("sea", "海"), ("lake", "湖"), ("river", "川"),
-            ("waterfall", "滝"), ("mountain", "山"), ("forest", "森"), ("tree", "木々"),
-            ("flower", "花"), ("snow", "雪景色"), ("night", "夜景"), ("city", "街並み"),
-            ("cityscape", "街並み"), ("skyline", "街並み"), ("food", "料理"), ("garden", "庭"),
-            ("park", "公園"), ("field", "野原"), ("desert", "砂漠"), ("bridge", "橋"),
-            ("temple", "寺社"), ("shrine", "寺社"), ("animal", "動物"), ("dog", "犬"), ("cat", "猫")
+            ("sunset", String(localized: "夕焼け")), ("sunrise", String(localized: "朝焼け")), ("sky", String(localized: "空")), ("cloud", String(localized: "空")),
+            ("beach", String(localized: "海辺")), ("ocean", String(localized: "海")), ("sea", String(localized: "海")), ("lake", String(localized: "湖")), ("river", String(localized: "川")),
+            ("waterfall", String(localized: "滝")), ("mountain", String(localized: "山")), ("forest", String(localized: "森")), ("tree", String(localized: "木々")),
+            ("flower", String(localized: "花")), ("snow", String(localized: "雪景色")), ("night", String(localized: "夜景")), ("city", String(localized: "街並み")),
+            ("cityscape", String(localized: "街並み")), ("skyline", String(localized: "街並み")), ("food", String(localized: "料理")), ("garden", String(localized: "庭")),
+            ("park", String(localized: "公園")), ("field", String(localized: "野原")), ("desert", String(localized: "砂漠")), ("bridge", String(localized: "橋")),
+            ("temple", String(localized: "寺社")), ("shrine", String(localized: "寺社")), ("animal", String(localized: "動物")), ("dog", String(localized: "犬")), ("cat", String(localized: "猫"))
         ]
         let lower = identifier.lowercased()
         for (key, name) in table where lower.contains(key) {

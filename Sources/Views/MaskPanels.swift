@@ -123,7 +123,7 @@ struct EditorMaskControls: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "形")
+                EditorSectionTitle(title: String(localized: "形"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(MaskShape.allCases) { shape in
@@ -143,36 +143,36 @@ struct EditorMaskControls: View {
 
                 Group {
                     if !isBand {
-                        EditorSliderRow(title: "幅",
+                        EditorSliderRow(title: String(localized: "幅"),
                                         value: widthBinding,
                                         range: 0.05...2,
                                         display: maskPanelPercent(mask.width))
                     }
-                    EditorSliderRow(title: isBand ? "帯の幅" : "高さ",
+                    EditorSliderRow(title: isBand ? String(localized: "帯の幅") : String(localized: "高さ"),
                                     value: heightBinding,
                                     range: 0.05...2,
                                     display: maskPanelPercent(mask.height))
                     if !isBand {
                         HStack {
-                            EditorChip(title: "縦横を同じに", isSelected: false) {
+                            EditorChip(title: String(localized: "縦横を同じに"), isSelected: false) {
                                 mask.height = mask.width
                             }
                             Spacer()
                         }
                     }
-                    EditorSliderRow(title: "境目のぼかし",
+                    EditorSliderRow(title: String(localized: "境目のぼかし"),
                                     value: featherBinding,
                                     range: 0...0.3,
                                     display: maskPanelPercent(mask.feather))
                     Text("大きいほど、形のふちがやわらかく溶け込みます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    EditorSliderRow(title: "回転",
+                    EditorSliderRow(title: String(localized: "回転"),
                                     value: rotationBinding,
                                     range: -180...180,
                                     display: String(format: "%.0f°", mask.rotation))
                     if mask.shape == .roundedRectangle {
-                        EditorSliderRow(title: "角丸",
+                        EditorSliderRow(title: String(localized: "角丸"),
                                         value: cornerBinding,
                                         range: 0...0.5,
                                         display: maskPanelPercent(mask.cornerRadius))
@@ -180,11 +180,11 @@ struct EditorMaskControls: View {
                 }
 
                 Group {
-                    EditorSliderRow(title: "横の位置(左 ← → 右)",
+                    EditorSliderRow(title: String(localized: "横の位置(左 ← → 右)"),
                                     value: centerXBinding,
                                     range: 0...1,
                                     display: maskPanelPercent(mask.center.x))
-                    EditorSliderRow(title: "縦の位置(上 ← → 下)",
+                    EditorSliderRow(title: String(localized: "縦の位置(上 ← → 下)"),
                                     value: centerYBinding,
                                     range: 0...1,
                                     display: maskPanelPercent(mask.center.y))
@@ -194,7 +194,7 @@ struct EditorMaskControls: View {
                 }
 
                 HStack {
-                    EditorChip(title: "リセット", isSelected: false) {
+                    EditorChip(title: String(localized: "リセット"), isSelected: false) {
                         let shape = mask.shape
                         var reset = MaskSettings()
                         reset.shape = shape
@@ -203,7 +203,7 @@ struct EditorMaskControls: View {
                     .disabled(isDefaultGeometry)
                     .opacity(isDefaultGeometry ? 0.4 : 1)
                     Spacer()
-                    EditorChip(title: "マスクを外す", isSelected: false) {
+                    EditorChip(title: String(localized: "マスクを外す"), isSelected: false) {
                         mask = MaskSettings()
                     }
                 }
@@ -233,7 +233,7 @@ struct EditorClipMaskPanel: View {
                                 start: clip.startTime,
                                 end: clip.endTime)
             EditorMaskControls(mask: maskBinding,
-                               note: "プレビューの点線の形をドラッグで移動、ピンチで大きさ、2 本指で回転できます。形の外側は黒になります。")
+                               note: String(localized: "プレビューの点線の形をドラッグで移動、ピンチで大きさ、2 本指で回転できます。形の外側は黒になります。"))
         }
         .padding(.top, 6)
     }
@@ -255,7 +255,7 @@ struct EditorOverlayMaskPanel: View {
                                 start: overlay.start,
                                 end: overlay.end)
             EditorMaskControls(mask: maskBinding,
-                               note: "位置と大きさは、重ねた素材の枠の中で決まります。プレビューの点線の形をドラッグで移動、ピンチで大きさ、2 本指で回転できます。形の外側は透明になり、下の映像が見えます。")
+                               note: String(localized: "位置と大きさは、重ねた素材の枠の中で決まります。プレビューの点線の形をドラッグで移動、ピンチで大きさ、2 本指で回転できます。形の外側は透明になり、下の映像が見えます。"))
         }
         .padding(.top, 6)
     }
@@ -287,12 +287,12 @@ struct EditorAutoReframePanel: View {
     private var canvasNote: String {
         let canvas = project.canvas
         if canvas.aspect == .original {
-            return "いまの比率は「元のまま」なので効果はありません。「比率」で 9:16(縦)や 1:1(正方形)にすると、人物が中央に来るように自動で切り出します。"
+            return String(localized: "いまの比率は「元のまま」なので効果はありません。「比率」で 9:16(縦)や 1:1(正方形)にすると、人物が中央に来るように自動で切り出します。")
         }
         if canvas.scaling == .fill {
-            return "比率 \(canvas.aspect.displayName)・埋める: 切り出す位置が人物を追いかけます。"
+            return String(localized: "比率 \(canvas.aspect.displayName)・埋める: 切り出す位置が人物を追いかけます。")
         }
-        return "画面比率が元の映像と違うときに効きます(いまは \(canvas.aspect.displayName))。「比率」で「埋める」にすると確実に効きます。"
+        return String(localized: "画面比率が元の映像と違うときに効きます(いまは \(canvas.aspect.displayName))。「比率」で「埋める」にすると確実に効きます。")
     }
 
     var body: some View {
@@ -308,7 +308,7 @@ struct EditorAutoReframePanel: View {
                     .foregroundStyle(.secondary)
             } else {
                 HStack(spacing: 10) {
-                    EditorPillButton(title: hasTrack ? "もう一度調べる" : "人物を探す",
+                    EditorPillButton(title: hasTrack ? String(localized: "もう一度調べる") : String(localized: "人物を探す"),
                                      systemImage: "person.crop.rectangle",
                                      prominent: true) {
                         analyze()
@@ -332,13 +332,13 @@ struct EditorAutoReframePanel: View {
                 .disabled(!hasTrack)
                 .opacity(hasTrack ? 1 : 0.4)
 
-                EditorSliderRow(title: "なめらかさ(大きいほどゆっくり追う)",
+                EditorSliderRow(title: String(localized: "なめらかさ(大きいほどゆっくり追う)"),
                                 value: smoothingBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.reframe.smoothing))
                     .disabled(!hasTrack)
                     .opacity(hasTrack ? 1 : 0.4)
-                EditorSliderRow(title: "人物の大きさ(ズーム)",
+                EditorSliderRow(title: String(localized: "人物の大きさ(ズーム)"),
                                 value: zoomBinding,
                                 range: 1...2,
                                 display: String(format: "%.2fx", clip.reframe.zoom))
@@ -346,7 +346,7 @@ struct EditorAutoReframePanel: View {
                     .opacity(hasTrack ? 1 : 0.4)
                 HStack {
                     Spacer()
-                    EditorChip(title: "リセット", isSelected: false) {
+                    EditorChip(title: String(localized: "リセット"), isSelected: false) {
                         clip.reframe.smoothing = 0.7
                         clip.reframe.zoom = 1
                     }
@@ -373,7 +373,7 @@ struct EditorAutoReframePanel: View {
 
                 HStack {
                     Spacer()
-                    EditorChip(title: "調べた結果を消す", isSelected: false) {
+                    EditorChip(title: String(localized: "調べた結果を消す"), isSelected: false) {
                         clip.reframe = ReframeTrack()
                         message = nil
                     }
@@ -389,7 +389,7 @@ struct EditorAutoReframePanel: View {
         let target = clip
         errorText = nil
         message = nil
-        analysis.run(title: "人物を探しています") { report in
+        analysis.run(title: String(localized: "人物を探しています")) { report in
             let track = try await VisionReframe.analyze(clip: target, step: 0.25, progress: report)
             if Task.isCancelled { return }
             var merged = track
@@ -398,12 +398,12 @@ struct EditorAutoReframePanel: View {
             merged.zoom = clip.reframe.zoom
             clip.reframe = merged
             if track.samples.count < 2 {
-                message = "人物や顔を見つけられませんでした。別のクリップでお試しください。"
+                message = String(localized: "人物や顔を見つけられませんでした。別のクリップでお試しください。")
             } else {
-                message = "人物の位置を \(track.samples.count) か所で調べました。再生して確認してください。"
+                message = String(localized: "人物の位置を \(track.samples.count) か所で調べました。再生して確認してください。")
             }
         } onError: { error in
-            errorText = "調べられませんでした。もう一度お試しください(\(error.localizedDescription))"
+            errorText = String(localized: "調べられませんでした。もう一度お試しください(\(error.localizedDescription))")
         }
     }
 }
@@ -442,7 +442,7 @@ struct EditorStabilizePanel: View {
                     .foregroundStyle(.secondary)
             } else {
                 HStack(spacing: 10) {
-                    EditorPillButton(title: hasTrack ? "もう一度調べる" : "揺れを調べる",
+                    EditorPillButton(title: hasTrack ? String(localized: "もう一度調べる") : String(localized: "揺れを調べる"),
                                      systemImage: "camera.metering.center.weighted",
                                      prominent: true) {
                         analyze()
@@ -466,13 +466,13 @@ struct EditorStabilizePanel: View {
                 .disabled(!hasTrack)
                 .opacity(hasTrack ? 1 : 0.4)
 
-                EditorSliderRow(title: "強さ",
+                EditorSliderRow(title: String(localized: "強さ"),
                                 value: strengthBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.stabilization.strength))
                     .disabled(!hasTrack)
                     .opacity(hasTrack ? 1 : 0.4)
-                EditorSliderRow(title: "拡大(端の黒を隠す)",
+                EditorSliderRow(title: String(localized: "拡大(端の黒を隠す)"),
                                 value: cropZoomBinding,
                                 range: 1.0...1.3,
                                 display: String(format: "%.2fx", clip.stabilization.cropZoom))
@@ -480,7 +480,7 @@ struct EditorStabilizePanel: View {
                     .opacity(hasTrack ? 1 : 0.4)
                 HStack {
                     Spacer()
-                    EditorChip(title: "リセット", isSelected: false) {
+                    EditorChip(title: String(localized: "リセット"), isSelected: false) {
                         clip.stabilization.strength = 0.8
                         clip.stabilization.cropZoom = 1.1
                     }
@@ -506,7 +506,7 @@ struct EditorStabilizePanel: View {
 
                 HStack {
                     Spacer()
-                    EditorChip(title: "調べた結果を消す", isSelected: false) {
+                    EditorChip(title: String(localized: "調べた結果を消す"), isSelected: false) {
                         clip.stabilization = StabilizationTrack()
                         message = nil
                     }
@@ -522,7 +522,7 @@ struct EditorStabilizePanel: View {
         let target = clip
         errorText = nil
         message = nil
-        analysis.run(title: "揺れを調べています") { report in
+        analysis.run(title: String(localized: "揺れを調べています")) { report in
             let track = try await Stabilizer.analyze(clip: target, fps: 30, progress: report)
             if Task.isCancelled { return }
             var merged = track
@@ -531,12 +531,12 @@ struct EditorStabilizePanel: View {
             merged.cropZoom = max(clip.stabilization.cropZoom, track.cropZoom)
             clip.stabilization = merged
             if track.samples.count < 2 {
-                message = "揺れを調べられませんでした。映像が短すぎるか、動きが読み取れませんでした。"
+                message = String(localized: "揺れを調べられませんでした。映像が短すぎるか、動きが読み取れませんでした。")
             } else {
-                message = "調べ終わりました。再生して揺れの減り方を確認してください。"
+                message = String(localized: "調べ終わりました。再生して揺れの減り方を確認してください。")
             }
         } onError: { error in
-            errorText = "調べられませんでした。もう一度お試しください(\(error.localizedDescription))"
+            errorText = String(localized: "調べられませんでした。もう一度お試しください(\(error.localizedDescription))")
         }
     }
 }
@@ -569,7 +569,7 @@ struct EditorEnhancePanel: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: "ざらつきを減らす",
+                EditorSliderRow(title: String(localized: "ざらつきを減らす"),
                                 value: denoiseBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.enhance.denoise))
@@ -580,7 +580,7 @@ struct EditorEnhancePanel: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: "美肌",
+                EditorSliderRow(title: String(localized: "美肌"),
                                 value: retouchBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.enhance.retouch))
@@ -591,7 +591,7 @@ struct EditorEnhancePanel: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: "くっきりさせる",
+                EditorSliderRow(title: String(localized: "くっきりさせる"),
                                 value: sharpenBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.enhance.sharpenUpscale))
@@ -607,7 +607,7 @@ struct EditorEnhancePanel: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     clip.enhance = ClipEnhancements()
                 }
                 .disabled(clip.enhance.isIdentity)
@@ -673,7 +673,7 @@ struct EditorParallaxControls: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "動きの向き")
+                EditorSectionTitle(title: String(localized: "動きの向き"))
                 HStack(spacing: 8) {
                     ForEach(ParallaxDirection.allCases) { direction in
                         EditorChip(title: direction.displayName, isSelected: parallax.direction == direction) {
@@ -686,7 +686,7 @@ struct EditorParallaxControls: View {
             .disabled(!parallax.enabled)
             .opacity(parallax.enabled ? 1 : 0.4)
 
-            EditorSliderRow(title: "強さ",
+            EditorSliderRow(title: String(localized: "強さ"),
                             value: strengthBinding,
                             range: 0...1,
                             display: maskPanelPercent(parallax.strength))
@@ -695,7 +695,7 @@ struct EditorParallaxControls: View {
 
             HStack {
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     parallax.strength = 0.5
                     parallax.direction = .zoomIn
                 }
@@ -873,7 +873,7 @@ final class EditorTrackingController {
         switch target {
         case .text(let id):
             guard let text = project.textClips.first(where: { $0.id == id }) else {
-                errorText = "対象のテキストが見つかりません。"
+                errorText = String(localized: "対象のテキストが見つかりません。")
                 return
             }
             itemStart = text.start
@@ -884,7 +884,7 @@ final class EditorTrackingController {
             itemOpacity = text.opacity
         case .overlay(let id):
             guard let overlay = project.overlays.first(where: { $0.id == id }) else {
-                errorText = "対象の重ねた素材が見つかりません。"
+                errorText = String(localized: "対象の重ねた素材が見つかりません。")
                 return
             }
             itemStart = overlay.start
@@ -896,20 +896,20 @@ final class EditorTrackingController {
         }
 
         guard t >= itemStart - 0.001, t < itemEnd else {
-            errorText = "再生位置(中央の白い線)を、この部品が表示されている範囲に合わせてから囲んでください。"
+            errorText = String(localized: "再生位置(中央の白い線)を、この部品が表示されている範囲に合わせてから囲んでください。")
             return
         }
         guard let location = project.locate(timelineTime: t), location.index < project.clips.count else {
-            errorText = "再生位置にクリップがありません。"
+            errorText = String(localized: "再生位置にクリップがありません。")
             return
         }
         let clip = project.clips[location.index]
         if clip.isStill {
-            errorText = "静止画クリップの上では動きを追跡できません。"
+            errorText = String(localized: "静止画クリップの上では動きを追跡できません。")
             return
         }
         if clip.isReversed {
-            errorText = "逆再生中のクリップでは追跡できません。いったん逆再生を解除してください。"
+            errorText = String(localized: "逆再生中のクリップでは追跡できません。いったん逆再生を解除してください。")
             return
         }
 
@@ -923,7 +923,7 @@ final class EditorTrackingController {
         }
         let sourceEnd = min(clip.endTime, sourceStart + remainingOutput * averageSpeed)
         guard sourceEnd - sourceStart >= 0.2 else {
-            errorText = "追跡できる長さが短すぎます(部品の残り時間が 0.2 秒以上必要です)。"
+            errorText = String(localized: "追跡できる長さが短すぎます(部品の残り時間が 0.2 秒以上必要です)。")
             return
         }
 
@@ -933,7 +933,7 @@ final class EditorTrackingController {
         let clipRect = PreviewTrackingMath.clipRect(clipSize: clip.displaySize, canvasSize: canvasSize, scaling: scaling)
         let sourceRect = PreviewTrackingMath.sourceRect(fromCanvas: rect, clipRect: clipRect, canvasSize: canvasSize)
         guard sourceRect.width > 0.005, sourceRect.height > 0.005 else {
-            errorText = "囲んだ範囲が映像の外です。映像の上で対象を囲んでください。"
+            errorText = String(localized: "囲んだ範囲が映像の外です。映像の上で対象を囲んでください。")
             return
         }
 
@@ -944,7 +944,7 @@ final class EditorTrackingController {
         let baseOutput = ClipFXTimeline.outputOffset(sourceTime: sourceStart, clip: clip)
         let url = clip.url
 
-        analysis.run(title: "動きを追いかけています") { [weak self] report in
+        analysis.run(title: String(localized: "動きを追いかけています")) { [weak self] report in
             let tracked = try await MotionTracker.track(url: url,
                                                         start: sourceStart,
                                                         end: sourceEnd,
@@ -954,7 +954,7 @@ final class EditorTrackingController {
             if Task.isCancelled { return }
             guard let self else { return }
             guard !tracked.isEmpty else {
-                self.statusText = "対象を追跡できませんでした。もう一度、対象をぴったり囲んでみてください。"
+                self.statusText = String(localized: "対象を追跡できませんでした。もう一度、対象をぴったり囲んでみてください。")
                 return
             }
             var keyframes: [Keyframe] = []
@@ -988,9 +988,9 @@ final class EditorTrackingController {
                 }
             }
             let seconds = String(format: "%.1f", sourceEnd - sourceStart)
-            self.statusText = "\(seconds) 秒分の動きを追従させました(動きのポイント \(keyframes.count) 個)。「キーフレーム」で確認・調整できます。"
+            self.statusText = String(localized: "\(seconds) 秒分の動きを追従させました(動きのポイント \(keyframes.count) 個)。「キーフレーム」で確認・調整できます。")
         } onError: { [weak self] error in
-            self?.errorText = "追跡できませんでした: \(error.localizedDescription)"
+            self?.errorText = String(localized: "追跡できませんでした: \(error.localizedDescription)")
         }
     }
 }
@@ -1028,9 +1028,9 @@ struct EditorTrackingPanel: View {
         switch target {
         case .text(let id):
             let isSticker = project.textClips.first(where: { $0.id == id })?.isSticker ?? false
-            return isSticker ? "ステッカー" : "テキスト"
+            return isSticker ? String(localized: "ステッカー") : String(localized: "テキスト")
         case .overlay:
-            return "重ねた素材"
+            return String(localized: "重ねた素材")
         }
     }
 
@@ -1077,7 +1077,7 @@ struct EditorTrackingPanel: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                EditorChip(title: "追従の動きを消す", isSelected: false) {
+                EditorChip(title: String(localized: "追従の動きを消す"), isSelected: false) {
                     clearKeyframes()
                 }
                 .disabled(keyframeCount == 0)
@@ -1108,6 +1108,6 @@ struct EditorTrackingPanel: View {
                 project.overlays[i].keyframes = []
             }
         }
-        controller.statusText = "追従の動きを消しました。"
+        controller.statusText = String(localized: "追従の動きを消しました。")
     }
 }

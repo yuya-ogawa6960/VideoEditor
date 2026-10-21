@@ -20,13 +20,13 @@ enum VoiceRecorderError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .permissionDenied:
-            return "マイクの使用が許可されていません。設定アプリでこのアプリの「マイク」を許可してください。"
+            return String(localized: "マイクの使用が許可されていません。設定アプリでこのアプリの「マイク」を許可してください。")
         case .alreadyRecording:
-            return "すでに録音中です。"
+            return String(localized: "すでに録音中です。")
         case .sessionFailed(let detail):
-            return "オーディオセッションを開始できませんでした: \(detail)"
+            return String(localized: "オーディオセッションを開始できませんでした: \(detail)")
         case .recorderFailed(let detail):
-            return "録音を開始できませんでした: \(detail)"
+            return String(localized: "録音を開始できませんでした: \(detail)")
         }
     }
 }
@@ -133,7 +133,7 @@ final class VoiceRecorder {
         newRecorder.isMeteringEnabled = true
         guard newRecorder.prepareToRecord(), newRecorder.record() else {
             restorePlaybackSession()
-            throw VoiceRecorderError.recorderFailed("録音デバイスを開始できません")
+            throw VoiceRecorderError.recorderFailed(String(localized: "録音デバイスを開始できません"))
         }
 
         recorder = newRecorder

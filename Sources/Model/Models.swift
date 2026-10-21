@@ -25,20 +25,20 @@ enum FilterPreset: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .none: return "なし"
-        case .mono: return "モノクロ"
-        case .noir: return "ノワール"
-        case .sepia: return "セピア"
-        case .chrome: return "クローム"
-        case .fade: return "フェード"
-        case .instant: return "インスタント"
-        case .process: return "プロセス"
-        case .transfer: return "トランスファー"
-        case .tonal: return "トーナル"
-        case .vivid: return "ビビッド"
-        case .cool: return "クール"
-        case .warm: return "ウォーム"
-        case .vignette: return "ビネット"
+        case .none: return String(localized: "なし")
+        case .mono: return String(localized: "モノクロ")
+        case .noir: return String(localized: "ノワール")
+        case .sepia: return String(localized: "セピア")
+        case .chrome: return String(localized: "クローム")
+        case .fade: return String(localized: "フェード")
+        case .instant: return String(localized: "インスタント")
+        case .process: return String(localized: "プロセス")
+        case .transfer: return String(localized: "トランスファー")
+        case .tonal: return String(localized: "トーナル")
+        case .vivid: return String(localized: "ビビッド")
+        case .cool: return String(localized: "クール")
+        case .warm: return String(localized: "ウォーム")
+        case .vignette: return String(localized: "ビネット")
         }
     }
 }
@@ -291,9 +291,9 @@ enum SubtitlePosition: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .top: return "上"
-        case .center: return "中央"
-        case .bottom: return "下"
+        case .top: return String(localized: "上")
+        case .center: return String(localized: "中央")
+        case .bottom: return String(localized: "下")
         }
     }
 }
@@ -303,10 +303,10 @@ enum SubtitleColor: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .white: return "白"
-        case .yellow: return "黄"
-        case .cyan: return "水色"
-        case .black: return "黒"
+        case .white: return String(localized: "白")
+        case .yellow: return String(localized: "黄")
+        case .cyan: return String(localized: "水色")
+        case .black: return String(localized: "黒")
         }
     }
     var uiColor: UIColor {
@@ -325,9 +325,9 @@ enum SubtitleDisplayMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .original: return "原文"
-        case .translated: return "訳文"
-        case .both: return "両方"
+        case .original: return String(localized: "原文")
+        case .translated: return String(localized: "訳文")
+        case .both: return String(localized: "両方")
         }
     }
 }
@@ -394,11 +394,11 @@ enum CanvasAspect: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .original: return "元のまま"
-        case .portrait9x16: return "9:16 縦(ショート/リール)"
-        case .landscape16x9: return "16:9 横(YouTube)"
-        case .square: return "1:1 正方形"
-        case .portrait4x5: return "4:5 縦(投稿)"
+        case .original: return String(localized: "元のまま")
+        case .portrait9x16: return String(localized: "9:16 縦(ショート/リール)")
+        case .landscape16x9: return String(localized: "16:9 横(YouTube)")
+        case .square: return String(localized: "1:1 正方形")
+        case .portrait4x5: return String(localized: "4:5 縦(投稿)")
         }
     }
     /// 幅 / 高さ。original は nil
@@ -418,9 +418,9 @@ enum ScalingMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .fit: return "収める(黒帯)"
-        case .fitBlur: return "収める(ぼかし背景)"
-        case .fill: return "埋める(クロップ)"
+        case .fit: return String(localized: "収める(黒帯)")
+        case .fitBlur: return String(localized: "収める(ぼかし背景)")
+        case .fill: return String(localized: "埋める(クロップ)")
         }
     }
 }
@@ -450,9 +450,9 @@ enum ExportQuality: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .high: return "高画質"
-        case .standard: return "標準"
-        case .small: return "軽量(SNS向け)"
+        case .high: return String(localized: "高画質")
+        case .standard: return String(localized: "標準")
+        case .small: return String(localized: "軽量(SNS向け)")
         }
     }
     /// 1080p 相当でのおおよその映像ビットレート(bps)。解像度に比例して換算する
@@ -488,9 +488,9 @@ enum ExportCodec: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .auto: return "自動"
-        case .h264: return "H.264(互換性重視)"
-        case .hevc: return "HEVC(高画質・小容量)"
+        case .auto: return String(localized: "自動")
+        case .h264: return String(localized: "H.264(互換性重視)")
+        case .hevc: return String(localized: "HEVC(高画質・小容量)")
         }
     }
 }
@@ -702,7 +702,7 @@ final class EditorProject {
     // MARK: 字幕操作
 
     @discardableResult
-    func addSubtitle(at time: Double, duration: Double = 3, text: String = "新しい字幕") -> SubtitleCue {
+    func addSubtitle(at time: Double, duration: Double = 3, text: String = String(localized: "新しい字幕")) -> SubtitleCue {
         let start = max(0, time)
         let cue = SubtitleCue(start: start, end: start + duration, text: text)
         subtitles.append(cue)
@@ -821,12 +821,12 @@ extension EditorProject {
     func chapterListText() -> String {
         let chapters = markers.filter { $0.kind == .chapter }.sorted { $0.time < $1.time }
         var lines: [String] = []
-        if chapters.first.map({ $0.time > 0.5 }) ?? true { lines.append("0:00 はじめに") }
+        if chapters.first.map({ $0.time > 0.5 }) ?? true { lines.append(String(localized: "0:00 はじめに")) }
         for c in chapters {
             let t = Int(c.time.rounded(.down))
             let h = t / 3600, m = (t % 3600) / 60, s = t % 60
             let stamp = h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
-            lines.append("\(stamp) \(c.name.isEmpty ? "チャプター" : c.name)")
+            lines.append(String(localized: "\(stamp) \(c.name.isEmpty ? "チャプター" : c.name)"))
         }
         return lines.joined(separator: "\n")
     }

@@ -30,8 +30,8 @@ enum ContinuedProcessingKind: String {
     /// 診断表示用の日本語名
     var displayName: String {
         switch self {
-        case .export: return "書き出し"
-        case .transcribe: return "文字起こし"
+        case .export: return String(localized: "書き出し")
+        case .transcribe: return String(localized: "文字起こし")
         }
     }
 }
@@ -277,7 +277,7 @@ enum ContinuedProcessing {
     static let legacyExportIdentifier = "com.personal.videoeditor.export"
 
     /// Info.plist に識別子が無いときの代わりのバンドル ID 表示
-    private static let unknownBundleIdentifier = "(取得できません)"
+    private static let unknownBundleIdentifier = String(localized: "(取得できません)")
     /// submit が受け付けられてから、システムがタスクを開始するまで待つ時間(秒)。過ぎたら診断に記録する
     private static let launchTimeout: TimeInterval = 5
 
@@ -332,10 +332,10 @@ enum ContinuedProcessing {
         if #available(iOS 26.0, *) {
             return beginContinuedTask(kind: kind, title: title, subtitle: subtitle, wantsGPU: wantsGPU)
         }
-        setDiagnostic("ロック中の継続: 使えません(iOS 26 以降が必要です)")
+        setDiagnostic(String(localized: "ロック中の継続: 使えません(iOS 26 以降が必要です)"))
         return nil
         #else
-        setDiagnostic("ロック中の継続: 使えません(iOS 26 SDK でビルドされていません)")
+        setDiagnostic(String(localized: "ロック中の継続: 使えません(iOS 26 SDK でビルドされていません)"))
         return nil
         #endif
     }
@@ -486,37 +486,37 @@ enum ContinuedProcessing {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             guard let bundleID = Bundle.main.bundleIdentifier, !bundleID.isEmpty else {
-                return "ロック中の継続: 使えません(バンドル ID を取得できません)"
+                return String(localized: "ロック中の継続: 使えません(バンドル ID を取得できません)")
             }
             if registerCrashedBefore(.dynamic) {
-                return "ロック中の継続: 使えません(前回、起動ハンドラの登録または要求の送信中にアプリが終了したため、このビルドでは使いません)"
+                return String(localized: "ロック中の継続: 使えません(前回、起動ハンドラの登録または要求の送信中にアプリが終了したため、このビルドでは使いません)")
             }
             let sample = "\(bundleID).\(ContinuedProcessingKind.export.rawValue).\(UUID().uuidString)"
             if isPermitted(sample) {
-                return "ロック中の継続: 未確認(識別子は Info.plist で許可されています。書き出しか文字起こしを始めると確認します)"
+                return String(localized: "ロック中の継続: 未確認(識別子は Info.plist で許可されています。書き出しか文字起こしを始めると確認します)")
             }
-            return "ロック中の継続: 使えません(バンドル ID \(bundleID) に一致する項目が Info.plist の BGTaskSchedulerPermittedIdentifiers にありません)"
+            return String(localized: "ロック中の継続: 使えません(バンドル ID \(bundleID) に一致する項目が Info.plist の BGTaskSchedulerPermittedIdentifiers にありません)")
         }
-        return "ロック中の継続: 使えません(iOS 26 以降が必要です)"
+        return String(localized: "ロック中の継続: 使えません(iOS 26 以降が必要です)")
         #else
-        return "ロック中の継続: 使えません(iOS 26 SDK でビルドされていません)"
+        return String(localized: "ロック中の継続: 使えません(iOS 26 SDK でビルドされていません)")
         #endif
     }
 
     /// submit / register のエラーを日本語の理由にする
     private static func describe(_ error: Error?) -> String {
-        guard let error else { return "原因不明" }
+        guard let error else { return String(localized: "原因不明") }
         let nsError = error as NSError
         if nsError.domain == "BGTaskSchedulerErrorDomain" {
             switch nsError.code {
             case 1:
-                return "この端末または現在の状態では使えません [BGTaskScheduler 1]"
+                return String(localized: "この端末または現在の状態では使えません [BGTaskScheduler 1]")
             case 2:
-                return "実行待ちの要求が多すぎます [BGTaskScheduler 2]"
+                return String(localized: "実行待ちの要求が多すぎます [BGTaskScheduler 2]")
             case 3:
-                return "識別子が許可されていません。Info.plist の許可リストとバンドル ID が一致しません [BGTaskScheduler 3]"
+                return String(localized: "識別子が許可されていません。Info.plist の許可リストとバンドル ID が一致しません [BGTaskScheduler 3]")
             case 4:
-                return "今すぐには開始できませんでした(ほかの処理の実行中・システムの負荷など) [BGTaskScheduler 4]"
+                return String(localized: "今すぐには開始できませんでした(ほかの処理の実行中・システムの負荷など) [BGTaskScheduler 4]")
             default:
                 break
             }
@@ -531,29 +531,29 @@ enum ContinuedProcessing {
     @MainActor
     private static func beginContinuedTask(kind: ContinuedProcessingKind, title: String, subtitle: String,
                                            wantsGPU: Bool) -> ContinuedProcessingHandle? {
-        let unavailable = "ロック中の継続: 使えません"
+        let unavailable = String(localized: "ロック中の継続: 使えません")
         if UIApplication.shared.applicationState == .background {
-            setDiagnostic("\(unavailable)(アプリが前面にないため開始できません)")
+            setDiagnostic(String(localized: "\(unavailable)(アプリが前面にないため開始できません)"))
             return nil
         }
         guard let bundleID = Bundle.main.bundleIdentifier, !bundleID.isEmpty else {
-            setDiagnostic("\(unavailable)(バンドル ID を取得できません)")
+            setDiagnostic(String(localized: "\(unavailable)(バンドル ID を取得できません)"))
             return nil
         }
         let identifier = "\(bundleID).\(kind.rawValue).\(UUID().uuidString)"
         guard isPermitted(identifier) else {
-            setDiagnostic("\(unavailable)(識別子 \(bundleID).\(kind.rawValue).… が Info.plist の BGTaskSchedulerPermittedIdentifiers で許可されていません)")
+            setDiagnostic(String(localized: "\(unavailable)(識別子 \(bundleID).\(kind.rawValue).… が Info.plist の BGTaskSchedulerPermittedIdentifiers で許可されていません)"))
             return nil
         }
         if registerCrashedBefore(.dynamic) {
-            setDiagnostic("\(unavailable)(前回、起動ハンドラの登録または要求の送信中にアプリが終了したため、このビルドでは使いません)")
+            setDiagnostic(String(localized: "\(unavailable)(前回、起動ハンドラの登録または要求の送信中にアプリが終了したため、このビルドでは使いません)"))
             return nil
         }
         // register から submit が戻るまで印を残す(どちらかの途中で落ちたら、このビルドではもう試さない)
         setRegisterMarker(.dynamic, active: true)
         defer { setRegisterMarker(.dynamic, active: false) }
         guard registerLaunchHandler(for: identifier, slot: .dynamic, markerHeldByCaller: true) else {
-            setDiagnostic("\(unavailable)(起動ハンドラを登録できませんでした)")
+            setDiagnostic(String(localized: "\(unavailable)(起動ハンドラを登録できませんでした)"))
             return nil
         }
 
@@ -596,19 +596,19 @@ enum ContinuedProcessing {
         if !wantsGPU {
             gpuText = ""
         } else if handle.gpuGranted {
-            gpuText = "・GPU あり"
+            gpuText = String(localized: "・GPU あり")
         } else if !gpuSupported {
-            gpuText = "・GPU なし(この端末・アプリでは非対応のため CPU で処理)"
+            gpuText = String(localized: "・GPU なし(この端末・アプリでは非対応のため CPU で処理)")
         } else {
-            gpuText = "・GPU なし(許可されなかったため CPU で処理)"
+            gpuText = String(localized: "・GPU なし(許可されなかったため CPU で処理)")
         }
-        let generation = setDiagnostic("ロック中の継続: 有効(\(kind.displayName)\(gpuText))")
+        let generation = setDiagnostic(String(localized: "ロック中の継続: 有効(\(kind.displayName)\(gpuText))"))
 
         // submit が通ってもシステムがタスクを開始しない場合に備えて、少し後に確認して記録する
         DispatchQueue.main.asyncAfter(deadline: .now() + launchTimeout) { [weak handle] in
             guard let handle, !handle.hasLaunchedOrFinished else { return }
             ContinuedProcessing.replaceDiagnostic(generation: generation,
-                                                  with: "\(unavailable)(要求は受け付けられましたが、システムが開始しませんでした)")
+                                                  with: String(localized: "\(unavailable)(要求は受け付けられましたが、システムが開始しませんでした)"))
         }
         return handle
     }

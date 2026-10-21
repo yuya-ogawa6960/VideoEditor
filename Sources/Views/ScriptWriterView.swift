@@ -38,7 +38,7 @@ struct ScriptWriterSheetView: View {
     private let durationOptions: [Double] = [30, 60, 90, 120, 180]
 
     private var currentVoiceName: String {
-        guard let voiceID, let voice = voices.first(where: { $0.id == voiceID }) else { return "標準の声" }
+        guard let voiceID, let voice = voices.first(where: { $0.id == voiceID }) else { return String(localized: "標準の声") }
         return voice.name
     }
 
@@ -131,13 +131,13 @@ struct ScriptWriterSheetView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         if project.totalDuration > 1 {
-                            EditorChip(title: "動画の長さ",
+                            EditorChip(title: String(localized: "動画の長さ"),
                                        isSelected: abs(durationSeconds - project.totalDuration) < 0.5) {
                                 durationSeconds = project.totalDuration
                             }
                         }
                         ForEach(durationOptions, id: \.self) { option in
-                            EditorChip(title: "\(Int(option)) 秒",
+                            EditorChip(title: String(localized: "\(Int(option)) 秒"),
                                        isSelected: abs(durationSeconds - option) < 0.5) {
                                 durationSeconds = option
                             }
@@ -190,7 +190,7 @@ struct ScriptWriterSheetView: View {
             Button {
                 write()
             } label: {
-                Label(lines.isEmpty ? "台本を作る" : "台本を作り直す", systemImage: "text.badge.star")
+                Label(lines.isEmpty ? String(localized: "台本を作る") : String(localized: "台本を作り直す"), systemImage: "text.badge.star")
             }
             .disabled(trimmedTopic.isEmpty || analysis.isRunning)
 
@@ -286,7 +286,7 @@ struct ScriptWriterSheetView: View {
     private var narrationSection: some View {
         Section {
             HStack(spacing: 8) {
-                EditorChip(title: "日本語", isSelected: language == "ja-JP") {
+                EditorChip(title: String(localized: "日本語"), isSelected: language == "ja-JP") {
                     language = "ja-JP"
                     reloadVoices()
                 }
@@ -366,7 +366,7 @@ struct ScriptWriterSheetView: View {
         errorText = nil
         infoText = nil
         player.pause()
-        analysis.run(title: "読み上げを作成中") { report in
+        analysis.run(title: String(localized: "読み上げを作成中")) { report in
             var created: [NarrationClip] = []
             let total = Double(items.count)
             for (i, line) in items.enumerated() {
@@ -380,7 +380,7 @@ struct ScriptWriterSheetView: View {
                 let loaded = try? await asset.load(.duration)
                 let seconds: Double = loaded?.seconds ?? 1
                 let duration: Double = (seconds.isFinite && seconds > 0) ? seconds : 1
-                let name = "台本: " + String(text.prefix(12))
+                let name = String(localized: "台本: ") + String(text.prefix(12))
                 created.append(NarrationClip(url: url, name: name, start: max(0, line.time), duration: duration))
                 report(Double(i + 1) / total)
             }
@@ -405,12 +405,12 @@ struct ScriptWriterSheetView: View {
             history.record(project)
             project.narration.append(contentsOf: adjusted)
             project.sortNarration()
-            infoText = "\(adjusted.count) 件のナレーションを追加しました。「音量」「音声効果」で調整できます。"
+            infoText = String(localized: "\(adjusted.count) 件のナレーションを追加しました。「音量」「音声効果」で調整できます。")
             if let last = adjusted.last {
                 onNarrationAdded(last.id)
             }
         } onError: { error in
-            errorText = "もう一度「AI読み上げで入れる」を押してください。続くときは「声」を「標準の声」に変えてお試しください。\n\n詳細: " + error.localizedDescription
+            errorText = String(localized: "もう一度「AI読み上げで入れる」を押してください。続くときは「声」を「標準の声」に変えてお試しください。\n\n詳細: ") + error.localizedDescription
         }
     }
 
@@ -458,7 +458,7 @@ struct ScriptWriterSheetView: View {
             project.subtitles.append(contentsOf: withWords)
         }
         project.sortSubtitles()
-        infoText = "\(withWords.count) 件の字幕を追加しました。「自動字幕」でタイミングや文を直せます。"
+        infoText = String(localized: "\(withWords.count) 件の字幕を追加しました。「自動字幕」でタイミングや文を直せます。")
     }
 
     // MARK: AI 呼び出し
@@ -472,7 +472,7 @@ struct ScriptWriterSheetView: View {
         let markers = project.markers
         errorText = nil
         infoText = nil
-        analysis.run(title: "台本を作成中", indeterminate: true) { _ in
+        analysis.run(title: String(localized: "台本を作成中"), indeterminate: true) { _ in
             let result = try await ScriptWriter.write(topic: theme,
                                                       durationSeconds: seconds,
                                                       tone: chosenTone,
@@ -482,12 +482,12 @@ struct ScriptWriterSheetView: View {
             if Task.isCancelled { return }
             lines = result.sorted { $0.time < $1.time }
             if lines.isEmpty {
-                infoText = "台本を作れませんでした。テーマをもう少し具体的にしてお試しください。"
+                infoText = String(localized: "台本を作れませんでした。テーマをもう少し具体的にしてお試しください。")
             } else {
-                infoText = "\(lines.count) 行の台本ができました。内容と時刻を直してから挿入できます。"
+                infoText = String(localized: "\(lines.count) 行の台本ができました。内容と時刻を直してから挿入できます。")
             }
         } onError: { error in
-            errorText = "通信できる場所で、もう一度「台本を作る」を押してください。続くときは「AI の設定」を確かめてください。\n\n詳細: " + error.localizedDescription
+            errorText = String(localized: "通信できる場所で、もう一度「台本を作る」を押してください。続くときは「AI の設定」を確かめてください。\n\n詳細: ") + error.localizedDescription
         }
     }
 
@@ -496,11 +496,11 @@ struct ScriptWriterSheetView: View {
         guard !subtitles.isEmpty else { return }
         errorText = nil
         infoText = nil
-        analysis.run(title: "構成案を作成中", indeterminate: true) { _ in
+        analysis.run(title: String(localized: "構成案を作成中"), indeterminate: true) { _ in
             let suggested = try await ScriptWriter.outline(from: subtitles, settings: AppSettings.shared)
             if Task.isCancelled { return }
             guard !suggested.isEmpty else {
-                infoText = "構成案を作れませんでした。字幕がもう少し長いとうまくいきます。"
+                infoText = String(localized: "構成案を作れませんでした。字幕がもう少し長いとうまくいきます。")
                 return
             }
             history.record(project)
@@ -517,9 +517,9 @@ struct ScriptWriterSheetView: View {
             }
             project.markers = markers
             project.sortMarkers()
-            infoText = "\(added) 個のチャプターを追加しました。マーカーを選ぶと名前を直せます。"
+            infoText = String(localized: "\(added) 個のチャプターを追加しました。マーカーを選ぶと名前を直せます。")
         } onError: { error in
-            errorText = "通信できる場所で、もう一度お試しください。続くときは「AI の設定」を確かめてください。\n\n詳細: " + error.localizedDescription
+            errorText = String(localized: "通信できる場所で、もう一度お試しください。続くときは「AI の設定」を確かめてください。\n\n詳細: ") + error.localizedDescription
         }
     }
 }

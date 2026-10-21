@@ -17,10 +17,10 @@ enum GIFExporterError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidRange: return "GIF の範囲が正しくありません"
-        case .cannotCreateDestination: return "GIF ファイルを作成できませんでした"
-        case .noFrames: return "GIF にするコマを取り出せませんでした"
-        case .finalizeFailed: return "GIF の書き込みに失敗しました"
+        case .invalidRange: return String(localized: "GIF の範囲が正しくありません")
+        case .cannotCreateDestination: return String(localized: "GIF ファイルを作成できませんでした")
+        case .noFrames: return String(localized: "GIF にするコマを取り出せませんでした")
+        case .finalizeFailed: return String(localized: "GIF の書き込みに失敗しました")
         }
     }
 }

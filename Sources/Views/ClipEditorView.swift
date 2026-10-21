@@ -147,7 +147,7 @@ struct ClipEditorView: View {
                     HStack {
                         Label("マルチカメラ編集", systemImage: "camera.on.rectangle")
                         Spacer()
-                        Text(current.multicam.isActive ? "\(current.multicam.angles.count)アングル" : "未設定")
+                        Text(current.multicam.isActive ? String(localized: "\(current.multicam.angles.count)アングル") : String(localized: "未設定"))
                             .foregroundStyle(.secondary)
                     }
                 }

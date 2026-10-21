@@ -74,7 +74,7 @@ enum HighlightAnalyzer {
                 let length = min(clip.trimmedDuration, 5)
                 if length > 0.2 {
                     result.append(HighlightSegment(clipID: clip.id, start: clip.startTime,
-                                                   end: clip.startTime + length, score: 0.4, reason: "写真"))
+                                                   end: clip.startTime + length, score: 0.4, reason: String(localized: "写真")))
                 }
                 progress?(base + share)
                 continue
@@ -496,10 +496,10 @@ enum HighlightAnalyzer {
 
     private static func reasonText(dominant: Int) -> String {
         switch dominant {
-        case 1: return "話している場面"
-        case 2: return "動きのある場面"
-        case 3: return "顔が映っている場面"
-        default: return "音が盛り上がる場面"
+        case 1: return String(localized: "話している場面")
+        case 2: return String(localized: "動きのある場面")
+        case 3: return String(localized: "顔が映っている場面")
+        default: return String(localized: "音が盛り上がる場面")
         }
     }
 }

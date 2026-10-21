@@ -37,8 +37,8 @@ enum ExportManagerError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noOutput: return "書き出したファイルがありません"
-        case .photosAccessDenied: return "写真ライブラリへの保存が許可されていません。設定アプリから許可してください"
+        case .noOutput: return String(localized: "書き出したファイルがありません")
+        case .photosAccessDenied: return String(localized: "写真ライブラリへの保存が許可されていません。設定アプリから許可してください")
         }
     }
 }
@@ -75,7 +75,7 @@ final class ExportManager {
     private(set) var lastOutputURL: URL?
     private(set) var savedToPhotos: Bool = false
     /// ユーザー向けの状態表示(日本語)
-    private(set) var statusText: String = "待機中"
+    private(set) var statusText: String = String(localized: "待機中")
     /// 書き出し履歴(新しい順、最大 20 件。ファイルが無くなったものは除く)
     private(set) var history: [ExportRecord] = []
 
@@ -168,7 +168,7 @@ final class ExportManager {
         try await Self.saveVideoToPhotos(url)
         await MainActor.run {
             self.savedToPhotos = true
-            self.statusText = "写真に保存しました"
+            self.statusText = String(localized: "写真に保存しました")
         }
     }
 
@@ -192,7 +192,7 @@ final class ExportManager {
         guard !isRunning else { return }
 
         guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
-            let message = "書き出すクリップがありません"
+            let message = String(localized: "書き出すクリップがありません")
             state = .failed(message)
             statusText = message
             return
@@ -201,7 +201,7 @@ final class ExportManager {
         // 空き容量チェック
         let estimate = StorageEstimator.estimate(for: snapshot)
         guard estimate.canExport else {
-            let message = "空き容量が不足しています(必要: \(StorageEstimator.formatBytes(estimate.requiredBytes)) / 空き: \(StorageEstimator.formatBytes(estimate.availableBytes)))"
+            let message = String(localized: "空き容量が不足しています(必要: \(StorageEstimator.formatBytes(estimate.requiredBytes)) / 空き: \(StorageEstimator.formatBytes(estimate.availableBytes)))")
             state = .failed(message)
             statusText = message
             return
@@ -212,7 +212,7 @@ final class ExportManager {
         progress = 0
         savedToPhotos = false
         lastOutputURL = nil
-        statusText = jobLabel + "書き出しの準備中…"
+        statusText = jobLabel + String(localized: "書き出しの準備中…")
         cancelRequested = false
         expiredInBackground = false
         continuedTaskExpired = false
@@ -228,7 +228,7 @@ final class ExportManager {
             PHPhotoLibrary.requestAuthorization(for: .addOnly) { _ in }
         }
         beginBackgroundWork()
-        beginContinuedProcessing(title: jobsTotal > 1 ? "動画を書き出し中(\(jobsTotal) 本)" : "動画を書き出し中",
+        beginContinuedProcessing(title: jobsTotal > 1 ? String(localized: "動画を書き出し中(\(jobsTotal) 本)") : String(localized: "動画を書き出し中"),
                                  wantsGPU: true)
 
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -240,7 +240,7 @@ final class ExportManager {
     private func startDualOnMain(snapshot: ProjectSnapshot, saveToPhotos: Bool) {
         guard !isRunning else { return }
         guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
-            let message = "書き出すクリップがありません"
+            let message = String(localized: "書き出すクリップがありません")
             state = .failed(message)
             statusText = message
             return
@@ -256,14 +256,14 @@ final class ExportManager {
         let second = StorageEstimator.estimate(for: portrait)
         let required = first.requiredBytes + second.estimatedOutputBytes
         guard first.availableBytes >= required else {
-            let message = "空き容量が不足しています(2 本分で必要: \(StorageEstimator.formatBytes(required)) / 空き: \(StorageEstimator.formatBytes(first.availableBytes)))"
+            let message = String(localized: "空き容量が不足しています(2 本分で必要: \(StorageEstimator.formatBytes(required)) / 空き: \(StorageEstimator.formatBytes(first.availableBytes)))")
             state = .failed(message)
             statusText = message
             return
         }
 
-        queuedJobs = [ExportJob(snapshot: portrait, saveToPhotos: saveToPhotos, label: "(2/2 縦 9:16)")]
-        jobLabel = "(1/2 横 16:9)"
+        queuedJobs = [ExportJob(snapshot: portrait, saveToPhotos: saveToPhotos, label: String(localized: "(2/2 縦 9:16)"))]
+        jobLabel = String(localized: "(1/2 横 16:9)")
         jobsCompleted = 0
         jobsTotal = 2
         startOnMain(snapshot: landscape, saveToPhotos: saveToPhotos)
@@ -278,7 +278,7 @@ final class ExportManager {
     private func startAudioOnlyOnMain(snapshot: ProjectSnapshot) {
         guard !isRunning else { return }
         guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
-            let message = "書き出すクリップがありません"
+            let message = String(localized: "書き出すクリップがありません")
             state = .failed(message)
             statusText = message
             return
@@ -292,7 +292,7 @@ final class ExportManager {
         progress = 0
         savedToPhotos = false
         lastOutputURL = nil
-        statusText = "音声の書き出しを準備中…"
+        statusText = String(localized: "音声の書き出しを準備中…")
         cancelRequested = false
         expiredInBackground = false
         continuedTaskExpired = false
@@ -303,7 +303,7 @@ final class ExportManager {
         progressLock.unlock()
 
         beginBackgroundWork()
-        beginContinuedProcessing(title: "音声を書き出し中", wantsGPU: false)
+        beginContinuedProcessing(title: String(localized: "音声を書き出し中"), wantsGPU: false)
 
         Task.detached(priority: .userInitiated) { [weak self] in
             await self?.runAudioExport(snapshot: snapshot)
@@ -318,7 +318,7 @@ final class ExportManager {
         }
         cancelRequested = true
         queuedJobs = []
-        statusText = "キャンセルしています…"
+        statusText = String(localized: "キャンセルしています…")
         currentPipeline?.cancel()
         currentAudioSession?.cancelExport()
     }
@@ -331,7 +331,7 @@ final class ExportManager {
         do {
             outputURL = try Self.makeOutputURL(fileExtension: StorageEstimator.fileExtension(for: snapshot))
         } catch {
-            let message = "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)"
+            let message = String(localized: "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)")
             await MainActor.run { self.finishFailed(message, outputURL: nil) }
             return
         }
@@ -346,7 +346,7 @@ final class ExportManager {
         do {
             built = try await CompositionBuilder.build(buildSnapshot, purpose: .export)
         } catch {
-            let message = "映像の構成に失敗しました: \(error.localizedDescription)"
+            let message = String(localized: "映像の構成に失敗しました: \(error.localizedDescription)")
             await MainActor.run {
                 if self.cancelRequested {
                     self.finishCancelled(outputURL: outputURL)
@@ -415,7 +415,7 @@ final class ExportManager {
         case .cancelled:
             await MainActor.run { self.finishCancelled(outputURL: outputURL) }
         case .failed(let error):
-            let message = "書き出しに失敗しました: \(error.localizedDescription)"
+            let message = String(localized: "書き出しに失敗しました: \(error.localizedDescription)")
             await MainActor.run { self.finishFailed(message, outputURL: outputURL) }
         }
     }
@@ -427,7 +427,7 @@ final class ExportManager {
         do {
             outputURL = try Self.makeOutputURL(fileExtension: "m4a")
         } catch {
-            let message = "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)"
+            let message = String(localized: "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)")
             await MainActor.run { self.finishFailed(message, outputURL: nil) }
             return
         }
@@ -436,7 +436,7 @@ final class ExportManager {
         do {
             built = try await CompositionBuilder.build(snapshot, purpose: .preview)
         } catch {
-            let message = "音声の構成に失敗しました: \(error.localizedDescription)"
+            let message = String(localized: "音声の構成に失敗しました: \(error.localizedDescription)")
             await MainActor.run {
                 if self.cancelRequested {
                     self.finishCancelled(outputURL: outputURL)
@@ -448,7 +448,7 @@ final class ExportManager {
         }
 
         guard let session = AVAssetExportSession(asset: built.composition, presetName: AVAssetExportPresetAppleM4A) else {
-            await MainActor.run { self.finishFailed("音声の書き出しを準備できませんでした", outputURL: outputURL) }
+            await MainActor.run { self.finishFailed(String(localized: "音声の書き出しを準備できませんでした"), outputURL: outputURL) }
             return
         }
         session.audioMix = built.audioMix
@@ -489,7 +489,7 @@ final class ExportManager {
                     self.finishCancelled(outputURL: outputURL)
                 } else {
                     self.finishSucceeded(outputURL: outputURL, saved: false, photoError: nil,
-                                         duration: durationSeconds, canvasDescription: "音声のみ(m4a)",
+                                         duration: durationSeconds, canvasDescription: String(localized: "音声のみ(m4a)"),
                                          audioOnly: true)
                 }
             }
@@ -501,7 +501,7 @@ final class ExportManager {
                 if self.cancelRequested || cancelled {
                     self.finishCancelled(outputURL: outputURL)
                 } else {
-                    self.finishFailed("音声の書き出しに失敗しました: \(error.localizedDescription)", outputURL: outputURL)
+                    self.finishFailed(String(localized: "音声の書き出しに失敗しました: \(error.localizedDescription)"), outputURL: outputURL)
                 }
             }
         }
@@ -511,11 +511,11 @@ final class ExportManager {
     private static func canvasDescription(for snapshot: ProjectSnapshot, renderSize: CGSize) -> String {
         let aspect: String
         switch snapshot.canvas.aspect {
-        case .original: aspect = "元の比率"
-        case .portrait9x16: aspect = "9:16 縦"
-        case .landscape16x9: aspect = "16:9 横"
+        case .original: aspect = String(localized: "元の比率")
+        case .portrait9x16: aspect = String(localized: "9:16 縦")
+        case .landscape16x9: aspect = String(localized: "16:9 横")
         case .square: aspect = "1:1"
-        case .portrait4x5: aspect = "4:5 縦"
+        case .portrait4x5: aspect = String(localized: "4:5 縦")
         }
         let shortSide = Int(min(renderSize.width, renderSize.height).rounded())
         let codec = StorageEstimator.usesHEVC(for: snapshot) ? "HEVC" : "H.264"
@@ -565,25 +565,25 @@ final class ExportManager {
     /// 出力ファイルを AVURLAsset で開き、長さ(許容 0.5 秒)と映像トラックの有無を確認する。問題があれば日本語の説明を返す
     private static func verifyOutput(_ url: URL, expectedDuration: Double) async -> String? {
         guard FileManager.default.fileExists(atPath: url.path) else {
-            return "書き出した動画のファイルが見つかりません"
+            return String(localized: "書き出した動画のファイルが見つかりません")
         }
         let asset = AVURLAsset(url: url)
         do {
             let duration = try await asset.load(.duration)
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
             guard !videoTracks.isEmpty else {
-                return "書き出した動画に映像トラックがありません"
+                return String(localized: "書き出した動画に映像トラックがありません")
             }
             let actual = duration.seconds
             guard actual.isFinite else {
-                return "書き出した動画の長さを読み取れませんでした"
+                return String(localized: "書き出した動画の長さを読み取れませんでした")
             }
             if expectedDuration.isFinite, expectedDuration > 0, abs(actual - expectedDuration) > 0.5 {
                 return String(format: "書き出した動画の長さが一致しません(出力 %.1f 秒 / 想定 %.1f 秒)", actual, expectedDuration)
             }
             return nil
         } catch {
-            return "書き出した動画を確認できませんでした: \(error.localizedDescription)"
+            return String(localized: "書き出した動画を確認できませんでした: \(error.localizedDescription)")
         }
     }
 
@@ -596,8 +596,8 @@ final class ExportManager {
 
     // MARK: - Finish (main)
 
-    private static let backgroundLimitMessage = "バックグラウンドの時間制限で中断しました。アプリを開いたまま再度書き出してください"
-    private static let sdrFallbackNote = "HDRで書き出せなかったためSDRで書き出しました"
+    private static let backgroundLimitMessage = String(localized: "バックグラウンドの時間制限で中断しました。アプリを開いたまま再度書き出してください")
+    private static let sdrFallbackNote = String(localized: "HDRで書き出せなかったためSDRで書き出しました")
 
     @MainActor
     private func finishSucceeded(outputURL: URL, saved: Bool, photoError: Error?, fellBackToSDR: Bool = false,
@@ -636,21 +636,21 @@ final class ExportManager {
         savedToPhotos = saved
         state = .finished
         isRunning = false
-        let doneText = audioOnly ? "音声の書き出し完了" : "書き出し完了"
+        let doneText = audioOnly ? String(localized: "音声の書き出し完了") : String(localized: "書き出し完了")
         if let photoError {
-            statusText = "\(doneText)(写真への保存に失敗: \(photoError.localizedDescription))"
+            statusText = String(localized: "\(doneText)(写真への保存に失敗: \(photoError.localizedDescription))")
         } else if saved {
-            statusText = label.isEmpty ? "\(doneText)・写真に保存しました" : "2 本とも書き出して写真に保存しました"
+            statusText = label.isEmpty ? String(localized: "\(doneText)・写真に保存しました") : String(localized: "2 本とも書き出して写真に保存しました")
         } else {
-            statusText = label.isEmpty ? doneText : "2 本とも書き出しました"
+            statusText = label.isEmpty ? doneText : String(localized: "2 本とも書き出しました")
         }
         if fellBackToSDR {
             statusText += "(\(Self.sdrFallbackNote))"
         }
         if AppLifecycle.shared.isInBackground {
             Self.postLocalNotification(title: doneText,
-                                       body: saved ? "動画を書き出して写真に保存しました"
-                                           : (audioOnly ? "音声の書き出しが完了しました" : "動画の書き出しが完了しました"))
+                                       body: saved ? String(localized: "動画を書き出して写真に保存しました")
+                                           : (audioOnly ? String(localized: "音声の書き出しが完了しました") : String(localized: "動画の書き出しが完了しました")))
         }
         endBackgroundWork(success: true)
     }
@@ -666,24 +666,24 @@ final class ExportManager {
         isRunning = false
         let reason: String
         if continuedTaskExpired {
-            reason = "ロック画面またはシステムにより停止されたため"
+            reason = String(localized: "ロック画面またはシステムにより停止されたため")
         } else if expiredInBackground {
-            reason = "バックグラウンドの時間制限のため"
+            reason = String(localized: "バックグラウンドの時間制限のため")
         } else {
-            reason = "キャンセルしたため"
+            reason = String(localized: "キャンセルしたため")
         }
-        var text = saved ? "1 本目のみ書き出して写真に保存しました" : "1 本目のみ書き出しました"
-        text += "(\(reason)、2 本目は中止)"
+        var text = saved ? String(localized: "1 本目のみ書き出して写真に保存しました") : String(localized: "1 本目のみ書き出しました")
+        text += String(localized: "(\(reason)、2 本目は中止)")
         if let photoError {
-            text += "(写真への保存に失敗: \(photoError.localizedDescription))"
+            text += String(localized: "(写真への保存に失敗: \(photoError.localizedDescription))")
         }
         if fellBackToSDR {
             text += "(\(Self.sdrFallbackNote))"
         }
         statusText = text
         if (continuedTaskExpired || expiredInBackground) && AppLifecycle.shared.isInBackground {
-            Self.postLocalNotification(title: "書き出しが停止されました",
-                                       body: "1 本目のみ書き出しました。アプリを開いて 2 本目を書き出してください")
+            Self.postLocalNotification(title: String(localized: "書き出しが停止されました"),
+                                       body: String(localized: "1 本目のみ書き出しました。アプリを開いて 2 本目を書き出してください"))
         }
         endBackgroundWork(success: false)
     }
@@ -700,7 +700,7 @@ final class ExportManager {
         state = .failed(message)
         statusText = message
         if AppLifecycle.shared.isInBackground {
-            Self.postLocalNotification(title: "書き出しに問題があります", body: message)
+            Self.postLocalNotification(title: String(localized: "書き出しに問題があります"), body: message)
         }
         endBackgroundWork(success: false)
     }
@@ -719,15 +719,15 @@ final class ExportManager {
             state = .failed(Self.backgroundLimitMessage)
             statusText = Self.backgroundLimitMessage
             if AppLifecycle.shared.isInBackground {
-                Self.postLocalNotification(title: "書き出しが中断されました",
-                                           body: "アプリを開いたまま再度書き出してください")
+                Self.postLocalNotification(title: String(localized: "書き出しが中断されました"),
+                                           body: String(localized: "アプリを開いたまま再度書き出してください"))
             }
         } else {
             state = .cancelled
-            statusText = continuedTaskExpired ? "ロック画面またはシステムにより書き出しが停止されました" : "書き出しをキャンセルしました"
+            statusText = continuedTaskExpired ? String(localized: "ロック画面またはシステムにより書き出しが停止されました") : String(localized: "書き出しをキャンセルしました")
             if continuedTaskExpired && AppLifecycle.shared.isInBackground {
-                Self.postLocalNotification(title: "書き出しが停止されました",
-                                           body: "アプリを開いて再度書き出してください")
+                Self.postLocalNotification(title: String(localized: "書き出しが停止されました"),
+                                           body: String(localized: "アプリを開いて再度書き出してください"))
             }
         }
         endBackgroundWork(success: false)
@@ -751,7 +751,7 @@ final class ExportManager {
         state = .failed(finalMessage)
         statusText = finalMessage
         if AppLifecycle.shared.isInBackground {
-            Self.postLocalNotification(title: "書き出しに失敗しました", body: finalMessage)
+            Self.postLocalNotification(title: String(localized: "書き出しに失敗しました"), body: finalMessage)
         }
         endBackgroundWork(success: false)
     }
@@ -841,7 +841,7 @@ final class ExportManager {
     private func beginContinuedProcessing(title: String, wantsGPU: Bool) {
         guard continuedHandle == nil, jobsCompleted == 0 else { return }
         guard let handle = ContinuedProcessing.begin(kind: .export, title: title,
-                                                     subtitle: "書き出しの準備中…", wantsGPU: wantsGPU) else {
+                                                     subtitle: String(localized: "書き出しの準備中…"), wantsGPU: wantsGPU) else {
             return
         }
         handle.onExpire = { [weak self] in
@@ -923,12 +923,12 @@ enum ExportPipelineError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noVideoTrack: return "映像トラックがありません"
-        case .cannotAddReaderOutput: return "読み込みの設定に失敗しました"
-        case .cannotAddWriterInput: return "書き出しの設定に失敗しました"
-        case .readerFailed: return "映像の読み込みに失敗しました"
-        case .writerFailed: return "ファイルの書き込みに失敗しました"
-        case .hdrUnavailable: return "HDR(HLG 10bit)では書き出せませんでした"
+        case .noVideoTrack: return String(localized: "映像トラックがありません")
+        case .cannotAddReaderOutput: return String(localized: "読み込みの設定に失敗しました")
+        case .cannotAddWriterInput: return String(localized: "書き出しの設定に失敗しました")
+        case .readerFailed: return String(localized: "映像の読み込みに失敗しました")
+        case .writerFailed: return String(localized: "ファイルの書き込みに失敗しました")
+        case .hdrUnavailable: return String(localized: "HDR(HLG 10bit)では書き出せませんでした")
         }
     }
 }

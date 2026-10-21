@@ -49,29 +49,29 @@ enum CloudTranscriptionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "OpenAI の API キーが設定されていません。「文字起こしの方式」の画面でキーを入力してください。"
+            return String(localized: "OpenAI の API キーが設定されていません。「文字起こしの方式」の画面でキーを入力してください。")
         case .invalidAPIKey:
             if CloudAIGateway.usesPoints || AccountService.shared.source == .points {
-                return "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。"
+                return String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。")
             }
-            return "APIキーが正しくありません。「文字起こしの方式」の画面で OpenAI の API キーを確認してください。"
+            return String(localized: "APIキーが正しくありません。「文字起こしの方式」の画面で OpenAI の API キーを確認してください。")
         case .rateLimited(let detail):
-            return detail.isEmpty ? "利用上限です。しばらく待ってからもう一度お試しください。"
-                                  : "利用上限です。\(detail)"
+            return detail.isEmpty ? String(localized: "利用上限です。しばらく待ってからもう一度お試しください。")
+                                  : String(localized: "利用上限です。\(detail)")
         case .offline:
-            return "インターネットに接続されていません。通信環境を確認してください。"
+            return String(localized: "インターネットに接続されていません。通信環境を確認してください。")
         case .timedOut:
-            return "サーバーの応答がタイムアウトしました。通信環境を確認してもう一度お試しください。"
+            return String(localized: "サーバーの応答がタイムアウトしました。通信環境を確認してもう一度お試しください。")
         case .network(let detail):
-            return "通信エラー: \(detail)"
+            return String(localized: "通信エラー: \(detail)")
         case .fileTooLarge:
-            return "音声ファイルが大きすぎて送信できません。"
+            return String(localized: "音声ファイルが大きすぎて送信できません。")
         case .server(let status, let message):
-            return "OpenAI サーバーがエラーを返しました(\(status)): \(message)"
+            return String(localized: "OpenAI サーバーがエラーを返しました(\(status)): \(message)")
         case .badResponse:
-            return "サーバーの応答を読み取れませんでした。"
+            return String(localized: "サーバーの応答を読み取れませんでした。")
         case .noAudio:
-            return "送信できる音声がありません。"
+            return String(localized: "送信できる音声がありません。")
         }
     }
 }
@@ -272,7 +272,7 @@ final class CloudTranscriber: @unchecked Sendable {
         do {
             directory = try uploader.makeJobDirectory(for: jobID)
         } catch {
-            throw CloudBackgroundUploaderError.unavailable("作業フォルダを作れません(\(error.localizedDescription))")
+            throw CloudBackgroundUploaderError.unavailable(String(localized: "作業フォルダを作れません(\(error.localizedDescription))"))
         }
         defer { uploader.discard(jobID: jobID) }
 
@@ -758,9 +758,9 @@ final class CloudTranscriber: @unchecked Sendable {
                 }
                 let detail: String
                 if quotaExhausted {
-                    detail = "OpenAI の残高(クレジット)が不足している可能性があります。"
+                    detail = String(localized: "OpenAI の残高(クレジット)が不足している可能性があります。")
                 } else {
-                    detail = "しばらく待ってからもう一度お試しください。"
+                    detail = String(localized: "しばらく待ってからもう一度お試しください。")
                 }
                 throw CloudTranscriptionError.rateLimited(detail)
             case 400, 404, 415, 422:
@@ -771,15 +771,15 @@ final class CloudTranscriber: @unchecked Sendable {
                     attempt = 0
                     continue
                 }
-                throw CloudTranscriptionError.server(status: status, message: apiError.message.isEmpty ? "リクエストが拒否されました" : apiError.message)
+                throw CloudTranscriptionError.server(status: status, message: apiError.message.isEmpty ? String(localized: "リクエストが拒否されました") : apiError.message)
             case 500...599:
                 if attempt < 3 {
                     try await Task.sleep(nanoseconds: UInt64(attempt) * 2_000_000_000)
                     continue
                 }
-                throw CloudTranscriptionError.server(status: status, message: apiError.message.isEmpty ? "一時的な障害です" : apiError.message)
+                throw CloudTranscriptionError.server(status: status, message: apiError.message.isEmpty ? String(localized: "一時的な障害です") : apiError.message)
             default:
-                throw CloudTranscriptionError.server(status: status, message: apiError.message.isEmpty ? "不明なエラー" : apiError.message)
+                throw CloudTranscriptionError.server(status: status, message: apiError.message.isEmpty ? String(localized: "不明なエラー") : apiError.message)
             }
         }
     }
@@ -862,7 +862,7 @@ final class CloudTranscriber: @unchecked Sendable {
     /// 認識モデルに渡す文体の例(prompt)。英語などは nil(送らない)
     static func transcriptionPrompt(language: String) -> String? {
         guard language.lowercased().hasPrefix("ja") else { return nil }
-        return "こんにちは。今日はよろしくお願いします。では、始めましょう。"
+        return String(localized: "こんにちは。今日はよろしくお願いします。では、始めましょう。")
     }
 
     /// 1 リクエストの待ち時間の上限。whisper-1 は 120 秒、精度優先モデルは 240 秒
@@ -904,33 +904,33 @@ final class CloudTranscriber: @unchecked Sendable {
         case 401:
             return .fail(.invalidAPIKey)
         case 403:
-            return .fail(.server(status: status, message: apiError.message.isEmpty ? "アクセスが拒否されました" : apiError.message))
+            return .fail(.server(status: status, message: apiError.message.isEmpty ? String(localized: "アクセスが拒否されました") : apiError.message))
         case 413:
             return .fail(.fileTooLarge)
         case 429:
             let quotaExhausted = apiError.code.contains("insufficient_quota")
                 || apiError.message.lowercased().contains("quota")
             if quotaExhausted {
-                return .fail(.rateLimited("OpenAI の残高(クレジット)が不足している可能性があります。"))
+                return .fail(.rateLimited(String(localized: "OpenAI の残高(クレジット)が不足している可能性があります。")))
             }
             if attempt < maxAttempts {
                 // 同時に送っているピースが一斉に再送しないよう、少しずらす
                 let base = Double(min(attempt, 5)) * 3
                 return .retry(base + Double.random(in: 0...1))
             }
-            return .fail(.rateLimited("しばらく待ってからもう一度お試しください。"))
+            return .fail(.rateLimited(String(localized: "しばらく待ってからもう一度お試しください。")))
         case 400, 404, 415, 422:
             if model != fallbackModel, isModelCompatibilityError(apiError) {
                 return .useFallbackModel
             }
-            return .fail(.server(status: status, message: apiError.message.isEmpty ? "リクエストが拒否されました" : apiError.message))
+            return .fail(.server(status: status, message: apiError.message.isEmpty ? String(localized: "リクエストが拒否されました") : apiError.message))
         case 500...599:
             if attempt < maxAttempts {
                 return .retry(Double(min(attempt, 4)) * 2)
             }
-            return .fail(.server(status: status, message: apiError.message.isEmpty ? "一時的な障害です" : apiError.message))
+            return .fail(.server(status: status, message: apiError.message.isEmpty ? String(localized: "一時的な障害です") : apiError.message))
         default:
-            return .fail(.server(status: status, message: apiError.message.isEmpty ? "不明なエラー" : apiError.message))
+            return .fail(.server(status: status, message: apiError.message.isEmpty ? String(localized: "不明なエラー") : apiError.message))
         }
     }
 

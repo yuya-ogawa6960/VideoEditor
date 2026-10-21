@@ -14,14 +14,14 @@ enum MaskShape: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .none: return "なし"
-        case .circle: return "円"
-        case .rectangle: return "四角"
-        case .linear: return "直線(片側)"
-        case .mirror: return "帯(両側)"
-        case .roundedRectangle: return "角丸四角"
-        case .star: return "星"
-        case .heart: return "ハート"
+        case .none: return String(localized: "なし")
+        case .circle: return String(localized: "円")
+        case .rectangle: return String(localized: "四角")
+        case .linear: return String(localized: "直線(片側)")
+        case .mirror: return String(localized: "帯(両側)")
+        case .roundedRectangle: return String(localized: "角丸四角")
+        case .star: return String(localized: "星")
+        case .heart: return String(localized: "ハート")
         }
     }
 }
@@ -141,10 +141,10 @@ enum ParallaxDirection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .zoomIn: return "ズームイン"
-        case .zoomOut: return "ズームアウト"
-        case .panLeft: return "左へ"
-        case .panRight: return "右へ"
+        case .zoomIn: return String(localized: "ズームイン")
+        case .zoomOut: return String(localized: "ズームアウト")
+        case .panLeft: return String(localized: "左へ")
+        case .panRight: return String(localized: "右へ")
         }
     }
 }
@@ -156,11 +156,11 @@ enum AutoEditStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .documentary: return "ドキュメンタリー"
-        case .vlog: return "Vlog・旅行"
-        case .short: return "ショート(テンポ重視)"
-        case .family: return "家族の記録"
-        case .howto: return "解説・紹介"
+        case .documentary: return String(localized: "ドキュメンタリー")
+        case .vlog: return String(localized: "Vlog・旅行")
+        case .short: return String(localized: "ショート(テンポ重視)")
+        case .family: return String(localized: "家族の記録")
+        case .howto: return String(localized: "解説・紹介")
         }
     }
 }
@@ -198,10 +198,10 @@ enum ScriptTone: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .calm: return "落ち着いた"
-        case .friendly: return "親しみやすい"
-        case .energetic: return "元気"
-        case .formal: return "丁寧"
+        case .calm: return String(localized: "落ち着いた")
+        case .friendly: return String(localized: "親しみやすい")
+        case .energetic: return String(localized: "元気")
+        case .formal: return String(localized: "丁寧")
         }
     }
 }

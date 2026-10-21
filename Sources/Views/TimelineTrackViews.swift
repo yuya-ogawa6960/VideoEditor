@@ -1259,7 +1259,7 @@ struct TimelineTextBar: View {
                 } else {
                     Image(systemName: "textformat")
                         .font(.system(size: 9, weight: .bold))
-                    Text(label.isEmpty ? "テキスト" : label)
+                    Text(label.isEmpty ? String(localized: "テキスト") : label)
                         .font(.system(size: 10, weight: .semibold))
                         .lineLimit(1)
                 }
@@ -1303,7 +1303,7 @@ struct TimelineDrawingBar: View {
 
     var body: some View {
         let count = drawing.strokes.count
-        let label: String = count > 0 ? "手書き \(count)" : "手書き"
+        let label: String = count > 0 ? String(localized: "手書き \(count)") : String(localized: "手書き")
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(TimelineMetrics.drawingColor)

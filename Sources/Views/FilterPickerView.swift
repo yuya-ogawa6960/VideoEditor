@@ -19,23 +19,23 @@ struct FilterPickerView: View {
         VStack(alignment: .leading, spacing: 12) {
             presetStrip
 
-            sliderRow(title: "強さ",
+            sliderRow(title: String(localized: "強さ"),
                       value: $filter.intensity,
                       range: 0...1,
                       display: String(format: "%.0f%%", filter.intensity * 100))
                 .disabled(filter.preset == .none)
 
-            sliderRow(title: "明るさ",
+            sliderRow(title: String(localized: "明るさ"),
                       value: $filter.adjustments.brightness,
                       range: -0.5...0.5,
                       display: String(format: "%+.2f", filter.adjustments.brightness))
 
-            sliderRow(title: "コントラスト",
+            sliderRow(title: String(localized: "コントラスト"),
                       value: $filter.adjustments.contrast,
                       range: 0.5...1.5,
                       display: String(format: "%.2f", filter.adjustments.contrast))
 
-            sliderRow(title: "彩度",
+            sliderRow(title: String(localized: "彩度"),
                       value: $filter.adjustments.saturation,
                       range: 0...2,
                       display: String(format: "%.2f", filter.adjustments.saturation))

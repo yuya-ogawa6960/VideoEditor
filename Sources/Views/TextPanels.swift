@@ -97,7 +97,7 @@ private struct TextPanelHint: View {
 
 /// 右寄せの「リセット」ボタン
 private struct TextPanelResetRow: View {
-    var title: String = "リセット"
+    var title: String = String(localized: "リセット")
     let action: () -> Void
     var body: some View {
         HStack {
@@ -129,10 +129,10 @@ struct EditorFontPickerRow: View {
 
     /// よく使う内蔵フォント(端末にあるものだけ表示)
     private static let builtIn: [(name: String, label: String)] = [
-        ("HiraginoSans-W6", "ヒラギノ角ゴ(太)"),
-        ("HiraginoSans-W3", "ヒラギノ角ゴ(細)"),
-        ("HiraMinProN-W6", "ヒラギノ明朝"),
-        ("HiraMaruProN-W4", "ヒラギノ丸ゴ"),
+        ("HiraginoSans-W6", String(localized: "ヒラギノ角ゴ(太)")),
+        ("HiraginoSans-W3", String(localized: "ヒラギノ角ゴ(細)")),
+        ("HiraMinProN-W6", String(localized: "ヒラギノ明朝")),
+        ("HiraMaruProN-W4", String(localized: "ヒラギノ丸ゴ")),
         ("AvenirNext-Bold", "Avenir Next"),
         ("Futura-Bold", "Futura"),
         ("Georgia-Bold", "Georgia"),
@@ -169,7 +169,7 @@ struct EditorFontPickerRow: View {
 
     /// 一覧に出すフォント(システム → 内蔵 → 読み込んだもの)
     private var entries: [FontEntry] {
-        var list: [FontEntry] = [FontEntry(name: nil, label: "システム(標準)")]
+        var list: [FontEntry] = [FontEntry(name: nil, label: String(localized: "システム(標準)"))]
         for entry in availableBuiltIn {
             list.append(FontEntry(name: entry.name, label: entry.label))
         }
@@ -302,10 +302,10 @@ struct EditorFontPickerRow: View {
                     fontName = name
                     errorText = nil
                 } catch {
-                    errorText = "フォントを読み込めませんでした: \(error.localizedDescription)"
+                    errorText = String(localized: "フォントを読み込めませんでした: \(error.localizedDescription)")
                 }
             case .failure(let error):
-                errorText = "フォントを読み込めませんでした: \(error.localizedDescription)"
+                errorText = String(localized: "フォントを読み込めませんでした: \(error.localizedDescription)")
             }
         }
     }
@@ -391,18 +391,18 @@ struct EditorTextStylePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             EditorItemHeaderRow(systemImage: text.isSticker ? "face.smiling" : "textformat",
-                                name: text.isSticker ? "ステッカー" : "テキスト",
+                                name: text.isSticker ? String(localized: "ステッカー") : String(localized: "テキスト"),
                                 start: text.start, end: text.end)
 
-            EditorTextFieldRow(title: text.isSticker ? "絵文字" : "テキスト",
-                               placeholder: "テキストを入力",
+            EditorTextFieldRow(title: text.isSticker ? String(localized: "絵文字") : String(localized: "テキスト"),
+                               placeholder: String(localized: "テキストを入力"),
                                text: $text.text,
                                multiline: !text.isSticker)
 
             if !text.isSticker {
                 VStack(alignment: .leading, spacing: 6) {
-                    EditorSectionTitle(title: "デザイン")
-                    TextPanelHint(text: "選ぶと、色・縁取り・影などがまとめて変わります。")
+                    EditorSectionTitle(title: String(localized: "デザイン"))
+                    TextPanelHint(text: String(localized: "選ぶと、色・縁取り・影などがまとめて変わります。"))
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(TextTemplate.allCases) { template in
@@ -418,17 +418,17 @@ struct EditorTextStylePanel: View {
                 EditorFontPickerRow(title: "フォント", fontName: $text.style.fontName)
 
                 HStack(spacing: 8) {
-                    EditorChip(title: "太字", isSelected: text.style.bold) {
+                    EditorChip(title: String(localized: "太字"), isSelected: text.style.bold) {
                         text.style.bold.toggle()
                     }
-                    EditorChip(title: "斜体", isSelected: text.style.italic) {
+                    EditorChip(title: String(localized: "斜体"), isSelected: text.style.italic) {
                         text.style.italic.toggle()
                     }
                     Spacer()
                 }
             }
 
-            EditorSliderRow(title: "文字サイズ",
+            EditorSliderRow(title: String(localized: "文字サイズ"),
                             value: $text.style.sizeRatio,
                             range: 0.02...0.25,
                             display: "\(Int((text.style.sizeRatio * 1000).rounded()))")
@@ -436,16 +436,16 @@ struct EditorTextStylePanel: View {
             if !text.isSticker {
                 // ViewBuilder は 1 ブロック 10 個まで。色・縁取り・影・背景 / 配置・字間 の 2 つに分ける
                 Group {
-                EditorColorRow(title: "文字色", color: EditorColorHex.binding($text.style.colorHex))
+                EditorColorRow(title: String(localized: "文字色"), color: EditorColorHex.binding($text.style.colorHex))
 
                 // 縁取り
                 Toggle("縁取り(文字のふち)", isOn: strokeEnabled)
                     .font(.subheadline)
                     .tint(.accentColor)
                 if text.style.strokeColorHex != nil {
-                    EditorColorRow(title: "縁取りの色",
+                    EditorColorRow(title: String(localized: "縁取りの色"),
                                    color: EditorColorHex.optionalBinding($text.style.strokeColorHex, fallback: "#000000"))
-                    EditorSliderRow(title: "縁取りの太さ",
+                    EditorSliderRow(title: String(localized: "縁取りの太さ"),
                                     value: $text.style.strokeWidth,
                                     range: 0...0.3,
                                     display: textPanelPercent(text.style.strokeWidth))
@@ -456,16 +456,16 @@ struct EditorTextStylePanel: View {
                     .font(.subheadline)
                     .tint(.accentColor)
                 if text.style.shadow.enabled {
-                    EditorColorRow(title: "影の色", color: EditorColorHex.binding($text.style.shadow.colorHex))
-                    EditorSliderRow(title: "影の濃さ",
+                    EditorColorRow(title: String(localized: "影の色"), color: EditorColorHex.binding($text.style.shadow.colorHex))
+                    EditorSliderRow(title: String(localized: "影の濃さ"),
                                     value: $text.style.shadow.opacity,
                                     range: 0...1,
                                     display: textPanelPercent(text.style.shadow.opacity))
-                    EditorSliderRow(title: "影のぼかし",
+                    EditorSliderRow(title: String(localized: "影のぼかし"),
                                     value: $text.style.shadow.radius,
                                     range: 0...0.03,
                                     display: String(format: "%.3f", text.style.shadow.radius))
-                    EditorSliderRow(title: "影のずれ(縦)",
+                    EditorSliderRow(title: String(localized: "影のずれ(縦)"),
                                     value: $text.style.shadow.offsetY,
                                     range: -0.02...0.02,
                                     display: String(format: "%+.3f", text.style.shadow.offsetY))
@@ -476,17 +476,17 @@ struct EditorTextStylePanel: View {
                     .font(.subheadline)
                     .tint(.accentColor)
                 if text.style.backgroundColorHex != nil {
-                    EditorColorRow(title: "帯の色",
+                    EditorColorRow(title: String(localized: "帯の色"),
                                    color: EditorColorHex.optionalBinding($text.style.backgroundColorHex, fallback: "#000000"))
-                    EditorSliderRow(title: "帯の濃さ",
+                    EditorSliderRow(title: String(localized: "帯の濃さ"),
                                     value: $text.style.backgroundOpacity,
                                     range: 0...1,
                                     display: textPanelPercent(text.style.backgroundOpacity))
-                    EditorSliderRow(title: "帯の余白",
+                    EditorSliderRow(title: String(localized: "帯の余白"),
                                     value: $text.style.backgroundPadding,
                                     range: 0...1,
                                     display: String(format: "%.2f", text.style.backgroundPadding))
-                    EditorSliderRow(title: "帯の角丸",
+                    EditorSliderRow(title: String(localized: "帯の角丸"),
                                     value: $text.style.backgroundCornerRadius,
                                     range: 0...1,
                                     display: String(format: "%.2f", text.style.backgroundCornerRadius))
@@ -496,7 +496,7 @@ struct EditorTextStylePanel: View {
                 Group {
                 // 配置・字間・行間
                 VStack(alignment: .leading, spacing: 6) {
-                    EditorSectionTitle(title: "行ぞろえ")
+                    EditorSectionTitle(title: String(localized: "行ぞろえ"))
                     HStack(spacing: 8) {
                         ForEach(TextAlignment2.allCases) { alignment in
                             EditorChip(title: alignment.displayName, isSelected: text.style.alignment == alignment) {
@@ -506,31 +506,31 @@ struct EditorTextStylePanel: View {
                         Spacer()
                     }
                 }
-                EditorSliderRow(title: "文字の間隔",
+                EditorSliderRow(title: String(localized: "文字の間隔"),
                                 value: $text.style.letterSpacing,
                                 range: -0.1...0.5,
                                 display: String(format: "%+.2f", text.style.letterSpacing))
-                EditorSliderRow(title: "行間",
+                EditorSliderRow(title: String(localized: "行間"),
                                 value: $text.style.lineSpacing,
                                 range: 0.8...2.0,
                                 display: String(format: "%.2f", text.style.lineSpacing))
                 Toggle("縦書き", isOn: $text.style.vertical)
                     .font(.subheadline)
                     .tint(.accentColor)
-                EditorSliderRow(title: "文字を弧のように曲げる",
+                EditorSliderRow(title: String(localized: "文字を弧のように曲げる"),
                                 value: $text.style.curveRadius,
                                 range: 0...1,
-                                display: text.style.curveRadius <= 0.001 ? "直線" : String(format: "%.2f", text.style.curveRadius))
+                                display: text.style.curveRadius <= 0.001 ? String(localized: "直線") : String(format: "%.2f", text.style.curveRadius))
                 }
             }
 
-            EditorSliderRow(title: "表示時間",
+            EditorSliderRow(title: String(localized: "表示時間"),
                             value: $text.duration,
                             range: 0.5...30,
                             display: textPanelSeconds(text.duration))
 
             if !text.isSticker {
-                TextPanelResetRow(title: "スタイルをリセット") {
+                TextPanelResetRow(title: String(localized: "スタイルをリセット")) {
                     text.style = TextStyle.preset(text.template)
                 }
             }
@@ -546,12 +546,12 @@ struct EditorTextAnimationPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextPanelHint(text: "アニメーション: 文字が出てくるとき・消えるときの動きを選びます。")
+            TextPanelHint(text: String(localized: "アニメーション: 文字が出てくるとき・消えるときの動きを選びます。"))
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "出てくるとき")
+                EditorSectionTitle(title: String(localized: "出てくるとき"))
                 TextAnimationPicker(selection: $text.animIn, isOut: false)
-                EditorSliderRow(title: "出てくるまでの時間",
+                EditorSliderRow(title: String(localized: "出てくるまでの時間"),
                                 value: $text.animInDuration,
                                 range: 0.1...2.0,
                                 display: textPanelSeconds(text.animInDuration))
@@ -560,9 +560,9 @@ struct EditorTextAnimationPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "消えるとき")
+                EditorSectionTitle(title: String(localized: "消えるとき"))
                 TextAnimationPicker(selection: $text.animOut, isOut: true)
-                EditorSliderRow(title: "消えるまでの時間",
+                EditorSliderRow(title: String(localized: "消えるまでの時間"),
                                 value: $text.animOutDuration,
                                 range: 0.1...2.0,
                                 display: textPanelSeconds(text.animOutDuration))
@@ -572,7 +572,7 @@ struct EditorTextAnimationPanel: View {
 
             HStack {
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     text.animIn = .none
                     text.animOut = .none
                 }
@@ -594,11 +594,11 @@ struct EditorTextPlacementPanel: View {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .center: return "中央"
-            case .top: return "上"
-            case .bottom: return "下"
-            case .left: return "左"
-            case .right: return "右"
+            case .center: return String(localized: "中央")
+            case .top: return String(localized: "上")
+            case .bottom: return String(localized: "下")
+            case .left: return String(localized: "左")
+            case .right: return String(localized: "右")
             }
         }
         var point: NormalizedPoint {
@@ -625,7 +625,7 @@ struct EditorTextPlacementPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "位置")
+                EditorSectionTitle(title: String(localized: "位置"))
                 HStack(spacing: 8) {
                     ForEach(Anchor.allCases) { anchor in
                         EditorChip(title: anchor.title,
@@ -637,36 +637,36 @@ struct EditorTextPlacementPanel: View {
                 }
             }
 
-            EditorSliderRow(title: "横の位置(左 ← → 右)",
+            EditorSliderRow(title: String(localized: "横の位置(左 ← → 右)"),
                             value: $text.center.x,
                             range: 0...1,
                             display: textPanelPercent(text.center.x))
-            EditorSliderRow(title: "縦の位置(上 ← → 下)",
+            EditorSliderRow(title: String(localized: "縦の位置(上 ← → 下)"),
                             value: $text.center.y,
                             range: 0...1,
                             display: textPanelPercent(text.center.y))
-            EditorSliderRow(title: "大きさ",
+            EditorSliderRow(title: String(localized: "大きさ"),
                             value: $text.scale,
                             range: 0.2...4,
                             display: String(format: "%.2fx", text.scale))
-            EditorSliderRow(title: "回転",
+            EditorSliderRow(title: String(localized: "回転"),
                             value: $text.rotation,
                             range: -180...180,
                             display: String(format: "%.0f°", text.rotation))
             if !text.isSticker {
-                EditorSliderRow(title: "1行の幅(これより長いと折り返す)",
+                EditorSliderRow(title: String(localized: "1行の幅(これより長いと折り返す)"),
                                 value: $text.widthRatio,
                                 range: 0.2...1,
                                 display: textPanelPercent(text.widthRatio))
             }
-            EditorSliderRow(title: "濃さ(透けにくさ)",
+            EditorSliderRow(title: String(localized: "濃さ(透けにくさ)"),
                             value: $text.opacity,
                             range: 0...1,
                             display: textPanelPercent(text.opacity))
 
             HStack {
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     text.center = NormalizedPoint(x: 0.5, y: 0.5)
                     text.scale = 1
                     text.rotation = 0
@@ -708,7 +708,7 @@ struct EditorKeyframePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextPanelHint(text: "キーフレーム: 時間ごとに位置や大きさを記録すると、その間をなめらかに動きます。")
+            TextPanelHint(text: String(localized: "キーフレーム: 時間ごとに位置や大きさを記録すると、その間をなめらかに動きます。"))
 
             Text("再生位置 \(MediaTimeText.precise(player.currentTime))(先頭から \(String(format: "%.2f", playheadRelative)) 秒)")
                 .font(.caption)
@@ -716,11 +716,11 @@ struct EditorKeyframePanel: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
-                EditorPillButton(title: "ここに動きのポイントを追加", systemImage: "plus.diamond", prominent: true) {
+                EditorPillButton(title: String(localized: "ここに動きのポイントを追加"), systemImage: "plus.diamond", prominent: true) {
                     addAtPlayhead()
                 }
                 Spacer()
-                EditorChip(title: "すべて削除", isSelected: false) {
+                EditorChip(title: String(localized: "すべて削除"), isSelected: false) {
                     keyframes.removeAll()
                     selectedID = nil
                 }
@@ -840,12 +840,12 @@ struct EditorOverlayBlendPanel: View {
     @Binding var overlay: OverlayClip
 
     private let modes: [(title: String, filter: String?)] = [
-        ("通常", nil),
-        ("暗く重ねる(乗算)", "CIMultiplyBlendMode"),
-        ("明るく重ねる(スクリーン)", "CIScreenBlendMode"),
-        ("くっきり重ねる", "CIOverlayBlendMode"),
-        ("やわらかく重ねる", "CISoftLightBlendMode"),
-        ("明るい方を残す", "CILightenBlendMode")
+        (String(localized: "通常"), nil),
+        (String(localized: "暗く重ねる(乗算)"), "CIMultiplyBlendMode"),
+        (String(localized: "明るく重ねる(スクリーン)"), "CIScreenBlendMode"),
+        (String(localized: "くっきり重ねる"), "CIOverlayBlendMode"),
+        (String(localized: "やわらかく重ねる"), "CISoftLightBlendMode"),
+        (String(localized: "明るい方を残す"), "CILightenBlendMode")
     ]
 
     var body: some View {
@@ -868,7 +868,7 @@ struct EditorOverlayBlendPanel: View {
                 }
             }
 
-            EditorSliderRow(title: "濃さ(透けにくさ)",
+            EditorSliderRow(title: String(localized: "濃さ(透けにくさ)"),
                             value: $overlay.opacity,
                             range: 0...1,
                             display: textPanelPercent(overlay.opacity))
@@ -938,16 +938,16 @@ struct EditorDrawingToolsPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSectionTitle(title: "色")
+                EditorSectionTitle(title: String(localized: "色"))
                 DrawingColorChips(colorHex: $colorHex)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "太さ")
+                EditorSectionTitle(title: String(localized: "太さ"))
                 HStack(spacing: 8) {
-                    EditorChip(title: "細", isSelected: abs(width - 0.006) < 0.0005) { width = 0.006 }
-                    EditorChip(title: "中", isSelected: abs(width - 0.012) < 0.0005) { width = 0.012 }
-                    EditorChip(title: "太", isSelected: abs(width - 0.024) < 0.0005) { width = 0.024 }
+                    EditorChip(title: String(localized: "細"), isSelected: abs(width - 0.006) < 0.0005) { width = 0.006 }
+                    EditorChip(title: String(localized: "中"), isSelected: abs(width - 0.012) < 0.0005) { width = 0.012 }
+                    EditorChip(title: String(localized: "太"), isSelected: abs(width - 0.024) < 0.0005) { width = 0.024 }
                     Spacer()
                 }
                 Slider(value: $width, in: 0.003...0.04)
@@ -955,21 +955,21 @@ struct EditorDrawingToolsPanel: View {
             }
 
             HStack(spacing: 10) {
-                EditorPillButton(title: "1つ戻す", systemImage: "arrow.uturn.backward") {
+                EditorPillButton(title: String(localized: "1つ戻す"), systemImage: "arrow.uturn.backward") {
                     if !strokes.isEmpty { strokes.removeLast() }
                 }
                 .disabled(strokes.isEmpty)
                 .opacity(strokes.isEmpty ? 0.4 : 1)
-                EditorPillButton(title: "全部消す", systemImage: "trash", tint: .red) {
+                EditorPillButton(title: String(localized: "全部消す"), systemImage: "trash", tint: .red) {
                     strokes.removeAll()
                 }
                 .disabled(strokes.isEmpty)
                 .opacity(strokes.isEmpty ? 0.4 : 1)
                 Spacer()
-                EditorPillButton(title: "キャンセル", systemImage: "xmark") {
+                EditorPillButton(title: String(localized: "キャンセル"), systemImage: "xmark") {
                     onCancel()
                 }
-                EditorPillButton(title: "完了", systemImage: "checkmark", prominent: true) {
+                EditorPillButton(title: String(localized: "完了"), systemImage: "checkmark", prominent: true) {
                     onFinish()
                 }
                 .disabled(strokes.isEmpty)
@@ -1008,27 +1008,27 @@ struct EditorDrawingStylePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: "pencil.tip", name: "手書き(\(drawing.strokes.count) 本)",
+            EditorItemHeaderRow(systemImage: "pencil.tip", name: String(localized: "手書き(\(drawing.strokes.count) 本)"),
                                 start: drawing.start, end: drawing.end)
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSectionTitle(title: "色(すべての線)")
+                EditorSectionTitle(title: String(localized: "色(すべての線)"))
                 DrawingColorChips(colorHex: colorBinding)
             }
 
-            EditorSliderRow(title: "太さ(すべての線)",
+            EditorSliderRow(title: String(localized: "太さ(すべての線)"),
                             value: widthBinding,
                             range: 0.003...0.04,
                             display: String(format: "%.1f", widthBinding.wrappedValue * 1000))
 
             HStack {
-                EditorPillButton(title: "最後の線を消す", systemImage: "arrow.uturn.backward") {
+                EditorPillButton(title: String(localized: "最後の線を消す"), systemImage: "arrow.uturn.backward") {
                     if !drawing.strokes.isEmpty { drawing.strokes.removeLast() }
                 }
                 .disabled(drawing.strokes.isEmpty)
                 .opacity(drawing.strokes.isEmpty ? 0.4 : 1)
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     colorBinding.wrappedValue = "#FF4D4D"
                     widthBinding.wrappedValue = 0.012
                 }
@@ -1047,25 +1047,25 @@ struct EditorDrawingTimingPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: "pencil.tip", name: "手書き",
+            EditorItemHeaderRow(systemImage: "pencil.tip", name: String(localized: "手書き"),
                                 start: drawing.start, end: drawing.end)
 
-            EditorSliderRow(title: "表示時間",
+            EditorSliderRow(title: String(localized: "表示時間"),
                             value: $drawing.duration,
                             range: 0.5...15,
                             display: textPanelSeconds(drawing.duration))
-            EditorSliderRow(title: "線が描かれていく時間",
+            EditorSliderRow(title: String(localized: "線が描かれていく時間"),
                             value: $drawing.revealDuration,
                             range: 0...3,
                             display: textPanelSeconds(drawing.revealDuration))
-            TextPanelHint(text: "0 秒にすると、線がいきなり全部表示されます。")
+            TextPanelHint(text: String(localized: "0 秒にすると、線がいきなり全部表示されます。"))
 
             HStack {
-                EditorPillButton(title: "再生位置に移動", systemImage: "arrow.right.to.line") {
+                EditorPillButton(title: String(localized: "再生位置に移動"), systemImage: "arrow.right.to.line") {
                     drawing.start = max(0, player.currentTime)
                 }
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     drawing.duration = 3
                     drawing.revealDuration = 0.8
                 }
@@ -1106,14 +1106,14 @@ struct EditorMarkerNamePanel: View {
                     .foregroundStyle(.secondary)
             }
 
-            EditorTextFieldRow(title: "名前", placeholder: marker.kind == .chapter ? "例: オープニング" : "メモ", text: $marker.name)
+            EditorTextFieldRow(title: String(localized: "名前"), placeholder: marker.kind == .chapter ? String(localized: "例: オープニング") : String(localized: "メモ"), text: $marker.name)
 
             HStack(spacing: 10) {
-                EditorPillButton(title: "再生位置に移動", systemImage: "arrow.right.to.line") {
+                EditorPillButton(title: String(localized: "再生位置に移動"), systemImage: "arrow.right.to.line") {
                     marker.time = max(0, player.currentTime)
                     project.sortMarkers()
                 }
-                EditorPillButton(title: copied ? "コピーしました" : "チャプター一覧をコピー", systemImage: "doc.on.doc") {
+                EditorPillButton(title: copied ? String(localized: "コピーしました") : String(localized: "チャプター一覧をコピー"), systemImage: "doc.on.doc") {
                     UIPasteboard.general.string = project.chapterListText()
                     copied = true
                     Task { @MainActor in
@@ -1125,7 +1125,7 @@ struct EditorMarkerNamePanel: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSectionTitle(title: "チャプター一覧(YouTube の概要欄用)")
+                EditorSectionTitle(title: String(localized: "チャプター一覧(YouTube の概要欄用)"))
                 Text(chapterPreview)
                     .font(.caption2)
                     .monospacedDigit()
@@ -1142,16 +1142,16 @@ struct EditorMarkerKindPanel: View {
 
     private func description(_ kind: MarkerKind) -> String {
         switch kind {
-        case .note: return "自分用のメモです。書き出した動画には映りません。"
-        case .chapter: return "YouTube の区切り(チャプター)に使います。「チャプター一覧をコピー」で概要欄に貼る文章を作れます。"
-        case .beat: return "「ビートに合わせる」で付く、音楽の拍のマーカーです。"
+        case .note: return String(localized: "自分用のメモです。書き出した動画には映りません。")
+        case .chapter: return String(localized: "YouTube の区切り(チャプター)に使います。「チャプター一覧をコピー」で概要欄に貼る文章を作れます。")
+        case .beat: return String(localized: "「ビートに合わせる」で付く、音楽の拍のマーカーです。")
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "種類")
+                EditorSectionTitle(title: String(localized: "種類"))
                 HStack(spacing: 8) {
                     ForEach(MarkerKind.allCases) { kind in
                         EditorChip(title: kind.displayName, isSelected: marker.kind == kind) {
@@ -1187,15 +1187,15 @@ struct EditorWatermarkPanel: View {
                     .font(.subheadline)
             }
             .tint(.accentColor)
-            TextPanelHint(text: "動画の隅に、名前やロゴをずっと表示します。")
+            TextPanelHint(text: String(localized: "動画の隅に、名前やロゴをずっと表示します。"))
 
             Group {
-                EditorTextFieldRow(title: "文字(画像がないときに使います)",
-                                   placeholder: "例: @channel_name",
+                EditorTextFieldRow(title: String(localized: "文字(画像がないときに使います)"),
+                                   placeholder: String(localized: "例: @channel_name"),
                                    text: $project.watermark.text)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    EditorSectionTitle(title: "画像")
+                    EditorSectionTitle(title: String(localized: "画像"))
                     HStack(spacing: 10) {
                         if let thumbnail {
                             Image(uiImage: thumbnail)
@@ -1205,7 +1205,7 @@ struct EditorWatermarkPanel: View {
                                 .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                         }
                         PhotosPicker(selection: $pickerItem, matching: .images, preferredItemEncoding: .current) {
-                            Label(project.watermark.imageURL == nil ? "画像を選ぶ" : "画像を変える", systemImage: "photo")
+                            Label(project.watermark.imageURL == nil ? String(localized: "画像を選ぶ") : String(localized: "画像を変える"), systemImage: "photo")
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 12)
@@ -1217,7 +1217,7 @@ struct EditorWatermarkPanel: View {
                         .buttonStyle(.plain)
                         .disabled(isLoading)
                         if project.watermark.imageURL != nil {
-                            EditorPillButton(title: "画像を外す", systemImage: "xmark") {
+                            EditorPillButton(title: String(localized: "画像を外す"), systemImage: "xmark") {
                                 project.watermark.imageURL = nil
                                 thumbnail = nil
                             }
@@ -1237,7 +1237,7 @@ struct EditorWatermarkPanel: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    EditorSectionTitle(title: "位置")
+                    EditorSectionTitle(title: String(localized: "位置"))
                     HStack(spacing: 8) {
                         ForEach(WatermarkCorner.allCases) { corner in
                             EditorChip(title: corner.displayName, isSelected: project.watermark.corner == corner) {
@@ -1248,11 +1248,11 @@ struct EditorWatermarkPanel: View {
                     }
                 }
 
-                EditorSliderRow(title: "濃さ(透けにくさ)",
+                EditorSliderRow(title: String(localized: "濃さ(透けにくさ)"),
                                 value: $project.watermark.opacity,
                                 range: 0.05...1,
                                 display: textPanelPercent(project.watermark.opacity))
-                EditorSliderRow(title: "大きさ(画面幅に対して)",
+                EditorSliderRow(title: String(localized: "大きさ(画面幅に対して)"),
                                 value: $project.watermark.sizeRatio,
                                 range: 0.05...1,
                                 display: textPanelPercent(project.watermark.sizeRatio))
@@ -1294,7 +1294,7 @@ struct EditorWatermarkPanel: View {
                 project.watermark.enabled = true
                 loadThumbnail()
             } else {
-                errorText = "画像を取得できませんでした。"
+                errorText = String(localized: "画像を取得できませんでした。")
             }
         } catch {
             errorText = error.localizedDescription
@@ -1354,19 +1354,19 @@ struct EditorFormatKitPanel: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    EditorPillButton(title: showSaveForm ? "保存をやめる" : "今の範囲をフォーマットとして保存",
+                    EditorPillButton(title: showSaveForm ? String(localized: "保存をやめる") : String(localized: "今の範囲をフォーマットとして保存"),
                                      systemImage: showSaveForm ? "xmark" : "square.and.arrow.down") {
                         showSaveForm.toggle()
                     }
                     Spacer()
                 }
                 if showSaveForm {
-                    Text("保存する範囲: \(MediaTimeText.precise(saveRange.lowerBound)) – \(MediaTimeText.precise(saveRange.upperBound))" + (selectedClipID != nil ? "(選択中のクリップ)" : "(先頭から再生位置まで)"))
+                    Text("保存する範囲: \(MediaTimeText.precise(saveRange.lowerBound)) – \(MediaTimeText.precise(saveRange.upperBound))" + (selectedClipID != nil ? String(localized: "(選択中のクリップ)") : String(localized: "(先頭から再生位置まで)")))
                         .font(.caption2)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    EditorTextFieldRow(title: "名前", placeholder: "例: いつものオープニング", text: $saveName)
+                    EditorTextFieldRow(title: String(localized: "名前"), placeholder: String(localized: "例: いつものオープニング"), text: $saveName)
                     HStack(spacing: 8) {
                         ForEach(FormatKind.allCases) { kind in
                             EditorChip(title: kind.displayName, isSelected: saveKind == kind) {
@@ -1377,7 +1377,7 @@ struct EditorFormatKitPanel: View {
                     }
                     HStack {
                         Spacer()
-                        EditorPillButton(title: "保存", systemImage: "checkmark", prominent: true) {
+                        EditorPillButton(title: String(localized: "保存"), systemImage: "checkmark", prominent: true) {
                             save()
                         }
                         .disabled(saveName.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -1424,13 +1424,13 @@ struct EditorFormatKitPanel: View {
                 .accessibilityLabel("その他の操作")
             }
             HStack(spacing: 8) {
-                EditorChip(title: "先頭に挿入", isSelected: false) {
+                EditorChip(title: String(localized: "先頭に挿入"), isSelected: false) {
                     insert(block, at: 0)
                 }
-                EditorChip(title: "再生位置に挿入", isSelected: false) {
+                EditorChip(title: String(localized: "再生位置に挿入"), isSelected: false) {
                     insert(block, at: max(0, player.currentTime))
                 }
-                EditorChip(title: "末尾に挿入", isSelected: false) {
+                EditorChip(title: String(localized: "末尾に挿入"), isSelected: false) {
                     insert(block, at: project.totalDuration + 1)
                 }
             }
@@ -1442,7 +1442,7 @@ struct EditorFormatKitPanel: View {
     private func insert(_ block: FormatBlock, at time: Double) {
         history.record(project)
         store.insert(block, into: project, at: time)
-        message = "「\(block.name)」を挿入しました。"
+        message = String(localized: "「\(block.name)」を挿入しました。")
     }
 
     private func save() {
@@ -1454,7 +1454,7 @@ struct EditorFormatKitPanel: View {
         }
         showSaveForm = false
         saveName = ""
-        message = "「\(name)」を\(saveKind.displayName)として保存しました。"
+        message = String(localized: "「\(name)」を\(saveKind.displayName)として保存しました。")
     }
 }
 
@@ -1478,32 +1478,32 @@ struct EditorTextToSpeechPanel: View {
     @State private var resultText: String?
 
     private var rateText: String {
-        if rate < 0.45 { return "ゆっくり" }
-        if rate > 0.55 { return "速め" }
-        return "ふつう"
+        if rate < 0.45 { return String(localized: "ゆっくり") }
+        if rate > 0.55 { return String(localized: "速め") }
+        return String(localized: "ふつう")
     }
 
     private var pitchText: String {
-        if pitch < 0.9 { return "低め" }
-        if pitch > 1.1 { return "高め" }
-        return "ふつう"
+        if pitch < 0.9 { return String(localized: "低め") }
+        if pitch > 1.1 { return String(localized: "高め") }
+        return String(localized: "ふつう")
     }
 
     private var currentVoiceName: String {
-        guard let voiceID, let voice = voices.first(where: { $0.id == voiceID }) else { return "標準の声" }
+        guard let voiceID, let voice = voices.first(where: { $0.id == voiceID }) else { return String(localized: "標準の声") }
         return voice.name
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextPanelHint(text: "AI読み上げ: 入力した文章を声にして、再生位置にナレーションとして追加します。")
+            TextPanelHint(text: String(localized: "AI読み上げ: 入力した文章を声にして、再生位置にナレーションとして追加します。"))
 
-            EditorTextFieldRow(title: "読み上げる文章", placeholder: "ここに入力", text: $text, multiline: true)
+            EditorTextFieldRow(title: String(localized: "読み上げる文章"), placeholder: String(localized: "ここに入力"), text: $text, multiline: true)
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "言語")
+                EditorSectionTitle(title: String(localized: "言語"))
                 HStack(spacing: 8) {
-                    EditorChip(title: "日本語", isSelected: language == "ja-JP") {
+                    EditorChip(title: String(localized: "日本語"), isSelected: language == "ja-JP") {
                         language = "ja-JP"
                         reloadVoices()
                     }
@@ -1541,11 +1541,11 @@ struct EditorTextToSpeechPanel: View {
                 }
             }
 
-            EditorSliderRow(title: "話す速さ",
+            EditorSliderRow(title: String(localized: "話す速さ"),
                             value: $rate,
                             range: 0.3...0.7,
                             display: rateText)
-            EditorSliderRow(title: "声の高さ",
+            EditorSliderRow(title: String(localized: "声の高さ"),
                             value: $pitch,
                             range: 0.6...1.6,
                             display: pitchText)
@@ -1555,7 +1555,7 @@ struct EditorTextToSpeechPanel: View {
             }
 
             HStack(spacing: 10) {
-                EditorPillButton(title: isRendering ? "作成中…" : "読み上げて再生位置に追加", systemImage: "waveform.badge.plus", prominent: true) {
+                EditorPillButton(title: isRendering ? String(localized: "作成中…") : String(localized: "読み上げて再生位置に追加"), systemImage: "waveform.badge.plus", prominent: true) {
                     render()
                 }
                 .disabled(isRendering || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1614,14 +1614,14 @@ struct EditorTextToSpeechPanel: View {
                 let seconds = try await asset.load(.duration).seconds
                 let duration = (seconds.isFinite && seconds > 0) ? seconds : 1
                 history.record(project)
-                let name = "読み上げ: " + String(content.prefix(12))
+                let name = String(localized: "読み上げ: ") + String(content.prefix(12))
                 let clip = NarrationClip(url: url, name: name, start: startTime, duration: duration)
                 project.narration.append(clip)
                 project.sortNarration()
                 resultText = "\(MediaTimeText.precise(startTime)) に \(String(format: "%.1f", duration)) 秒のナレーションを追加しました。"
                 onAdded(clip.id)
             } catch {
-                errorText = "読み上げを作成できませんでした: \(error.localizedDescription)"
+                errorText = String(localized: "読み上げを作成できませんでした: \(error.localizedDescription)")
             }
             isRendering = false
         }
@@ -1640,12 +1640,12 @@ struct EditorCaptionTemplatePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: "字幕デザイン(全字幕共通)")
-                TextPanelHint(text: "話している言葉に合わせて、文字の色や動きが変わるデザインです。")
+                EditorSectionTitle(title: String(localized: "字幕デザイン(全字幕共通)"))
+                TextPanelHint(text: String(localized: "話している言葉に合わせて、文字の色や動きが変わるデザインです。"))
                 CaptionTemplatePicker(selection: $project.subtitleStyle.template)
             }
 
-            EditorColorRow(title: "話している言葉の色", color: EditorColorHex.binding($project.subtitleStyle.highlightColorHex))
+            EditorColorRow(title: String(localized: "話している言葉の色"), color: EditorColorHex.binding($project.subtitleStyle.highlightColorHex))
 
             EditorFontPickerRow(title: "フォント", fontName: $project.subtitleStyle.fontName)
 

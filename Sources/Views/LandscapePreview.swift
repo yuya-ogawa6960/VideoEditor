@@ -85,7 +85,7 @@ struct LandscapePreviewView: View {
                                 .frame(width: 44, height: 44)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(playing ? "一時停止" : "再生")
+                        .accessibilityLabel(playing ? String(localized: "一時停止") : String(localized: "再生"))
 
                         Text(EditorTimeFormat.short(shown))
                             .font(.system(size: 13).monospacedDigit())

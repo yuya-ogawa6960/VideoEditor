@@ -43,8 +43,8 @@ enum TranscriptionLanguage: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .japanese: return "日本語"
-        case .english: return "英語"
+        case .japanese: return String(localized: "日本語")
+        case .english: return String(localized: "英語")
         }
     }
 
@@ -72,17 +72,17 @@ enum TranscriptionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notAuthorized:
-            return "音声認識の権限がありません。設定アプリでこのアプリの「音声認識」を許可してください。"
+            return String(localized: "音声認識の権限がありません。設定アプリでこのアプリの「音声認識」を許可してください。")
         case .recognizerUnavailable(let language):
-            return "\(language)の音声認識器が利用できません。ネットワーク接続や端末の言語設定を確認してください。"
+            return String(localized: "\(language)の音声認識器が利用できません。ネットワーク接続や端末の言語設定を確認してください。")
         case .alreadyRunning:
-            return "文字起こしはすでに実行中です。"
+            return String(localized: "文字起こしはすでに実行中です。")
         case .noAudioClips:
-            return "文字起こしできる音声がありません(すべてのクリップが無音またはミュートです)。"
+            return String(localized: "文字起こしできる音声がありません(すべてのクリップが無音またはミュートです)。")
         case .audioExportFailed(let detail):
-            return "音声の切り出しに失敗しました: \(detail)"
+            return String(localized: "音声の切り出しに失敗しました: \(detail)")
         case .recognitionFailed(let detail):
-            return "音声認識に失敗しました: \(detail)"
+            return String(localized: "音声認識に失敗しました: \(detail)")
         case .pendingResultUnusable(let detail):
             return detail
         }
@@ -315,12 +315,12 @@ private final class WhisperRunState: @unchecked Sendable {
 
     /// 「残り約 6分」「残り約 1時間5分」「残り1分未満」
     private static func remainingText(_ seconds: Double) -> String {
-        if seconds < 60 { return "残り1分未満" }
+        if seconds < 60 { return String(localized: "残り1分未満") }
         let minutes = Int((seconds / 60).rounded(.up))
         if minutes >= 60 {
             return "残り約 \(minutes / 60)時間\(minutes % 60)分"
         }
-        return "残り約 \(minutes)分"
+        return String(localized: "残り約 \(minutes)分")
     }
 }
 
@@ -334,9 +334,9 @@ final class TranscriptionService {
     private static let chunkLength: Double = 50
 
     /// バックグラウンド待ちの間の状態表示
-    private static let pausedStatusText = "画面がロックされたため一時停止中。アプリに戻ると続きから再開します"
+    private static let pausedStatusText = String(localized: "画面がロックされたため一時停止中。アプリに戻ると続きから再開します")
     /// 継続処理か背景送信が動いているあいだのロック中の状態表示
-    private static let lockedStatusText = "ロック中も処理を続けています"
+    private static let lockedStatusText = String(localized: "ロック中も処理を続けています")
 
     /// 「一時停止中」「ロック中も…」のどちらかを表示しているか
     private static func isInterruptionStatus(_ text: String) -> Bool {
@@ -423,7 +423,7 @@ final class TranscriptionService {
             }
         }
 
-        await updateUI(running: true, progress: 0, status: "準備中…")
+        await updateUI(running: true, progress: 0, status: String(localized: "準備中…"))
 
         let work = Task<[SubtitleCue], Error> {
             try await self.performTranscription(snapshot: snapshot, language: language, removeFillers: removeFillers,
@@ -441,13 +441,13 @@ final class TranscriptionService {
             }
             succeeded = true
             finishRun()
-            await updateUI(running: false, progress: 1, status: "完了(\(cues.count)件)")
+            await updateUI(running: false, progress: 1, status: String(localized: "完了(\(cues.count)件)"))
             return cues
         } catch {
             finishRun()
             let cancelled = error is CancellationError
             await updateUI(running: false, progress: 0,
-                           status: cancelled ? "キャンセルしました" : "失敗しました")
+                           status: cancelled ? String(localized: "キャンセルしました") : String(localized: "失敗しました"))
             throw error
         }
     }
@@ -480,7 +480,7 @@ final class TranscriptionService {
         cancelRequested = false
         lock.unlock()
 
-        await updateUI(running: true, progress: 0, status: "前回の文字起こし結果を取り込み中…")
+        await updateUI(running: true, progress: 0, status: String(localized: "前回の文字起こし結果を取り込み中…"))
 
         let work = Task<[SubtitleCue], Error> {
             try await self.rebuildCues(fromPendingJob: job, snapshot: snapshot, language: language,
@@ -497,13 +497,13 @@ final class TranscriptionService {
                 work.cancel()
             }
             finishRun()
-            await updateUI(running: false, progress: 1, status: "取り込みました(\(cues.count)件)")
+            await updateUI(running: false, progress: 1, status: String(localized: "取り込みました(\(cues.count)件)"))
             return cues
         } catch {
             finishRun()
             let cancelled = error is CancellationError
             await updateUI(running: false, progress: 0,
-                           status: cancelled ? "キャンセルしました" : "取り込めませんでした")
+                           status: cancelled ? String(localized: "キャンセルしました") : String(localized: "取り込めませんでした"))
             throw error
         }
     }
@@ -547,13 +547,13 @@ final class TranscriptionService {
         // 投げっぱなしの Task は順不同・遅れて届くことがあるので、番号が新しく、まだ「Whisperモデル」の表示中のときだけ書き換える
         var whisperRun: WhisperRunState? = nil
         if engine == .whisper {
-            await updateUI(status: "Whisperモデルを確認中…")
+            await updateUI(status: String(localized: "Whisperモデルを確認中…"))
             let prepareSequence = StatusSequence()
             try await WhisperTranscriber.shared.prepare(model: settings.whisperModel) { [weak self] fraction, status in
                 guard let self else { return }
                 let seq = prepareSequence.next()
                 Task {
-                    await self.applyRunningStatus(status, progress: fraction, prefix: "Whisperモデル",
+                    await self.applyRunningStatus(status, progress: fraction, prefix: String(localized: "Whisperモデル"),
                                                   isCurrent: { prepareSequence.claim(seq) })
                 }
             }
@@ -653,7 +653,7 @@ final class TranscriptionService {
         let polishEngine = SubtitlePolisher.resolveEngine(settings: settings)
         guard polishEngine != .none else { return cues }
         try checkCancelled()
-        await updateUI(progress: 1, status: "AIで字幕を仕上げ中(\(SubtitlePolisher.displayName(of: polishEngine)))…")
+        await updateUI(progress: 1, status: String(localized: "AIで字幕を仕上げ中(\(SubtitlePolisher.displayName(of: polishEngine)))…"))
         let polished = await SubtitlePolisher.polish(cues, language: language, settings: settings,
                                                      pauseReporter: pauseReporter)
         try checkCancelled()
@@ -674,10 +674,10 @@ final class TranscriptionService {
                 guard let self else { return }
                 let value = total > 0 ? Double(done) / Double(total) : 0
                 let text = done < total
-                    ? "前回の文字起こしの残りを待っています \(done)/\(total)"
-                    : "前回の文字起こし結果を取り込み中…"
+                    ? String(localized: "前回の文字起こしの残りを待っています \(done)/\(total)")
+                    : String(localized: "前回の文字起こし結果を取り込み中…")
                 // 後続の段階(AI 仕上げなど)に進んだあとに遅れて届いた通知では書き換えない
-                Task { await self.applyRunningStatus(text, progress: value, prefix: "前回の文字起こし") }
+                Task { await self.applyRunningStatus(text, progress: value, prefix: String(localized: "前回の文字起こし")) }
             }
         } catch {
             if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
@@ -705,7 +705,7 @@ final class TranscriptionService {
             cues.append(contentsOf: segmenter.segment(timelineTokens))
         }
         guard matchedClips > 0 else {
-            throw TranscriptionError.pendingResultUnusable("このプロジェクトには、前回の文字起こしに使ったクリップがありません。")
+            throw TranscriptionError.pendingResultUnusable(String(localized: "このプロジェクトには、前回の文字起こしに使ったクリップがありません。"))
         }
 
         let result = Self.finalize(cues)
@@ -728,7 +728,7 @@ final class TranscriptionService {
     // MARK: - Whisper(端末内)/ クラウドAI
 
     /// Whisper の状態文の先頭(applyRunningStatus の prefix にも使う)
-    fileprivate static let whisperStatusPrefix = "文字起こし中(Whisper)"
+    fileprivate static let whisperStatusPrefix = String(localized: "文字起こし中(Whisper)")
 
     /// クリップ全体を WhisperKit で認識し、元素材上の秒のトークン列を返す。
     /// 状態文は「文字起こし中(Whisper) 3/7 ・ 約12% ・ 残り約 6分」(認識中のピース番号/全ピース数。
@@ -766,8 +766,8 @@ final class TranscriptionService {
                                         doneUnits: Int, totalUnits: Int,
                                         pauseReporter: BackgroundPauseReporter) async throws -> [TimedToken] {
         let clip = job.clip
-        let label = "文字起こし中(クラウドAI・\(quality.shortName))"
-        let clipPrefix = clipCount > 1 ? "\(label) クリップ\(clipIndex + 1)/\(clipCount)" : label
+        let label = String(localized: "文字起こし中(クラウドAI・\(quality.shortName))")
+        let clipPrefix = clipCount > 1 ? String(localized: "\(label) クリップ\(clipIndex + 1)/\(clipCount)") : label
         let separator = clipCount > 1 ? "・" : " "
         await updateUI(progress: Double(doneUnits) / Double(totalUnits), status: clipPrefix + "…")
         let unitCount = Double(job.chunks.count)
@@ -803,7 +803,7 @@ final class TranscriptionService {
     private func recognizeAllClipsWithCloud(jobs: [ClipJob], language: TranscriptionLanguage, apiKey: String,
                                             quality: CloudTranscriptionQuality,
                                             pauseReporter: BackgroundPauseReporter) async throws -> [[TimedToken]]? {
-        let label = "文字起こし中(クラウドAI・\(quality.shortName))"
+        let label = String(localized: "文字起こし中(クラウドAI・\(quality.shortName))")
         await updateUI(progress: 0, status: label + "…")
         let sources: [CloudTranscriber.ClipSource] = jobs.map { job in
             CloudTranscriber.ClipSource(clipID: job.clip.id, name: job.clip.name, sourceURL: job.clip.url,
@@ -835,7 +835,7 @@ final class TranscriptionService {
         let counts = "\(update.completed)/\(update.total)"
         switch update.phase {
         case .preparing:
-            return label + " 音声を準備中 " + counts
+            return label + String(localized: " 音声を準備中 ") + counts
         case .transcribing:
             return label + " " + counts
         }
@@ -919,10 +919,10 @@ final class TranscriptionService {
         let asset = AVURLAsset(url: sourceURL)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         guard !audioTracks.isEmpty else {
-            throw TranscriptionError.audioExportFailed("音声トラックがありません")
+            throw TranscriptionError.audioExportFailed(String(localized: "音声トラックがありません"))
         }
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
-            throw TranscriptionError.audioExportFailed("書き出しセッションを作成できません")
+            throw TranscriptionError.audioExportFailed(String(localized: "書き出しセッションを作成できません"))
         }
         session.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 44_100),
                                         end: CMTime(seconds: end, preferredTimescale: 44_100))
@@ -960,7 +960,7 @@ final class TranscriptionService {
         // 言語モデルの確認・導入
         do {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-                await updateUI(status: "音声認識モデルをダウンロード中…")
+                await updateUI(status: String(localized: "音声認識モデルをダウンロード中…"))
                 try await request.downloadAndInstall()
             }
         } catch {
@@ -971,7 +971,7 @@ final class TranscriptionService {
 
         let clip = job.clip
         await updateUI(progress: Double(doneUnits) / Double(totalUnits),
-                       status: "文字起こし中 \(doneUnits + 1)/\(totalUnits)")
+                       status: String(localized: "文字起こし中 \(doneUnits + 1)/\(totalUnits)"))
 
         let fileURL = tempDir.appendingPathComponent("clip-\(clip.id.uuidString).m4a")
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -1063,7 +1063,7 @@ final class TranscriptionService {
             try checkCancelled()
             let unit = doneUnits + index
             await updateUI(progress: Double(unit) / Double(totalUnits),
-                           status: "文字起こし中 \(unit + 1)/\(totalUnits)")
+                           status: String(localized: "文字起こし中 \(unit + 1)/\(totalUnits)"))
 
             let fileURL = tempDir.appendingPathComponent("chunk-\(job.clip.id.uuidString)-\(index).m4a")
             try await exportAudio(from: job.clip.url, start: chunk.start, end: chunk.end, to: fileURL)
@@ -1255,7 +1255,7 @@ final class TranscriptionService {
                 statusText = desired
             }
         } else if showingInterruption {
-            statusText = statusBeforePause ?? "文字起こし中…"
+            statusText = statusBeforePause ?? String(localized: "文字起こし中…")
             statusBeforePause = nil
         }
     }
@@ -1346,7 +1346,7 @@ final class TranscriptionService {
     private func beginContinuedProcessing(subtitle: String,
                                           reporter: BackgroundPauseReporter) async -> ContinuedProcessingHandle? {
         let started: ContinuedProcessingHandle? = await MainActor.run {
-            ContinuedProcessing.begin(kind: .transcribe, title: "文字起こし", subtitle: subtitle, wantsGPU: false)
+            ContinuedProcessing.begin(kind: .transcribe, title: String(localized: "文字起こし"), subtitle: subtitle, wantsGPU: false)
         }
         guard let handle = started else { return nil }
         reporter.allowsBackgroundWork = true
@@ -1373,6 +1373,6 @@ final class TranscriptionService {
         let totalSeconds = Int(seconds.rounded())
         let length = String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
         let engineName = AppSettings.shared.transcriptionEngine.shortName
-        return "\(engineName)・クリップ \(jobs.count) 本(\(length))"
+        return String(localized: "\(engineName)・クリップ \(jobs.count) 本(\(length))")
     }
 }

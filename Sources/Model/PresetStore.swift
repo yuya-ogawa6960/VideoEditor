@@ -71,11 +71,11 @@ final class PresetStore {
     static let builtIns: [ExportPreset] = [
         makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000001", name: "YouTube 4K30",
                     aspect: .landscape16x9, scaling: .fit, resolution: .uhd4k, quality: .high, frameRate: 30),
-        makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000002", name: "ショート 9:16 1080p30 軽量",
+        makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000002", name: String(localized: "ショート 9:16 1080p30 軽量"),
                     aspect: .portrait9x16, scaling: .fitBlur, resolution: .fhd1080, quality: .small, frameRate: 30),
         makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000003", name: "Instagram 4:5",
                     aspect: .portrait4x5, scaling: .fitBlur, resolution: .fhd1080, quality: .standard, frameRate: 30),
-        makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000004", name: "長尺 高画質",
+        makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000004", name: String(localized: "長尺 高画質"),
                     aspect: .original, scaling: .fit, resolution: .uhd4k, quality: .high, frameRate: 30)
     ]
 
@@ -185,10 +185,10 @@ final class PresetStore {
         var base = trimmed
         if base.isEmpty {
             var n = presets.count + 1
-            base = "プリセット \(n)"
+            base = String(localized: "プリセット \(n)")
             while existing.contains(base) {
                 n += 1
-                base = "プリセット \(n)"
+                base = String(localized: "プリセット \(n)")
             }
             return base
         }

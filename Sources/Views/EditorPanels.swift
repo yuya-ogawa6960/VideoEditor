@@ -129,60 +129,60 @@ enum EditorPanel: Hashable {
 
     var title: String {
         switch self {
-        case .speed: return "速度・デュレーション"
-        case .volume: return "ボリューム"
-        case .filter: return "Lumetri プリセット"
-        case .textEdit: return "文字を直す"
-        case .subtitleStyle: return "キャプションのスタイル"
-        case .aspect: return "比率"
-        case .bgmVolume: return "BGM の音量"
-        case .documentary: return "全体の仕上げ"
-        case .titleCard: return "章タイトル"
-        case .lowerThird: return "名前テロップ"
-        case .jlCut: return "J/Lカット"
-        case .colorAdjust: return "Lumetri カラー"
-        case .overlayPlacement: return "位置・サイズ"
+        case .speed: return String(localized: "速度・デュレーション")
+        case .volume: return String(localized: "ボリューム")
+        case .filter: return String(localized: "Lumetri プリセット")
+        case .textEdit: return String(localized: "文字を直す")
+        case .subtitleStyle: return String(localized: "キャプションのスタイル")
+        case .aspect: return String(localized: "比率")
+        case .bgmVolume: return String(localized: "BGM の音量")
+        case .documentary: return String(localized: "全体の仕上げ")
+        case .titleCard: return String(localized: "章タイトル")
+        case .lowerThird: return String(localized: "名前テロップ")
+        case .jlCut: return String(localized: "J/Lカット")
+        case .colorAdjust: return String(localized: "Lumetri カラー")
+        case .overlayPlacement: return String(localized: "位置・サイズ")
         case .overlayKenBurns: return "Ken Burns"
-        case .overlayVolume: return "ボリューム"
-        case .overlaySpeed: return "速度・デュレーション"
-        case .overlayFilter: return "Lumetri プリセット"
-        case .narrationVolume: return "ボリューム"
-        case .narrationRecord: return "ボイスオーバー録音"
-        case .transition: return "ビデオトランジション"
-        case .clipAnimation: return "アニメーション"
-        case .geometry: return "モーション・クロップ"
-        case .speedCurve: return "タイムリマップ"
-        case .audioEffects: return "オーディオエフェクト"
-        case .beatDetect: return "ビートに合わせる"
-        case .hsl: return "HSL セカンダリ"
-        case .lut: return "LUT を参照"
-        case .colorMatch: return "カラーマッチ"
-        case .textStyle: return "文字・スタイル"
-        case .textAnimation: return "アニメーション"
-        case .textPlacement: return "位置・サイズ"
-        case .textKeyframes: return "キーフレーム"
-        case .sticker: return "ステッカー"
-        case .overlayKeyframes: return "キーフレーム"
-        case .overlayBlend: return "描画モード"
-        case .narrationEffects: return "オーディオエフェクト"
-        case .drawingCanvas: return "手書き"
-        case .drawingStyle: return "色・太さ"
-        case .drawingTiming: return "表示する時間"
-        case .markerName: return "マーカーの名前"
-        case .markerKind: return "色・種類"
-        case .captionTemplate: return "キャプションのデザイン"
-        case .watermark: return "ロゴ・透かし"
-        case .formatKit: return "フォーマット"
-        case .textToSpeech: return "AI読み上げ"
-        case .mask, .overlayMask: return "マスク"
-        case .autoReframe: return "オートリフレーム"
-        case .stabilize: return "ワープスタビライザー"
-        case .enhance: return "画質補正"
-        case .parallax, .overlayParallax: return "3Dズーム"
-        case .textTracking, .overlayTracking: return "トラッキング"
-        case .mosaic: return "モザイク"
-        case .pacing: return "中だるみ・編集チェック"
-        case .autoEditTemplates: return "おまかせテンプレ"
+        case .overlayVolume: return String(localized: "ボリューム")
+        case .overlaySpeed: return String(localized: "速度・デュレーション")
+        case .overlayFilter: return String(localized: "Lumetri プリセット")
+        case .narrationVolume: return String(localized: "ボリューム")
+        case .narrationRecord: return String(localized: "ボイスオーバー録音")
+        case .transition: return String(localized: "ビデオトランジション")
+        case .clipAnimation: return String(localized: "アニメーション")
+        case .geometry: return String(localized: "モーション・クロップ")
+        case .speedCurve: return String(localized: "タイムリマップ")
+        case .audioEffects: return String(localized: "オーディオエフェクト")
+        case .beatDetect: return String(localized: "ビートに合わせる")
+        case .hsl: return String(localized: "HSL セカンダリ")
+        case .lut: return String(localized: "LUT を参照")
+        case .colorMatch: return String(localized: "カラーマッチ")
+        case .textStyle: return String(localized: "文字・スタイル")
+        case .textAnimation: return String(localized: "アニメーション")
+        case .textPlacement: return String(localized: "位置・サイズ")
+        case .textKeyframes: return String(localized: "キーフレーム")
+        case .sticker: return String(localized: "ステッカー")
+        case .overlayKeyframes: return String(localized: "キーフレーム")
+        case .overlayBlend: return String(localized: "描画モード")
+        case .narrationEffects: return String(localized: "オーディオエフェクト")
+        case .drawingCanvas: return String(localized: "手書き")
+        case .drawingStyle: return String(localized: "色・太さ")
+        case .drawingTiming: return String(localized: "表示する時間")
+        case .markerName: return String(localized: "マーカーの名前")
+        case .markerKind: return String(localized: "色・種類")
+        case .captionTemplate: return String(localized: "キャプションのデザイン")
+        case .watermark: return String(localized: "ロゴ・透かし")
+        case .formatKit: return String(localized: "フォーマット")
+        case .textToSpeech: return String(localized: "AI読み上げ")
+        case .mask, .overlayMask: return String(localized: "マスク")
+        case .autoReframe: return String(localized: "オートリフレーム")
+        case .stabilize: return String(localized: "ワープスタビライザー")
+        case .enhance: return String(localized: "画質補正")
+        case .parallax, .overlayParallax: return String(localized: "3Dズーム")
+        case .textTracking, .overlayTracking: return String(localized: "トラッキング")
+        case .mosaic: return String(localized: "モザイク")
+        case .pacing: return String(localized: "中だるみ・編集チェック")
+        case .autoEditTemplates: return String(localized: "おまかせテンプレ")
         }
     }
 
@@ -632,7 +632,7 @@ struct EditorVolumePanel: View {
                     .foregroundStyle(.secondary)
             }
 
-            EditorSliderRow(title: "元の音声の音量(全クリップ共通)",
+            EditorSliderRow(title: String(localized: "元の音声の音量(全クリップ共通)"),
                             value: $project.audio.originalVolume,
                             range: 0...1,
                             display: "\(Int((project.audio.originalVolume * 100).rounded()))%")
@@ -678,7 +678,7 @@ struct EditorJLCutPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: "音を先に出す(J)",
+                EditorSliderRow(title: String(localized: "音を先に出す(J)"),
                                 value: $clip.audio.audioLeadIn,
                                 range: 0...3,
                                 display: seconds(clip.audio.audioLeadIn))
@@ -690,7 +690,7 @@ struct EditorJLCutPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: "音を後に残す(L)",
+                EditorSliderRow(title: String(localized: "音を後に残す(L)"),
                                 value: $clip.audio.audioTailOut,
                                 range: 0...3,
                                 display: seconds(clip.audio.audioTailOut))
@@ -708,7 +708,7 @@ struct EditorJLCutPanel: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     clip.audio.audioLeadIn = 0
                     clip.audio.audioTailOut = 0
                 }
@@ -732,42 +732,42 @@ struct EditorColorAdjustPanel: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     clip.filter.adjustments = ColorAdjustments()
                 }
                 .disabled(clip.filter.adjustments.isIdentity)
                 .opacity(clip.filter.adjustments.isIdentity ? 0.4 : 1)
             }
 
-            EditorSliderRow(title: "露出",
+            EditorSliderRow(title: String(localized: "露出"),
                             value: $clip.filter.adjustments.exposure,
                             range: -2...2,
                             display: String(format: "%+.2f EV", clip.filter.adjustments.exposure))
-            EditorSliderRow(title: "明るさ",
+            EditorSliderRow(title: String(localized: "明るさ"),
                             value: $clip.filter.adjustments.brightness,
                             range: -0.5...0.5,
                             display: String(format: "%+.2f", clip.filter.adjustments.brightness))
-            EditorSliderRow(title: "コントラスト",
+            EditorSliderRow(title: String(localized: "コントラスト"),
                             value: $clip.filter.adjustments.contrast,
                             range: 0.5...1.5,
                             display: String(format: "%.2f", clip.filter.adjustments.contrast))
-            EditorSliderRow(title: "彩度",
+            EditorSliderRow(title: String(localized: "彩度"),
                             value: $clip.filter.adjustments.saturation,
                             range: 0...2,
                             display: String(format: "%.2f", clip.filter.adjustments.saturation))
-            EditorSliderRow(title: "色温度(− 青い / + 暖かい)",
+            EditorSliderRow(title: String(localized: "色温度(− 青い / + 暖かい)"),
                             value: $clip.filter.adjustments.temperature,
                             range: -1...1,
                             display: String(format: "%+.2f", clip.filter.adjustments.temperature))
-            EditorSliderRow(title: "ハイライト",
+            EditorSliderRow(title: String(localized: "ハイライト"),
                             value: $clip.filter.adjustments.highlights,
                             range: -1...1,
                             display: String(format: "%+.2f", clip.filter.adjustments.highlights))
-            EditorSliderRow(title: "シャドウ",
+            EditorSliderRow(title: String(localized: "シャドウ"),
                             value: $clip.filter.adjustments.shadows,
                             range: -1...1,
                             display: String(format: "%+.2f", clip.filter.adjustments.shadows))
-            EditorSliderRow(title: "シャープネス",
+            EditorSliderRow(title: String(localized: "シャープネス"),
                             value: $clip.filter.adjustments.sharpness,
                             range: 0...1,
                             display: String(format: "%.2f", clip.filter.adjustments.sharpness))
@@ -830,11 +830,11 @@ struct EditorSubtitleStylePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            row("位置") {
+            row(String(localized: "位置")) {
                 CaptionPositionPicker(selection: $project.subtitleStyle.position)
             }
 
-            row("色") {
+            row(String(localized: "色")) {
                 HStack(spacing: 14) {
                     ForEach(SubtitleColor.allCases) { color in
                         let isSelected = project.subtitleStyle.color == color
@@ -864,7 +864,7 @@ struct EditorSubtitleStylePanel: View {
                 .padding(.vertical, 4)
             }
 
-            EditorSliderRow(title: "文字サイズ",
+            EditorSliderRow(title: String(localized: "文字サイズ"),
                             value: $project.subtitleStyle.sizeRatio,
                             range: 0.03...0.10,
                             display: "\(Int((project.subtitleStyle.sizeRatio * 1000).rounded()))")
@@ -873,7 +873,7 @@ struct EditorSubtitleStylePanel: View {
                 .font(.subheadline)
                 .tint(.accentColor)
 
-            row("表示") {
+            row(String(localized: "表示")) {
                 CaptionDisplayModePicker(selection: $project.subtitleStyle.displayMode)
             }
         }
@@ -897,7 +897,7 @@ struct EditorAspectPanel: View {
 
     private func shortName(_ aspect: CanvasAspect) -> String {
         switch aspect {
-        case .original: return "元のまま"
+        case .original: return String(localized: "元のまま")
         case .portrait9x16: return "9:16"
         case .landscape16x9: return "16:9"
         case .square: return "1:1"
@@ -959,7 +959,7 @@ struct EditorBGMVolumePanel: View {
                 .font(.subheadline)
                 .lineLimit(1)
 
-            EditorSliderRow(title: "BGM の音量",
+            EditorSliderRow(title: String(localized: "BGM の音量"),
                             value: $project.audio.bgmVolume,
                             range: 0...1,
                             display: "\(Int((project.audio.bgmVolume * 100).rounded()))%")

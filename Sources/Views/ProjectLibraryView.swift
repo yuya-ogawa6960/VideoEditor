@@ -171,7 +171,7 @@ struct ProjectLibraryView: View {
     }
 
     private var deleteTitle: String {
-        "「\(deleteTarget?.name ?? "")」を削除しますか?"
+        String(localized: "「\(deleteTarget?.name ?? "")」を削除しますか?")
     }
 
     // MARK: 部品
@@ -326,8 +326,8 @@ struct ProjectLibraryView: View {
                 packageShareItem = PackageShareItem(url: url, name: meta.name)
             } catch {
                 exportingMeta = nil
-                showAlert("送る準備ができませんでした",
-                          "端末の空き容量を確かめて、もう一度「プロジェクト書き出し」を押してください。\n\n詳細: " + error.localizedDescription)
+                showAlert(String(localized: "送る準備ができませんでした"),
+                          String(localized: "端末の空き容量を確かめて、もう一度「プロジェクト書き出し」を押してください。\n\n詳細: ") + error.localizedDescription)
             }
         }
     }
@@ -335,8 +335,8 @@ struct ProjectLibraryView: View {
     private func handlePackageImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            showAlert("ファイルを開けませんでした",
-                      "もう一度「プロジェクト読み込み」から選び直してください。\n\n詳細: " + error.localizedDescription)
+            showAlert(String(localized: "ファイルを開けませんでした"),
+                      String(localized: "もう一度「プロジェクト読み込み」から選び直してください。\n\n詳細: ") + error.localizedDescription)
         case .success(let urls):
             guard let url = urls.first else { return }
             isImporting = true
@@ -344,10 +344,10 @@ struct ProjectLibraryView: View {
                 do {
                     let meta = try await ProjectPackage.importPackage(from: url)
                     isImporting = false
-                    showAlert("受け取りました", "「\(meta.name)」を一覧に追加しました。タップすると開けます。")
+                    showAlert(String(localized: "受け取りました"), String(localized: "「\(meta.name)」を一覧に追加しました。タップすると開けます。"))
                 } catch {
                     isImporting = false
-                    showAlert("受け取れませんでした", "「プロジェクト書き出し」で作ったファイル(名前が .videomania で終わるもの)を選んでください。送る途中で壊れた場合は、送り直してもらってください。\n\n詳細: " + error.localizedDescription)
+                    showAlert(String(localized: "受け取れませんでした"), String(localized: "「プロジェクト書き出し」で作ったファイル(名前が .videomania で終わるもの)を選んでください。送る途中で壊れた場合は、送り直してもらってください。\n\n詳細: ") + error.localizedDescription)
                 }
             }
         }
@@ -470,7 +470,7 @@ private struct ProjectCardView: View {
 
     private var subtitle: String {
         let date = ProjectDateText.relative(meta.updatedAt)
-        return date + " ・ \(meta.clipCount) クリップ"
+        return date + String(localized: " ・ \(meta.clipCount) クリップ")
     }
 
     private var durationBadge: some View {
@@ -549,16 +549,16 @@ private enum ProjectDateText {
         let calendar = Calendar.current
         let time = date.formatted(date: .omitted, time: .shortened)
         if calendar.isDateInToday(date) {
-            return "今日 " + time
+            return String(localized: "今日 ") + time
         }
         if calendar.isDateInYesterday(date) {
-            return "昨日 " + time
+            return String(localized: "昨日 ") + time
         }
         let startOfDate = calendar.startOfDay(for: date)
         let startOfNow = calendar.startOfDay(for: now)
         let days: Int = calendar.dateComponents([.day], from: startOfDate, to: startOfNow).day ?? 0
         if days >= 2 && days < 7 {
-            return "\(days)日前"
+            return String(localized: "\(days)日前")
         }
         return date.formatted(date: .numeric, time: .omitted)
     }

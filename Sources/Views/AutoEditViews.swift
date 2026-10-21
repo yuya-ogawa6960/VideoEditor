@@ -17,20 +17,20 @@ private func autoEditPercent(_ value: Double) -> String {
 }
 
 private func autoEditSeconds(_ value: Double) -> String {
-    if value <= 0 { return "全部使う" }
+    if value <= 0 { return String(localized: "全部使う") }
     if value >= 60, value.truncatingRemainder(dividingBy: 60) == 0 {
-        return "\(Int(value / 60)) 分"
+        return String(localized: "\(Int(value / 60)) 分")
     }
-    return "\(Int(value.rounded())) 秒"
+    return String(localized: "\(Int(value.rounded())) 秒")
 }
 
 private func autoEditStyleDescription(_ style: AutoEditStyle) -> String {
     switch style {
-    case .documentary: return "落ち着いたテンポ。黒へのフェードや重なるトランジション、ドキュメンタリー風の色味。話している場面を優先します。"
-    case .vlog: return "重なるトランジションでテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。"
-    case .short: return "15〜30 秒向け。短いカットをズームでつなぎ、鮮やかな色味にします。"
-    case .family: return "顔が映っている場面を優先し、やさしい色味でまとめます。"
-    case .howto: return "説明している場面を優先し、カットはシンプルに。字幕と相性のよい構成です。"
+    case .documentary: return String(localized: "落ち着いたテンポ。黒へのフェードや重なるトランジション、ドキュメンタリー風の色味。話している場面を優先します。")
+    case .vlog: return String(localized: "重なるトランジションでテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。")
+    case .short: return String(localized: "15〜30 秒向け。短いカットをズームでつなぎ、鮮やかな色味にします。")
+    case .family: return String(localized: "顔が映っている場面を優先し、やさしい色味でまとめます。")
+    case .howto: return String(localized: "説明している場面を優先し、カットはシンプルに。字幕と相性のよい構成です。")
     }
 }
 
@@ -240,7 +240,7 @@ struct AutoEditSheetView: View {
             Button {
                 analyzeHighlights()
             } label: {
-                Label(highlights == nil ? "見どころを探す" : "もう一度探す", systemImage: "sparkle.magnifyingglass")
+                Label(highlights == nil ? String(localized: "見どころを探す") : String(localized: "もう一度探す"), systemImage: "sparkle.magnifyingglass")
             }
             .disabled(project.isEmpty || analysis.isRunning)
 
@@ -263,7 +263,7 @@ struct AutoEditSheetView: View {
     }
 
     private func clipName(for clipID: UUID) -> String {
-        project.clips.first(where: { $0.id == clipID })?.name ?? "クリップ"
+        project.clips.first(where: { $0.id == clipID })?.name ?? String(localized: "クリップ")
     }
 
     private func highlightRow(_ segment: HighlightSegment) -> some View {
@@ -329,7 +329,7 @@ struct AutoEditSheetView: View {
     private func handleBGMImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            errorText = "もう一度「BGMを選ぶ」から曲を選び直してください。\n\n詳細: " + error.localizedDescription
+            errorText = String(localized: "もう一度「BGMを選ぶ」から曲を選び直してください。\n\n詳細: ") + error.localizedDescription
         case .success(let urls):
             guard let url = urls.first else { return }
             let accessing = url.startAccessingSecurityScopedResource()
@@ -343,7 +343,7 @@ struct AutoEditSheetView: View {
                 project.audio.bgmName = url.deletingPathExtension().lastPathComponent
                 settings.useBGMBeats = true
             } catch {
-                errorText = "端末の空き容量を確かめて、もう一度曲を選んでください(Apple Music の曲は使えません)。\n\n詳細: " + error.localizedDescription
+                errorText = String(localized: "端末の空き容量を確かめて、もう一度曲を選んでください(Apple Music の曲は使えません)。\n\n詳細: ") + error.localizedDescription
             }
         }
     }
@@ -359,12 +359,12 @@ struct AutoEditSheetView: View {
     private func analyzeHighlights() {
         let snapshot = project.snapshot()
         let current = settings
-        analysis.run(title: "見どころを探しています") { report in
+        analysis.run(title: String(localized: "見どころを探しています")) { report in
             let found = try await HighlightAnalyzer.analyze(snapshot: snapshot, settings: current, progress: report)
             if Task.isCancelled { return }
             highlights = found.sorted { $0.start < $1.start }
         } onError: { error in
-            errorText = "見どころを探せませんでした。このまま「作成」を押すと、全体から均等に選んで作ります。\n\n詳細: " + error.localizedDescription
+            errorText = String(localized: "見どころを探せませんでした。このまま「作成」を押すと、全体から均等に選んで作ります。\n\n詳細: ") + error.localizedDescription
         }
     }
 
@@ -373,7 +373,7 @@ struct AutoEditSheetView: View {
         let current = settings
         let chosen = highlights
         player.pause()
-        analysis.run(title: "自動編集を作成中") { report in
+        analysis.run(title: String(localized: "自動編集を作成中")) { report in
             let result = try await AutoEditor.build(snapshot: snapshot,
                                                     settings: current,
                                                     highlights: chosen,
@@ -385,7 +385,7 @@ struct AutoEditSheetView: View {
             dismiss()
             onApplied()
         } onError: { error in
-            errorText = "もう一度「作成」を押してください。続くときは、目標の長さを変えるかクリップを減らしてお試しください。\n\n詳細: " + error.localizedDescription
+            errorText = String(localized: "もう一度「作成」を押してください。続くときは、目標の長さを変えるかクリップを減らしてお試しください。\n\n詳細: ") + error.localizedDescription
         }
     }
 }
@@ -484,7 +484,7 @@ struct EditorAutoEditTemplatePanel: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                EditorPillButton(title: "適用", systemImage: "wand.and.stars", prominent: true) {
+                EditorPillButton(title: String(localized: "適用"), systemImage: "wand.and.stars", prominent: true) {
                     pending = template
                 }
                 .disabled(analysis.isRunning)
@@ -509,7 +509,7 @@ struct EditorAutoEditTemplatePanel: View {
         }
         let chosenSettings = settings
         let name = template.name
-        analysis.run(title: "テンプレートを適用中") { report in
+        analysis.run(title: String(localized: "テンプレートを適用中")) { report in
             let result = try await AutoEditor.build(snapshot: snapshot,
                                                     settings: chosenSettings,
                                                     highlights: nil,
@@ -518,10 +518,10 @@ struct EditorAutoEditTemplatePanel: View {
             history.record(project)
             project.restore(result)
             player.seek(to: 0)
-            message = "「\(name)」を適用しました。「元に戻す」で戻せます。"
+            message = String(localized: "「\(name)」を適用しました。「元に戻す」で戻せます。")
             onApplied()
         } onError: { error in
-            errorText = "もう一度「適用」を押してください。続くときは別のテンプレートをお試しください。\n\n詳細: " + error.localizedDescription
+            errorText = String(localized: "もう一度「適用」を押してください。続くときは別のテンプレートをお試しください。\n\n詳細: ") + error.localizedDescription
         }
     }
 }
@@ -541,7 +541,7 @@ struct SlideshowSheetView: View {
     private enum Mode: String, CaseIterable, Identifiable {
         case replace, append
         var id: String { rawValue }
-        var title: String { self == .replace ? "置き換える" : "末尾に追加" }
+        var title: String { self == .replace ? String(localized: "置き換える") : String(localized: "末尾に追加") }
     }
 
     @State private var perImageSeconds: Double = 3
@@ -720,8 +720,8 @@ struct SlideshowSheetView: View {
             Text("いまのクリップ")
         } footer: {
             Text(mode == .replace
-                 ? "いまのクリップ・字幕などを消してスライドショーに置き換えます(「元に戻す」で戻せます)。"
-                 : "いまのクリップの後ろにスライドショーの写真を追加します。")
+                 ? String(localized: "いまのクリップ・字幕などを消してスライドショーに置き換えます(「元に戻す」で戻せます)。")
+                 : String(localized: "いまのクリップの後ろにスライドショーの写真を追加します。"))
         }
     }
 
@@ -763,14 +763,14 @@ struct SlideshowSheetView: View {
         let bgm: URL? = useProjectBGM ? project.audio.bgmURL : nil
         let chosenMode = mode
         player.pause()
-        analysis.run(title: "スライドショーを作成中", indeterminate: true) { _ in
+        analysis.run(title: String(localized: "スライドショーを作成中"), indeterminate: true) { _ in
             let result = try await AutoEditor.slideshow(images: urls,
                                                         perImageSeconds: seconds,
                                                         settings: chosenSettings,
                                                         bgm: bgm)
             if Task.isCancelled { return }
             guard !result.clips.isEmpty else {
-                errorText = "写真を選び直してから、もう一度「スライドショーを作成」を押してください(写真を読み込めませんでした)。"
+                errorText = String(localized: "写真を選び直してから、もう一度「スライドショーを作成」を押してください(写真を読み込めませんでした)。")
                 return
             }
             history.record(project)
@@ -786,7 +786,7 @@ struct SlideshowSheetView: View {
             dismiss()
             onApplied()
         } onError: { error in
-            errorText = "写真の枚数を減らすか選び直して、もう一度お試しください。\n\n詳細: " + error.localizedDescription
+            errorText = String(localized: "写真の枚数を減らすか選び直して、もう一度お試しください。\n\n詳細: ") + error.localizedDescription
         }
     }
 }

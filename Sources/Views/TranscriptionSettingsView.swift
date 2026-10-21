@@ -126,7 +126,7 @@ struct TranscriptionSettingsView: View {
             if let progress = downloadProgress {
                 VStack(alignment: .leading, spacing: 6) {
                     ProgressView(value: min(max(progress, 0), 1))
-                    Text(downloadStatus.isEmpty ? "ダウンロード中…" : downloadStatus)
+                    Text(downloadStatus.isEmpty ? String(localized: "ダウンロード中…") : downloadStatus)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -135,7 +135,7 @@ struct TranscriptionSettingsView: View {
                 Button {
                     startDownload()
                 } label: {
-                    Label(downloadedModels.contains(settings.whisperModel) ? "ダウンロード済み" : "モデルをダウンロード",
+                    Label(downloadedModels.contains(settings.whisperModel) ? String(localized: "ダウンロード済み") : String(localized: "モデルをダウンロード"),
                           systemImage: downloadedModels.contains(settings.whisperModel) ? "checkmark.circle" : "arrow.down.circle")
                 }
                 .disabled(!WhisperTranscriber.isAvailable || downloadedModels.contains(settings.whisperModel))
@@ -262,7 +262,7 @@ struct TranscriptionSettingsView: View {
                 Spacer()
                 Text(settings.polishSubtitles
                      ? SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: settings))
-                     : "なし")
+                     : String(localized: "なし"))
                     .foregroundStyle(.secondary)
             }
         } header: {
@@ -277,9 +277,9 @@ struct TranscriptionSettingsView: View {
     private var diagnosticsSection: some View {
         Section {
             DisclosureGroup("サポート用の情報", isExpanded: $showsDiagnostics) {
-                diagnosticRow(title: "実行時のバンドル ID", value: diagnosticBundleID, monospaced: true)
-                diagnosticRow(title: "ロック中の継続", value: diagnosticContinued, monospaced: false)
-                diagnosticRow(title: "バックグラウンド送信(クラウドAI)", value: diagnosticUploads, monospaced: false)
+                diagnosticRow(title: String(localized: "実行時のバンドル ID"), value: diagnosticBundleID, monospaced: true)
+                diagnosticRow(title: String(localized: "ロック中の継続"), value: diagnosticContinued, monospaced: false)
+                diagnosticRow(title: String(localized: "バックグラウンド送信(クラウドAI)"), value: diagnosticUploads, monospaced: false)
                 Button {
                     refreshDiagnostics()
                 } label: {
@@ -323,7 +323,7 @@ struct TranscriptionSettingsView: View {
         guard downloadTask == nil, WhisperTranscriber.isAvailable else { return }
         let model = settings.whisperModel
         downloadProgress = 0
-        downloadStatus = "準備中…"
+        downloadStatus = String(localized: "準備中…")
         downloadTask = Task {
             do {
                 try await WhisperTranscriber.shared.download(model: model) { fraction, status in
@@ -343,7 +343,7 @@ struct TranscriptionSettingsView: View {
                 let message = error.localizedDescription
                 await MainActor.run {
                     finishDownload()
-                    showAlert(title: "ダウンロードに失敗しました", message: message)
+                    showAlert(title: String(localized: "ダウンロードに失敗しました"), message: message)
                 }
             }
         }
@@ -358,7 +358,7 @@ struct TranscriptionSettingsView: View {
 
     private func cancelDownload() {
         downloadTask?.cancel()
-        downloadStatus = "キャンセル中…"
+        downloadStatus = String(localized: "キャンセル中…")
     }
 
     private func deleteModels() {
@@ -373,10 +373,10 @@ struct TranscriptionSettingsView: View {
         keyDraft = ""
         isEditingKey = false
         if trimmed.hasPrefix("sk-") {
-            showAlert(title: "保存しました", message: "API キーをこの端末の Keychain に保存しました。")
+            showAlert(title: String(localized: "保存しました"), message: String(localized: "API キーをこの端末の Keychain に保存しました。"))
         } else {
-            showAlert(title: "保存しました",
-                      message: "OpenAI の API キーは通常「sk-」で始まります。キーが正しいか確認してください。")
+            showAlert(title: String(localized: "保存しました"),
+                      message: String(localized: "OpenAI の API キーは通常「sk-」で始まります。キーが正しいか確認してください。"))
         }
     }
 
@@ -423,7 +423,7 @@ private struct WhisperModelDetailView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            Label(isDownloaded ? "ダウンロード済み" : "未ダウンロード",
+            Label(isDownloaded ? String(localized: "ダウンロード済み") : String(localized: "未ダウンロード"),
                   systemImage: isDownloaded ? "checkmark.circle.fill" : "icloud.and.arrow.down")
                 .font(.footnote)
                 .foregroundStyle(isDownloaded ? Color.green : Color.secondary)

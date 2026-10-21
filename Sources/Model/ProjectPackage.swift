@@ -25,13 +25,13 @@ enum ProjectPackageError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .projectNotFound:
-            return "プロジェクトの保存ファイルが見つかりません。"
+            return String(localized: "プロジェクトの保存ファイルが見つかりません。")
         case .notAPackage:
-            return "「.videomania」フォルダ(中に project.json があるもの)を選んでください。"
+            return String(localized: "「.videomania」フォルダ(中に project.json があるもの)を選んでください。")
         case .invalidProjectFile:
-            return "project.json を読み取れませんでした。新しいバージョンの Video Mania で作られた可能性があります。"
+            return String(localized: "project.json を読み取れませんでした。新しいバージョンの Video Mania で作られた可能性があります。")
         case .cannotAccess:
-            return "ファイルにアクセスできませんでした。"
+            return String(localized: "ファイルにアクセスできませんでした。")
         }
     }
 }
@@ -77,7 +77,7 @@ enum ProjectPackage {
         let snapshot = ProjectStore.snapshot(fromProjectFileData: projectData)
         let info = PackageInfo(formatVersion: formatVersion,
                                app: "Video Mania",
-                               name: meta?.name ?? "プロジェクト",
+                               name: meta?.name ?? String(localized: "プロジェクト"),
                                exportedAt: Date(),
                                duration: meta?.duration ?? snapshot?.totalDuration ?? 0,
                                clipCount: meta?.clipCount ?? snapshot?.clips.count ?? 0)
@@ -265,7 +265,7 @@ enum ProjectPackage {
 
         var name = (info?.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty { name = root.deletingPathExtension().lastPathComponent }
-        if name.isEmpty { name = "読み込んだプロジェクト" }
+        if name.isEmpty { name = String(localized: "読み込んだプロジェクト") }
 
         return PreparedImport(name: name,
                               projectData: rewritten,
@@ -367,6 +367,6 @@ enum ProjectPackage {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         while cleaned.hasPrefix(".") { cleaned.removeFirst() }
         if cleaned.count > 60 { cleaned = String(cleaned.prefix(60)) }
-        return cleaned.isEmpty ? "プロジェクト" : cleaned
+        return cleaned.isEmpty ? String(localized: "プロジェクト") : cleaned
     }
 }

@@ -21,45 +21,45 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .apple: return "Apple 音声認識(端末内・高速)"
-        case .whisper: return "OpenAI Whisper(端末内・高精度)"
-        case .cloud: return "クラウドAI(最高精度・ポイントかAPIキー)"
+        case .apple: return String(localized: "Apple 音声認識(端末内・高速)")
+        case .whisper: return String(localized: "OpenAI Whisper(端末内・高精度)")
+        case .cloud: return String(localized: "クラウドAI(最高精度・ポイントかAPIキー)")
         }
     }
 
     /// 進捗表示などで使う短い名前
     var shortName: String {
         switch self {
-        case .apple: return "Apple 音声認識"
+        case .apple: return String(localized: "Apple 音声認識")
         case .whisper: return "OpenAI Whisper"
-        case .cloud: return "クラウドAI"
+        case .cloud: return String(localized: "クラウドAI")
         }
     }
 
     var summary: String {
         switch self {
         case .apple:
-            return "iOS 標準の音声認識を使います。通信不要で速く、追加のダウンロードもほぼ不要です。精度は標準的で、固有名詞や早口の会話では誤認識が増えます。"
+            return String(localized: "iOS 標準の音声認識を使います。通信不要で速く、追加のダウンロードもほぼ不要です。精度は標準的で、固有名詞や早口の会話では誤認識が増えます。")
         case .whisper:
-            return "OpenAI Whisper を端末内で実行します(WhisperKit)。日本語でも精度が高く、音声が端末の外に出ません。初回にモデルのダウンロード(150MB〜1.6GB)が必要で、処理には時間がかかります。"
+            return String(localized: "OpenAI Whisper を端末内で実行します(WhisperKit)。日本語でも精度が高く、音声が端末の外に出ません。初回にモデルのダウンロード(150MB〜1.6GB)が必要で、処理には時間がかかります。")
         case .cloud:
-            return "OpenAI の音声認識(速度優先: whisper-1 / 精度優先: gpt-4o-transcribe 系)をクラウドで実行します。高精度で端末の負荷も小さい反面、音声を OpenAI のサーバーへ送信し、API 利用料(目安 約0.9円/分)がかかります。"
+            return String(localized: "OpenAI の音声認識(速度優先: whisper-1 / 精度優先: gpt-4o-transcribe 系)をクラウドで実行します。高精度で端末の負荷も小さい反面、音声を OpenAI のサーバーへ送信し、API 利用料(目安 約0.9円/分)がかかります。")
         }
     }
 
     var pros: [String] {
         switch self {
-        case .apple: return ["無料・通信不要", "処理が速い", "設定不要ですぐ使える"]
-        case .whisper: return ["高精度(特に日本語の句読点・漢字変換)", "通信不要・無料", "音声を外部に送らない"]
-        case .cloud: return ["最高精度", "長い動画でも速く、端末が熱くならない", "AI 仕上げも同じキーで使える"]
+        case .apple: return [String(localized: "無料・通信不要"), String(localized: "処理が速い"), String(localized: "設定不要ですぐ使える")]
+        case .whisper: return [String(localized: "高精度(特に日本語の句読点・漢字変換)"), String(localized: "通信不要・無料"), String(localized: "音声を外部に送らない")]
+        case .cloud: return [String(localized: "最高精度"), String(localized: "長い動画でも速く、端末が熱くならない"), String(localized: "AI 仕上げも同じキーで使える")]
         }
     }
 
     var cons: [String] {
         switch self {
-        case .apple: return ["精度は標準的", "固有名詞・専門用語に弱い"]
-        case .whisper: return ["モデルのダウンロードが必要(150MB〜1.6GB)", "処理が遅い(動画の長さの 0.3〜1 倍程度)", "電池を使い、端末が熱くなることがある"]
-        case .cloud: return ["OpenAI API キーが必要(従量課金)", "音声データを OpenAI へ送信する", "通信環境が必要"]
+        case .apple: return [String(localized: "精度は標準的"), String(localized: "固有名詞・専門用語に弱い")]
+        case .whisper: return [String(localized: "モデルのダウンロードが必要(150MB〜1.6GB)"), String(localized: "処理が遅い(動画の長さの 0.3〜1 倍程度)"), String(localized: "電池を使い、端末が熱くなることがある")]
+        case .cloud: return [String(localized: "OpenAI API キーが必要(従量課金)"), String(localized: "音声データを OpenAI へ送信する"), String(localized: "通信環境が必要")]
         }
     }
 }
@@ -90,25 +90,25 @@ enum CloudTranscriptionQuality: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .fast: return "速度優先(おすすめ)"
-        case .accurate: return "精度優先(遅い)"
+        case .fast: return String(localized: "速度優先(おすすめ)")
+        case .accurate: return String(localized: "精度優先(遅い)")
         }
     }
 
     /// 進捗表示などで使う短い名前
     var shortName: String {
         switch self {
-        case .fast: return "速度優先"
-        case .accurate: return "精度優先"
+        case .fast: return String(localized: "速度優先")
+        case .accurate: return String(localized: "精度優先")
         }
     }
 
     var detail: String {
         switch self {
         case .fast:
-            return "whisper-1 で認識します。応答が速く、単語ごとの時刻も付くので字幕のタイミングが正確です。長い動画でも短時間で終わります。料金の目安は 約0.9円/分($0.006/分)。"
+            return String(localized: "whisper-1 で認識します。応答が速く、単語ごとの時刻も付くので字幕のタイミングが正確です。長い動画でも短時間で終わります。料金の目安は 約0.9円/分($0.006/分)。")
         case .accurate:
-            return "gpt-4o-transcribe 系(話者分離対応モデル)で認識します。聞き取りにくい音声や固有名詞で誤認識が少し減ることがありますが、処理にかなり時間がかかります。料金の目安は速度優先とほぼ同じです。"
+            return String(localized: "gpt-4o-transcribe 系(話者分離対応モデル)で認識します。聞き取りにくい音声や固有名詞で誤認識が少し減ることがありますが、処理にかなり時間がかかります。料金の目安は速度優先とほぼ同じです。")
         }
     }
 }
@@ -126,19 +126,19 @@ enum PolishEngine: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .auto: return "自動"
-        case .onDevice: return "端末内(Apple Intelligence)"
-        case .cloud: return "クラウド(OpenAI)"
-        case .none: return "使わない"
+        case .auto: return String(localized: "自動")
+        case .onDevice: return String(localized: "端末内(Apple Intelligence)")
+        case .cloud: return String(localized: "クラウド(OpenAI)")
+        case .none: return String(localized: "使わない")
         }
     }
 
     var detail: String {
         switch self {
-        case .auto: return "端末内 AI が使えればそれを、なければ API キーがあるときだけクラウドを使います。"
-        case .onDevice: return "iOS 26 以降で Apple Intelligence が有効な端末でのみ動作します。通信不要・無料。"
-        case .cloud: return "OpenAI(gpt-4o-mini)で仕上げます。字幕テキストを送信し、わずかな利用料がかかります。"
-        case .none: return "音声認識の結果をそのまま使います。"
+        case .auto: return String(localized: "端末内 AI が使えればそれを、なければ API キーがあるときだけクラウドを使います。")
+        case .onDevice: return String(localized: "iOS 26 以降で Apple Intelligence が有効な端末でのみ動作します。通信不要・無料。")
+        case .cloud: return String(localized: "OpenAI(gpt-4o-mini)で仕上げます。字幕テキストを送信し、わずかな利用料がかかります。")
+        case .none: return String(localized: "音声認識の結果をそのまま使います。")
         }
     }
 }
@@ -155,16 +155,16 @@ struct WhisperModelOption: Identifiable, Hashable {
     static let all: [WhisperModelOption] = [
         WhisperModelOption(id: "openai_whisper-base",
                            displayName: "base",
-                           sizeHint: "約150MB",
-                           detail: "最も軽く速い。精度は低め(短い確認用)"),
+                           sizeHint: String(localized: "約150MB"),
+                           detail: String(localized: "最も軽く速い。精度は低め(短い確認用)")),
         WhisperModelOption(id: "openai_whisper-small",
                            displayName: "small",
-                           sizeHint: "約500MB",
-                           detail: "速さと精度のバランス型"),
+                           sizeHint: String(localized: "約500MB"),
+                           detail: String(localized: "速さと精度のバランス型")),
         WhisperModelOption(id: "openai_whisper-large-v3-v20240930_turbo",
                            displayName: "large-v3 turbo",
-                           sizeHint: "約1.6GB",
-                           detail: "最高精度。iPhone 15 Pro 以降を推奨(メモリを多く使う)"),
+                           sizeHint: String(localized: "約1.6GB"),
+                           detail: String(localized: "最高精度。iPhone 15 Pro 以降を推奨(メモリを多く使う)")),
     ]
 
     static func option(for id: String) -> WhisperModelOption? {

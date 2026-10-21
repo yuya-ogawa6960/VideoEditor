@@ -19,13 +19,13 @@ enum AudioSyncError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noAudioTrack(let name):
-            return "「\(name)」に音声トラックがないため、自動同期できません。"
+            return String(localized: "「\(name)」に音声トラックがないため、自動同期できません。")
         case .readFailed(let detail):
-            return "音声の読み込みに失敗しました: \(detail)"
+            return String(localized: "音声の読み込みに失敗しました: \(detail)")
         case .tooShort:
-            return "音声が短すぎるため、自動同期できません。"
+            return String(localized: "音声が短すぎるため、自動同期できません。")
         case .weakCorrelation:
-            return "2つの音声の一致箇所が見つかりませんでした。同じ場面を録音した素材か確認し、手動で調整してください。"
+            return String(localized: "2つの音声の一致箇所が見つかりませんでした。同じ場面を録音した素材か確認し、手動で調整してください。")
         }
     }
 }
@@ -88,11 +88,11 @@ enum AudioSync {
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else {
-            throw AudioSyncError.readFailed("音声出力を追加できません")
+            throw AudioSyncError.readFailed(String(localized: "音声出力を追加できません"))
         }
         reader.add(output)
         guard reader.startReading() else {
-            throw AudioSyncError.readFailed(reader.error?.localizedDescription ?? "読み込みを開始できません")
+            throw AudioSyncError.readFailed(reader.error?.localizedDescription ?? String(localized: "読み込みを開始できません"))
         }
 
         var samples: [Float] = []
@@ -124,7 +124,7 @@ enum AudioSync {
         }
 
         if reader.status == .failed {
-            throw AudioSyncError.readFailed(reader.error?.localizedDescription ?? "不明なエラー")
+            throw AudioSyncError.readFailed(reader.error?.localizedDescription ?? String(localized: "不明なエラー"))
         }
         if samples.count > maxSamples {
             samples.removeLast(samples.count - maxSamples)

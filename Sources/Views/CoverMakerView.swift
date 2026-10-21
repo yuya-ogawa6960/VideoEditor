@@ -516,7 +516,7 @@ struct CoverMakerView: View {
                 renderError = nil
             } catch {
                 if Task.isCancelled || generation != renderGeneration { return }
-                renderError = "プレビューを作れませんでした。背景のコマや写真を選び直してください。(詳細: " + error.localizedDescription + ")"
+                renderError = String(localized: "プレビューを作れませんでした。背景のコマや写真を選び直してください。(詳細: ") + error.localizedDescription + ")"
             }
             isRendering = false
         }
@@ -573,12 +573,12 @@ struct CoverMakerView: View {
                 if let picked = try await item.loadTransferable(type: PickedPhoto.self) {
                     project.cover.imageURL = picked.url
                 } else {
-                    alertTitle = "写真を読み込めませんでした"
-                    alertMessage = "別の写真を選んでください(この写真は読み込めない形式です)。"
+                    alertTitle = String(localized: "写真を読み込めませんでした")
+                    alertMessage = String(localized: "別の写真を選んでください(この写真は読み込めない形式です)。")
                 }
             } catch {
-                alertTitle = "写真を読み込めませんでした"
-                alertMessage = "もう一度「写真を選ぶ」から選び直してください。\n\n詳細: " + error.localizedDescription
+                alertTitle = String(localized: "写真を読み込めませんでした")
+                alertMessage = String(localized: "もう一度「写真を選ぶ」から選び直してください。\n\n詳細: ") + error.localizedDescription
             }
             photoItem = nil
         }
@@ -596,11 +596,11 @@ struct CoverMakerView: View {
             do {
                 let image = try await CoverRenderer.render(snapshot: snapshot, cover: cover, size: size)
                 try await CoverRenderer.saveToPhotos(image)
-                alertTitle = "保存しました"
-                alertMessage = "表紙の画像を写真アプリに保存しました。"
+                alertTitle = String(localized: "保存しました")
+                alertMessage = String(localized: "表紙の画像を写真アプリに保存しました。")
             } catch {
-                alertTitle = "保存できませんでした"
-                alertMessage = "設定アプリでこのアプリの「写真」への追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: " + error.localizedDescription
+                alertTitle = String(localized: "保存できませんでした")
+                alertMessage = String(localized: "設定アプリでこのアプリの「写真」への追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: ") + error.localizedDescription
             }
             isSaving = false
         }
@@ -626,8 +626,8 @@ struct CoverMakerView: View {
                 try data.write(to: url, options: .atomic)
                 shareURL = url
             } catch {
-                alertTitle = "画像を作れませんでした"
-                alertMessage = "端末の空き容量を確かめて、もう一度お試しください。\n\n詳細: " + error.localizedDescription
+                alertTitle = String(localized: "画像を作れませんでした")
+                alertMessage = String(localized: "端末の空き容量を確かめて、もう一度お試しください。\n\n詳細: ") + error.localizedDescription
             }
             isPreparingShare = false
         }
@@ -639,7 +639,7 @@ private enum CoverMakerError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .cannotEncode: return "画像を JPEG に変換できませんでした"
+        case .cannotEncode: return String(localized: "画像を JPEG に変換できませんでした")
         }
     }
 }

@@ -27,9 +27,9 @@ enum AudioEffectsRendererError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noAudioTrack: return "音声トラックがありません"
-        case .cannotCreateBuffer: return "音声バッファを確保できませんでした"
-        case .renderFailed(let detail): return "音声効果の処理に失敗しました: \(detail)"
+        case .noAudioTrack: return String(localized: "音声トラックがありません")
+        case .cannotCreateBuffer: return String(localized: "音声バッファを確保できませんでした")
+        case .renderFailed(let detail): return String(localized: "音声効果の処理に失敗しました: \(detail)")
         }
     }
 }
@@ -248,16 +248,16 @@ enum AudioEffectsRenderer {
                 if stalls > 50 {
                     player.stop()
                     engine.stop()
-                    throw AudioEffectsRendererError.renderFailed("音声を描画できませんでした")
+                    throw AudioEffectsRendererError.renderFailed(String(localized: "音声を描画できませんでした"))
                 }
             case .error:
                 player.stop()
                 engine.stop()
-                throw AudioEffectsRendererError.renderFailed("描画エラー")
+                throw AudioEffectsRendererError.renderFailed(String(localized: "描画エラー"))
             @unknown default:
                 player.stop()
                 engine.stop()
-                throw AudioEffectsRendererError.renderFailed("不明な状態")
+                throw AudioEffectsRendererError.renderFailed(String(localized: "不明な状態"))
             }
         }
         player.stop()
@@ -475,7 +475,7 @@ private final class AudioEffectsSpectralDenoiser {
 
     static func process(input: URL, output: URL, amount: Double) throws {
         guard let denoiser = AudioEffectsSpectralDenoiser() else {
-            throw AudioEffectsRendererError.renderFailed("FFT を準備できませんでした")
+            throw AudioEffectsRendererError.renderFailed(String(localized: "FFT を準備できませんでした"))
         }
         try denoiser.run(input: input, output: output, amount: amount)
     }
@@ -555,7 +555,7 @@ private final class AudioEffectsSpectralDenoiser {
         let channels = Int(format.channelCount)
         let length = Int(file.length)
         guard length > 0, channels > 0, !format.isInterleaved, format.commonFormat == .pcmFormatFloat32 else {
-            throw AudioEffectsRendererError.renderFailed("対応していない音声形式です")
+            throw AudioEffectsRendererError.renderFailed(String(localized: "対応していない音声形式です"))
         }
         let nr = Float(min(max(amount, 0), 1))
         let blockFrames: AVAudioFrameCount = 32_768
@@ -603,7 +603,7 @@ private final class AudioEffectsSpectralDenoiser {
             }
         }
         guard frameCount > 0 else {
-            throw AudioEffectsRendererError.renderFailed("音声が短すぎます")
+            throw AudioEffectsRendererError.renderFailed(String(localized: "音声が短すぎます"))
         }
         var profiles = [[Float]](repeating: [Float](repeating: 0, count: halfN), count: channels)
         for c in 0..<channels {

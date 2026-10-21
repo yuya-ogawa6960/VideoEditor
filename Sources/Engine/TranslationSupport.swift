@@ -33,9 +33,9 @@ enum SubtitleTranslationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .sameLanguage:
-            return "翻訳元と翻訳先の言語が同じです。"
+            return String(localized: "翻訳元と翻訳先の言語が同じです。")
         case .noSubtitles:
-            return "翻訳する字幕がありません。"
+            return String(localized: "翻訳する字幕がありません。")
         }
     }
 }

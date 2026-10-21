@@ -16,11 +16,11 @@ enum MediaStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noVideoTrack(let name):
-            return "「\(name)」には映像トラックがありません。動画ファイルを選んでください。"
+            return String(localized: "「\(name)」には映像トラックがありません。動画ファイルを選んでください。")
         case .invalidDuration(let name):
-            return "「\(name)」の長さを読み取れませんでした。"
+            return String(localized: "「\(name)」の長さを読み取れませんでした。")
         case .unreadableImage(let name):
-            return "「\(name)」を画像として読み込めませんでした。JPEG / PNG / HEIC などの写真を選んでください。"
+            return String(localized: "「\(name)」を画像として読み込めませんでした。JPEG / PNG / HEIC などの写真を選んでください。")
         }
     }
 }
@@ -64,7 +64,7 @@ enum MediaStore {
 
     /// 保存名から UUID 接頭辞と拡張子を除いた表示名
     static func displayName(for url: URL) -> String {
-        displayName(for: url, fallback: "動画")
+        displayName(for: url, fallback: String(localized: "動画"))
     }
 
     /// 保存名から UUID 接頭辞と拡張子を除いた表示名(空のときは fallback)
@@ -179,7 +179,7 @@ enum MediaStore {
         guard let size = imagePixelSize(of: url) else { return nil }
         var overlay = OverlayClip(url: url,
                                   isImage: true,
-                                  name: displayName(for: url, fallback: "写真"),
+                                  name: displayName(for: url, fallback: String(localized: "写真")),
                                   naturalSize: size,
                                   preferredTransform: .identity,
                                   sourceDuration: imageSourceDuration,
@@ -193,7 +193,7 @@ enum MediaStore {
     /// makeOverlay(fromImage:) の throws 版(読めない場合は日本語のエラー)
     static func makeImageOverlay(from url: URL) throws -> OverlayClip {
         guard let overlay = makeOverlay(fromImage: url) else {
-            throw MediaStoreError.unreadableImage(displayName(for: url, fallback: "写真"))
+            throw MediaStoreError.unreadableImage(displayName(for: url, fallback: String(localized: "写真")))
         }
         return overlay
     }
@@ -315,7 +315,7 @@ enum MediaTimeText {
 
     /// 短い秒数表示(例: 3.2秒)
     static func shortSeconds(_ seconds: Double) -> String {
-        guard seconds.isFinite else { return "0秒" }
+        guard seconds.isFinite else { return String(localized: "0秒") }
         if seconds >= 60 { return mmss(seconds) }
         return String(format: "%.1f秒", max(0, seconds))
     }

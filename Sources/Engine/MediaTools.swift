@@ -27,16 +27,16 @@ enum MediaToolsError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noVideoTrack: return "映像トラックがありません"
-        case .noAudioTrack: return "音声トラックがありません"
-        case .invalidRange: return "範囲が正しくありません"
-        case .cannotCreateSession: return "変換の準備ができませんでした"
-        case .cannotReadFrame: return "コマを読み取れませんでした"
-        case .cannotEncodeImage: return "画像に変換できませんでした"
-        case .invalidFont: return "フォントファイルとして読み込めませんでした(.ttf / .otf を選んでください)"
-        case .invalidLUT(let detail): return "LUT(.cube)として読み込めませんでした: \(detail)"
-        case .readFailed(let detail): return "読み込みに失敗しました: \(detail)"
-        case .writeFailed(let detail): return "書き込みに失敗しました: \(detail)"
+        case .noVideoTrack: return String(localized: "映像トラックがありません")
+        case .noAudioTrack: return String(localized: "音声トラックがありません")
+        case .invalidRange: return String(localized: "範囲が正しくありません")
+        case .cannotCreateSession: return String(localized: "変換の準備ができませんでした")
+        case .cannotReadFrame: return String(localized: "コマを読み取れませんでした")
+        case .cannotEncodeImage: return String(localized: "画像に変換できませんでした")
+        case .invalidFont: return String(localized: "フォントファイルとして読み込めませんでした(.ttf / .otf を選んでください)")
+        case .invalidLUT(let detail): return String(localized: "LUT(.cube)として読み込めませんでした: \(detail)")
+        case .readFailed(let detail): return String(localized: "読み込みに失敗しました: \(detail)")
+        case .writeFailed(let detail): return String(localized: "書き込みに失敗しました: \(detail)")
         }
     }
 }
@@ -263,7 +263,7 @@ enum MediaTools {
             if accessing { url.stopAccessingSecurityScopedResource() }
         }
         guard url.pathExtension.lowercased() == "cube" else {
-            throw MediaToolsError.invalidLUT("拡張子が .cube ではありません")
+            throw MediaToolsError.invalidLUT(String(localized: "拡張子が .cube ではありません"))
         }
         do {
             _ = try FilterLUT.loadCube(url: url)
@@ -288,7 +288,7 @@ enum MediaTools {
 
     /// 動画から音声だけを m4a(AAC)として mediaDirectory に書き出す。start / end は元素材上の秒(nil = 全体)
     static func extractAudio(from url: URL, start: Double?, end: Double?) async throws -> URL {
-        let base = MediaStore.displayName(for: url, fallback: "音声")
+        let base = MediaStore.displayName(for: url, fallback: String(localized: "音声"))
         let destination = MediaStore.uniqueDestination(forFileName: "\(base).m4a")
         try await exportAudio(from: url, start: start, end: end, to: destination)
         return destination
@@ -377,7 +377,7 @@ enum MediaTools {
         try fm.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: tempDirectory) }
 
-        let base = MediaStore.displayName(for: url, fallback: "動画")
+        let base = MediaStore.displayName(for: url, fallback: String(localized: "動画"))
         let destination = MediaStore.uniqueDestination(forFileName: "\(base)_reversed.mov")
         let flag = MediaToolsCancelFlag()
         let report: (Double) -> Void = { value in
@@ -460,10 +460,10 @@ enum MediaTools {
             reader.timeRange = fullRange
             let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
             output.alwaysCopiesSampleData = false
-            guard reader.canAdd(output) else { throw MediaToolsError.readFailed("映像の読み込みを設定できません") }
+            guard reader.canAdd(output) else { throw MediaToolsError.readFailed(String(localized: "映像の読み込みを設定できません")) }
             reader.add(output)
             guard reader.startReading() else {
-                throw MediaToolsError.readFailed(reader.error?.localizedDescription ?? "読み込みを開始できません")
+                throw MediaToolsError.readFailed(reader.error?.localizedDescription ?? String(localized: "読み込みを開始できません"))
             }
             while let sample = output.copyNextSampleBuffer() {
                 if flag.isCancelled {
@@ -476,7 +476,7 @@ enum MediaTools {
                 }
             }
             if reader.status == .failed {
-                throw MediaToolsError.readFailed(reader.error?.localizedDescription ?? "不明なエラー")
+                throw MediaToolsError.readFailed(reader.error?.localizedDescription ?? String(localized: "不明なエラー"))
             }
         }
         times.sort { CMTimeCompare($0, $1) < 0 }
@@ -526,10 +526,10 @@ enum MediaTools {
                 kCVPixelBufferWidthKey as String: width,
                 kCVPixelBufferHeightKey as String: height
             ])
-        guard writer.canAdd(input) else { throw MediaToolsError.writeFailed("映像の書き込みを設定できません") }
+        guard writer.canAdd(input) else { throw MediaToolsError.writeFailed(String(localized: "映像の書き込みを設定できません")) }
         writer.add(input)
         guard writer.startWriting() else {
-            throw MediaToolsError.writeFailed(writer.error?.localizedDescription ?? "書き込みを開始できません")
+            throw MediaToolsError.writeFailed(writer.error?.localizedDescription ?? String(localized: "書き込みを開始できません"))
         }
         writer.startSession(atSourceTime: .zero)
 
@@ -560,10 +560,10 @@ enum MediaTools {
             reader.timeRange = chunkRange
             let output = AVAssetReaderTrackOutput(track: track, outputSettings: pixelSettings)
             output.alwaysCopiesSampleData = false
-            guard reader.canAdd(output) else { throw failWriter("映像の読み込みを設定できません") }
+            guard reader.canAdd(output) else { throw failWriter(String(localized: "映像の読み込みを設定できません")) }
             reader.add(output)
             guard reader.startReading() else {
-                throw failWriter(reader.error?.localizedDescription ?? "読み込みを開始できません")
+                throw failWriter(reader.error?.localizedDescription ?? String(localized: "読み込みを開始できません"))
             }
 
             var frames: [(time: CMTime, buffer: CVPixelBuffer)] = []
@@ -580,7 +580,7 @@ enum MediaTools {
                 frames.append((time: pts, buffer: buffer))
             }
             if reader.status == .failed {
-                throw failWriter(reader.error?.localizedDescription ?? "映像の読み込みに失敗しました")
+                throw failWriter(reader.error?.localizedDescription ?? String(localized: "映像の読み込みに失敗しました"))
             }
 
             frames.sort { CMTimeCompare($0.time, $1.time) < 0 }
@@ -597,9 +597,9 @@ enum MediaTools {
                     writer.cancelWriting()
                     throw CancellationError()
                 }
-                guard writer.status == .writing else { throw failWriter("書き込みが中断されました") }
+                guard writer.status == .writing else { throw failWriter(String(localized: "書き込みが中断されました")) }
                 guard adaptor.append(frame.buffer, withPresentationTime: outTime) else {
-                    throw failWriter("コマを書き込めませんでした")
+                    throw failWriter(String(localized: "コマを書き込めませんでした"))
                 }
                 lastOutputTime = outTime
                 written += 1
@@ -609,14 +609,14 @@ enum MediaTools {
             chunkEnd = chunkStart
         }
 
-        guard written > 0 else { throw failWriter("書き込めるコマがありませんでした") }
+        guard written > 0 else { throw failWriter(String(localized: "書き込めるコマがありませんでした")) }
         input.markAsFinished()
         writer.endSession(atSourceTime: CMTimeAdd(lastOutputTime, averageFrameDuration))
         let semaphore = DispatchSemaphore(value: 0)
         writer.finishWriting { semaphore.signal() }
         semaphore.wait()
         guard writer.status == .completed else {
-            throw writer.error ?? MediaToolsError.writeFailed("書き込みを完了できませんでした")
+            throw writer.error ?? MediaToolsError.writeFailed(String(localized: "書き込みを完了できませんでした"))
         }
     }
 
@@ -630,7 +630,7 @@ enum MediaTools {
         let totalFrames = input.length
         guard totalFrames > 0, format.channelCount > 0 else { throw MediaToolsError.noAudioTrack }
         guard !format.isInterleaved, format.commonFormat == .pcmFormatFloat32 else {
-            throw MediaToolsError.readFailed("対応していない音声形式です")
+            throw MediaToolsError.readFailed(String(localized: "対応していない音声形式です"))
         }
         let channels = Int(format.channelCount)
         let outputSettings: [String: Any] = [
@@ -648,7 +648,7 @@ enum MediaTools {
                                      interleaved: format.isInterleaved)
         let blockFrames: AVAudioFrameCount = 65_536
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: blockFrames) else {
-            throw MediaToolsError.readFailed("バッファを確保できません")
+            throw MediaToolsError.readFailed(String(localized: "バッファを確保できません"))
         }
 
         var position = totalFrames
@@ -661,7 +661,7 @@ enum MediaTools {
             let n = Int(buffer.frameLength)
             guard n > 0 else { break }
             guard let data = buffer.floatChannelData else {
-                throw MediaToolsError.readFailed("音声データを読めません")
+                throw MediaToolsError.readFailed(String(localized: "音声データを読めません"))
             }
             for c in 0..<channels {
                 let p = data[c]
@@ -693,7 +693,7 @@ enum MediaTools {
         let composition = AVMutableComposition()
         guard let compositionVideo = composition.addMutableTrack(withMediaType: .video,
                                                                   preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw MediaToolsError.writeFailed("映像トラックを作成できません")
+            throw MediaToolsError.writeFailed(String(localized: "映像トラックを作成できません"))
         }
         try compositionVideo.insertTimeRange(CMTimeRange(start: .zero, duration: videoDuration), of: videoTrack, at: .zero)
         compositionVideo.preferredTransform = videoTransform

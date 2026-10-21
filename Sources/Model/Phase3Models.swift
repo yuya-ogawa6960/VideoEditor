@@ -27,19 +27,19 @@ enum TransitionType: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .none: return "なし"
-        case .dissolve: return "クロスディゾルブ"
-        case .fadeBlack: return "暗転"
-        case .fadeWhite: return "ホワイトアウト"
-        case .slideLeft: return "スライド(左)"
-        case .slideRight: return "スライド(右)"
-        case .slideUp: return "スライド(上)"
-        case .slideDown: return "スライド(下)"
-        case .zoomIn: return "クロスズーム(イン)"
-        case .zoomOut: return "クロスズーム(アウト)"
-        case .wipeLeft: return "ワイプ(左)"
-        case .wipeRight: return "ワイプ(右)"
-        case .blur: return "ブラー"
+        case .none: return String(localized: "なし")
+        case .dissolve: return String(localized: "クロスディゾルブ")
+        case .fadeBlack: return String(localized: "暗転")
+        case .fadeWhite: return String(localized: "ホワイトアウト")
+        case .slideLeft: return String(localized: "スライド(左)")
+        case .slideRight: return String(localized: "スライド(右)")
+        case .slideUp: return String(localized: "スライド(上)")
+        case .slideDown: return String(localized: "スライド(下)")
+        case .zoomIn: return String(localized: "クロスズーム(イン)")
+        case .zoomOut: return String(localized: "クロスズーム(アウト)")
+        case .wipeLeft: return String(localized: "ワイプ(左)")
+        case .wipeRight: return String(localized: "ワイプ(右)")
+        case .blur: return String(localized: "ブラー")
         }
     }
 }
@@ -58,16 +58,16 @@ enum ClipAnimationType: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .none: return "なし"
-        case .fade: return "ふわっと"
-        case .slideFromLeft: return "左から"
-        case .slideFromRight: return "右から"
-        case .slideFromBottom: return "下から"
-        case .slideFromTop: return "上から"
-        case .zoomIn: return "ズームイン"
-        case .zoomOut: return "ズームアウト"
-        case .blur: return "ぼかし"
-        case .spin: return "回転"
+        case .none: return String(localized: "なし")
+        case .fade: return String(localized: "ふわっと")
+        case .slideFromLeft: return String(localized: "左から")
+        case .slideFromRight: return String(localized: "右から")
+        case .slideFromBottom: return String(localized: "下から")
+        case .slideFromTop: return String(localized: "上から")
+        case .zoomIn: return String(localized: "ズームイン")
+        case .zoomOut: return String(localized: "ズームアウト")
+        case .blur: return String(localized: "ぼかし")
+        case .spin: return String(localized: "回転")
         }
     }
 }
@@ -166,9 +166,9 @@ enum MarkerKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .note: return "メモ"
-        case .chapter: return "章の区切り"
-        case .beat: return "音楽の拍"
+        case .note: return String(localized: "メモ")
+        case .chapter: return String(localized: "章の区切り")
+        case .beat: return String(localized: "音楽の拍")
         }
     }
 }
@@ -188,10 +188,10 @@ enum KeyframeEasing: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .linear: return "一定"
-        case .easeInOut: return "ゆっくり始まりゆっくり終わる"
-        case .easeIn: return "ゆっくり始まる"
-        case .easeOut: return "ゆっくり終わる"
+        case .linear: return String(localized: "一定")
+        case .easeInOut: return String(localized: "ゆっくり始まりゆっくり終わる")
+        case .easeIn: return String(localized: "ゆっくり始まる")
+        case .easeOut: return String(localized: "ゆっくり終わる")
         }
     }
 }
@@ -244,15 +244,15 @@ enum TextAnimationType: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .none: return "なし"
-        case .fade: return "ふわっと"
-        case .typewriter: return "タイプライター"
-        case .pop: return "ポップ"
-        case .slideUp: return "下から"
-        case .slideLeft: return "右から"
-        case .blurIn: return "ぼかしから"
-        case .scaleDown: return "大きく→小さく"
-        case .wordByWord: return "単語ごと"
+        case .none: return String(localized: "なし")
+        case .fade: return String(localized: "ふわっと")
+        case .typewriter: return String(localized: "タイプライター")
+        case .pop: return String(localized: "ポップ")
+        case .slideUp: return String(localized: "下から")
+        case .slideLeft: return String(localized: "右から")
+        case .blurIn: return String(localized: "ぼかしから")
+        case .scaleDown: return String(localized: "大きく→小さく")
+        case .wordByWord: return String(localized: "単語ごと")
         }
     }
 }
@@ -260,7 +260,7 @@ enum TextAnimationType: String, CaseIterable, Identifiable {
 enum TextAlignment2: String, CaseIterable, Identifiable {
     case left, center, right
     var id: String { rawValue }
-    var displayName: String { self == .left ? "左" : self == .center ? "中央" : "右" }
+    var displayName: String { self == .left ? String(localized: "左") : self == .center ? String(localized: "中央") : String(localized: "右") }
 }
 
 struct TextShadow: Equatable {
@@ -303,16 +303,16 @@ enum TextTemplate: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .plain: return "シンプル"
-        case .headline: return "見出し"
-        case .newsBar: return "ニュース帯"
-        case .caption: return "説明文"
-        case .quote: return "引用"
-        case .handwritten: return "手書き風"
-        case .neon: return "ネオン"
-        case .minimalSerif: return "明朝・上品"
-        case .subtitleBox: return "黒帯テロップ"
-        case .bigImpact: return "インパクト"
+        case .plain: return String(localized: "シンプル")
+        case .headline: return String(localized: "見出し")
+        case .newsBar: return String(localized: "ニュース帯")
+        case .caption: return String(localized: "説明文")
+        case .quote: return String(localized: "引用")
+        case .handwritten: return String(localized: "手書き風")
+        case .neon: return String(localized: "ネオン")
+        case .minimalSerif: return String(localized: "明朝・上品")
+        case .subtitleBox: return String(localized: "黒帯テロップ")
+        case .bigImpact: return String(localized: "インパクト")
         }
     }
 }
@@ -379,12 +379,12 @@ enum CaptionTemplate: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .plain: return "標準"
-        case .karaoke: return "カラオケ(単語が光る)"
-        case .boxPop: return "単語ごとに箱がポップ"
-        case .outlineBig: return "太い縁取り(大)"
-        case .pillHighlight: return "丸い帯でハイライト"
-        case .typewriter: return "タイプライター"
+        case .plain: return String(localized: "標準")
+        case .karaoke: return String(localized: "カラオケ(単語が光る)")
+        case .boxPop: return String(localized: "単語ごとに箱がポップ")
+        case .outlineBig: return String(localized: "太い縁取り(大)")
+        case .pillHighlight: return String(localized: "丸い帯でハイライト")
+        case .typewriter: return String(localized: "タイプライター")
         }
     }
 }
@@ -396,10 +396,10 @@ enum WatermarkCorner: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .topLeft: return "左上"
-        case .topRight: return "右上"
-        case .bottomLeft: return "左下"
-        case .bottomRight: return "右下"
+        case .topLeft: return String(localized: "左上")
+        case .topRight: return String(localized: "右上")
+        case .bottomLeft: return String(localized: "左下")
+        case .bottomRight: return String(localized: "右下")
         }
     }
 }
@@ -423,13 +423,13 @@ enum VoicePreset: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .none: return "なし"
-        case .robot: return "ロボット"
-        case .chipmunk: return "高い声"
-        case .deep: return "低い声"
-        case .radio: return "ラジオ"
-        case .telephone: return "電話"
-        case .cathedral: return "大聖堂(残響)"
+        case .none: return String(localized: "なし")
+        case .robot: return String(localized: "ロボット")
+        case .chipmunk: return String(localized: "高い声")
+        case .deep: return String(localized: "低い声")
+        case .radio: return String(localized: "ラジオ")
+        case .telephone: return String(localized: "電話")
+        case .cathedral: return String(localized: "大聖堂(残響)")
         }
     }
 }
@@ -460,7 +460,7 @@ struct HSLBand: Equatable {
 }
 
 struct HSLAdjustment: Equatable {
-    static let bandNames = ["赤", "オレンジ", "黄", "緑", "水色", "青", "紫", "マゼンタ"]
+    static let bandNames = [String(localized: "赤"), String(localized: "オレンジ"), String(localized: "黄"), String(localized: "緑"), String(localized: "水色"), String(localized: "青"), String(localized: "紫"), String(localized: "マゼンタ")]
     /// 8 帯: 0°,45°,...,315° を中心
     var bands: [HSLBand] = Array(repeating: HSLBand(), count: 8)
     var isIdentity: Bool { bands.allSatisfy { $0.isIdentity } }
@@ -473,9 +473,9 @@ enum FormatKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .opening: return "オープニング"
-        case .closing: return "クロージング"
-        case .divider: return "ディバイダー(区切り)"
+        case .opening: return String(localized: "オープニング")
+        case .closing: return String(localized: "クロージング")
+        case .divider: return String(localized: "ディバイダー(区切り)")
         }
     }
 }
@@ -502,11 +502,11 @@ enum MemoPaper: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .yellow: return "黄色の付箋"
-        case .white: return "白いメモ"
-        case .kraft: return "クラフト紙"
-        case .dark: return "黒板"
-        case .pink: return "ピンクの付箋"
+        case .yellow: return String(localized: "黄色の付箋")
+        case .white: return String(localized: "白いメモ")
+        case .kraft: return String(localized: "クラフト紙")
+        case .dark: return String(localized: "黒板")
+        case .pink: return String(localized: "ピンクの付箋")
         }
     }
 }

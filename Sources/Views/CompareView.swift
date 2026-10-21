@@ -17,8 +17,8 @@ enum CompareLayout: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .split: return "スワイプで比較"
-        case .sideBySide: return "並べて表示"
+        case .split: return String(localized: "スワイプで比較")
+        case .sideBySide: return String(localized: "並べて表示")
         }
     }
 }
@@ -28,9 +28,9 @@ enum CompareAudioSource: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .a: return "A 現在"
-        case .b: return "B 前回"
-        case .mute: return "ミュート"
+        case .a: return String(localized: "A 現在")
+        case .b: return String(localized: "B 前回")
+        case .mute: return String(localized: "ミュート")
         }
     }
 }
@@ -40,7 +40,7 @@ private enum CompareViewError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .cannotExportAudio: return "現在の編集の音声を取り出せませんでした"
+        case .cannotExportAudio: return String(localized: "現在の編集の音声を取り出せませんでした")
         }
     }
 }
@@ -128,7 +128,7 @@ final class CompareSyncController {
             duration = 0
             currentTime = 0
             isBuilding = false
-            errorMessage = "現在の編集にクリップがありません"
+            errorMessage = String(localized: "現在の編集にクリップがありません")
             return
         }
 
@@ -147,7 +147,7 @@ final class CompareSyncController {
             }
         } catch {
             guard generation == buildGeneration else { return }
-            errorMessage = "現在の編集のプレビューを作成できませんでした: \(error.localizedDescription)"
+            errorMessage = String(localized: "現在の編集のプレビューを作成できませんでした: \(error.localizedDescription)")
         }
         isBuilding = false
     }
@@ -176,7 +176,7 @@ final class CompareSyncController {
         }
         guard FileManager.default.fileExists(atPath: url.path) else {
             playerB.replaceCurrentItem(with: nil)
-            exportError = "書き出したファイルが見つかりません(削除された可能性があります)"
+            exportError = String(localized: "書き出したファイルが見つかりません(削除された可能性があります)")
             return
         }
         let item = AVPlayerItem(url: url)
@@ -381,13 +381,13 @@ struct CompareView: View {
             case .sideBySide:
                 if aspect >= 1 {
                     VStack(spacing: 2) {
-                        labeledPlayer(sync.playerA, label: "A 現在の編集", aspect: aspect)
-                        labeledPlayer(sync.playerB, label: "B 前回の書き出し", aspect: aspect)
+                        labeledPlayer(sync.playerA, label: String(localized: "A 現在の編集"), aspect: aspect)
+                        labeledPlayer(sync.playerB, label: String(localized: "B 前回の書き出し"), aspect: aspect)
                     }
                 } else {
                     HStack(spacing: 2) {
-                        labeledPlayer(sync.playerA, label: "A 現在", aspect: aspect)
-                        labeledPlayer(sync.playerB, label: "B 前回", aspect: aspect)
+                        labeledPlayer(sync.playerA, label: String(localized: "A 現在"), aspect: aspect)
+                        labeledPlayer(sync.playerB, label: String(localized: "B 前回"), aspect: aspect)
                     }
                 }
             }
@@ -602,8 +602,8 @@ struct CompareView: View {
 
     private var loudnessSection: some View {
         Section {
-            loudnessRow(title: "A 現在の編集", measurement: loudnessA)
-            loudnessRow(title: "B 前回の書き出し", measurement: loudnessB)
+            loudnessRow(title: String(localized: "A 現在の編集"), measurement: loudnessA)
+            loudnessRow(title: String(localized: "B 前回の書き出し"), measurement: loudnessB)
             if let a = loudnessA, let b = loudnessB, a.isValid, b.isValid {
                 LabeledContent("くらべると", value: loudnessDiffText(a: a, b: b))
             }
@@ -618,7 +618,7 @@ struct CompareView: View {
                 Button {
                     measureLoudness()
                 } label: {
-                    Label(loudnessA == nil && loudnessB == nil ? "音の大きさを測る" : "もう一度測る", systemImage: "waveform.badge.magnifyingglass")
+                    Label(loudnessA == nil && loudnessB == nil ? String(localized: "音の大きさを測る") : String(localized: "もう一度測る"), systemImage: "waveform.badge.magnifyingglass")
                 }
                 .disabled(project.isEmpty && currentRecord == nil)
             }
@@ -662,14 +662,14 @@ struct CompareView: View {
         let peak: Double = Double(m.peakDBFS)
         var word: String
         if lufs < -18 {
-            word = "小さめ"
+            word = String(localized: "小さめ")
         } else if lufs > -12 {
-            word = "大きすぎ"
+            word = String(localized: "大きすぎ")
         } else {
-            word = "ちょうどいい"
+            word = String(localized: "ちょうどいい")
         }
         if peak > -1 {
-            word += "・音割れに注意"
+            word += String(localized: "・音割れに注意")
         }
         return word
     }
@@ -685,10 +685,10 @@ struct CompareView: View {
     private func loudnessDiffText(a: LoudnessMeasurement, b: LoudnessMeasurement) -> String {
         let diff: Double = Double(a.integratedLUFS) - Double(b.integratedLUFS)
         if abs(diff) < 1 {
-            return "ほぼ同じ"
+            return String(localized: "ほぼ同じ")
         }
-        let amount: String = abs(diff) < 3 ? "少し" : "かなり"
-        return diff > 0 ? "A(いま)のほうが" + amount + "大きい" : "B(前回)のほうが" + amount + "大きい"
+        let amount: String = abs(diff) < 3 ? String(localized: "少し") : String(localized: "かなり")
+        return diff > 0 ? String(localized: "A(いま)のほうが") + amount + String(localized: "大きい") : String(localized: "B(前回)のほうが") + amount + String(localized: "大きい")
     }
 
     private func measureLoudness() {
@@ -706,7 +706,7 @@ struct CompareView: View {
                     let result = try await LoudnessAnalyzer.measure(url: tempURL)
                     if !Task.isCancelled { loudnessA = result }
                 } catch {
-                    if !Task.isCancelled { firstError = "A(いまの編集)を測れませんでした。もう一度「もう一度測る」を押してください。(詳細: " + error.localizedDescription + ")" }
+                    if !Task.isCancelled { firstError = String(localized: "A(いまの編集)を測れませんでした。もう一度「もう一度測る」を押してください。(詳細: ") + error.localizedDescription + ")" }
                 }
             }
             if let exportURL, !Task.isCancelled {
@@ -714,7 +714,7 @@ struct CompareView: View {
                     let result = try await LoudnessAnalyzer.measure(url: exportURL)
                     if !Task.isCancelled { loudnessB = result }
                 } catch {
-                    if !Task.isCancelled, firstError == nil { firstError = "B(前回の動画)を測れませんでした。別の書き出しを選んで測り直してください。(詳細: " + error.localizedDescription + ")" }
+                    if !Task.isCancelled, firstError == nil { firstError = String(localized: "B(前回の動画)を測れませんでした。別の書き出しを選んで測り直してください。(詳細: ") + error.localizedDescription + ")" }
                 }
             }
             if !Task.isCancelled {

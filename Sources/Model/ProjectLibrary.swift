@@ -71,7 +71,7 @@ final class ProjectLibrary {
             let snapshot = ProjectStore.load(projectID: id)
             let now = Date()
             list.append(ProjectMeta(id: id,
-                                    name: "復元されたプロジェクト",
+                                    name: String(localized: "復元されたプロジェクト"),
                                     createdAt: dates.created ?? now,
                                     updatedAt: dates.modified ?? now,
                                     duration: snapshot?.totalDuration ?? 0,
@@ -85,7 +85,7 @@ final class ProjectLibrary {
             if let imported = ProjectStore.importLegacyProject(into: id) {
                 let now = Date()
                 list.append(ProjectMeta(id: id,
-                                        name: "以前の編集",
+                                        name: String(localized: "以前の編集"),
                                         createdAt: imported.createdAt ?? now,
                                         updatedAt: imported.modifiedAt ?? now,
                                         duration: imported.snapshot.totalDuration,
@@ -196,17 +196,17 @@ final class ProjectLibrary {
     private func defaultName() -> String {
         let existing = Set(projects.map { $0.name })
         var n = projects.count + 1
-        var candidate = "プロジェクト \(n)"
+        var candidate = String(localized: "プロジェクト \(n)")
         while existing.contains(candidate) {
             n += 1
-            candidate = "プロジェクト \(n)"
+            candidate = String(localized: "プロジェクト \(n)")
         }
         return candidate
     }
 
     private func duplicateName(for name: String) -> String {
         let existing = Set(projects.map { $0.name })
-        let base = "\(name) のコピー"
+        let base = String(localized: "\(name) のコピー")
         if !existing.contains(base) { return base }
         var n = 2
         while existing.contains("\(base) \(n)") { n += 1 }

@@ -27,9 +27,9 @@ enum AutoEditorError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noClips: return "クリップがありません。先に動画を追加してください"
-        case .noImages: return "読み込める写真がありません"
-        case .noMaterial: return "使える区間が見つかりませんでした。目標の長さを変えてお試しください"
+        case .noClips: return String(localized: "クリップがありません。先に動画を追加してください")
+        case .noImages: return String(localized: "読み込める写真がありません")
+        case .noMaterial: return String(localized: "使える区間が見つかりませんでした。目標の長さを変えてお試しください")
         }
     }
 }
@@ -48,43 +48,43 @@ enum AutoEditor {
 
     static let templates: [Template] = [
         Template(id: "documentary60",
-                 name: "ドキュメンタリー60秒",
-                 description: "会話と表情を中心に 60 秒へ。ディゾルブと黒へのフェード、落ち着いた色味。",
+                 name: String(localized: "ドキュメンタリー60秒"),
+                 description: String(localized: "会話と表情を中心に 60 秒へ。ディゾルブと黒へのフェード、落ち着いた色味。"),
                  settings: AutoEditSettings(style: .documentary, targetDuration: 60, useBGMBeats: false,
                                             addTitleCard: true, titleText: "", addTransitions: true,
                                             applyLook: true, preferFaces: true, preferSpeech: true),
                  kind: nil),
         Template(id: "vlog90",
-                 name: "旅Vlog 90秒",
-                 description: "動きのある場面を集めて 90 秒。BGM のビートに合わせてカット、暖かいシネマ調。",
+                 name: String(localized: "旅Vlog 90秒"),
+                 description: String(localized: "動きのある場面を集めて 90 秒。BGM のビートに合わせてカット、暖かいシネマ調。"),
                  settings: AutoEditSettings(style: .vlog, targetDuration: 90, useBGMBeats: true,
                                             addTitleCard: true, titleText: "", addTransitions: true,
                                             applyLook: true, preferFaces: true, preferSpeech: false),
                  kind: nil),
         Template(id: "short15",
-                 name: "ショート15秒",
-                 description: "いちばん動きのある 15 秒。ビートに合わせた短いカット、鮮やかな色。",
+                 name: String(localized: "ショート15秒"),
+                 description: String(localized: "いちばん動きのある 15 秒。ビートに合わせた短いカット、鮮やかな色。"),
                  settings: AutoEditSettings(style: .short, targetDuration: 15, useBGMBeats: true,
                                             addTitleCard: false, titleText: "", addTransitions: true,
                                             applyLook: true, preferFaces: false, preferSpeech: false),
                  kind: nil),
         Template(id: "family",
-                 name: "家族の1日",
-                 description: "顔が映っている場面と会話を大切に 2 分へ。やわらかいディゾルブ。",
+                 name: String(localized: "家族の1日"),
+                 description: String(localized: "顔が映っている場面と会話を大切に 2 分へ。やわらかいディゾルブ。"),
                  settings: AutoEditSettings(style: .family, targetDuration: 120, useBGMBeats: false,
                                             addTitleCard: true, titleText: "", addTransitions: true,
                                             applyLook: true, preferFaces: true, preferSpeech: true),
                  kind: nil),
         Template(id: "product",
-                 name: "商品紹介",
-                 description: "説明している場面を優先して 45 秒。色味はそのまま、短いディゾルブ。",
+                 name: String(localized: "商品紹介"),
+                 description: String(localized: "説明している場面を優先して 45 秒。色味はそのまま、短いディゾルブ。"),
                  settings: AutoEditSettings(style: .howto, targetDuration: 45, useBGMBeats: false,
                                             addTitleCard: true, titleText: "", addTransitions: true,
                                             applyLook: true, preferFaces: false, preferSpeech: true),
                  kind: nil),
         Template(id: "interview",
-                 name: "対談ダイジェスト",
-                 description: "話している区間を文の切れ目で拾って 3 分のダイジェストに。BGM は会話中に下げる。",
+                 name: String(localized: "対談ダイジェスト"),
+                 description: String(localized: "話している区間を文の切れ目で拾って 3 分のダイジェストに。BGM は会話中に下げる。"),
                  settings: AutoEditSettings(style: .documentary, targetDuration: 180, useBGMBeats: false,
                                             addTitleCard: true, titleText: "", addTransitions: true,
                                             applyLook: true, preferFaces: true, preferSpeech: true),
@@ -293,7 +293,7 @@ enum AutoEditor {
                             preferredTransform: .identity,
                             hasAudio: false,
                             thumbnail: thumb,
-                            name: MediaStore.displayName(for: url, fallback: "写真"))
+                            name: MediaStore.displayName(for: url, fallback: String(localized: "写真")))
             clip.stillImageURL = url
             clip.startTime = 0
             clip.endTime = per
@@ -700,11 +700,11 @@ enum AutoEditor {
 
     private static func defaultTitle(for style: AutoEditStyle) -> String {
         switch style {
-        case .documentary: return "ある日の記録"
-        case .vlog: return "旅の記録"
-        case .short: return "ハイライト"
-        case .family: return "家族の1日"
-        case .howto: return "ご紹介"
+        case .documentary: return String(localized: "ある日の記録")
+        case .vlog: return String(localized: "旅の記録")
+        case .short: return String(localized: "ハイライト")
+        case .family: return String(localized: "家族の1日")
+        case .howto: return String(localized: "ご紹介")
         }
     }
 

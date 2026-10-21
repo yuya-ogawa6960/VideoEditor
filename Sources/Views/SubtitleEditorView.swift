@@ -34,11 +34,11 @@ fileprivate enum SubtitleStylePreset: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .standard: return "標準"
-        case .netflix: return "Netflix風"
-        case .youtube: return "YouTube風"
-        case .cinema: return "シネマ"
-        case .pop: return "ポップ"
+        case .standard: return String(localized: "標準")
+        case .netflix: return String(localized: "Netflix風")
+        case .youtube: return String(localized: "YouTube風")
+        case .cinema: return String(localized: "シネマ")
+        case .pop: return String(localized: "ポップ")
         }
     }
 
@@ -246,11 +246,11 @@ struct SubtitleEditorView: View {
         .subtitleTranslation(project: project, request: $translationRequest, onFinish: { result in
             switch result {
             case .success(let count):
-                showAlert(title: "翻訳しました",
-                          message: "\(count) 件の字幕を翻訳しました。「スタイル」の「表示」を「訳文」か「両方」にすると映像に出ます。")
+                showAlert(title: String(localized: "翻訳しました"),
+                          message: String(localized: "\(count) 件の字幕を翻訳しました。「スタイル」の「表示」を「訳文」か「両方」にすると映像に出ます。"))
             case .failure(let error):
-                showAlert(title: "翻訳できませんでした",
-                          message: "通信できる場所で、もう一度「翻訳」を押してください。うまくいかないときは「AIで翻訳」をお試しください。\n\n詳細: " + error.localizedDescription)
+                showAlert(title: String(localized: "翻訳できませんでした"),
+                          message: String(localized: "通信できる場所で、もう一度「翻訳」を押してください。うまくいかないときは「AIで翻訳」をお試しください。\n\n詳細: ") + error.localizedDescription)
             }
         })
         .alert(alertTitle, isPresented: Binding(
@@ -342,7 +342,7 @@ struct SubtitleEditorView: View {
             }
             .disabled(isTranscribing)
         } header: {
-            Text(isFirstTime ? "自動で字幕を作る" : "自動で作り直す")
+            Text(isFirstTime ? String(localized: "自動で字幕を作る") : String(localized: "自動で作り直す"))
         } footer: {
             Text(transcriptionFooterText)
         }
@@ -368,7 +368,7 @@ struct SubtitleEditorView: View {
         Button {
             startTranscription()
         } label: {
-            Label(isFirstTime ? "自動で字幕を作る" : "自動で字幕を作り直す", systemImage: "waveform")
+            Label(isFirstTime ? String(localized: "自動で字幕を作る") : String(localized: "自動で字幕を作り直す"), systemImage: "waveform")
                 .font(isFirstTime ? Font.headline : Font.body)
                 .frame(maxWidth: .infinity, minHeight: isFirstTime ? 44 : 32)
         }
@@ -379,7 +379,7 @@ struct SubtitleEditorView: View {
     private var transcriptionProgressView: some View {
         VStack(alignment: .leading, spacing: 8) {
             ProgressView(value: min(max(transcriber.progress, 0), 1))
-            Text(transcriber.statusText.isEmpty ? "準備中…" : transcriber.statusText)
+            Text(transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Label(BackgroundWorkNote.transcription, systemImage: "lock.open")
@@ -397,10 +397,10 @@ struct SubtitleEditorView: View {
         let settings = AppSettings.shared
         let polish = settings.polishSubtitles
             ? SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: settings))
-            : "オフ"
-        var text = "今の方式: " + settings.transcriptionEngine.displayName + "。AI仕上げ: " + polish + "。"
+            : String(localized: "オフ")
+        var text = String(localized: "今の方式: ") + settings.transcriptionEngine.displayName + String(localized: "。AI仕上げ: ") + polish + "。"
         if project.isEmpty {
-            text = "先に編集画面で動画を追加してください。" + text
+            text = String(localized: "先に編集画面で動画を追加してください。") + text
         }
         return text
     }
@@ -428,8 +428,8 @@ struct SubtitleEditorView: View {
             let authorized = await transcriber.requestAuthorization()
             guard authorized else {
                 transcriptionTask = nil
-                showAlert(title: "音声認識を許可してください",
-                          message: "「設定を開く」→「音声認識」をオンにしてから、もう一度「自動で字幕を作る」を押してください。",
+                showAlert(title: String(localized: "音声認識を許可してください"),
+                          message: String(localized: "「設定を開く」→「音声認識」をオンにしてから、もう一度「自動で字幕を作る」を押してください。"),
                           offersSettings: true)
                 return
             }
@@ -453,8 +453,8 @@ struct SubtitleEditorView: View {
                 project.sortSubtitles()
                 transcriptionTask = nil
                 if cues.isEmpty {
-                    showAlert(title: "声が見つかりませんでした",
-                              message: "話している言語が合っているか確かめて、もう一度お試しください。BGMだけの動画では字幕は作られません。")
+                    showAlert(title: String(localized: "声が見つかりませんでした"),
+                              message: String(localized: "話している言語が合っているか確かめて、もう一度お試しください。BGMだけの動画では字幕は作られません。"))
                 }
             } catch is CancellationError {
                 transcriptionTask = nil
@@ -462,8 +462,8 @@ struct SubtitleEditorView: View {
                 let cancelled = Task.isCancelled
                 transcriptionTask = nil
                 if !cancelled {
-                    showAlert(title: "字幕を作れませんでした",
-                              message: "通信できる場所で、もう一度「自動で字幕を作る」を押してください。続くときは「文字起こしの方式とAI仕上げ」で方式を変えてみてください。\n\n詳細: " + error.localizedDescription)
+                    showAlert(title: String(localized: "字幕を作れませんでした"),
+                              message: String(localized: "通信できる場所で、もう一度「自動で字幕を作る」を押してください。続くときは「文字起こしの方式とAI仕上げ」で方式を変えてみてください。\n\n詳細: ") + error.localizedDescription)
                 }
             }
         }
@@ -491,7 +491,7 @@ struct SubtitleEditorView: View {
         if let job = pendingCloudJob, !isTranscribing {
             Section {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label(job.isComplete ? "前回の文字起こし結果があります" : "前回の文字起こしが途中です",
+                    Label(job.isComplete ? String(localized: "前回の文字起こし結果があります") : String(localized: "前回の文字起こしが途中です"),
                           systemImage: "tray.and.arrow.down")
                         .font(.subheadline.weight(.semibold))
                     Text(pendingCloudJobDetail(job))
@@ -514,8 +514,8 @@ struct SubtitleEditorView: View {
                 }
             } footer: {
                 Text(project.subtitles.isEmpty
-                     ? "「取り込む」を押すと、前回の結果から字幕を作ります。"
-                     : "「取り込む」と、「自動で作り直す」の「今ある字幕」の選択(置き換える / 後ろに追加)に従って字幕に入ります。")
+                     ? String(localized: "「取り込む」を押すと、前回の結果から字幕を作ります。")
+                     : String(localized: "「取り込む」と、「自動で作り直す」の「今ある字幕」の選択(置き換える / 後ろに追加)に従って字幕に入ります。"))
             }
         }
     }
@@ -523,9 +523,9 @@ struct SubtitleEditorView: View {
     private func pendingCloudJobDetail(_ job: CloudJobManifest) -> String {
         let date = job.createdAt.formatted(date: .abbreviated, time: .shortened)
         let quality = CloudTranscriptionQuality(rawValue: job.quality)?.shortName ?? job.model
-        var text = date + "・クリップ \(job.clips.count) 本・" + quality
+        var text = date + String(localized: "・クリップ \(job.clips.count) 本・") + quality
         if !job.isComplete {
-            text += "\n\(job.totalPieceCount) 件中 \(job.completedPieceCount) 件が完了。「取り込む」で残りを待ってから取り込みます。"
+            text += String(localized: "\n\(job.totalPieceCount) 件中 \(job.completedPieceCount) 件が完了。「取り込む」で残りを待ってから取り込みます。")
         }
         return text
     }
@@ -559,8 +559,8 @@ struct SubtitleEditorView: View {
                 transcriptionTask = nil
                 refreshPendingCloudJobs()
                 if cues.isEmpty {
-                    showAlert(title: "声が見つかりませんでした",
-                              message: "前回の結果に字幕にできる声がありませんでした。「自動で字幕を作る」でもう一度お試しください。")
+                    showAlert(title: String(localized: "声が見つかりませんでした"),
+                              message: String(localized: "前回の結果に字幕にできる声がありませんでした。「自動で字幕を作る」でもう一度お試しください。"))
                 }
             } catch is CancellationError {
                 transcriptionTask = nil
@@ -570,8 +570,8 @@ struct SubtitleEditorView: View {
                 transcriptionTask = nil
                 refreshPendingCloudJobs()
                 if !cancelled {
-                    showAlert(title: "前回の結果を取り込めませんでした",
-                              message: "通信できる場所で、もう一度「取り込む」を押してください。続くときは「破棄」して、自動で字幕を作り直してください。\n\n詳細: " + error.localizedDescription)
+                    showAlert(title: String(localized: "前回の結果を取り込めませんでした"),
+                              message: String(localized: "通信できる場所で、もう一度「取り込む」を押してください。続くときは「破棄」して、自動で字幕を作り直してください。\n\n詳細: ") + error.localizedDescription)
                 }
             }
         }
@@ -623,7 +623,7 @@ struct SubtitleEditorView: View {
                 Button {
                     startAITranslation()
                 } label: {
-                    Label(selectedLanguage == .english ? "AIで日本語に翻訳(文脈を見て自然に)" : "AIで翻訳(文脈を見て自然に)",
+                    Label(selectedLanguage == .english ? String(localized: "AIで日本語に翻訳(文脈を見て自然に)") : String(localized: "AIで翻訳(文脈を見て自然に)"),
                           systemImage: "sparkles")
                 }
                 .disabled(project.subtitles.isEmpty || isTranscribing)
@@ -637,8 +637,8 @@ struct SubtitleEditorView: View {
 
     private var translationFooterText: String {
         let engine = SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: AppSettings.shared))
-        let first = "元の言語は「話している言語」の設定を使います。初回は翻訳用データのダウンロードを求められることがあります。"
-        return first + "「AIで翻訳」は前後の字幕も読んで自然な訳にします(いまの AI: " + engine + ")。"
+        let first = String(localized: "元の言語は「話している言語」の設定を使います。初回は翻訳用データのダウンロードを求められることがあります。")
+        return first + String(localized: "「AIで翻訳」は前後の字幕も読んで自然な訳にします(いまの AI: ") + engine + ")。"
     }
 
     // MARK: AI 翻訳(SubtitlePolisher)
@@ -657,12 +657,12 @@ struct SubtitleEditorView: View {
             }
             aiTranslationTask = nil
             guard let result else {
-                let action = "「文字起こしの方式とAI仕上げ」で Apple Intelligence か OpenAI の API キーを設定してから、もう一度お試しください。"
+                let action = String(localized: "「文字起こしの方式とAI仕上げ」で Apple Intelligence か OpenAI の API キーを設定してから、もう一度お試しください。")
                 var message = action
                 if let detail = SubtitlePolisher.lastErrorMessage, !detail.isEmpty {
-                    message += "\n\n詳細: " + detail
+                    message += String(localized: "\n\n詳細: ") + detail
                 }
-                showAlert(title: "AIで翻訳できませんでした", message: message)
+                showAlert(title: String(localized: "AIで翻訳できませんでした"), message: message)
                 return
             }
             // 翻訳中に字幕が変わっていても ID で突き合わせる
@@ -678,8 +678,8 @@ struct SubtitleEditorView: View {
             }
             project.subtitles = updated
             exportURL = nil
-            showAlert(title: "AIで翻訳しました",
-                      message: "\(count) 件の字幕を翻訳しました。「スタイル」の「表示」を「訳文」か「両方」にすると映像に出ます。")
+            showAlert(title: String(localized: "AIで翻訳しました"),
+                      message: String(localized: "\(count) 件の字幕を翻訳しました。「スタイル」の「表示」を「訳文」か「両方」にすると映像に出ます。"))
         }
     }
 
@@ -765,8 +765,8 @@ struct SubtitleEditorView: View {
         do {
             exportURL = try SRTCodec.writeTemporaryFile(text, fileName: fileName)
         } catch {
-            showAlert(title: "字幕ファイルを作れませんでした",
-                      message: "端末の空き容量を確かめて、もう一度お試しください。\n\n詳細: " + error.localizedDescription)
+            showAlert(title: String(localized: "字幕ファイルを作れませんでした"),
+                      message: String(localized: "端末の空き容量を確かめて、もう一度お試しください。\n\n詳細: ") + error.localizedDescription)
         }
     }
 
@@ -787,8 +787,8 @@ struct SubtitleEditorView: View {
     private func handleSubtitleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            showAlert(title: "ファイルを開けませんでした",
-                      message: "もう一度ファイルを選び直してください。\n\n詳細: " + error.localizedDescription)
+            showAlert(title: String(localized: "ファイルを開けませんでした"),
+                      message: String(localized: "もう一度ファイルを選び直してください。\n\n詳細: ") + error.localizedDescription)
         case .success(let urls):
             guard let url = urls.first else { return }
             let accessing = url.startAccessingSecurityScopedResource()
@@ -807,8 +807,8 @@ struct SubtitleEditorView: View {
                     isImportChoicePresented = true
                 }
             } catch {
-                showAlert(title: "字幕ファイルを読み込めませんでした",
-                          message: "SRT か WebVTT(.vtt)形式のファイルを選んでください。\n\n詳細: " + error.localizedDescription)
+                showAlert(title: String(localized: "字幕ファイルを読み込めませんでした"),
+                          message: String(localized: "SRT か WebVTT(.vtt)形式のファイルを選んでください。\n\n詳細: ") + error.localizedDescription)
             }
         }
     }
@@ -825,8 +825,8 @@ struct SubtitleEditorView: View {
         project.sortSubtitles()
         exportURL = nil
         appliedShift = 0
-        let verb = replace ? "読み込みました" : "追加しました"
-        showAlert(title: "読み込み完了", message: "\(cues.count) 件の字幕を" + verb + "。")
+        let verb = replace ? String(localized: "読み込みました") : String(localized: "追加しました")
+        showAlert(title: String(localized: "読み込み完了"), message: String(localized: "\(cues.count) 件の字幕を") + verb + "。")
     }
 
     // MARK: スタイル
@@ -913,7 +913,7 @@ struct SubtitleEditorView: View {
                 }
             }
 
-            ColorPicker("目立たせる色", selection: highlightColorBinding, supportsOpacity: false)
+            ColorPicker(String(localized: "目立たせる色"), selection: highlightColorBinding, supportsOpacity: false)
 
             Picker("フォント", selection: subtitleFontBinding) {
                 ForEach(SubtitleFontCatalog.options(including: project.subtitleStyle.fontName)) { option in
@@ -979,7 +979,7 @@ struct SubtitleEditorView: View {
                 let cue = project.addSubtitle(at: player.currentTime)
                 editingCueID = cue.id
             } label: {
-                Label(project.subtitles.isEmpty ? "自分で1つずつ入力する" : "再生位置に字幕を追加", systemImage: "plus.bubble")
+                Label(project.subtitles.isEmpty ? String(localized: "自分で1つずつ入力する") : String(localized: "再生位置に字幕を追加"), systemImage: "plus.bubble")
             }
 
             if showsShiftTool && !project.subtitles.isEmpty {
@@ -1053,11 +1053,11 @@ struct SubtitleEditorView: View {
     private var appliedShiftText: String {
         let rounded = (appliedShift * 10).rounded() / 10
         if abs(rounded) < 0.05 {
-            return "±0.1 秒ずつ全字幕を前後に動かします"
+            return String(localized: "±0.1 秒ずつ全字幕を前後に動かします")
         }
         let sign = rounded > 0 ? "+" : ""
         let amount = String(format: "%.1f", rounded)
-        return "合計 " + sign + amount + " 秒ずらしました"
+        return String(localized: "合計 ") + sign + amount + String(localized: " 秒ずらしました")
     }
 
     /// 全字幕を delta 秒ずらす。先頭の字幕が 0 秒より前にならないよう delta を丸める
@@ -1095,8 +1095,8 @@ struct SubtitleEditorView: View {
             cues[i].words = SubtitleWordTiming.distribute(cue: cues[i])
         }
         project.subtitles = cues
-        showAlert(title: "単語タイミングを更新しました",
-                  message: "\(cues.count) 件の字幕に、文字数に応じた単語タイミングを付けました。カラオケ風などのテンプレートで単語ごとに色が変わります。")
+        showAlert(title: String(localized: "単語タイミングを更新しました"),
+                  message: String(localized: "\(cues.count) 件の字幕に、文字数に応じた単語タイミングを付けました。カラオケ風などのテンプレートで単語ごとに色が変わります。"))
     }
 
     private func cueRow(_ cue: SubtitleCue, isCurrent: Bool) -> some View {
@@ -1108,7 +1108,7 @@ struct SubtitleEditorView: View {
                     Text("\(subtitleTimeString(cue.start)) – \(subtitleTimeString(cue.end))")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
-                    Text(cue.text.isEmpty ? "(空)" : cue.text)
+                    Text(cue.text.isEmpty ? String(localized: "(空)") : cue.text)
                         .foregroundStyle(Color.primary)
                         .lineLimit(3)
                     if let translated = cue.translatedText, !translated.isEmpty {
@@ -1378,15 +1378,15 @@ enum SubtitleFontCatalog {
     }
 
     static let builtIn: [Option] = [
-        Option(id: "", label: "ヒラギノ角ゴ W3(標準・映画字幕風)"),
-        Option(id: "HiraginoSans-W6", label: "ヒラギノ角ゴ W6(太め)"),
-        Option(id: "HiraMinProN-W3", label: "ヒラギノ明朝 W3(上品)"),
-        Option(id: "HiraMinProN-W6", label: "ヒラギノ明朝 W6"),
-        Option(id: "HiraMaruProN-W4", label: "ヒラギノ丸ゴ W4"),
-        Option(id: "Noteworthy-Bold", label: "Noteworthy(ノート風)"),
-        Option(id: "BradleyHandITCTT-Bold", label: "Bradley Hand(手書き風)"),
-        Option(id: "Chalkduster", label: "Chalkduster(チョーク)"),
-        Option(id: "MarkerFelt-Wide", label: "Marker Felt(マーカー)"),
+        Option(id: "", label: String(localized: "ヒラギノ角ゴ W3(標準・映画字幕風)")),
+        Option(id: "HiraginoSans-W6", label: String(localized: "ヒラギノ角ゴ W6(太め)")),
+        Option(id: "HiraMinProN-W3", label: String(localized: "ヒラギノ明朝 W3(上品)")),
+        Option(id: "HiraMinProN-W6", label: String(localized: "ヒラギノ明朝 W6")),
+        Option(id: "HiraMaruProN-W4", label: String(localized: "ヒラギノ丸ゴ W4")),
+        Option(id: "Noteworthy-Bold", label: String(localized: "Noteworthy(ノート風)")),
+        Option(id: "BradleyHandITCTT-Bold", label: String(localized: "Bradley Hand(手書き風)")),
+        Option(id: "Chalkduster", label: String(localized: "Chalkduster(チョーク)")),
+        Option(id: "MarkerFelt-Wide", label: String(localized: "Marker Felt(マーカー)")),
         Option(id: "AvenirNext-Bold", label: "Avenir Next Bold"),
         Option(id: "Futura-Bold", label: "Futura Bold")
     ]
@@ -1397,7 +1397,7 @@ enum SubtitleFontCatalog {
         var result = builtIn + BundledFonts.all.map { Option(id: $0.name, label: $0.label) }
         var known = Set(result.map { $0.id })
         for name in MediaTools.storedFontNames() where !known.contains(name) {
-            result.append(Option(id: name, label: GoogleFontsService.displayName(forPostScript: name) ?? "\(name)(読み込み)"))
+            result.append(Option(id: name, label: GoogleFontsService.displayName(forPostScript: name) ?? String(localized: "\(name)(読み込み)")))
             known.insert(name)
         }
         if let current, !current.isEmpty, !known.contains(current) {

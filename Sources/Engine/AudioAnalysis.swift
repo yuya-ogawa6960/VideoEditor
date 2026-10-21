@@ -20,11 +20,11 @@ enum AudioAnalysisError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noAudioTrack(let name):
-            return "「\(name)」に音声トラックがありません。"
+            return String(localized: "「\(name)」に音声トラックがありません。")
         case .readFailed(let detail):
-            return "音声の読み込みに失敗しました: \(detail)"
+            return String(localized: "音声の読み込みに失敗しました: \(detail)")
         case .invalidRange:
-            return "解析する範囲が短すぎます。"
+            return String(localized: "解析する範囲が短すぎます。")
         }
     }
 }
@@ -145,11 +145,11 @@ enum AudioAnalysisPCMReader {
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else {
-            throw AudioAnalysisError.readFailed("音声出力を追加できません")
+            throw AudioAnalysisError.readFailed(String(localized: "音声出力を追加できません"))
         }
         reader.add(output)
         guard reader.startReading() else {
-            throw AudioAnalysisError.readFailed(reader.error?.localizedDescription ?? "読み込みを開始できません")
+            throw AudioAnalysisError.readFailed(reader.error?.localizedDescription ?? String(localized: "読み込みを開始できません"))
         }
 
         while let sampleBuffer = output.copyNextSampleBuffer() {
@@ -177,7 +177,7 @@ enum AudioAnalysisPCMReader {
             throw CancellationError()
         }
         if reader.status == .failed {
-            throw AudioAnalysisError.readFailed(reader.error?.localizedDescription ?? "不明なエラー")
+            throw AudioAnalysisError.readFailed(reader.error?.localizedDescription ?? String(localized: "不明なエラー"))
         }
     }
 }

@@ -105,8 +105,8 @@ struct EditorNarrationRecordPanel: View {
                 .disabled(recorder.isRecording)
             if playWhileRecording {
                 Label(recorder.isRecording && isMonitorMuted
-                      ? "イヤホンがないため、音を出さずに再生しています"
-                      : "イヤホンをしているときだけ音が聞こえます(スピーカーの音がマイクに入るのを防ぐため)",
+                      ? String(localized: "イヤホンがないため、音を出さずに再生しています")
+                      : String(localized: "イヤホンをしているときだけ音が聞こえます(スピーカーの音がマイクに入るのを防ぐため)"),
                       systemImage: "headphones")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -180,7 +180,7 @@ struct EditorNarrationRecordPanel: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(recorder.isRecording ? "録音を停止" : "録音を開始")
+        .accessibilityLabel(recorder.isRecording ? String(localized: "録音を停止") : String(localized: "録音を開始"))
     }
 
     // MARK: 操作
@@ -233,20 +233,20 @@ struct EditorNarrationRecordPanel: View {
         let startedWithPlayback = playWhileRecording
         guard let url = recorder.stop() else {
             stopPlaybackAndRewind(startedWithPlayback: startedWithPlayback)
-            errorMessage = "録音ファイルを保存できませんでした。"
+            errorMessage = String(localized: "録音ファイルを保存できませんでした。")
             return
         }
         stopPlaybackAndRewind(startedWithPlayback: startedWithPlayback)
         let duration = recorder.elapsed
         guard duration >= 0.2 else {
             try? FileManager.default.removeItem(at: url)
-            errorMessage = "録音が短すぎたため追加しませんでした。"
+            errorMessage = String(localized: "録音が短すぎたため追加しませんでした。")
             return
         }
 
         history.record(project)
         let clip = NarrationClip(url: url,
-                                 name: MediaStore.displayName(for: url, fallback: "ナレーション"),
+                                 name: MediaStore.displayName(for: url, fallback: String(localized: "ナレーション")),
                                  start: playheadAtStart,
                                  duration: duration)
         project.narration.append(clip)
@@ -264,8 +264,8 @@ struct EditorNarrationVolumePanel: View {
     private var gainText: String {
         let db = LoudnessAnalyzer.decibels(fromGain: narration.gain)
         guard db.isFinite else { return "—" }
-        if abs(db) < 0.05 { return "なし" }
-        return db > 0 ? "少し大きく" : "少し小さく"
+        if abs(db) < 0.05 { return String(localized: "なし") }
+        return db > 0 ? String(localized: "少し大きく") : String(localized: "少し小さく")
     }
 
     private var hasGain: Bool { abs(narration.gain - 1) > 0.001 }
@@ -286,13 +286,13 @@ struct EditorNarrationVolumePanel: View {
                     .foregroundStyle(.secondary)
             }
 
-            EditorSliderRow(title: "ボリューム",
+            EditorSliderRow(title: String(localized: "ボリューム"),
                             value: $narration.volume,
                             range: 0...1,
                             display: "\(Int((narration.volume * 100).rounded()))%")
             HStack {
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     narration.volume = 1
                 }
             }
@@ -303,7 +303,7 @@ struct EditorNarrationVolumePanel: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                 Spacer()
-                EditorChip(title: "自動調整を取り消す", isSelected: false) {
+                EditorChip(title: String(localized: "自動調整を取り消す"), isSelected: false) {
                     narration.gain = 1
                 }
                 .disabled(!hasGain)

@@ -11,19 +11,19 @@ fileprivate enum ExportViewPreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .snsShort: return "SNS(縦動画)"
-        case .youtube: return "YouTube(横動画)"
-        case .longHigh: return "きれいに残す"
-        case .uhd4k: return "4K(いちばんきれい)"
+        case .snsShort: return String(localized: "SNS(縦動画)")
+        case .youtube: return String(localized: "YouTube(横動画)")
+        case .longHigh: return String(localized: "きれいに残す")
+        case .uhd4k: return String(localized: "4K(いちばんきれい)")
         }
     }
 
     var detail: String {
         switch self {
-        case .snsShort: return "TikTok・Instagram・ショート向け。縦長で軽め"
-        case .youtube: return "横長のふつうの動画。画質と大きさのバランスが良い"
-        case .longHigh: return "元の形のまま高画質。保存用や長い動画に"
-        case .uhd4k: return "細かいところまでくっきり。ファイルは大きめ"
+        case .snsShort: return String(localized: "TikTok・Instagram・ショート向け。縦長で軽め")
+        case .youtube: return String(localized: "横長のふつうの動画。画質と大きさのバランスが良い")
+        case .longHigh: return String(localized: "元の形のまま高画質。保存用や長い動画に")
+        case .uhd4k: return String(localized: "細かいところまでくっきり。ファイルは大きめ")
         }
     }
 
@@ -97,9 +97,9 @@ fileprivate enum ExportGIFRange: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .whole: return "全体"
-        case .marker: return "マーカーの区間"
-        case .custom: return "開始〜終了"
+        case .whole: return String(localized: "全体")
+        case .marker: return String(localized: "マーカーの区間")
+        case .custom: return String(localized: "開始〜終了")
         }
     }
 }
@@ -283,9 +283,9 @@ struct ExportView: View {
 
     private var orientationWord: String {
         let size = outputSize
-        if size.width > size.height { return "横" }
-        if size.width < size.height { return "縦" }
-        return "正方形"
+        if size.width > size.height { return String(localized: "横") }
+        if size.width < size.height { return String(localized: "縦") }
+        return String(localized: "正方形")
     }
 
     private var outputSize: CGSize {
@@ -296,10 +296,10 @@ struct ExportView: View {
         let size = outputSize
         let w = Int(size.width.rounded())
         let h = Int(size.height.rounded())
-        var text = orientationWord + " \(w)×\(h)・長さ " + exportDurationString(timelineDuration)
+        var text = orientationWord + String(localized: " \(w)×\(h)・長さ ") + exportDurationString(timelineDuration)
         if let estimate {
             let bytes: Int64 = dualExport ? estimate.estimatedOutputBytes * 2 : estimate.estimatedOutputBytes
-            text += "・約 " + StorageEstimator.formatBytes(bytes)
+            text += String(localized: "・約 ") + StorageEstimator.formatBytes(bytes)
         }
         return text
     }
@@ -347,7 +347,7 @@ struct ExportView: View {
         } else {
             need = estimate.shortfallBytes
         }
-        return "不要な写真・動画・アプリを削除して、あと " + StorageEstimator.formatBytes(need) + " 空けてください。画質を下げる(「SNS」を選ぶなど)と小さくなります。"
+        return String(localized: "不要な写真・動画・アプリを削除して、あと ") + StorageEstimator.formatBytes(need) + String(localized: " 空けてください。画質を下げる(「SNS」を選ぶなど)と小さくなります。")
     }
 
     // MARK: 詳細設定
@@ -487,7 +487,7 @@ struct ExportView: View {
                     .foregroundStyle(.secondary)
                 }
             } else {
-                LabeledContent("映像のデータ量", value: "自動(約 \(autoBitrateMbps) Mbps)")
+                LabeledContent("映像のデータ量", value: String(localized: "自動(約 \(autoBitrateMbps) Mbps)"))
             }
 
             Picker("音質", selection: $project.canvas.audioBitrateKbps) {
@@ -546,10 +546,10 @@ struct ExportView: View {
     private func audioQualityLabel(_ kbps: Int) -> String {
         let word: String
         switch kbps {
-        case ..<160: word = "ふつう"
-        case ..<224: word = "標準"
-        case ..<288: word = "高音質"
-        default: word = "最高音質"
+        case ..<160: word = String(localized: "ふつう")
+        case ..<224: word = String(localized: "標準")
+        case ..<288: word = String(localized: "高音質")
+        default: word = String(localized: "最高音質")
         }
         return word + "(\(kbps) kbps)"
     }
@@ -582,7 +582,7 @@ struct ExportView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Label("その他の書き出し", systemImage: "ellipsis.circle")
-                    Text(dualExport ? "縦横を同時に書き出す: オン" : "縦横同時・音声だけ・GIF・チャプター一覧")
+                    Text(dualExport ? String(localized: "縦横を同時に書き出す: オン") : String(localized: "縦横同時・音声だけ・GIF・チャプター一覧"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -607,13 +607,13 @@ struct ExportView: View {
     // MARK: 下の書き出しボタン(常に表示)
 
     private var exportButtonTitle: String {
-        let base = dualExport ? "縦横を同時に書き出す" : "書き出す"
+        let base = dualExport ? String(localized: "縦横を同時に書き出す") : String(localized: "書き出す")
         var parts: [String] = []
         if let estimate {
             let bytes: Int64 = dualExport ? estimate.estimatedOutputBytes * 2 : estimate.estimatedOutputBytes
-            parts.append("約 " + StorageEstimator.formatBytes(bytes))
+            parts.append(String(localized: "約 ") + StorageEstimator.formatBytes(bytes))
         }
-        parts.append(saveToPhotos ? "写真に保存" : "ファイルのみ")
+        parts.append(saveToPhotos ? String(localized: "写真に保存") : String(localized: "ファイルのみ"))
         return base + "(" + parts.joined(separator: "・") + ")"
     }
 
@@ -663,10 +663,10 @@ struct ExportView: View {
     }
 
     private var disabledReason: String? {
-        if project.isEmpty { return "編集画面で動画を追加すると書き出せます。" }
+        if project.isEmpty { return String(localized: "編集画面で動画を追加すると書き出せます。") }
         if exporter.isRunning { return nil }
-        if let estimate, !estimate.canExport { return "空き容量を増やすか、画質を下げると書き出せます。" }
-        if !dualStorageOK { return "縦横同時は 2 本分の空きが必要です。空きを増やすか「その他の書き出し」でオフにしてください。" }
+        if let estimate, !estimate.canExport { return String(localized: "空き容量を増やすか、画質を下げると書き出せます。") }
+        if !dualStorageOK { return String(localized: "縦横同時は 2 本分の空きが必要です。空きを増やすか「その他の書き出し」でオフにしてください。") }
         return nil
     }
 
@@ -733,8 +733,8 @@ struct ExportView: View {
         switch exporter.state {
         case .finished:
             VStack(alignment: .leading, spacing: 10) {
-                Label(exporter.savedToPhotos ? "書き出して、写真アプリに保存しました"
-                      : (lastOutputIsVideo ? "書き出しが終わりました" : "音声の書き出しが終わりました"),
+                Label(exporter.savedToPhotos ? String(localized: "書き出して、写真アプリに保存しました")
+                      : (lastOutputIsVideo ? String(localized: "書き出しが終わりました") : String(localized: "音声の書き出しが終わりました")),
                       systemImage: "checkmark.circle.fill")
                     .foregroundStyle(Color.green)
                 if !exporter.savedToPhotos && lastOutputIsVideo {
@@ -785,15 +785,15 @@ struct ExportView: View {
     /// 失敗理由から「次にすること」を先に伝える
     private func failureAction(for message: String) -> String {
         if message.contains("空き容量") {
-            return "不要な写真・動画・アプリを削除して空きを増やすか、画質を下げてから、もう一度「書き出す」を押してください。"
+            return String(localized: "不要な写真・動画・アプリを削除して空きを増やすか、画質を下げてから、もう一度「書き出す」を押してください。")
         }
         if message.contains("写真") {
-            return "設定アプリでこのアプリの「写真」を許可してから、もう一度お試しください。"
+            return String(localized: "設定アプリでこのアプリの「写真」を許可してから、もう一度お試しください。")
         }
         if message.contains("クリップがありません") {
-            return "編集画面で動画を追加してから書き出してください。"
+            return String(localized: "編集画面で動画を追加してから書き出してください。")
         }
-        return "もう一度「書き出す」を押してください。続くときは、解像度や画質を下げるか、アプリを開き直してからお試しください。"
+        return String(localized: "もう一度「書き出す」を押してください。続くときは、解像度や画質を下げるか、アプリを開き直してからお試しください。")
     }
 
     // MARK: 処理
@@ -820,11 +820,11 @@ struct ExportView: View {
             do {
                 try await exporter.saveLastOutputToPhotos()
                 isSavingToPhotos = false
-                showAlert(title: "保存しました", message: "動画を写真アプリに保存しました。")
+                showAlert(title: String(localized: "保存しました"), message: String(localized: "動画を写真アプリに保存しました。"))
             } catch {
                 isSavingToPhotos = false
-                showAlert(title: "写真に保存できませんでした",
-                          message: "「設定を開く」→「写真」で写真の追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: " + error.localizedDescription,
+                showAlert(title: String(localized: "写真に保存できませんでした"),
+                          message: String(localized: "「設定を開く」→「写真」で写真の追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: ") + error.localizedDescription,
                           offersSettings: true)
             }
         }
@@ -875,11 +875,11 @@ struct ExportView: View {
     }
 
     private var gifRangeText: String {
-        guard let range = gifRange else { return "開始と終了を 0.1 秒以上あけて入力してください" }
+        guard let range = gifRange else { return String(localized: "開始と終了を 0.1 秒以上あけて入力してください") }
         let length = range.end - range.start
         var text = "\(exportDurationString(range.start)) 〜 \(exportDurationString(range.end))(\(String(format: "%.1f", length)) 秒)"
         if length > 15 {
-            text += " ・ 長いとファイルが大きくなります"
+            text += String(localized: " ・ 長いとファイルが大きくなります")
         }
         return text
     }
@@ -1064,7 +1064,7 @@ struct ExportView: View {
                 // キャンセル時は何もしない
             } catch {
                 if !Task.isCancelled {
-                    gifError = "範囲を短くするか横幅を小さくして、もう一度「GIFを作る」を押してください。(詳細: " + error.localizedDescription + ")"
+                    gifError = String(localized: "範囲を短くするか横幅を小さくして、もう一度「GIFを作る」を押してください。(詳細: ") + error.localizedDescription + ")"
                 }
             }
             gifTask = nil
@@ -1073,8 +1073,8 @@ struct ExportView: View {
 
     private func copyChapterList() {
         UIPasteboard.general.string = project.chapterListText()
-        showAlert(title: "コピーしました",
-                  message: "チャプター一覧をコピーしました。YouTube の概要欄などに貼り付けてください。")
+        showAlert(title: String(localized: "コピーしました"),
+                  message: String(localized: "チャプター一覧をコピーしました。YouTube の概要欄などに貼り付けてください。"))
     }
 
     // MARK: 書き出し履歴

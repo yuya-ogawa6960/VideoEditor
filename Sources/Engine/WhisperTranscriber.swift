@@ -33,15 +33,15 @@ enum WhisperTranscriberError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            return "Whisper エンジンはこのビルドに含まれていません(WhisperKit パッケージが未導入です)。設定で別のエンジンを選んでください。"
+            return String(localized: "Whisper エンジンはこのビルドに含まれていません(WhisperKit パッケージが未導入です)。設定で別のエンジンを選んでください。")
         case .modelNotReady:
-            return "Whisper モデルが読み込まれていません。"
+            return String(localized: "Whisper モデルが読み込まれていません。")
         case .downloadFailed(let detail):
-            return "Whisper モデルのダウンロードに失敗しました: \(detail)"
+            return String(localized: "Whisper モデルのダウンロードに失敗しました: \(detail)")
         case .loadFailed(let detail):
-            return "Whisper モデルの読み込みに失敗しました: \(detail)"
+            return String(localized: "Whisper モデルの読み込みに失敗しました: \(detail)")
         case .transcriptionFailed(let detail):
-            return "Whisper の音声認識に失敗しました: \(detail)"
+            return String(localized: "Whisper の音声認識に失敗しました: \(detail)")
         }
     }
 }
@@ -158,7 +158,7 @@ final class WhisperTranscriber {
 
         try Self.prepareDirectory(Self.modelsDirectory)
         if isModelDownloaded(model) {
-            progress(1, "Whisperモデルはダウンロード済みです")
+            progress(1, String(localized: "Whisperモデルはダウンロード済みです"))
             return
         }
 
@@ -179,9 +179,9 @@ final class WhisperTranscriber {
         }
         try Task.checkCancellation()
         guard isModelDownloaded(model) else {
-            throw WhisperTranscriberError.downloadFailed("モデルファイルが見つかりません")
+            throw WhisperTranscriberError.downloadFailed(String(localized: "モデルファイルが見つかりません"))
         }
-        progress(1, "Whisperモデルのダウンロードが完了しました")
+        progress(1, String(localized: "Whisperモデルのダウンロードが完了しました"))
         #else
         throw WhisperTranscriberError.unavailable
         #endif
@@ -202,14 +202,14 @@ final class WhisperTranscriber {
         unload()
         // 読み込み(CoreML の Neural Engine 向け特殊化を含む)は初回に数分かかり、その間は進捗が取れない。
         // 止まっていると思われないよう、20 秒を過ぎたら経過時間を 5 秒ごとに添えて知らせる
-        let loadingText = "Whisperモデルを準備中(初回のみ数分かかります)…"
+        let loadingText = String(localized: "Whisperモデルを準備中(初回のみ数分かかります)…")
         progress(1, loadingText)
         let loadStart = Date()
         let ticker = Task {
             try? await Task.sleep(nanoseconds: 20_000_000_000)
             while !Task.isCancelled {
                 let elapsed = Date().timeIntervalSince(loadStart)
-                progress(1, loadingText + " — 経過 " + Self.elapsedText(elapsed))
+                progress(1, loadingText + String(localized: " — 経過 ") + Self.elapsedText(elapsed))
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
@@ -276,7 +276,7 @@ final class WhisperTranscriber {
         if total >= 60 {
             return "\(total / 60)分\(total % 60)秒"
         }
-        return "\(total)秒"
+        return String(localized: "\(total)秒")
     }
 
     /// 元素材 sourceURL の start〜end(秒。end が nil なら末尾まで)を認識し、
@@ -303,7 +303,7 @@ final class WhisperTranscriber {
         let format = file.processingFormat
         let sampleRate = format.sampleRate
         guard sampleRate > 0, format.channelCount >= 1 else {
-            throw WhisperTranscriberError.transcriptionFailed("音声形式を読み取れません")
+            throw WhisperTranscriberError.transcriptionFailed(String(localized: "音声形式を読み取れません"))
         }
         let totalFrames = file.length
         guard totalFrames > 0 else { return [] }
@@ -347,7 +347,7 @@ final class WhisperTranscriber {
                 let remaining = totalFrames - position
                 let wantFrames = min(remaining, pieceFrames + lookAhead)
                 guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(wantFrames)) else {
-                    throw WhisperTranscriberError.transcriptionFailed("音声バッファを確保できません")
+                    throw WhisperTranscriberError.transcriptionFailed(String(localized: "音声バッファを確保できません"))
                 }
                 file.framePosition = position
                 try file.read(into: buffer, frameCount: AVAudioFrameCount(wantFrames))
@@ -766,7 +766,7 @@ enum TranscriptionAudioExtractionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .failed(let detail):
-            return "音声の切り出しに失敗しました: \(detail)"
+            return String(localized: "音声の切り出しに失敗しました: \(detail)")
         }
     }
 }
@@ -812,7 +812,7 @@ enum TranscriptionAudioExtractor {
         let asset = AVURLAsset(url: sourceURL)
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard let track = tracks.first else {
-            throw TranscriptionAudioExtractionError.failed("音声トラックがありません")
+            throw TranscriptionAudioExtractionError.failed(String(localized: "音声トラックがありません"))
         }
         let assetDuration = try await asset.load(.duration).seconds
         let rangeStart = max(0, start)
@@ -821,7 +821,7 @@ enum TranscriptionAudioExtractor {
             rangeEnd = min(rangeEnd, assetDuration)
         }
         guard rangeEnd.isFinite, rangeEnd > rangeStart + 0.05 else {
-            throw TranscriptionAudioExtractionError.failed("音声の範囲が短すぎます")
+            throw TranscriptionAudioExtractionError.failed(String(localized: "音声の範囲が短すぎます"))
         }
         try? FileManager.default.removeItem(at: outputURL)
         try Task.checkCancellation()
@@ -830,7 +830,7 @@ enum TranscriptionAudioExtractor {
         let output = AVAssetReaderAudioMixOutput(audioTracks: [track], audioSettings: pcmSettings)
         output.alwaysCopiesSampleData = false
         guard reader.canAdd(output) else {
-            throw TranscriptionAudioExtractionError.failed("音声を読み取れません")
+            throw TranscriptionAudioExtractionError.failed(String(localized: "音声を読み取れません"))
         }
         reader.add(output)
         reader.timeRange = CMTimeRange(start: CMTime(seconds: rangeStart, preferredTimescale: 600),
@@ -842,16 +842,16 @@ enum TranscriptionAudioExtractor {
         let input = AVAssetWriterInput(mediaType: .audio, outputSettings: writerSettings)
         input.expectsMediaDataInRealTime = false
         guard writer.canAdd(input) else {
-            throw TranscriptionAudioExtractionError.failed("書き出し形式に対応していません")
+            throw TranscriptionAudioExtractionError.failed(String(localized: "書き出し形式に対応していません"))
         }
         writer.add(input)
 
         guard reader.startReading() else {
-            throw TranscriptionAudioExtractionError.failed(reader.error?.localizedDescription ?? "読み込みを開始できません")
+            throw TranscriptionAudioExtractionError.failed(reader.error?.localizedDescription ?? String(localized: "読み込みを開始できません"))
         }
         guard writer.startWriting() else {
             reader.cancelReading()
-            throw TranscriptionAudioExtractionError.failed(writer.error?.localizedDescription ?? "書き出しを開始できません")
+            throw TranscriptionAudioExtractionError.failed(writer.error?.localizedDescription ?? String(localized: "書き出しを開始できません"))
         }
 
         let state = ExtractionState()
@@ -874,7 +874,7 @@ enum TranscriptionAudioExtractor {
                                 writer.cancelWriting()
                                 if state.claimResume() {
                                     continuation.resume(throwing: TranscriptionAudioExtractionError.failed(
-                                        reader.error?.localizedDescription ?? "読み込みに失敗しました"))
+                                        reader.error?.localizedDescription ?? String(localized: "読み込みに失敗しました")))
                                 }
                             } else if reader.status == .cancelled || state.isCancelled {
                                 writer.cancelWriting()
@@ -882,7 +882,7 @@ enum TranscriptionAudioExtractor {
                             } else if !state.started {
                                 writer.cancelWriting()
                                 if state.claimResume() {
-                                    continuation.resume(throwing: TranscriptionAudioExtractionError.failed("音声が空です"))
+                                    continuation.resume(throwing: TranscriptionAudioExtractionError.failed(String(localized: "音声が空です")))
                                 }
                             } else {
                                 let first = state.firstTime
@@ -891,7 +891,7 @@ enum TranscriptionAudioExtractor {
                                         if state.claimResume() { continuation.resume(returning: first) }
                                     } else if state.claimResume() {
                                         continuation.resume(throwing: TranscriptionAudioExtractionError.failed(
-                                            writer.error?.localizedDescription ?? "書き出しに失敗しました"))
+                                            writer.error?.localizedDescription ?? String(localized: "書き出しに失敗しました")))
                                     }
                                 }
                             }
@@ -906,7 +906,7 @@ enum TranscriptionAudioExtractor {
                         if !input.append(sample) {
                             reader.cancelReading()
                             input.markAsFinished()
-                            let message = writer.error?.localizedDescription ?? "書き出しに失敗しました"
+                            let message = writer.error?.localizedDescription ?? String(localized: "書き出しに失敗しました")
                             writer.cancelWriting()
                             if state.claimResume() {
                                 continuation.resume(throwing: TranscriptionAudioExtractionError.failed(message))
@@ -924,7 +924,7 @@ enum TranscriptionAudioExtractor {
         let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path)
         let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
         guard size > 0 else {
-            throw TranscriptionAudioExtractionError.failed("書き出したファイルが空です")
+            throw TranscriptionAudioExtractionError.failed(String(localized: "書き出したファイルが空です"))
         }
         return Output(url: outputURL, startOffset: firstTime, duration: max(0, rangeEnd - firstTime), fileSize: size)
     }

@@ -48,9 +48,9 @@ enum CompositionBuilderError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noClips: return "クリップがありません"
-        case .noVideo: return "再生できる映像トラックがありません"
-        case .cannotCreateTrack: return "合成トラックを作成できませんでした"
+        case .noClips: return String(localized: "クリップがありません")
+        case .noVideo: return String(localized: "再生できる映像トラックがありません")
+        case .cannotCreateTrack: return String(localized: "合成トラックを作成できませんでした")
         }
     }
 }

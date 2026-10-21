@@ -56,7 +56,7 @@ private struct DocumentaryListRow: View {
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(isSelected ? Color.black.opacity(0.7) : Color.white.opacity(0.7))
-                Text(text.isEmpty ? "(空)" : text)
+                Text(text.isEmpty ? String(localized: "(空)") : text)
                     .font(.subheadline)
                     .lineLimit(1)
                     .foregroundStyle(isSelected ? Color.black : Color.white)
@@ -203,10 +203,10 @@ struct EditorDocumentaryPanel: View {
                 }
                 .buttonStyle(.plain)
 
-                DocumentaryHint(text: "全体の仕上げ: 作品全体の色・黒帯・フェード・BGMの下げ方をまとめて整えます。")
+                DocumentaryHint(text: String(localized: "全体の仕上げ: 作品全体の色・黒帯・フェード・BGMの下げ方をまとめて整えます。"))
 
                 HStack(spacing: 8) {
-                    EditorChip(title: "リセット(すべてオフ)",
+                    EditorChip(title: String(localized: "リセット(すべてオフ)"),
                                isSelected: false) {
                         project.documentary = Self.offStyle
                     }
@@ -222,7 +222,7 @@ struct EditorDocumentaryPanel: View {
             // 色味(再生位置のコマに色をかけた見本から選ぶ)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    DocumentarySectionTitle(title: "色味")
+                    DocumentarySectionTitle(title: String(localized: "色味"))
                     Spacer()
                     Button {
                         EditorHaptics.tap()
@@ -235,7 +235,7 @@ struct EditorDocumentaryPanel: View {
                     .foregroundStyle(.secondary)
                     .disabled(isLoadingPreviews)
                 }
-                DocumentaryHint(text: "動画全体の色の雰囲気を選びます。見本は再生位置のコマです。")
+                DocumentaryHint(text: String(localized: "動画全体の色の雰囲気を選びます。見本は再生位置のコマです。"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(LookPreset.allCases) { preset in
@@ -248,7 +248,7 @@ struct EditorDocumentaryPanel: View {
                         }
                     }
                 }
-                EditorSliderRow(title: "強さ",
+                EditorSliderRow(title: String(localized: "強さ"),
                                 value: $project.documentary.lookIntensity,
                                 range: 0...1,
                                 display: percentText(project.documentary.lookIntensity))
@@ -258,10 +258,10 @@ struct EditorDocumentaryPanel: View {
 
             // 画面演出(タップでオン・オフ。見本つき)
             VStack(alignment: .leading, spacing: 10) {
-                DocumentarySectionTitle(title: "画面")
+                DocumentarySectionTitle(title: String(localized: "画面"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        EditorVisualTile(title: "上下の黒帯",
+                        EditorVisualTile(title: String(localized: "上下の黒帯"),
                                          isSelected: project.documentary.letterbox) {
                             project.documentary.letterbox.toggle()
                         } preview: {
@@ -269,7 +269,7 @@ struct EditorDocumentaryPanel: View {
                                 .overlay(alignment: .top) { Color.black.frame(height: 9) }
                                 .overlay(alignment: .bottom) { Color.black.frame(height: 9) }
                         }
-                        EditorVisualTile(title: "最初と最後を黒から",
+                        EditorVisualTile(title: String(localized: "最初と最後を黒から"),
                                          isSelected: project.documentary.fadeFromToBlack) {
                             project.documentary.fadeFromToBlack.toggle()
                         } preview: {
@@ -280,7 +280,7 @@ struct EditorDocumentaryPanel: View {
                                                    endPoint: UnitPoint(x: 0.65, y: 0.5))
                                 }
                         }
-                        EditorVisualTile(title: "つなぎ目を一瞬黒に",
+                        EditorVisualTile(title: String(localized: "つなぎ目を一瞬黒に"),
                                          isSelected: project.documentary.dipToBlackBetweenClips) {
                             project.documentary.dipToBlackBetweenClips.toggle()
                         } preview: {
@@ -296,36 +296,36 @@ struct EditorDocumentaryPanel: View {
                         }
                     }
                 }
-                DocumentaryHint(text: "黒帯は映画のような横長(2.39:1)にします。フェードは最初と最後の 1.5 秒、つなぎ目の黒は 0.5 秒です。")
+                DocumentaryHint(text: String(localized: "黒帯は映画のような横長(2.39:1)にします。フェードは最初と最後の 1.5 秒、つなぎ目の黒は 0.5 秒です。"))
 
-                DocumentarySectionTitle(title: "フィルムのざらつき")
+                DocumentarySectionTitle(title: String(localized: "フィルムのざらつき"))
                 levelTiles(current: project.documentary.filmGrain, images: previews.grain) { value in
                     project.documentary.filmGrain = value
                 }
-                EditorSliderRow(title: "強さ",
+                EditorSliderRow(title: String(localized: "強さ"),
                                 value: $project.documentary.filmGrain,
                                 range: 0...1,
                                 display: percentText(project.documentary.filmGrain))
-                DocumentaryHint(text: "昔のフィルムのような細かい粒を加えます。")
+                DocumentaryHint(text: String(localized: "昔のフィルムのような細かい粒を加えます。"))
 
-                DocumentarySectionTitle(title: "四すみを暗く")
+                DocumentarySectionTitle(title: String(localized: "四すみを暗く"))
                 levelTiles(current: project.documentary.vignette, images: previews.vignette) { value in
                     project.documentary.vignette = value
                 }
-                EditorSliderRow(title: "強さ",
+                EditorSliderRow(title: String(localized: "強さ"),
                                 value: $project.documentary.vignette,
                                 range: 0...1,
                                 display: percentText(project.documentary.vignette))
-                DocumentaryHint(text: "画面のまわりを少し暗くして、中央に目が行くようにします。")
+                DocumentaryHint(text: String(localized: "画面のまわりを少し暗くして、中央に目が行くようにします。"))
             }
 
             // 音
             VStack(alignment: .leading, spacing: 10) {
-                DocumentarySectionTitle(title: "音")
+                DocumentarySectionTitle(title: String(localized: "音"))
                 Toggle("話している間 BGM を下げる", isOn: $project.documentary.autoDucking)
                     .font(.subheadline)
                     .tint(.accentColor)
-                EditorSliderRow(title: "下げたときの BGM の大きさ",
+                EditorSliderRow(title: String(localized: "下げたときの BGM の大きさ"),
                                 value: $project.documentary.duckingLevel,
                                 range: 0.1...0.8,
                                 display: duckingPercent)
@@ -392,7 +392,7 @@ struct DocumentaryPreviews {
     var grain: [Int: UIImage] = [:]
     var vignette: [Int: UIImage] = [:]
 
-    static let levels: [(name: String, value: Double)] = [("オフ", 0), ("弱め", 0.35), ("ふつう", 0.7), ("強め", 1)]
+    static let levels: [(name: String, value: Double)] = [(String(localized: "オフ"), 0), (String(localized: "弱め"), 0.35), (String(localized: "ふつう"), 0.7), (String(localized: "強め"), 1)]
 
     /// スライダーの値にいちばん近い見本の番号(0 はオフだけ)
     static func nearestLevel(_ value: Double) -> Int {
@@ -503,7 +503,7 @@ struct EditorTitleCardPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                DocumentarySectionTitle(title: "章タイトル一覧")
+                DocumentarySectionTitle(title: String(localized: "章タイトル一覧"))
                 if sortedCards.isEmpty {
                     Text("章タイトルはまだありません")
                         .font(.caption)
@@ -540,16 +540,16 @@ struct EditorTitleCardPanel: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
 
-            DocumentaryTextFieldRow(title: "見出し", placeholder: "例: 第1章", text: card.heading)
-            DocumentaryTextFieldRow(title: "タイトル", placeholder: "例: はじまり", text: card.title)
+            DocumentaryTextFieldRow(title: String(localized: "見出し"), placeholder: String(localized: "例: 第1章"), text: card.heading)
+            DocumentaryTextFieldRow(title: String(localized: "タイトル"), placeholder: String(localized: "例: はじまり"), text: card.title)
 
-            EditorSliderRow(title: "長さ",
+            EditorSliderRow(title: String(localized: "長さ"),
                             value: card.duration,
                             range: 1.5...8,
                             display: secondsText(card.wrappedValue.duration))
             HStack {
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     card.wrappedValue.duration = 3
                 }
             }
@@ -592,7 +592,7 @@ struct EditorLowerThirdPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                DocumentarySectionTitle(title: "テロップ一覧")
+                DocumentarySectionTitle(title: String(localized: "テロップ一覧"))
                 if sortedItems.isEmpty {
                     Text("テロップはまだありません")
                         .font(.caption)
@@ -624,15 +624,15 @@ struct EditorLowerThirdPanel: View {
 
     private func primaryLabel(_ kind: CaptionKind) -> String {
         switch kind {
-        case .nameplate: return "名前"
-        case .location: return "場所"
+        case .nameplate: return String(localized: "名前")
+        case .location: return String(localized: "場所")
         }
     }
 
     private func secondaryLabel(_ kind: CaptionKind) -> String {
         switch kind {
-        case .nameplate: return "肩書き"
-        case .location: return "日付"
+        case .nameplate: return String(localized: "肩書き")
+        case .location: return String(localized: "日付")
         }
     }
 
@@ -646,30 +646,30 @@ struct EditorLowerThirdPanel: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 4) {
-                DocumentarySectionTitle(title: "種類")
+                DocumentarySectionTitle(title: String(localized: "種類"))
                 Picker("種類", selection: item.kind) {
                     ForEach(CaptionKind.allCases) { captionKind in
                         Text(captionKind.displayName).tag(captionKind)
                     }
                 }
                 .pickerStyle(.segmented)
-                DocumentaryHint(text: "名前と肩書きは左下、場所と日付は左上に出ます。")
+                DocumentaryHint(text: String(localized: "名前と肩書きは左下、場所と日付は左上に出ます。"))
             }
 
             DocumentaryTextFieldRow(title: primaryLabel(kind),
-                                    placeholder: kind == .nameplate ? "例: 山田 太郎" : "例: 東京・浅草",
+                                    placeholder: kind == .nameplate ? String(localized: "例: 山田 太郎") : String(localized: "例: 東京・浅草"),
                                     text: item.primary)
             DocumentaryTextFieldRow(title: secondaryLabel(kind),
-                                    placeholder: kind == .nameplate ? "例: 代表取締役" : "例: 2026年10月",
+                                    placeholder: kind == .nameplate ? String(localized: "例: 代表取締役") : String(localized: "例: 2026年10月"),
                                     text: item.secondary)
 
-            EditorSliderRow(title: "長さ",
+            EditorSliderRow(title: String(localized: "長さ"),
                             value: item.duration,
                             range: 2...10,
                             display: secondsText(item.wrappedValue.duration))
             HStack {
                 Spacer()
-                EditorChip(title: "リセット", isSelected: false) {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     item.wrappedValue.duration = 4
                 }
             }

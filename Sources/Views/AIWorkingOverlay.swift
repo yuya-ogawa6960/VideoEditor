@@ -57,8 +57,12 @@ enum RobotTask {
     case listening
 
     static func from(title: String) -> RobotTask {
-        if title.contains("文字起こし") || title.contains("聞") || title.contains("字幕") { return .listening }
-        if title.contains("おまかせ") || title.contains("作成") || title.contains("編集") || title.contains("スライド") { return .editing }
+        // タイトルの言葉から作業の種類を決める(日本語・英語・ポルトガル語・インドネシア語・スペイン語)
+        let lower = title.lowercased()
+        let listening = ["文字起こし", "聞", "字幕", "transcri", "caption", "subtitle", "legenda", "transkrip", "teks", "subtítul", "voz", "voice", "speech"]
+        if listening.contains(where: { lower.contains($0) }) { return .listening }
+        let editing = ["おまかせ", "作成", "編集", "スライド", "auto", "edit", "creat", "slideshow", "crear", "criar", "buat", "otomatis", "automát"]
+        if editing.contains(where: { lower.contains($0) }) { return .editing }
         return .looking
     }
 }

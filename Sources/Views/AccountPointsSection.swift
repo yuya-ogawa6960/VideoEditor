@@ -25,7 +25,7 @@ struct AccountPointsSection: View {
                 Button {
                     Task { await account.claimDaily() }
                 } label: {
-                    Label(account.dailyAvailable ? "今日のボーナスを受け取る(+20)" : "今日のボーナスは受け取り済み",
+                    Label(account.dailyAvailable ? String(localized: "今日のボーナスを受け取る(+20)") : String(localized: "今日のボーナスは受け取り済み"),
                           systemImage: "gift")
                 }
                 .disabled(!account.dailyAvailable)

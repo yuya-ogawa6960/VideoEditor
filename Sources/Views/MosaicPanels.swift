@@ -39,15 +39,15 @@ struct EditorMosaicPanel: View {
             }
             .pickerStyle(.segmented)
 
-            EditorSliderRow(title: "強さ",
+            EditorSliderRow(title: String(localized: "強さ"),
                             value: style.strength,
                             range: 0...1,
                             display: "\(Int((style.wrappedValue.strength * 100).rounded()))%")
-            EditorSliderRow(title: "幅",
+            EditorSliderRow(title: String(localized: "幅"),
                             value: $clip.widthRatio,
                             range: 0.05...1,
                             display: "\(Int((clip.widthRatio * 100).rounded()))%")
-            EditorSliderRow(title: "高さ",
+            EditorSliderRow(title: String(localized: "高さ"),
                             value: style.heightRatio,
                             range: 0.05...1,
                             display: "\(Int((style.wrappedValue.heightRatio * 100).rounded()))%")
@@ -139,8 +139,8 @@ struct EditorPacingPanel: View {
                 summary(.loose)
                 summary(.dull)
                 Spacer()
-                EditorChip(title: "もう一度", isSelected: false) { onRerun() }
-                EditorChip(title: "帯を消す", isSelected: false) {
+                EditorChip(title: String(localized: "もう一度"), isSelected: false) { onRerun() }
+                EditorChip(title: String(localized: "帯を消す"), isSelected: false) {
                     timeline.pacing = []
                     timeline.pacingChecks = []
                 }
@@ -172,7 +172,7 @@ struct EditorPacingPanel: View {
                 .font(.headline)
                 .padding(.top, 4)
             if issues.isEmpty {
-                Text(timeline.pacing.isEmpty ? "まだチェックしていません。" : "中だるみしそうな所は見つかりませんでした。")
+                Text(timeline.pacing.isEmpty ? String(localized: "まだチェックしていません。") : String(localized: "中だるみしそうな所は見つかりませんでした。"))
                     .font(.callout)
             }
             ForEach(issues) { segment in

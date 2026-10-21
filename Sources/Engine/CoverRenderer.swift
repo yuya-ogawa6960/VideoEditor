@@ -17,10 +17,10 @@ enum CoverRendererError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noSource: return "背景にする動画か写真がありません"
-        case .cannotRenderFrame: return "動画のコマを取り出せませんでした"
-        case .cannotLoadImage: return "写真を読み込めませんでした"
-        case .photosAccessDenied: return "写真ライブラリへの保存が許可されていません。設定アプリから許可してください"
+        case .noSource: return String(localized: "背景にする動画か写真がありません")
+        case .cannotRenderFrame: return String(localized: "動画のコマを取り出せませんでした")
+        case .cannotLoadImage: return String(localized: "写真を読み込めませんでした")
+        case .photosAccessDenied: return String(localized: "写真ライブラリへの保存が許可されていません。設定アプリから許可してください")
         }
     }
 }

@@ -21,11 +21,11 @@ enum LookPreset: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .none: return "なし"
-        case .documentary: return "ドキュメンタリー"
-        case .cinematicWarm: return "シネマ(暖色)"
-        case .noir: return "モノクロ"
-        case .vintage: return "フィルム"
+        case .none: return String(localized: "なし")
+        case .documentary: return String(localized: "ドキュメンタリー")
+        case .cinematicWarm: return String(localized: "シネマ(暖色)")
+        case .noir: return String(localized: "モノクロ")
+        case .vintage: return String(localized: "フィルム")
         }
     }
 }
@@ -80,8 +80,8 @@ enum CaptionKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .nameplate: return "名前と肩書き"
-        case .location: return "場所・日付"
+        case .nameplate: return String(localized: "名前と肩書き")
+        case .location: return String(localized: "場所・日付")
         }
     }
 }

@@ -41,7 +41,7 @@ private struct OverlayResetRow: View {
     var body: some View {
         HStack {
             Spacer()
-            EditorChip(title: "リセット", isSelected: false, action: action)
+            EditorChip(title: String(localized: "リセット"), isSelected: false, action: action)
         }
     }
 }
@@ -95,14 +95,14 @@ struct EditorOverlayPlacementPanel: View {
 
         var title: String {
             switch self {
-            case .full: return "全面"
-            case .topLeft: return "左上"
-            case .topRight: return "右上"
-            case .bottomLeft: return "左下"
-            case .bottomRight: return "右下"
-            case .leftHalf: return "左半分"
-            case .rightHalf: return "右半分"
-            case .center: return "中央"
+            case .full: return String(localized: "全面")
+            case .topLeft: return String(localized: "左上")
+            case .topRight: return String(localized: "右上")
+            case .bottomLeft: return String(localized: "左下")
+            case .bottomRight: return String(localized: "右下")
+            case .leftHalf: return String(localized: "左半分")
+            case .rightHalf: return String(localized: "右半分")
+            case .center: return String(localized: "中央")
             }
         }
     }
@@ -189,8 +189,8 @@ struct EditorOverlayPlacementPanel: View {
 
             // プリセット
             VStack(alignment: .leading, spacing: 6) {
-                OverlaySectionTitle(title: "よく使う配置")
-                OverlayHint(text: "Bロールは画面全体に、ワイプは隅に小さく重ねます。")
+                OverlaySectionTitle(title: String(localized: "よく使う配置"))
+                OverlayHint(text: String(localized: "Bロールは画面全体に、ワイプは隅に小さく重ねます。"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(OverlayPreset.allCases) { preset in
@@ -207,7 +207,7 @@ struct EditorOverlayPlacementPanel: View {
 
             // 位置
             VStack(alignment: .leading, spacing: 6) {
-                OverlaySectionTitle(title: "位置")
+                OverlaySectionTitle(title: String(localized: "位置"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(Position.allCases) { position in
@@ -221,14 +221,14 @@ struct EditorOverlayPlacementPanel: View {
             }
 
             // サイズ
-            EditorSliderRow(title: "サイズ(幅)",
+            EditorSliderRow(title: String(localized: "サイズ(幅)"),
                             value: sizeBinding,
                             range: 0.2...1,
                             display: overlayPercentText(overlay.frame.width))
 
             // 収め方
             VStack(alignment: .leading, spacing: 6) {
-                OverlaySectionTitle(title: "収め方")
+                OverlaySectionTitle(title: String(localized: "収め方"))
                 HStack(spacing: 8) {
                     ForEach(OverlayFit.allCases) { fit in
                         EditorChip(title: fit.displayName,
@@ -238,25 +238,25 @@ struct EditorOverlayPlacementPanel: View {
                     }
                     Spacer()
                 }
-                OverlayHint(text: "埋める: 枠いっぱいに広げて端を切る / 収める: 全体が見えるように縮める")
+                OverlayHint(text: String(localized: "埋める: 枠いっぱいに広げて端を切る / 収める: 全体が見えるように縮める"))
             }
 
-            EditorSliderRow(title: "濃さ(透けにくさ)",
+            EditorSliderRow(title: String(localized: "濃さ(透けにくさ)"),
                             value: $overlay.opacity,
                             range: 0...1,
                             display: overlayPercentText(overlay.opacity))
 
-            EditorSliderRow(title: "角丸",
+            EditorSliderRow(title: String(localized: "角丸"),
                             value: $overlay.cornerRadius,
                             range: 0...0.5,
                             display: overlayPercentText(overlay.cornerRadius))
 
-            EditorSliderRow(title: "ふわっと出す(フェードイン)",
+            EditorSliderRow(title: String(localized: "ふわっと出す(フェードイン)"),
                             value: $overlay.fadeIn,
                             range: 0...2,
                             display: overlaySecondsText(overlay.fadeIn))
 
-            EditorSliderRow(title: "ふわっと消す(フェードアウト)",
+            EditorSliderRow(title: String(localized: "ふわっと消す(フェードアウト)"),
                             value: $overlay.fadeOut,
                             range: 0...2,
                             display: overlaySecondsText(overlay.fadeOut))
@@ -285,9 +285,9 @@ struct EditorOverlayKenBurnsPanel: View {
 
         var title: String {
             switch self {
-            case .zoomIn: return "ズームイン"
-            case .zoomOut: return "ズームアウト"
-            case .panLeftToRight: return "左から右へ"
+            case .zoomIn: return String(localized: "ズームイン")
+            case .zoomOut: return String(localized: "ズームアウト")
+            case .panLeftToRight: return String(localized: "左から右へ")
             }
         }
 
@@ -354,10 +354,10 @@ struct EditorOverlayKenBurnsPanel: View {
                     .font(.subheadline)
             }
             .tint(.accentColor)
-            OverlayHint(text: "写真や映像をゆっくり拡大・移動させて、動きのある見た目にします。")
+            OverlayHint(text: String(localized: "写真や映像をゆっくり拡大・移動させて、動きのある見た目にします。"))
 
             VStack(alignment: .leading, spacing: 6) {
-                OverlaySectionTitle(title: "動き")
+                OverlaySectionTitle(title: String(localized: "動き"))
                 HStack(spacing: 8) {
                     ForEach(Motion.allCases) { candidate in
                         EditorChip(title: candidate.title,
@@ -373,7 +373,7 @@ struct EditorOverlayKenBurnsPanel: View {
             .disabled(!overlay.kenBurns.enabled)
             .opacity(overlay.kenBurns.enabled ? 1 : 0.4)
 
-            EditorSliderRow(title: "強さ",
+            EditorSliderRow(title: String(localized: "強さ"),
                             value: intensityBinding,
                             range: 0.1...1,
                             display: overlayPercentText(intensity))
@@ -387,8 +387,8 @@ struct EditorOverlayKenBurnsPanel: View {
             .opacity(overlay.kenBurns.enabled ? 1 : 0.4)
 
             let note: String = overlay.isImage
-                ? "写真が \(overlaySecondsText(overlay.duration)) かけてゆっくり動きます。"
-                : "動画にも使えます(ゆっくり拡大したり、横に動いたりします)。"
+                ? String(localized: "写真が \(overlaySecondsText(overlay.duration)) かけてゆっくり動きます。")
+                : String(localized: "動画にも使えます(ゆっくり拡大したり、横に動いたりします)。")
             Text(verbatim: note)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -420,13 +420,13 @@ struct EditorOverlayVolumePanel: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                EditorSliderRow(title: "ボリューム",
+                EditorSliderRow(title: String(localized: "ボリューム"),
                                 value: $overlay.volume,
                                 range: 0...1,
                                 display: "\(Int((overlay.volume * 100).rounded()))%")
 
                 HStack(spacing: 8) {
-                    EditorChip(title: "ミュート", isSelected: overlay.volume <= 0.001) {
+                    EditorChip(title: String(localized: "ミュート"), isSelected: overlay.volume <= 0.001) {
                         overlay.volume = 0
                     }
                     EditorChip(title: "50%", isSelected: abs(overlay.volume - 0.5) < 0.001) {

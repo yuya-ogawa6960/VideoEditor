@@ -14,7 +14,7 @@ import Observation
 func exportPresetDetailText(_ canvas: CanvasSettings) -> String {
     let aspect: String
     switch canvas.aspect {
-    case .original: aspect = "元のまま"
+    case .original: aspect = String(localized: "元のまま")
     case .portrait9x16: aspect = "9:16"
     case .landscape16x9: aspect = "16:9"
     case .square: aspect = "1:1"
@@ -244,10 +244,10 @@ struct PresetSaveSheet: View {
     private func defaultName() -> String {
         let existing = Set(PresetStore.shared.presets.map { $0.name })
         var n = PresetStore.shared.presets.count + 1
-        var candidate = "マイプリセット \(n)"
+        var candidate = String(localized: "マイプリセット \(n)")
         while existing.contains(candidate) {
             n += 1
-            candidate = "マイプリセット \(n)"
+            candidate = String(localized: "マイプリセット \(n)")
         }
         return candidate
     }

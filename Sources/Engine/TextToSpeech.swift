@@ -14,9 +14,9 @@ enum TextToSpeechError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyText: return "読み上げる文章が空です"
-        case .noAudioProduced: return "音声を作成できませんでした(別の声を選んでお試しください)"
-        case .cannotWrite(let detail): return "音声ファイルを書き込めませんでした: \(detail)"
+        case .emptyText: return String(localized: "読み上げる文章が空です")
+        case .noAudioProduced: return String(localized: "音声を作成できませんでした(別の声を選んでお試しください)")
+        case .cannotWrite(let detail): return String(localized: "音声ファイルを書き込めませんでした: \(detail)")
         }
     }
 }
@@ -39,8 +39,8 @@ enum TextToSpeech {
 
     private static func displayName(for voice: AVSpeechSynthesisVoice) -> String {
         switch voice.quality {
-        case .premium: return "\(voice.name)(最高品質)"
-        case .enhanced: return "\(voice.name)(高品質)"
+        case .premium: return String(localized: "\(voice.name)(最高品質)")
+        case .enhanced: return String(localized: "\(voice.name)(高品質)")
         default: return voice.name
         }
     }
@@ -60,7 +60,7 @@ enum TextToSpeech {
         utterance.pitchMultiplier = min(max(pitch, 0.5), 2.0)
         utterance.volume = 1
 
-        let destination = MediaStore.uniqueDestination(forFileName: "読み上げ.caf")
+        let destination = MediaStore.uniqueDestination(forFileName: String(localized: "読み上げ.caf"))
         let session = TextToSpeechWriteSession(destination: destination)
         return try await session.run(utterance)
     }

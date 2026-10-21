@@ -120,7 +120,7 @@ struct EditorToolItem: Identifiable {
 
     /// 「その他」グループ
     static func more(_ items: [EditorToolItem]) -> EditorToolItem {
-        group("その他", systemImage: "ellipsis.circle", id: "group-more", items: items)
+        group(String(localized: "その他"), systemImage: "ellipsis.circle", id: "group-more", items: items)
     }
 
     /// 列の中の小見出し
@@ -198,7 +198,7 @@ struct EditorToolbar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(state.groupTitle != nil ? "戻る" : "選択を解除")
+                .accessibilityLabel(state.groupTitle != nil ? String(localized: "戻る") : String(localized: "選択を解除"))
 
                 Rectangle()
                     .fill(Color.white.opacity(0.2))
@@ -237,12 +237,12 @@ struct EditorToolbar: View {
         } else if !item.isEnabled {
             Button {
                 // 触覚(注意)はトーストを出す側で鳴らす
-                onDisabledTap(item.disabledReason ?? "今は使えません")
+                onDisabledTap(item.disabledReason ?? String(localized: "今は使えません"))
             } label: {
                 label(item)
             }
             .buttonStyle(.plain)
-            .accessibilityHint(item.disabledReason ?? "今は使えません")
+            .accessibilityHint(item.disabledReason ?? String(localized: "今は使えません"))
         } else {
             enabledCell(item)
         }

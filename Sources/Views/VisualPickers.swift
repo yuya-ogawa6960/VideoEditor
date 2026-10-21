@@ -231,7 +231,7 @@ struct ClipAnimationPicker: View {
 struct TextAnimationPreview: View {
     let type: TextAnimationType
     let isOut: Bool
-    private let sample = "Aa字幕"
+    private let sample = String(localized: "Aa字幕")
 
     var body: some View {
         GeometryReader { geo in
@@ -277,8 +277,8 @@ struct TextAnimationPreview: View {
         case .wordByWord:
             HStack(spacing: 3) {
                 label("Aa").opacity(p > 0.05 ? 1 : 0)
-                label("字").opacity(p > 0.4 ? 1 : 0)
-                label("幕").opacity(p > 0.75 ? 1 : 0)
+                label(String(localized: "字")).opacity(p > 0.4 ? 1 : 0)
+                label(String(localized: "幕")).opacity(p > 0.75 ? 1 : 0)
             }
         }
     }
@@ -309,7 +309,7 @@ struct TextAnimationPicker: View {
 struct CaptionTemplatePreview: View {
     let template: CaptionTemplate
     var highlight: Color = .yellow
-    private let words = ["今日は", "いい", "天気"]
+    private let words = [String(localized: "今日は"), String(localized: "いい"), String(localized: "天気")]
 
     var body: some View {
         LoopingProgress(period: 2.2) { p in
@@ -432,7 +432,7 @@ struct CaptionLookPreview: View {
                     if position != .top { Spacer(minLength: 0) }
                     VStack(spacing: 1) {
                         if mode != .translated {
-                            line("今日はいい天気", size: fontSize)
+                            line(String(localized: "今日はいい天気"), size: fontSize)
                         }
                         if mode != .original {
                             line("Nice weather today", size: fontSize * 0.85)

@@ -83,32 +83,32 @@ final class ExportTimeEstimator {
         guard let start = startDate else { return nil }
         let elapsed: Double = now.timeIntervalSince(start)
         let done: Double = p - startProgress
-        guard elapsed >= 3, done >= 0.02 else { return "残り時間を計算中" }
+        guard elapsed >= 3, done >= 0.02 else { return String(localized: "残り時間を計算中") }
         let rate: Double = done / elapsed
-        guard rate > 0 else { return "残り時間を計算中" }
+        guard rate > 0 else { return String(localized: "残り時間を計算中") }
         let left: Double = (1 - p) / rate
         return Self.format(left)
     }
 
     static func format(_ seconds: Double) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "残り時間を計算中" }
+        guard seconds.isFinite, seconds >= 0 else { return String(localized: "残り時間を計算中") }
         if seconds < 10 {
-            return "まもなく完了"
+            return String(localized: "まもなく完了")
         }
         if seconds < 60 {
             let tens: Int = Int((seconds / 10).rounded(.up)) * 10
-            return "残り 約\(tens)秒"
+            return String(localized: "残り 約\(tens)秒")
         }
         let minutes: Int = Int((seconds / 60).rounded())
         if minutes < 60 {
-            return "残り 約\(minutes)分"
+            return String(localized: "残り 約\(minutes)分")
         }
         let hours: Int = minutes / 60
         let rest: Int = minutes % 60
         if rest == 0 {
-            return "残り 約\(hours)時間"
+            return String(localized: "残り 約\(hours)時間")
         }
-        return "残り 約\(hours)時間\(rest)分"
+        return String(localized: "残り 約\(hours)時間\(rest)分")
     }
 }
 
@@ -126,15 +126,15 @@ enum BackgroundWorkNote {
 
     static var export: String {
         if canContinueInBackground {
-            return "ホームに戻ったり画面をロックしても、書き出しは続きます。"
+            return String(localized: "ホームに戻ったり画面をロックしても、書き出しは続きます。")
         }
-        return "書き出しが終わるまで、このアプリを開いたままにしてください(ホームに戻ると約30秒で止まります)。画面は自動でロックされません。"
+        return String(localized: "書き出しが終わるまで、このアプリを開いたままにしてください(ホームに戻ると約30秒で止まります)。画面は自動でロックされません。")
     }
 
     static var transcription: String {
         if canContinueInBackground {
-            return "ホームに戻ったり画面をロックしても、文字起こしは続きます。"
+            return String(localized: "ホームに戻ったり画面をロックしても、文字起こしは続きます。")
         }
-        return "終わるまで、この画面を開いたままにしてください(ホームに戻ると約30秒で一時停止します)。画面は自動でロックされません。"
+        return String(localized: "終わるまで、この画面を開いたままにしてください(ホームに戻ると約30秒で一時停止します)。画面は自動でロックされません。")
     }
 }

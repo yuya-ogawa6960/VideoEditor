@@ -21,8 +21,8 @@ enum ProjectMediaMode: String, Codable {
 
     var displayName: String {
         switch self {
-        case .photoLibrary: return "写真ライブラリから参照"
-        case .appCopy: return "アプリに取り込む"
+        case .photoLibrary: return String(localized: "写真ライブラリから参照")
+        case .appCopy: return String(localized: "アプリに取り込む")
         }
     }
 }

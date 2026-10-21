@@ -33,13 +33,13 @@ enum VisionAnalysisError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noVideoTrack: return "映像トラックがありません"
-        case .stillImage: return "写真のクリップは解析できません"
-        case .invalidRange: return "解析する範囲が短すぎます"
-        case .noFrames: return "コマを読み取れませんでした"
-        case .noSubjectDetected: return "人物や顔が見つかりませんでした"
-        case .trackingLost: return "対象を追跡できませんでした。もう少し大きく囲ってお試しください"
-        case .readFailed(let detail): return "映像の読み込みに失敗しました: \(detail)"
+        case .noVideoTrack: return String(localized: "映像トラックがありません")
+        case .stillImage: return String(localized: "写真のクリップは解析できません")
+        case .invalidRange: return String(localized: "解析する範囲が短すぎます")
+        case .noFrames: return String(localized: "コマを読み取れませんでした")
+        case .noSubjectDetected: return String(localized: "人物や顔が見つかりませんでした")
+        case .trackingLost: return String(localized: "対象を追跡できませんでした。もう少し大きく囲ってお試しください")
+        case .readFailed(let detail): return String(localized: "映像の読み込みに失敗しました: \(detail)")
         }
     }
 }
@@ -112,10 +112,10 @@ enum AnalysisFrameReader {
         }
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
         output.alwaysCopiesSampleData = false
-        guard reader.canAdd(output) else { throw VisionAnalysisError.readFailed("映像出力を追加できません") }
+        guard reader.canAdd(output) else { throw VisionAnalysisError.readFailed(String(localized: "映像出力を追加できません")) }
         reader.add(output)
         guard reader.startReading() else {
-            throw VisionAnalysisError.readFailed(reader.error?.localizedDescription ?? "読み込みを開始できません")
+            throw VisionAnalysisError.readFailed(reader.error?.localizedDescription ?? String(localized: "読み込みを開始できません"))
         }
 
         // 正立したサイズのバッファプール
@@ -131,7 +131,7 @@ enum AnalysisFrameReader {
         ]
         var poolRef: CVPixelBufferPool?
         _ = CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, poolAttributes as CFDictionary, &poolRef)
-        guard let pool = poolRef else { throw VisionAnalysisError.readFailed("バッファを確保できません") }
+        guard let pool = poolRef else { throw VisionAnalysisError.readFailed(String(localized: "バッファを確保できません")) }
 
         let bounds = CGRect(x: 0, y: 0, width: outWidth, height: outHeight)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -155,7 +155,7 @@ enum AnalysisFrameReader {
             image = orientedImage(image, transform: transform)
             var outBuffer: CVPixelBuffer?
             _ = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &outBuffer)
-            guard let destination = outBuffer else { throw VisionAnalysisError.readFailed("バッファを確保できません") }
+            guard let destination = outBuffer else { throw VisionAnalysisError.readFailed(String(localized: "バッファを確保できません")) }
             context.render(image, to: destination, bounds: bounds, colorSpace: colorSpace)
             delivered += 1
             if !handler(destination, pts) {
@@ -168,7 +168,7 @@ enum AnalysisFrameReader {
             throw CancellationError()
         }
         if reader.status == .failed {
-            throw VisionAnalysisError.readFailed(reader.error?.localizedDescription ?? "不明なエラー")
+            throw VisionAnalysisError.readFailed(reader.error?.localizedDescription ?? String(localized: "不明なエラー"))
         }
         if delivered == 0 {
             throw VisionAnalysisError.noFrames
