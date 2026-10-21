@@ -622,6 +622,29 @@
         }
       }
     },
+    "%lld 本のクリップで、人物が画面の端に寄っていて縦に切り出すと見切れます。「オートリフレーム」で人物を追いかけて中央に映せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In %lld clips the person is near the edge and gets cut off in the portrait crop. “Auto Reframe” can follow them and keep them centered."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En %lld clips la persona está cerca del borde y se corta en el recorte vertical. “Reencuadre automático” puede seguirla y mantenerla centrada."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em %lld clipes a pessoa está perto da borda e fica cortada no recorte vertical. “Reenquadramento automático” pode segui-la e mantê-la centralizada."
+          }
+        }
+      }
+    },
     "%lld 本のクリップを削除しました": {
       "extractionState": "manual",
       "localizations": {
@@ -641,6 +664,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld clipes excluídos"
+          }
+        }
+      }
+    },
+    "%lld 枚の字幕が長すぎます(目安: 1 行 26 文字・2 行まで)。読み切れないので、文を分けるか短くしましょう。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld captions are too long (guide: 26 characters per line, 2 lines). Split or shorten them so they can be read."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld subtítulos son demasiado largos (guía: 26 caracteres por línea, 2 líneas). Divídelos o acórtalos para que se puedan leer."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld legendas estão longas demais (referência: 26 caracteres por linha, 2 linhas). Divida ou encurte para dar tempo de ler."
           }
         }
       }
@@ -1703,6 +1749,29 @@
         }
       }
     },
+    "8 分を超える動画にチャプターが %lld 個しかありません。YouTube では 3 つ以上(最初は 0:00、各 10 秒以上)あると目次が出て、見たい所へ飛べます。字幕があれば AI が構成案を作ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video is over 8 minutes but has only %lld chapters. On YouTube, 3 or more (first at 0:00, each 10 s+) show a table of contents. With captions, AI can draft an outline."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El video dura más de 8 minutos pero solo tiene %lld capítulos. En YouTube, con 3 o más (el primero en 0:00, cada uno de 10 s o más) aparece un índice. Con subtítulos, la IA puede proponer un esquema."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vídeo tem mais de 8 minutos, mas só %lld capítulos. No YouTube, com 3 ou mais (o primeiro em 0:00, cada um com 10 s ou mais) aparece um índice. Com legendas, a IA pode sugerir uma estrutura."
+          }
+        }
+      }
+    },
     "9:16 にする": {
       "extractionState": "manual",
       "localizations": {
@@ -2692,6 +2761,29 @@
         }
       }
     },
+    "BGM が声と同じくらいの大きさです(差 %lld dB)。声がいちばん聞こえるよう、BGM は声より 12〜15 dB 下げるのが目安です。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The music is about as loud as the voice (%lld dB apart). Keep music 12–15 dB below the voice so speech stays clear."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La música suena casi tan fuerte como la voz (%lld dB de diferencia). Mantén la música 12–15 dB por debajo de la voz para que se entienda bien."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A música está quase tão alta quanto a voz (%lld dB de diferença). Mantenha a música 12–15 dB abaixo da voz para a fala ficar clara."
+          }
+        }
+      }
+    },
     "BGM と声": {
       "extractionState": "manual",
       "localizations": {
@@ -2761,6 +2853,29 @@
         }
       }
     },
+    "BGM の大きさ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Music level"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nivel de la música"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nível da música"
+          }
+        }
+      }
+    },
     "BGM の音量": {
       "extractionState": "manual",
       "localizations": {
@@ -2803,6 +2918,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ainda não há música. Depois de criar, adicione em “Música” no editor."
+          }
+        }
+      }
+    },
+    "BGM は声より %lld dB 小さく、声がはっきり聞こえます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The music is %lld dB below the voice, so speech is clear."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La música está %lld dB por debajo de la voz, así que se entiende bien."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A música está %lld dB abaixo da voz, então a fala fica clara."
           }
         }
       }
@@ -9799,6 +9937,29 @@
         }
       }
     },
+    "オートリフレームを開く": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Auto Reframe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Reencuadre automático"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Reenquadramento automático"
+          }
+        }
+      }
+    },
     "オーバーレイ": {
       "extractionState": "manual",
       "localizations": {
@@ -10209,6 +10370,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Igualar cor"
+          }
+        }
+      }
+    },
+    "カラーマッチを開く": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Color Match"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Igualar color"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Igualar cor"
           }
         }
       }
@@ -11018,6 +11202,52 @@
         }
       }
     },
+    "クリップごとの色": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color per clip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color por clip"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cor por clipe"
+          }
+        }
+      }
+    },
+    "クリップごとの音量": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume per clip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volumen por clip"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume por clipe"
+          }
+        }
+      }
+    },
     "クリップの並びや長さ、トランジション、色味が置き換わります。「元に戻す」で戻せます。": {
       "extractionState": "manual",
       "localizations": {
@@ -11060,6 +11290,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "A ordem, a duração, as transições, a cor e mais serão substituídas. Use Desfazer para voltar."
+          }
+        }
+      }
+    },
+    "クリップの明るさ・色味はそろっています。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brightness and color are consistent across clips."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El brillo y el color son uniformes entre los clips."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brilho e cor estão uniformes entre os clipes."
           }
         }
       }
@@ -11129,6 +11382,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Muda a velocidade dentro do clipe (lento → rápido etc.)."
+          }
+        }
+      }
+    },
+    "クリップの間で音量が最大 %lld dB 違います。急に大きくなったり小さくなったりすると聞きづらいので、そろえましょう。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume differs by up to %lld dB between clips. Sudden jumps are hard to listen to, so level them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El volumen varía hasta %lld dB entre clips. Los saltos repentinos cansan al oído; nivélalos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O volume varia até %lld dB entre os clipes. Saltos repentinos cansam o ouvido; nivele-os."
+          }
+        }
+      }
+    },
+    "クリップの間の音量の差は %lld dB で、そろっています。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clip volumes are within %lld dB of each other."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El volumen de los clips varía solo %lld dB."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O volume dos clipes varia apenas %lld dB."
           }
         }
       }
@@ -13393,19 +13692,42 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "chapter"
+            "value": "Chapters"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "capítulo"
+            "value": "Capítulos"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "capítulo"
+            "value": "Capítulos"
+          }
+        }
+      }
+    },
+    "チャプターが %lld 個あります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are %lld chapters."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay %lld capítulos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Há %lld capítulos."
           }
         }
       }
@@ -22173,6 +22495,29 @@
         }
       }
     },
+    "冒頭のタイトル": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening title"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Título inicial"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Título de abertura"
+          }
+        }
+      }
+    },
     "冒頭を見る": {
       "extractionState": "manual",
       "localizations": {
@@ -27072,6 +27417,29 @@
         }
       }
     },
+    "字幕の長さ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caption length"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Longitud de los subtítulos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimento das legendas"
+          }
+        }
+      }
+    },
     "字幕はまだありません。上の「自動で字幕を作る」がかんたんです。": {
       "extractionState": "manual",
       "localizations": {
@@ -27091,6 +27459,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ainda não há legendas. O mais fácil é “Criar legendas automaticamente” acima."
+          }
+        }
+      }
+    },
+    "字幕は読み切れる長さに収まっています。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captions are short enough to read."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los subtítulos tienen una longitud legible."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As legendas estão em um comprimento legível."
           }
         }
       }
@@ -30413,19 +30804,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brightness"
+            "value": "brightness"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brillo"
+            "value": "el brillo"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brilho"
+            "value": "o brilho"
           }
         }
       }
@@ -32040,6 +32431,52 @@
         }
       }
     },
+    "最初のタイトルが %lld 秒あります。イントロは 2〜3 秒以内にして、すぐ本題に入るほうが離脱されにくいです。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The opening title lasts %lld seconds. Keep intros to 2–3 seconds and get to the point to reduce drop-off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El título inicial dura %lld segundos. Mantén la intro en 2–3 segundos y ve al grano para reducir el abandono."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O título inicial dura %lld segundos. Mantenha a abertura em 2–3 segundos e vá direto ao assunto para reduzir o abandono."
+          }
+        }
+      }
+    },
+    "最初の写真が %lld 秒、話もなく続きます。冒頭は 3 秒以内で動きのある場面に入るのがおすすめです。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first photo stays for %lld seconds with no speech. Get to a moving scene within 3 seconds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La primera foto dura %lld segundos sin voz. Pasa a una escena con movimiento en menos de 3 segundos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A primeira foto fica %lld segundos sem fala. Entre em uma cena com movimento em até 3 segundos."
+          }
+        }
+      }
+    },
     "最後の 2 秒でフェードアウト": {
       "extractionState": "manual",
       "localizations": {
@@ -32473,6 +32910,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Elipse"
+          }
+        }
+      }
+    },
+    "構成案を作る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft an outline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear un esquema"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar uma estrutura"
           }
         }
       }
@@ -36341,6 +36801,29 @@
         }
       }
     },
+    "縦動画の人物の位置": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subject position in portrait"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posición de la persona en vertical"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição da pessoa no vertical"
+          }
+        }
+      }
+    },
     "縦動画の字幕の位置": {
       "extractionState": "manual",
       "localizations": {
@@ -37727,19 +38210,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Color"
+            "value": "color tone"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Color"
+            "value": "el tono de color"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cor"
+            "value": "o tom de cor"
           }
         }
       }
@@ -44272,6 +44755,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Executar igualação de volume"
+          }
+        }
+      }
+    },
+    "音量をそろえる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Level the volume"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nivelar el volumen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nivelar o volume"
           }
         }
       }

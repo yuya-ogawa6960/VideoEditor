@@ -1993,6 +1993,22 @@ struct ContentView: View {
             activeSheet = .coverMaker
         case .seek(let time):
             player.seek(to: time)
+        case .setBGMVolume(let volume):
+            history.record(project)
+            project.audio.bgmVolume = volume
+            showToast(String(localized: "BGM を \(Int((volume * 100).rounded()))% にしました"), undo: true)
+        case .normalizeLoudness:
+            showNormalizeConfirm = true
+        case .openColorMatch(let clipID):
+            selection = .clip(clipID)
+            openPanel(.colorMatch(clipID))
+        case .openScriptWriter:
+            player.pause()
+            activePanel = nil
+            activeSheet = .scriptWriter
+        case .openAutoReframe(let clipID):
+            selection = .clip(clipID)
+            openPanel(.autoReframe(clipID))
         }
     }
 

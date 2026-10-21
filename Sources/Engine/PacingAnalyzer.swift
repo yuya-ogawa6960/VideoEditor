@@ -87,6 +87,16 @@ struct EditingCheck: Identifiable, Equatable {
         case makeVertical
         case openCover
         case seek(Double)
+        /// BGM の音量をこの値にする(声より十分小さく)
+        case setBGMVolume(Float)
+        /// 「ラウドネスを自動一致」を実行する
+        case normalizeLoudness
+        /// このクリップの「カラーマッチ」を開く
+        case openColorMatch(UUID)
+        /// 「字幕から構成案(チャプター)」のある AI 台本の画面を開く
+        case openScriptWriter
+        /// このクリップの「オートリフレーム」を開く
+        case openAutoReframe(UUID)
     }
     let id = UUID()
     let level: PacingLevel
@@ -94,6 +104,15 @@ struct EditingCheck: Identifiable, Equatable {
     let detail: String
     var fix: Fix? = nil
     var fixTitle: String? = nil
+}
+
+/// クリップごとの見た目の平均(色・明るさのばらつき、人物の位置のチェックに使う)
+private struct ClipVisualStats {
+    var meanLuma: Double? = nil
+    var warmth: Double? = nil
+    /// 顔が写っていた秒の、顔の中心の横位置(0 = 左端, 1 = 右端)の平均
+    var faceCenterX: Double? = nil
+    var faceSeconds: Int = 0
 }
 
 struct PacingReport: Equatable {
@@ -141,6 +160,8 @@ enum PacingAnalyzer {
         let mediaShare: Double = (useAI && !snapshot.subtitles.isEmpty) ? 0.85 : 1.0
 
         let clipCount = Double(max(1, snapshot.clips.count))
+        var visuals: [ClipVisualStats] = []
+        var clipLoudness: [Int: Double] = [:]
         for (index, clip) in snapshot.clips.enumerated() {
             try Task.checkCancellation()
             guard index < placements.count else { break }
@@ -173,6 +194,7 @@ enum PacingAnalyzer {
             }
             // 1 秒より遅い速度のとき、間を埋める
             fillGaps(&timeline, from: first, to: last)
+            visuals.append(Self.summarize(video))
 
             // 音(動画の音声 + 雰囲気の聞き分け)
             if clip.hasAudio, !clip.isMuted, !clip.isStill {
@@ -188,8 +210,19 @@ enum PacingAnalyzer {
                         timeline[s].nature = max(timeline[s].nature, value.nature)
                     }
                 }
+                // クリップごとの音量(LUFS)。ばらつきと BGM との比較に使う
+                if snapshot.clips.count <= 40,
+                   let measured = try? await LoudnessAnalyzer.measure(url: clip.url, start: clip.startTime, end: clip.endTime),
+                   measured.isValid {
+                    clipLoudness[index] = measured.integratedLUFS
+                }
             }
             progress?(base + share)
+        }
+        var bgmLUFS: Double? = nil
+        if let bgmURL = snapshot.audio.bgmURL,
+           let measured = try? await LoudnessAnalyzer.measure(url: bgmURL, start: 0, end: 90), measured.isValid {
+            bgmLUFS = measured.integratedLUFS
         }
 
         // BGM・ナレーション・字幕・テキスト・オーバーレイ
@@ -225,7 +258,8 @@ enum PacingAnalyzer {
 
         progress?(1)
         let segments = makeSegments(from: timeline, sensitivity: sensitivity)
-        let checks = makeChecks(snapshot: snapshot, timeline: timeline, total: total)
+        let checks = makeChecks(snapshot: snapshot, timeline: timeline, total: total,
+                                visuals: visuals, loudness: clipLoudness, bgmLUFS: bgmLUFS)
         return PacingReport(segments: segments, checks: checks, usedAI: usedAI)
     }
 
@@ -499,7 +533,9 @@ enum PacingAnalyzer {
 
     // MARK: - 編集チェック(YouTuber・インフルエンサーが気をつける点)
 
-    private static func makeChecks(snapshot: ProjectSnapshot, timeline: [PacingSecond], total: Double) -> [EditingCheck] {
+    private static func makeChecks(snapshot: ProjectSnapshot, timeline: [PacingSecond], total: Double,
+                                   visuals: [ClipVisualStats] = [], loudness: [Int: Double] = [:],
+                                   bgmLUFS: Double? = nil) -> [EditingCheck] {
         var checks: [EditingCheck] = []
         let size = CompositionBuilder.renderSize(for: snapshot, purpose: .preview)
         let vertical: Bool = size.height > size.width * 1.2
@@ -621,9 +657,140 @@ enum PacingAnalyzer {
                                        fix: .openCover, fixTitle: String(localized: "サムネを作る")))
         }
 
+        // 11. BGM が声より大きくないか(測った音量で比べる)
+        if let bgm = bgmLUFS, snapshot.audio.bgmURL != nil, speechSeconds >= 5 {
+            let voices: [Double] = snapshot.clips.indices.compactMap { i -> Double? in
+                guard let v = loudness[i], !snapshot.clips[i].isMuted else { return nil }
+                return v
+            }
+            if !voices.isEmpty {
+                let voice = voices.sorted()[voices.count / 2] + 20 * log10(Double(max(snapshot.audio.originalVolume, 0.01)))
+                var bgmLevel = bgm + 20 * log10(Double(max(snapshot.audio.bgmVolume, 0.01)))
+                if snapshot.documentary.autoDucking {
+                    bgmLevel += 20 * log10(Double(max(snapshot.documentary.duckingLevel, 0.05)))
+                }
+                let gap = voice - bgmLevel   // 声のほうがどれだけ大きいか(dB)
+                if gap < 8 {
+                    // 声より 14 dB 下がる音量にする
+                    let wanted = Double(snapshot.audio.bgmVolume) * pow(10, (gap - 14) / 20)
+                    let volume = Float(min(1, max(0.05, wanted)))
+                    let percent = Int((volume * 100).rounded())
+                    checks.append(EditingCheck(level: gap < 3 ? .dull : .loose, title: String(localized: "BGM の大きさ"),
+                                               detail: String(localized: "BGM が声と同じくらいの大きさです(差 \(Int(gap.rounded())) dB)。声がいちばん聞こえるよう、BGM は声より 12〜15 dB 下げるのが目安です。"),
+                                               fix: .setBGMVolume(volume), fixTitle: String(localized: "BGM を \(percent)% にする")))
+                } else {
+                    checks.append(EditingCheck(level: .good, title: String(localized: "BGM の大きさ"),
+                                               detail: String(localized: "BGM は声より \(Int(gap.rounded())) dB 小さく、声がはっきり聞こえます。")))
+                }
+            }
+        }
+
+        // 12. 字幕が長すぎないか(1 枚の文字数・行数)
+        if !subtitleCues(snapshot).isEmpty {
+            let longCues = subtitleCues(snapshot).filter { cue in
+                let lines = cue.text.split(separator: "\n", omittingEmptySubsequences: true)
+                let longest = lines.map { $0.count }.max() ?? cue.text.count
+                let japanese = cue.text.unicodeScalars.contains { (0x3040...0x30FF).contains($0.value) || (0x4E00...0x9FFF).contains($0.value) }
+                return lines.count > 2 || longest > (japanese ? 26 : 42)
+            }
+            if let first = longCues.min(by: { $0.start < $1.start }) {
+                checks.append(EditingCheck(level: .loose, title: String(localized: "字幕の長さ"),
+                                           detail: String(localized: "\(longCues.count) 枚の字幕が長すぎます(目安: 1 行 26 文字・2 行まで)。読み切れないので、文を分けるか短くしましょう。"),
+                                           fix: .seek(first.start), fixTitle: String(localized: "最初の 1 つを見る")))
+            } else if subtitleCues(snapshot).count >= 5 {
+                checks.append(EditingCheck(level: .good, title: String(localized: "字幕の長さ"),
+                                           detail: String(localized: "字幕は読み切れる長さに収まっています。")))
+            }
+        }
+
+        // 13. クリップごとの音量のばらつき
+        let levels = loudness.values.sorted()
+        if levels.count >= 2 {
+            let spread = levels[levels.count - 1] - levels[0]
+            if spread >= 6 {
+                checks.append(EditingCheck(level: spread >= 10 ? .dull : .loose, title: String(localized: "クリップごとの音量"),
+                                           detail: String(localized: "クリップの間で音量が最大 \(Int(spread.rounded())) dB 違います。急に大きくなったり小さくなったりすると聞きづらいので、そろえましょう。"),
+                                           fix: .normalizeLoudness, fixTitle: String(localized: "音量をそろえる")))
+            } else {
+                checks.append(EditingCheck(level: .good, title: String(localized: "クリップごとの音量"),
+                                           detail: String(localized: "クリップの間の音量の差は \(Int(spread.rounded())) dB で、そろっています。")))
+            }
+        }
+
+        // 14. クリップごとの色・明るさのばらつき
+        let videoIndices = snapshot.clips.indices.filter { i in
+            i < visuals.count && !snapshot.clips[i].isStill && visuals[i].meanLuma != nil
+        }
+        if videoIndices.count >= 2 {
+            let lumas = videoIndices.map { visuals[$0].meanLuma ?? 0 }
+            let warmths = videoIndices.map { visuals[$0].warmth ?? 0 }
+            let lumaSpread = (lumas.max() ?? 0) - (lumas.min() ?? 0)
+            let warmSpread = (warmths.max() ?? 0) - (warmths.min() ?? 0)
+            if lumaSpread >= 0.22 || warmSpread >= 0.12 {
+                // 真ん中からいちばん離れたクリップを直す対象にする
+                let medianLuma = lumas.sorted()[lumas.count / 2]
+                let medianWarm = warmths.sorted()[warmths.count / 2]
+                let worst = videoIndices.max { a, b in
+                    let da = abs((visuals[a].meanLuma ?? 0) - medianLuma) + abs((visuals[a].warmth ?? 0) - medianWarm) * 2
+                    let db = abs((visuals[b].meanLuma ?? 0) - medianLuma) + abs((visuals[b].warmth ?? 0) - medianWarm) * 2
+                    return da < db
+                } ?? videoIndices[0]
+                let what = lumaSpread >= 0.22 ? String(localized: "明るさ") : String(localized: "色味")
+                checks.append(EditingCheck(level: .loose, title: String(localized: "クリップごとの色"),
+                                           detail: String(localized: "クリップの間で\(what)が大きく違います。別の日・別のカメラの素材が混ざっているときは、「カラーマッチ」でお手本のクリップに合わせると統一感が出ます。"),
+                                           fix: .openColorMatch(snapshot.clips[worst].id), fixTitle: String(localized: "カラーマッチを開く")))
+            } else {
+                checks.append(EditingCheck(level: .good, title: String(localized: "クリップごとの色"),
+                                           detail: String(localized: "クリップの明るさ・色味はそろっています。")))
+            }
+        }
+
+        // 15. 長い動画のチャプター(YouTube は 3 つ以上・最初は 0:00・各 10 秒以上)
+        if total >= 480 {
+            let chapters = snapshot.markers.filter { $0.kind == .chapter }
+            if chapters.count < 3 {
+                checks.append(EditingCheck(level: .loose, title: String(localized: "チャプター"),
+                                           detail: String(localized: "8 分を超える動画にチャプターが \(chapters.count) 個しかありません。YouTube では 3 つ以上(最初は 0:00、各 10 秒以上)あると目次が出て、見たい所へ飛べます。字幕があれば AI が構成案を作ります。"),
+                                           fix: .openScriptWriter, fixTitle: String(localized: "構成案を作る")))
+            } else {
+                checks.append(EditingCheck(level: .good, title: String(localized: "チャプター"),
+                                           detail: String(localized: "チャプターが \(chapters.count) 個あります。")))
+            }
+        }
+
+        // 16. 冒頭のタイトル・静止画が長い
+        if let card = snapshot.titleCards.first(where: { $0.start < 1.0 }), card.duration >= 4 {
+            checks.append(EditingCheck(level: .loose, title: String(localized: "冒頭のタイトル"),
+                                       detail: String(localized: "最初のタイトルが \(Int(card.duration.rounded())) 秒あります。イントロは 2〜3 秒以内にして、すぐ本題に入るほうが離脱されにくいです。"),
+                                       fix: .seek(0), fixTitle: String(localized: "冒頭を見る")))
+        } else if let firstClip = snapshot.clips.first, firstClip.isStill, firstClip.trimmedDuration >= 4,
+                  timeline.prefix(4).allSatisfy({ $0.speech < 0.3 }) {
+            checks.append(EditingCheck(level: .loose, title: String(localized: "冒頭のタイトル"),
+                                       detail: String(localized: "最初の写真が \(Int(firstClip.trimmedDuration.rounded())) 秒、話もなく続きます。冒頭は 3 秒以内で動きのある場面に入るのがおすすめです。"),
+                                       fix: .seek(0), fixTitle: String(localized: "冒頭を見る")))
+        }
+
+        // 17. 縦動画で人物が中央にいない(横の素材を縦に切り出しているとき)
+        if vertical, snapshot.canvas.scaling == .fill {
+            var offCenter: [Int] = []
+            for i in snapshot.clips.indices where i < visuals.count {
+                let clip = snapshot.clips[i]
+                guard !clip.isStill, !clip.reframe.isActive, clip.naturalSize.width > clip.naturalSize.height * 1.2,
+                      visuals[i].faceSeconds >= 3, let x = visuals[i].faceCenterX else { continue }
+                if x < 0.36 || x > 0.64 { offCenter.append(i) }
+            }
+            if let first = offCenter.first {
+                checks.append(EditingCheck(level: .loose, title: String(localized: "縦動画の人物の位置"),
+                                           detail: String(localized: "\(offCenter.count) 本のクリップで、人物が画面の端に寄っていて縦に切り出すと見切れます。「オートリフレーム」で人物を追いかけて中央に映せます。"),
+                                           fix: .openAutoReframe(snapshot.clips[first].id), fixTitle: String(localized: "オートリフレームを開く")))
+            }
+        }
+
         // 気になる順(赤 → 黄 → 緑)
         return checks.sorted { $0.level > $1.level }
     }
+
+    private static func subtitleCues(_ snapshot: ProjectSnapshot) -> [SubtitleCue] { snapshot.subtitles }
 
     // MARK: - 補助
 
@@ -660,6 +827,12 @@ enum PacingAnalyzer {
         var motion: Double = 0
         var faces: Double = 0
         var smile: Double = 0
+        /// 画面の平均の明るさ 0...1
+        var luma: Double? = nil
+        /// 暖かさ(赤 − 青)-1...1
+        var warmth: Double? = nil
+        /// いちばん大きい顔の中心の横位置 0...1
+        var faceCenterX: Double? = nil
         var aesthetic: Double? = nil
         var scene: String? = nil
         /// この秒の中で場面が大きく変わった(撮りっぱなしの動画の中の場面転換)
@@ -704,8 +877,11 @@ enum PacingAnalyzer {
             let s = min(count - 1, Int(relative))
             progress(min(1, relative / duration))
             let image = CIImage(cvPixelBuffer: buffer)
-            // 動き: 32×18 の白黒画像の差
-            let thumb = tinyLuma(image)
+            // 動き: 32×18 の白黒画像の差(ついでに平均の明るさと暖かさ)
+            let tiny = tinyStats(image)
+            let thumb = tiny.luma
+            state.result[s].luma = tiny.meanLuma
+            state.result[s].warmth = tiny.warmth
             if !state.previous.isEmpty, thumb.count == state.previous.count {
                 var diff = 0
                 for i in thumb.indices { diff += abs(Int(thumb[i]) - Int(state.previous[i])) }
@@ -732,25 +908,58 @@ enum PacingAnalyzer {
         return state.result
     }
 
-    private static func tinyLuma(_ image: CIImage) -> [UInt8] {
+    private struct TinyStats {
+        var luma: [UInt8] = []
+        var meanLuma: Double? = nil
+        var warmth: Double? = nil
+    }
+
+    /// 32×18 に縮めて、白黒の画(動きの比較用)と、平均の明るさ・暖かさを求める
+    private static func tinyStats(_ image: CIImage) -> TinyStats {
         let e = image.extent
-        guard e.width > 0, e.height > 0 else { return [] }
-        let small = image
-            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
-            .transformed(by: CGAffineTransform(scaleX: 32 / e.width, y: 18 / e.height))
+        guard e.width > 0, e.height > 0 else { return TinyStats() }
+        let small = image.transformed(by: CGAffineTransform(scaleX: 32 / e.width, y: 18 / e.height))
         var bytes = [UInt8](repeating: 0, count: 32 * 18 * 4)
         FilterEngineContexts.current.render(small, toBitmap: &bytes, rowBytes: 32 * 4,
                          bounds: CGRect(x: small.extent.minX, y: small.extent.minY, width: 32, height: 18),
                          format: .RGBA8, colorSpace: nil)
         var luma = [UInt8](repeating: 0, count: 32 * 18)
-        for i in 0..<(32 * 18) { luma[i] = bytes[i * 4] }
-        return luma
+        var sumLuma = 0.0
+        var sumR = 0.0
+        var sumB = 0.0
+        for i in 0..<(32 * 18) {
+            let r = Double(bytes[i * 4]), g = Double(bytes[i * 4 + 1]), b = Double(bytes[i * 4 + 2])
+            let y = 0.299 * r + 0.587 * g + 0.114 * b
+            luma[i] = UInt8(min(255, max(0, y)))
+            sumLuma += y
+            sumR += r
+            sumB += b
+        }
+        let n = Double(32 * 18)
+        return TinyStats(luma: luma, meanLuma: sumLuma / n / 255, warmth: (sumR - sumB) / n / 255)
+    }
+
+    /// クリップ全体の平均(色・明るさ・顔の位置)
+    private static func summarize(_ seconds: [VideoSecond]) -> ClipVisualStats {
+        var stats = ClipVisualStats()
+        let lumas = seconds.compactMap { $0.luma }
+        if !lumas.isEmpty { stats.meanLuma = lumas.reduce(0, +) / Double(lumas.count) }
+        let warmths = seconds.compactMap { $0.warmth }
+        if !warmths.isEmpty { stats.warmth = warmths.reduce(0, +) / Double(warmths.count) }
+        let faces = seconds.compactMap { $0.faceCenterX }
+        stats.faceSeconds = faces.count
+        if !faces.isEmpty { stats.faceCenterX = faces.reduce(0, +) / Double(faces.count) }
+        return stats
     }
 
     private static func judgeFrame(_ image: CIImage, into second: inout VideoSecond, aesthetics: Bool, classify: Bool) {
         if let features = faceDetector?.features(in: image, options: [CIDetectorSmile: true]) as? [CIFaceFeature] {
             second.faces = max(second.faces, min(1, Double(features.count) / 2))
             if features.contains(where: { $0.hasSmile }) { second.smile = 1 }
+            // いちばん大きい顔の横位置(人物が中央にいるかのチェック用)
+            if let biggest = features.max(by: { $0.bounds.width < $1.bounds.width }), image.extent.width > 0 {
+                second.faceCenterX = Double((biggest.bounds.midX - image.extent.minX) / image.extent.width)
+            }
         }
         guard aesthetics || classify else { return }
         let handler = VNImageRequestHandler(ciImage: image, options: [:])
