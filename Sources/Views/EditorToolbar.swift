@@ -291,7 +291,7 @@ struct EditorToolbar: View {
             .buttonStyle(.plain)
         case .replaceMedia:
             PhotosPicker(selection: $replacePickerItem,
-                         matching: .videos,
+                         matching: .any(of: [.videos, .images]),
                          preferredItemEncoding: .current,
                          photoLibrary: .shared()) {
                 label(item)

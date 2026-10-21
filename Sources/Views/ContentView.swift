@@ -2771,8 +2771,15 @@ struct ContentView: View {
         importDone = 0
         defer { isImporting = false }
         do {
-            let movieURL = try await MovieImporter.importMovie(item)
-            let fresh = try await MediaStore.makeClip(from: movieURL)
+            // 動画でも写真でも置き換えられる(写真は静止画クリップになり、長さは元のクリップと同じ)
+            let fresh: Clip
+            if Self.looksLikeMovie(item) {
+                fresh = try await MediaStore.makeClip(from: try await MovieImporter.importMovie(item))
+            } else if let photo = try? await item.loadTransferable(type: PickedPhoto.self) {
+                fresh = try makeStillClip(from: photo.url)
+            } else {
+                fresh = try await MediaStore.makeClip(from: try await MovieImporter.importMovie(item))
+            }
             guard let i = project.index(of: clipID) else { return }
             let old = project.clips[i]
             var replaced = Clip(id: old.id,
@@ -2783,11 +2790,17 @@ struct ContentView: View {
                                 hasAudio: fresh.hasAudio,
                                 thumbnail: fresh.thumbnail,
                                 name: fresh.name)
-            replaced.startTime = min(max(0, old.startTime), max(0, fresh.duration - 0.2))
-            replaced.endTime = min(old.endTime, fresh.duration)
-            if replaced.endTime - replaced.startTime < 0.2 {
+            replaced.stillImageURL = fresh.stillImageURL
+            if fresh.isStill {
                 replaced.startTime = 0
-                replaced.endTime = fresh.duration
+                replaced.endTime = max(0.2, min(fresh.duration, old.endTime - old.startTime))
+            } else {
+                replaced.startTime = min(max(0, old.startTime), max(0, fresh.duration - 0.2))
+                replaced.endTime = min(old.endTime, fresh.duration)
+                if replaced.endTime - replaced.startTime < 0.2 {
+                    replaced.startTime = 0
+                    replaced.endTime = fresh.duration
+                }
             }
             replaced.speed = old.speed
             replaced.filter = old.filter
