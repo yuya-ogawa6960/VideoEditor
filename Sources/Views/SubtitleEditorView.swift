@@ -1397,7 +1397,7 @@ enum SubtitleFontCatalog {
         var result = builtIn + BundledFonts.all.map { Option(id: $0.name, label: $0.label) }
         var known = Set(result.map { $0.id })
         for name in MediaTools.storedFontNames() where !known.contains(name) {
-            result.append(Option(id: name, label: "\(name)(読み込み)"))
+            result.append(Option(id: name, label: GoogleFontsService.displayName(forPostScript: name) ?? "\(name)(読み込み)"))
             known.insert(name)
         }
         if let current, !current.isEmpty, !known.contains(current) {

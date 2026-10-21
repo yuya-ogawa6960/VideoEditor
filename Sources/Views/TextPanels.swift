@@ -122,6 +122,8 @@ struct EditorFontPickerRow: View {
     @Binding var fontName: String?
 
     @State private var showImporter = false
+    /// Google Fonts を探す画面
+    @State private var showBrowser = false
     @State private var storedNames: [String] = []
     @State private var errorText: String?
 
@@ -172,7 +174,7 @@ struct EditorFontPickerRow: View {
             list.append(FontEntry(name: entry.name, label: entry.label))
         }
         for name in storedNames where !list.contains(where: { $0.name == name }) {
-            list.append(FontEntry(name: name, label: name))
+            list.append(FontEntry(name: name, label: GoogleFontsService.displayName(forPostScript: name) ?? name))
         }
         if let fontName, !list.contains(where: { $0.name == fontName }) {
             list.append(FontEntry(name: fontName, label: fontName))
@@ -226,6 +228,24 @@ struct EditorFontPickerRow: View {
                             .id(entry.id)
                         }
                         Button {
+                            showBrowser = true
+                        } label: {
+                            VStack(spacing: 2) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 18))
+                                Text("もっと探す")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .frame(minWidth: 72, minHeight: 52)
+                            .background(BrandStyle.coral.opacity(0.35),
+                                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Google Fonts からフォントを探す")
+                        Button {
                             showImporter = true
                         } label: {
                             VStack(spacing: 2) {
@@ -261,6 +281,12 @@ struct EditorFontPickerRow: View {
         }
         .onAppear {
             storedNames = MediaTools.storedFontNames()
+        }
+        .sheet(isPresented: $showBrowser) {
+            GoogleFontsBrowser { name in
+                storedNames = MediaTools.storedFontNames()
+                fontName = name
+            }
         }
         .fileImporter(isPresented: $showImporter,
                       allowedContentTypes: [.font],
