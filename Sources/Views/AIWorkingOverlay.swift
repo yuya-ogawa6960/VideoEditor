@@ -136,7 +136,6 @@ struct AIWorkingCard: View {
                     .frame(height: 150)
             }
             RobotWorkshop(task: task, monitorFrame: peek.frame)
-                .frame(height: 84)
 
             if let fraction {
                 let clamped = min(max(fraction, 0), 1)
@@ -287,265 +286,98 @@ private struct CornerBrackets: Shape {
     }
 }
 
-// MARK: - ロボット(Gemini で作った粘土の画像パーツを組み合わせて動かす)
+// MARK: - ロボット(Gemini で作った粘土の画像パーツ + 撮影機材を、ストップモーション風に動かす)
+// 動きはブラウザの試作 robot_scene.html と同じ数字(キーフレーム・位置・大きさ)。
 
-/// 動きをなめらかにする小さな関数(急に始まったり止まったり、パッと切り替わったりしないように)
+/// 動きをなめらかにする小さな関数
 private enum RobotMotion {
-    /// 0...1 を、ゆっくり始まってゆっくり止まる 0...1 にする
     static func smooth(_ x: Double) -> Double {
         let c = min(max(x, 0), 1)
         return c * c * (3 - 2 * c)
     }
 
-    /// x が a から b まで進む間の 0...1(外側は 0 か 1)
     static func ramp(_ x: Double, _ a: Double, _ b: Double) -> Double {
         guard b > a else { return x >= b ? 1 : 0 }
         return min(max((x - a) / (b - a), 0), 1)
     }
 
-    /// 0 から出て 1 まで上がり、また 0 に戻る山。x が 0...1 の外では 0(ふわっと出てふわっと消える)
+    /// 0 から出て 1 まで上がり、また 0 に戻る山。x が 0...1 の外では 0
     static func bump(_ x: Double, rise: Double, fall: Double) -> Double {
         guard x > 0, x < 1 else { return 0 }
         return smooth(ramp(x, 0, rise)) * (1 - smooth(ramp(x, 1 - fall, 1)))
     }
 
-    /// まばたき: 約 3.6 秒ごとに 0.28 秒、ゆっくり閉じて開く
-    static func blink(_ t: Double) -> Double {
-        bump(((t + 1.3).truncatingRemainder(dividingBy: 3.6)) / 0.28, rise: 0.45, fall: 0.45)
+    /// まばたき(約 3.6 秒ごとに 2 コマ閉じる)
+    static func blink(_ t: Double) -> Bool {
+        let phase = ((t + 1.3).truncatingRemainder(dividingBy: 3.6) + 3.6).truncatingRemainder(dividingBy: 3.6)
+        return bump(phase / 0.28, rise: 0.45, fall: 0.45) > 0.5
+    }
+
+    /// 向きを変える: 途中で薄い板のようにつぶさず、1〜2 コマ小さく跳ねながらパッと裏返る
+    static func turn(_ f: Double) -> (facing: CGFloat, squash: CGFloat, lift: CGFloat) {
+        let turning = abs(f) < 0.9
+        return (f >= 0 ? 1 : -1, turning ? 0.86 : 1, turning ? 1.6 : 0)
     }
 }
 
-/// 3 体の小さなロボットの作業場(幅 260)。
-/// 左 = フィルムを運ぶ係 / 中 = 切ってつなぐ(塗る)係 / 右 = モニターで確認して指示を出す係
-/// 動きはどれもゆっくり・なめらかに(速く細かく震えたり、パッと切り替わったりすると不自然に見える)
-struct RobotWorkshop: View {
-    let task: RobotTask
-    /// 右のロボットのモニターに映すコマ(いま AI が見ている映像)。nil なら流れるフィルム
-    var monitorFrame: CGImage? = nil
+/// キーフレームの列(ポーズ・トゥ・ポーズ)。各キーは「その時刻に、この値へ、この入り方で着く」
+private struct RobotTrack {
+    enum Ease { case hold, lin, io, out, easeIn, back }
+    struct Key {
+        let t: Double
+        let v: Double
+        let e: Ease
+    }
 
-    var body: some View {
-        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            // 編集中は 3.6 秒ごとに「切る → つなぐ → 塗る」。道具は持ち替える間にふわっと入れ替わる
-            let cycle = 3.6
-            let step = Int(t / cycle) % 3
-            let local = (t.truncatingRemainder(dividingBy: cycle)) / cycle
-            HStack(alignment: .bottom, spacing: 4) {
-                CarrierRobot(t: t)
-                    .frame(width: 92, height: 84)
-                EditorRobot(t: t, task: task, step: step, local: local)
-                    .frame(width: 96, height: 84)
-                DirectorRobot(t: t, task: task, frame: monitorFrame)
-                    .frame(width: 64, height: 84)
-            }
-            .frame(maxWidth: .infinity)
+    let cycle: Double
+    let keys: [Key]
+
+    init(_ cycle: Double, _ keys: [Key]) {
+        self.cycle = cycle
+        self.keys = keys
+    }
+
+    private static func ease(_ e: Ease, _ u: Double) -> Double {
+        switch e {
+        case .hold: return 0
+        case .lin: return u
+        case .io: return u * u * (3 - 2 * u)
+        case .out: return 1 - pow(1 - u, 3)
+        case .easeIn: return u * u * u
+        case .back:
+            let c1 = 1.7, c3 = c1 + 1
+            return 1 + c3 * pow(u - 1, 3) + c1 * pow(u - 1, 2)
         }
+    }
+
+    func callAsFunction(_ time: Double) -> Double {
+        var t = time.truncatingRemainder(dividingBy: cycle)
+        if t < 0 { t += cycle }
+        guard let last = keys.last else { return 0 }
+        var prev = last
+        var prevT = last.t - cycle
+        for k in keys {
+            if t < k.t {
+                let span = k.t - prevT
+                let u = span > 0 ? min(max((t - prevT) / span, 0), 1) : 1
+                return prev.v + (k.v - prev.v) * Self.ease(k.e, u)
+            }
+            prev = k
+            prevT = k.t
+        }
+        let first = keys[0]
+        let span = first.t + cycle - prevT
+        let u = span > 0 ? min(max((t - prevT) / span, 0), 1) : 1
+        return prev.v + (first.v - prev.v) * Self.ease(first.e, u)
     }
 }
 
-/// フィルムを運ぶロボット。右へ運んで台に置き、くるっと向きを変えて手を下ろして戻り、左でまた次のフィルムを受け取る。
-/// 走っている間だけ小さく弾み、端ではひと休みする
-private struct CarrierRobot: View {
-    let t: Double
-
-    private static let scale: CGFloat = 0.6
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let m = Self.motion(t: t)
-            ZStack(alignment: .bottomLeading) {
-                Capsule()
-                    .fill(Color.white.opacity(0.12))
-                    .frame(width: w, height: 3)
-                    .offset(y: -3)
-                Robot(pose: m.pose, scale: Self.scale, width: 72)
-                    .scaleEffect(x: m.facing, y: 1)
-                    .offset(x: CGFloat(m.travel) * max(0, w - 72 * Self.scale), y: -m.hop)
-            }
-        }
-    }
-
-    /// 1 往復 6.4 秒: 0〜0.42 右へ運ぶ / 0.42〜0.5 置いて向きを変える / 0.5〜0.92 左へ戻る / 0.92〜1 受け取って向きを変える
-    private static func motion(t: Double) -> (pose: RobotPose, travel: Double, hop: CGFloat, facing: CGFloat) {
-        let p = (t / 6.4).truncatingRemainder(dividingBy: 1)
-        let goingRight = p < 0.5
-        let travel = goingRight
-            ? RobotMotion.smooth(RobotMotion.ramp(p, 0, 0.42))
-            : 1 - RobotMotion.smooth(RobotMotion.ramp(p, 0.5, 0.92))
-        // 走っている速さ(0...1)。走り出しと止まる前はゆっくり
-        let moving = goingRight
-            ? RobotMotion.bump(RobotMotion.ramp(p, 0, 0.42), rise: 0.3, fall: 0.3)
-            : RobotMotion.bump(RobotMotion.ramp(p, 0.5, 0.92), rise: 0.3, fall: 0.3)
-        // 向き: 端で止まったときに、くるっと回って向きを変える(横幅が一度つぶれる)
-        let turnAtRight = RobotMotion.smooth(RobotMotion.ramp(p, 0.44, 0.5))
-        let turnAtLeft = RobotMotion.smooth(RobotMotion.ramp(p, 0.94, 1.0))
-        let facing = cos(Double.pi * (turnAtRight - turnAtLeft))
-        let facingScale = CGFloat(facing >= 0 ? max(facing, 0.04) : min(facing, -0.04))
-        // フィルム: 右端で置く(ふわっと消える)、左端で受け取る(ふわっと出る)。腕もそれに合わせて下ろす・上げる
-        let holding = goingRight
-            ? 1 - RobotMotion.smooth(RobotMotion.ramp(p, 0.42, 0.47))
-            : RobotMotion.smooth(RobotMotion.ramp(p, 0.95, 1.0))
-        // 歩くリズム(1 秒に約 2.6 歩)。着地は柔らかく
-        let stride = sin(t * 2 * Double.pi * 1.3)
-        let hop = CGFloat(pow(abs(stride), 1.6) * moving) * 2.4
-        let swing = stride * 14 * moving
-        let raised = RobotMotion.smooth(holding)
-        var pose = RobotPose()
-        pose.leftArm = 100 + swing * (1 - holding) - 38 * raised
-        pose.rightArm = 80 - swing * (1 - holding) + 38 * raised
-        pose.holdFilm = holding
-        pose.tilt = stride * 3 * moving
-        pose.step = t * 1.3
-        pose.moving = moving
-        pose.happy = moving < 0.05 && p > 0.4 && p < 0.56
-        pose.bob = CGFloat(sin(t * 1.6)) * 1.2
-        pose.blink = RobotMotion.blink(t)
-        pose.antenna = CGFloat(sin(t * 1.3)) * 1.5
-        return (pose, travel, hop, facingScale)
-    }
+/// キーを短く書く
+private func rk(_ t: Double, _ v: Double, _ e: RobotTrack.Ease = .io) -> RobotTrack.Key {
+    RobotTrack.Key(t: t, v: v, e: e)
 }
 
-/// 切ってつなぐロボット(作業台のフィルムを、切る → テープでつなぐ → 塗る。道具はその都度ゆっくり持ち替える)
-private struct EditorRobot: View {
-    let t: Double
-    let task: RobotTask
-    let step: Int
-    let local: Double
-
-    var body: some View {
-        // 作業はゆっくり進む(0.15〜0.8 の間)。切り替わりの前後は手を止めている
-        let progress = RobotMotion.smooth(RobotMotion.ramp(local, 0.15, 0.8))
-        HStack(alignment: .bottom, spacing: -18) {
-            Robot(pose: Self.pose(t: t, task: task, step: step, local: local), scale: 0.6)
-            workArea(progress: progress)
-                .frame(width: 50, height: 32)
-                .padding(.bottom, 10)
-        }
-    }
-
-    private static func pose(t: Double, task: RobotTask, step: Int, local: Double) -> RobotPose {
-        // 道具の見え方: 作業の切り替わりでいったん腕を下ろして持ち替える(編集中だけ)
-        let presence = task == .editing ? RobotMotion.bump(local, rise: 0.12, fall: 0.1) : 1
-        let tempo = 0.92
-        let sway = sin((t + 0.7) * 2.9 * tempo)
-        var pose = RobotPose()
-        pose.leftArm = 95
-        pose.rightArm = -24 + sway * 9 + 40 * (1 - presence)
-        switch task {
-        case .looking: pose.tool = .magnifier
-        case .listening: pose.tool = .pencil
-        case .editing: pose.tool = ([.scissors, .tape, .brush] as [RobotToolKind])[step]
-        }
-        pose.toolPresence = presence
-        pose.look = 1.5
-        pose.bob = CGFloat(sin((t + 0.7) * 1.6 * tempo)) * 1.2
-        pose.blink = RobotMotion.blink((t + 0.7) * tempo)
-        pose.antenna = CGFloat(sin(t * 1.3 * tempo)) * 1.5
-        return pose
-    }
-
-    @ViewBuilder
-    private func workArea(progress: Double) -> some View {
-        switch task {
-        case .looking:
-            FilmStrip(offset: CGFloat(t * 12), split: nil, joined: false, paint: 0)
-        case .listening:
-            SoundWave(t: t)
-        case .editing:
-            switch step {
-            case 0: FilmStrip(offset: 0, split: CGFloat(progress), joined: false, paint: 0)
-            case 1: FilmStrip(offset: 0, split: CGFloat(1 - progress), joined: local > 0.8, paint: 0)
-            default: FilmStrip(offset: 0, split: nil, joined: true, paint: CGFloat(progress))
-            }
-        }
-    }
-}
-
-/// モニターで確認して指示を出すロボット(ときどきメガホンを上げて「!」。ふわっと出てふわっと消える)
-private struct DirectorRobot: View {
-    let t: Double
-    let task: RobotTask
-    let frame: CGImage?
-
-    var body: some View {
-        let m = Self.pose(t: t, task: task)
-        VStack(alignment: .leading, spacing: 2) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 4).fill(Color(white: 0.1))
-                if let frame {
-                    Image(decorative: frame, scale: 1, orientation: .up)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    FilmStrip(offset: CGFloat(t * 12), split: nil, joined: false, paint: 0)
-                        .padding(3)
-                }
-                Rectangle()
-                    .fill(Color.white.opacity(0.35))
-                    .frame(height: 1)
-                    .offset(y: CGFloat(sin(t * 1.4)) * 10)
-            }
-            .frame(width: 46, height: 26)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.4), lineWidth: 1))
-            if task == .listening {
-                // 聞く係は、ヘッドホンで手を耳に当てた 1 枚絵(ゆっくり息をして、少し左右に揺れる)
-                Image("robot_hero_listening")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 92 * 0.6)
-                    .rotationEffect(.degrees(sin(t * 1.1) * 2), anchor: .bottom)
-                    .offset(x: 2, y: m.pose.bob * 0.6)
-            } else {
-                Robot(pose: m.pose, scale: 0.6)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if task == .editing {
-                Text(verbatim: "!")
-                    .font(.system(size: 10, weight: .black))
-                    .foregroundStyle(Color(red: 0.15, green: 0.2, blue: 0.35))
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Color.white, in: Capsule())
-                    .scaleEffect(0.6 + 0.4 * CGFloat(m.shout))
-                    .opacity(m.shout)
-                    .offset(x: 6, y: 22 - CGFloat(m.shout) * 3)
-            }
-        }
-    }
-
-    private static func pose(t: Double, task: RobotTask) -> (pose: RobotPose, shout: Double) {
-        // 4.8 秒に 1 回、1.2 秒ほど「!」。その間はメガホンを上げる
-        let sp = (t / 4.8).truncatingRemainder(dividingBy: 1)
-        let shout = task == .editing ? RobotMotion.bump(RobotMotion.ramp(sp, 0.55, 0.8), rise: 0.25, fall: 0.35) : 0
-        let tempo = 1.08
-        let sway = sin((t + 1.4) * 2.9 * tempo)
-        var pose = RobotPose()
-        pose.leftArm = 100
-        switch task {
-        case .editing:
-            pose.tool = .megaphone
-            pose.rightArm = -18 + sway * 6 - 24 * shout
-        case .looking:
-            pose.tool = .magnifier
-            pose.rightArm = -18 + sway * 6
-        case .listening:
-            pose.headphones = true
-            pose.rightArm = 80 + sway * 4
-        }
-        pose.shout = shout
-        pose.happy = shout > 0.5
-        pose.look = 1.5
-        pose.bob = CGFloat(sin((t + 1.4) * 1.6 * tempo)) * 1.2
-        pose.blink = RobotMotion.blink((t + 1.4) * tempo)
-        pose.antenna = CGFloat(sin(t * 1.3 * tempo)) * 1.5
-        return (pose, shout)
-    }
-}
-
-/// ロボットの道具(Gemini で作った粘土の画像パーツ)
+/// ロボットの道具(右手に持つ画像パーツ)
 private enum RobotToolKind {
     case magnifier, scissors, tape, brush, megaphone, pencil
 
@@ -569,134 +401,131 @@ private enum RobotToolKind {
         case .megaphone: return (CGSize(width: 24, height: 23.5), UnitPoint(x: 0.74, y: 0.86), -150)
         case .brush: return (CGSize(width: 17, height: 22), UnitPoint(x: 0.22, y: 0.78), -52)
         case .pencil: return (CGSize(width: 15.5, height: 21), UnitPoint(x: 0.62, y: 0.40), 130)
-        case .tape: return (CGSize(width: 22, height: 15), UnitPoint(x: 0.45, y: 0.55), 0)
+        case .tape: return (CGSize(width: 22, height: 15), UnitPoint(x: 0.45, y: 0.55), 50)
         }
     }
 }
 
-/// ロボットの姿勢(1 コマ分の描画パラメータ)
+/// ロボットの姿勢(1 コマ分)。置き場所はシーン座標(足の中心)、部品の角度はロボット座標
 private struct RobotPose {
-    /// 体の上下(息をするような動き)
+    var feetX: CGFloat = 0
+    /// 床からの高さ(跳ねる・台に乗る)
+    var lift: CGFloat = 0
+    /// 1 = 右向き、-1 = 左向き
+    var facing: CGFloat = 1
+    /// 前かがみ(度)。向きに合わせて回す
+    var lean: Double = 0
+    var squashX: CGFloat = 1
+    var squashY: CGFloat = 1
+
     var bob: CGFloat = 0
-    /// まばたき(0 = 開く、1 = 閉じる)
-    var blink: Double = 0
-    /// にっこり顔にする(フィルムを渡すとき、「!」のときなど)
-    var happy = false
-    /// 目線の横ずれ(右を見ると +)
+    var torsoTilt: Double = 0
+    var headTilt: Double = 0
     var look: CGFloat = 0
-    /// アンテナの先の横揺れ
-    var antenna: CGFloat = 0
+    var blink = false
+    var happy = false
+    /// アンテナの傾き(度)
+    var antenna: Double = 0
     /// 腕の角度(度。0 = 右、90 = 下、-90 = 上)
     var leftArm: Double = 100
     var rightArm: Double = 80
-    /// 右手に持つ道具
+    /// 脚の上がり
+    var legL: CGFloat = 0
+    var legR: CGFloat = 0
     var tool: RobotToolKind? = nil
-    /// 道具の見え方(0...1)。持ち替える間は薄く小さく、腕も下ろす
     var toolPresence: Double = 1
-    /// メガホンの音(0...1)
-    var shout: Double = 0
-    /// 胸の前にフィルムを持っている度合い(0...1)
-    var holdFilm: Double = 0
-    /// 持っているフィルムの傾き(度)
-    var tilt: Double = 0
-    /// 歩く位相(秒 × 歩く速さ)。nil なら止まっている
-    var step: Double? = nil
-    /// 歩いている速さ(0...1)
-    var moving: Double = 0
-    /// ヘッドホンをつける
+    /// 道具を手の中で回す量(度)。下ろした腕でメガホンを水平に持つときなど
+    var toolRot: Double = 0
+    var toolScale: CGFloat = 1
+    /// 両手でフィルムのリールを持つ
+    var carry = false
+    var carryDX: CGFloat = 0
+    var carryDY: CGFloat = 0
+    var carryRot: Double = 0
     var headphones = false
 }
 
-/// 画像パーツの大きさと位置(72 × 92 のロボット座標。ブラウザの試作 robot_rig.html と同じ数字)
+/// 画像パーツの大きさと位置(72 × 92 のロボット座標)
 private enum RobotRig {
     static let faceSize = CGSize(width: 50, height: 44)
     static let faceCenter = CGPoint(x: 36, y: 30)
+    static let faceAnchor = UnitPoint(x: 0.5, y: 0.75)
     static let antennaSize = CGSize(width: 14, height: 17)
-    /// アンテナの根元(頭の上の右寄り)。ここを軸に揺れる
     static let antennaFoot = CGPoint(x: 44, y: 12)
     static let antennaTilt = 18.0
     static let torsoSize = CGSize(width: 34, height: 35)
     static let torsoCenter = CGPoint(x: 36, y: 64)
+    static let torsoAnchor = UnitPoint(x: 0.5, y: 0.9)
     static let legSize = CGSize(width: 14, height: 15.5)
     static let legY: CGFloat = 84
     static let legLeftX: CGFloat = 28.5
     static let legRightX: CGFloat = 43.5
-    /// 腕の画像は「肩が上・手が下」。肩(画像の上端中央)を軸に回す
     static let armSize = CGSize(width: 11, height: 22.5)
     static let armY: CGFloat = 52
     static let armLeftX: CGFloat = 21
     static let armRightX: CGFloat = 51
     static let armPivot = UnitPoint(x: 0.5, y: 0.03)
-    /// 手(青い球)の中心の、画像の縦方向の位置(割合)
     static let armHandY: CGFloat = 0.747
-    static let filmSize = CGSize(width: 32, height: 21)
-    static let filmCenter = CGPoint(x: 36, y: 66)
+    static let reelSize = CGSize(width: 26, height: 26)
+    static let reelCenter = CGPoint(x: 36, y: 66)
     static let headphonesSize = CGSize(width: 56, height: 46)
     static let headphonesCenter = CGPoint(x: 36, y: 28)
+    /// 足の中心(回転・つぶれ・向きの軸)。枠は 100 × 92
+    static let feet = UnitPoint(x: 0.36, y: 1.0)
 }
 
-/// 粘土のロボット(画像パーツを組み合わせて動かす)。72 × 92 の座標で組む(道具は右へはみ出すので、既定の幅は 100)
+/// 粘土のロボット 1 体(100 × 92 のロボット座標で組む。置き場所・向き・傾き・つぶれは RobotOnStage が付ける)
 private struct Robot: View {
     let pose: RobotPose
-    var scale: CGFloat = 1
-    var width: CGFloat = 100
 
     var body: some View {
         let hb = pose.bob
         let bb = pose.bob / 2
-        let steps = Self.steps(pose)
         let hand = Self.hand(x: RobotRig.armRightX, y: RobotRig.armY + bb, angle: pose.rightArm)
         ZStack {
-            // アンテナ(根元を軸にゆっくり揺れる)
             part("robot_antenna", RobotRig.antennaSize)
-                .rotationEffect(.degrees(RobotRig.antennaTilt + Double(pose.antenna) * 4), anchor: UnitPoint(x: 0.5, y: 1))
+                .rotationEffect(.degrees(RobotRig.antennaTilt + pose.antenna), anchor: UnitPoint(x: 0.5, y: 1))
                 .position(x: RobotRig.antennaFoot.x, y: RobotRig.antennaFoot.y + hb - RobotRig.antennaSize.height / 2)
-            // 脚(歩くときは交互に上がる)
             part("robot_leg", RobotRig.legSize)
-                .position(x: RobotRig.legLeftX, y: RobotRig.legY - steps.left)
+                .position(x: RobotRig.legLeftX, y: RobotRig.legY - pose.legL)
             part("robot_leg", RobotRig.legSize)
                 .scaleEffect(x: -1, y: 1)
-                .position(x: RobotRig.legRightX, y: RobotRig.legY - steps.right)
-            // 胴
+                .position(x: RobotRig.legRightX, y: RobotRig.legY - pose.legR)
             part("robot_torso", RobotRig.torsoSize)
+                .rotationEffect(.degrees(pose.torsoTilt), anchor: RobotRig.torsoAnchor)
                 .position(x: RobotRig.torsoCenter.x, y: RobotRig.torsoCenter.y + bb)
-            // 胸の前のフィルム
-            if pose.holdFilm > 0.01 {
-                part("robot_film", RobotRig.filmSize)
-                    .rotationEffect(.degrees(pose.tilt))
-                    .opacity(pose.holdFilm)
-                    .position(x: RobotRig.filmCenter.x, y: RobotRig.filmCenter.y + bb)
-            }
-            // 腕(肩を軸に回す)
             arm("robot_arm_a", x: RobotRig.armLeftX, y: RobotRig.armY + bb, angle: pose.leftArm, mirrored: false)
             arm("robot_arm_b", x: RobotRig.armRightX, y: RobotRig.armY + bb, angle: pose.rightArm, mirrored: true)
-            // 右手の道具(手に入る点を手の中心に合わせ、腕の向きへ回す)
             if let kind = pose.tool, pose.toolPresence > 0.01 {
                 let spec = kind.spec
-                let k = CGFloat(0.7 + 0.3 * pose.toolPresence)
+                let k = CGFloat(0.7 + 0.3 * pose.toolPresence) * pose.toolScale
                 let size = CGSize(width: spec.size.width * k, height: spec.size.height * k)
                 part(kind.image, size)
-                    .rotationEffect(.degrees(pose.rightArm - spec.direction), anchor: spec.grip)
+                    .rotationEffect(.degrees(pose.rightArm - spec.direction + pose.toolRot), anchor: spec.grip)
                     .opacity(pose.toolPresence)
                     .position(x: hand.x + (0.5 - spec.grip.x) * size.width,
                               y: hand.y + (0.5 - spec.grip.y) * size.height)
             }
-            // 顔(まばたき・にっこり)
+            if pose.carry {
+                part("prop_reel", RobotRig.reelSize)
+                    .rotationEffect(.degrees(pose.carryRot))
+                    .position(x: RobotRig.reelCenter.x + pose.carryDX, y: RobotRig.reelCenter.y + bb + pose.carryDY)
+            }
             part(faceImage, RobotRig.faceSize)
-                .position(x: RobotRig.faceCenter.x + pose.look * 0.3, y: RobotRig.faceCenter.y + hb)
+                .rotationEffect(.degrees(pose.headTilt), anchor: RobotRig.faceAnchor)
+                .position(x: RobotRig.faceCenter.x + pose.look, y: RobotRig.faceCenter.y + hb)
             if pose.headphones {
                 part("robot_headphones", RobotRig.headphonesSize)
+                    .rotationEffect(.degrees(pose.headTilt), anchor: RobotRig.faceAnchor)
                     .position(x: RobotRig.headphonesCenter.x, y: RobotRig.headphonesCenter.y + hb)
             }
         }
-        .frame(width: width, height: 92)
-        .scaleEffect(scale, anchor: .topLeading)
-        .frame(width: width * scale, height: 92 * scale)
+        .frame(width: 100, height: 92)
     }
 
     private var faceImage: String {
         if pose.happy { return "robot_face_happy" }
-        return pose.blink > 0.5 ? "robot_face_closed" : "robot_face_open"
+        return pose.blink ? "robot_face_closed" : "robot_face_open"
     }
 
     private func part(_ name: String, _ size: CGSize) -> some View {
@@ -718,12 +547,337 @@ private struct Robot: View {
         let r = angle * Double.pi / 180
         return CGPoint(x: x + length * CGFloat(cos(r)), y: y + length * CGFloat(sin(r)))
     }
+}
 
-    /// 歩くときの脚の上がり(左・右)
-    private static func steps(_ pose: RobotPose) -> (left: CGFloat, right: CGFloat) {
-        guard let step = pose.step else { return (0, 0) }
-        let s = sin(step * 2 * Double.pi)
-        return (CGFloat(max(0, s) * 3 * pose.moving), CGFloat(max(0, -s) * 3 * pose.moving))
+/// シーンの寸法(座標は 260 × 110。上の 38 は空きなので切り落として 72 だけ見せる)
+private enum RobotStage {
+    static let width: CGFloat = 260
+    static let height: CGFloat = 110
+    static let topCrop: CGFloat = 38
+    static var visibleHeight: CGFloat { height - topCrop }
+    static let floorY: CGFloat = 104
+    static let scale: CGFloat = 0.6
+    /// コマ送り(1 秒 12 コマ)
+    static let fps = 12.0
+    static func quant(_ t: Double) -> Double { floor(t * fps) / fps }
+}
+
+/// ロボットをシーンに置く(足を軸に、向き・つぶれ・前かがみ・縮尺を付けて、足の位置に置く)
+private struct RobotOnStage: View {
+    let pose: RobotPose
+
+    var body: some View {
+        Robot(pose: pose)
+            .scaleEffect(x: pose.facing * pose.squashX, y: pose.squashY, anchor: RobotRig.feet)
+            .rotationEffect(.degrees(pose.lean * Double(pose.facing)), anchor: RobotRig.feet)
+            .scaleEffect(RobotStage.scale, anchor: RobotRig.feet)
+            // 枠は 100 × 92、足は (36, 92) → 枠の中心は足から (+14, -46)
+            .position(x: pose.feetX + 14, y: RobotStage.floorY - pose.lift - 46)
+    }
+}
+
+/// 振り付け。時間は各ロボットの周期の中の秒(コマ送り済み)
+private enum RobotChoreo {
+    // ---- 運ぶ係: 機材ケースからリールを取り、机まで運んで置き、戻る。周期 10 秒
+    static let carrierCycle = 10.0
+    static let carrierX = RobotTrack(carrierCycle, [rk(0.0, 30, .hold), rk(2.2, 30, .hold), rk(5.2, 88, .lin), rk(6.6, 88, .hold), rk(8.8, 30, .lin)])
+    static let carrierPick = RobotTrack(carrierCycle, [rk(0.6, 0, .hold), rk(1.1, 1, .io), rk(1.5, 1, .hold), rk(1.9, 0, .out)])
+    static let carrierCrouch = RobotTrack(carrierCycle, [rk(2.0, 0, .hold), rk(2.15, 1, .io), rk(2.3, 0, .out), rk(6.4, 0, .hold), rk(6.55, 1, .io), rk(6.7, 0, .out)])
+    static let carrierHas = RobotTrack(carrierCycle, [rk(1.4, 0, .hold), rk(1.5, 1, .hold), rk(5.6, 1, .hold), rk(5.7, 0, .hold)])
+    static let carrierPut = RobotTrack(carrierCycle, [rk(5.2, 0, .hold), rk(5.5, 1, .io), rk(5.9, 1, .hold), rk(6.2, 0, .out)])
+    static let carrierTurn = RobotTrack(carrierCycle, [rk(0.0, -1, .hold), rk(1.9, -1, .hold), rk(2.2, 1, .io), rk(6.2, 1, .hold), rk(6.5, -1, .io)])
+    static let carrierCheer = RobotTrack(carrierCycle, [rk(5.9, 0, .hold), rk(6.0, 1, .hold), rk(6.9, 1, .hold), rk(7.0, 0, .hold)])
+
+    static func carrier(_ t: Double) -> RobotPose {
+        let frame = 1 / RobotStage.fps
+        let pick = carrierPick(t)
+        let has = carrierHas(t) > 0.5
+        let put = carrierPut(t)
+        let walking = (t > 2.2 && t < 5.2) || (t > 6.6 && t < 8.8)
+        let stepPhase = t * 3
+        let s = walking ? sin(stepPhase * Double.pi * 2) : 0
+        let hop = walking ? pow(abs(sin(stepPhase * Double.pi)), 1.5) * 3.4 : 0
+        let land = walking && abs(sin(stepPhase * Double.pi)) < 0.25
+        let crouch = carrierCrouch(t)
+        let turn = RobotMotion.turn(carrierTurn(t))
+        var p = RobotPose()
+        p.feetX = CGFloat(carrierX(t))
+        p.lift = CGFloat(hop) * RobotStage.scale + turn.lift
+        p.facing = turn.facing
+        p.lean = walking ? 7 : (pick * 10 + put * 6)
+        p.torsoTilt = pick * 12 + put * 6
+        let squash: CGFloat = land ? 1.06 : (walking && hop > 2.6 ? 0.96 : 1 + CGFloat(crouch) * 0.08)
+        p.squashX = turn.squash * squash
+        p.squashY = land ? 0.93 : (walking && hop > 2.6 ? 1.05 : 1 - CGFloat(crouch) * 0.1)
+        p.legL = walking ? CGFloat(max(0, s) * 4) : 0
+        p.legR = walking ? CGFloat(max(0, -s) * 4) : 0
+        if has {
+            p.leftArm = 62 - put * 20
+            p.rightArm = 118 - put * 20
+        } else if pick > 0.3 {
+            p.leftArm = 20 + pick * 40
+            p.rightArm = 160 - pick * 40
+        } else {
+            p.leftArm = walking ? 100 + s * 18 : 100
+            p.rightArm = walking ? 80 - s * 18 : 80
+        }
+        p.carry = has
+        p.carryDX = CGFloat(put * 20)
+        p.carryDY = CGFloat(pick * 10 - put * 6)
+        p.carryRot = walking ? s * 3 : 0
+        p.bob = walking ? CGFloat(-hop * 0.3) : CGFloat(pick * 6)
+        // 頭とアンテナは体より 1〜2 コマ遅れてついてくる
+        p.headTilt = carrierPick(t - frame) * 14 + carrierPut(t - frame) * 8 - (walking ? 3 : 0)
+        p.antenna = walking ? -s * 6 - 8 : -(carrierPick(t - 2 * frame) + carrierPut(t - 2 * frame)) * 10
+        p.blink = RobotMotion.blink(t)
+        p.happy = carrierCheer(t) > 0.5
+        return p
+    }
+
+    // ---- 切ってつなぐ係: 机の奥の台に立つ。フィルムを見る → はさみ(構えて 3 回チョキチョキ。フィルムが切れて離れる) → うなずく
+    //      → テープ(2 回押す。フィルムがつながる) → ルーペで確認 → にっこり。周期 8 秒
+    static let editorCycle = 8.0
+    static let editorX: CGFloat = 132
+    static let editorLift: CGFloat = 6
+    static let editorPresence = RobotTrack(editorCycle, [rk(0.2, 0, .hold), rk(0.5, 1, .out), rk(2.8, 1, .hold), rk(3.0, 0, .easeIn), rk(3.3, 1, .out), rk(5.0, 1, .hold), rk(5.2, 0, .easeIn), rk(5.5, 1, .out), rk(7.7, 1, .hold), rk(7.9, 0, .easeIn)])
+    static let editorArm = RobotTrack(editorCycle, [rk(0.0, 60, .hold), rk(0.5, 50, .out), rk(0.9, 15, .back), rk(1.0, 38, .out), rk(1.1, 18, .hold), rk(1.25, 38, .out), rk(1.35, 18, .hold), rk(1.5, 38, .out), rk(1.6, 22, .hold), rk(2.2, 50, .io), rk(2.9, 50, .hold),
+                                                    rk(3.3, 40, .out), rk(3.6, 62, .easeIn), rk(3.8, 44, .out), rk(4.1, 62, .easeIn), rk(4.3, 44, .out), rk(5.0, 50, .io),
+                                                    rk(5.5, 28, .out), rk(6.2, 40, .io), rk(6.9, 28, .io), rk(7.6, 50, .io)])
+    static let editorHead = RobotTrack(editorCycle, [rk(0.0, 6, .hold), rk(0.5, 10, .io), rk(1.0, 4, .out), rk(1.6, 6, .io), rk(2.2, -4, .io), rk(2.5, 4, .io), rk(2.8, 0, .io), rk(3.3, 8, .io), rk(5.0, 6, .io), rk(5.5, 10, .io), rk(6.2, 2, .io), rk(6.9, 10, .io), rk(7.4, 0, .io)])
+    static let editorHappy = RobotTrack(editorCycle, [rk(7.3, 0, .hold), rk(7.4, 1, .hold), rk(8.0, 0, .hold)])
+    static let editorLean = RobotTrack(editorCycle, [rk(0.0, 4, .hold), rk(0.9, 8, .io), rk(2.2, 2, .io), rk(3.3, 6, .io), rk(5.0, 2, .io), rk(5.5, 9, .io), rk(7.3, 0, .io)])
+    /// 机のフィルム: 切っている間に離れ、テープでつながる
+    static let filmGap = RobotTrack(editorCycle, [rk(0.0, 0, .hold), rk(1.0, 0, .hold), rk(1.1, 1.5, .out), rk(1.35, 3, .out), rk(1.6, 4.5, .out), rk(3.6, 4.5, .hold), rk(3.8, 0, .easeIn)])
+    static func filmPatched(_ t: Double) -> Bool { t >= 3.8 && t < 7.9 }
+    static let lookingArm = RobotTrack(6, [rk(0, 40, .hold), rk(1.2, 55, .io), rk(2.4, 30, .io), rk(3.0, 30, .hold), rk(3.4, 22, .back), rk(4.6, 50, .io), rk(5.6, 40, .io)])
+    static let writingArm = RobotTrack(4, [rk(0, 50, .hold), rk(0.3, 56, .io), rk(0.5, 48, .io), rk(0.7, 56, .io), rk(0.9, 49, .io), rk(1.1, 56, .io), rk(1.3, 50, .io), rk(2.4, 50, .hold), rk(2.9, 15, .back), rk(3.6, 50, .io)])
+
+    static func editor(_ t: Double, task: RobotTask) -> RobotPose {
+        var p = RobotPose()
+        p.feetX = editorX
+        p.lift = editorLift
+        p.lean = editorLean(t)
+        p.headTilt = editorHead(t)
+        p.look = 1.5
+        p.blink = RobotMotion.blink(t + 0.7)
+        p.happy = editorHappy(t) > 0.5
+        p.antenna = -editorLean(t) * 1.2
+        p.leftArm = 95
+        p.toolScale = 1.3
+        switch task {
+        case .editing:
+            // はさみは切っている間だけ刃がカチカチ動く。持ち替える間は腕を少し下ろす
+            let snip = (t > 0.95 && t < 1.65) ? (Int(floor(t * RobotStage.fps)) % 2 == 1 ? 14.0 : -14.0) : 0
+            let presence = editorPresence(t)
+            p.rightArm = editorArm(t) + 25 * (1 - presence)
+            p.tool = t < 3.0 ? RobotToolKind.scissors : (t < 5.2 ? RobotToolKind.tape : RobotToolKind.magnifier)
+            p.toolPresence = presence
+            p.toolRot = snip
+            p.bob = CGFloat(editorLean(t) * 0.3)
+        case .looking:
+            // ルーペでフィルムをなめるように見る。止まって、ぐっと近づく
+            let a = lookingArm(t)
+            p.rightArm = a
+            p.tool = .magnifier
+            p.headTilt = 8 + (a - 40) * 0.2
+            p.lean = 6 + (a < 28 ? 5 : 0)
+        case .listening:
+            // 鉛筆で書き取る(小さく手が動く)。ときどき顔を上げる
+            let w = writingArm(t)
+            p.rightArm = w
+            p.tool = .pencil
+            p.headTilt = w > 35 ? 10 : -4
+        }
+        return p
+    }
+
+    // ---- 監督: モニターを見てうなずく → スタッフの方へ向き直る → 構えて(反動) メガホンを上げて叫ぶ(のけぞる)
+    //      → 下ろす → モニターへ向き直る → モニターに顔を近づける。周期 7 秒
+    static let directorCycle = 7.0
+    static let directorX: CGFloat = 200
+    static let directorFace = RobotTrack(directorCycle, [rk(0.0, 1, .hold), rk(1.55, 1, .hold), rk(1.8, -1, .io), rk(3.75, -1, .hold), rk(4.0, 1, .io)])
+    static let directorArm = RobotTrack(directorCycle, [rk(0.0, 80, .hold), rk(1.8, 80, .hold), rk(2.0, 115, .io), rk(2.25, -40, .back), rk(3.4, -40, .hold), rk(3.75, 80, .io)])
+    static let directorLean = RobotTrack(directorCycle, [rk(0.0, 3, .hold), rk(0.4, 6, .io), rk(1.4, 3, .io), rk(1.8, 3, .hold), rk(2.0, 9, .io), rk(2.25, -8, .out), rk(3.4, -8, .hold), rk(3.75, 3, .io), rk(4.6, 3, .hold), rk(5.0, 10, .io), rk(5.8, 10, .hold), rk(6.2, 3, .io)])
+    static let directorHead = RobotTrack(directorCycle, [rk(0.0, 4, .hold), rk(0.5, 8, .io), rk(0.8, 2, .io), rk(1.1, 8, .io), rk(1.4, 4, .io), rk(2.25, -6, .out), rk(3.75, 4, .io), rk(5.0, 10, .io), rk(6.2, 4, .io)])
+    static let directorShout = RobotTrack(directorCycle, [rk(2.25, 0, .hold), rk(2.3, 1, .hold), rk(3.4, 1, .hold), rk(3.45, 0, .hold)])
+    static let peerArm = RobotTrack(5, [rk(0, 95, .hold), rk(0.6, -20, .back), rk(2.6, -20, .hold), rk(3.2, -35, .io), rk(4.2, -20, .io), rk(4.7, 95, .io)])
+    static let peerLean = RobotTrack(5, [rk(0, 2, .hold), rk(0.6, 10, .io), rk(2.6, 10, .hold), rk(3.2, 16, .io), rk(4.2, 10, .io), rk(4.7, 2, .io)])
+    static let earArm = RobotTrack(6, [rk(0, 80, .hold), rk(1.0, -60, .back), rk(4.5, -60, .hold), rk(5.2, 80, .io)])
+    static let beat = RobotTrack(2, [rk(0, -4, .io), rk(1, 4, .io)])
+
+    static func isShouting(_ t: Double, task: RobotTask) -> Bool {
+        task == .editing && directorShout(t) > 0.5
+    }
+
+    static func director(_ t: Double, task: RobotTask) -> RobotPose {
+        var p = RobotPose()
+        p.feetX = directorX
+        p.look = 1.5
+        p.blink = RobotMotion.blink(t + 1.4)
+        p.leftArm = 100
+        switch task {
+        case .editing:
+            let shouting = isShouting(t, task: task)
+            let turn = RobotMotion.turn(directorFace(t))
+            let arm = directorArm(t)
+            p.facing = turn.facing
+            p.squashX = turn.squash
+            p.lift = turn.lift
+            p.rightArm = arm
+            p.tool = .megaphone
+            // 下ろしているときはメガホンを水平に持つ(床に向けてぶら下げない)。上げると腕の向きに向く
+            p.toolRot = -max(arm, 0) * 0.95
+            p.toolScale = 1.3 * (shouting ? (Int(floor(t * RobotStage.fps)) % 2 == 1 ? 1.12 : 1.0) : 1)
+            p.lean = directorLean(t)
+            p.headTilt = directorHead(t)
+            p.antenna = -p.lean * 1.2
+            p.happy = shouting
+        case .looking:
+            // ルーペをモニターにかざして、近づいたり離れたり(下ろしているときはルーペを立てて持つ)
+            let a = peerArm(t)
+            let lean = peerLean(t)
+            p.rightArm = a
+            p.tool = .magnifier
+            p.toolRot = -max(a, 0) * 1.6
+            p.toolScale = 1.3
+            p.lean = lean
+            p.headTilt = lean * 0.8
+            p.antenna = -lean * 1.2
+        case .listening:
+            // ヘッドホンをして、手を耳に当てて拍子をとる
+            let b = beat(t)
+            p.rightArm = earArm(t)
+            p.headphones = true
+            p.lean = b
+            p.headTilt = b * 1.5
+        }
+        return p
+    }
+}
+
+/// 3 体の小さなロボットの作業場(幅 260・高さ 72)。粘土アニメのように 1 秒 12 コマで動く。
+/// 左 = 機材ケースからフィルムのリールを運んで机に置く係 / 中 = 机でフィルムを切ってつなぐ係 / 右 = モニターを見て指示を出す監督
+struct RobotWorkshop: View {
+    let task: RobotTask
+    /// 監督のモニターに映すコマ(いま AI が見ている映像)
+    var monitorFrame: CGImage? = nil
+
+    var body: some View {
+        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / RobotStage.fps)) { context in
+            let t = RobotStage.quant(context.date.timeIntervalSinceReferenceDate)
+            RobotStageView(t: t, task: task, frame: monitorFrame)
+        }
+        .frame(width: RobotStage.width, height: RobotStage.height)
+        // 上の空きを切り落とす
+        .frame(width: RobotStage.width, height: RobotStage.visibleHeight, alignment: .bottom)
+        .clipped()
+    }
+}
+
+private struct RobotStageView: View {
+    let t: Double
+    let task: RobotTask
+    let frame: CGImage?
+
+    var body: some View {
+        let carrierT = t.truncatingRemainder(dividingBy: RobotChoreo.carrierCycle)
+        let editorT = t.truncatingRemainder(dividingBy: RobotChoreo.editorCycle)
+        let directorT = t.truncatingRemainder(dividingBy: RobotChoreo.directorCycle)
+        let carrier = RobotChoreo.carrier(carrierT)
+        let shouting = RobotChoreo.isShouting(directorT, task: task)
+        var editor = RobotChoreo.editor(editorT, task: task)
+        if shouting {
+            // 監督が叫ぶと、切ってつなぐ係は顔を上げてそちらを見る
+            editor.look = 3
+            editor.headTilt = -8
+        }
+        let director = RobotChoreo.director(directorT, task: task)
+        let reelOnDesk = carrierT > 5.6 && carrierT < 9.9
+        let gap: CGFloat = task == .editing ? CGFloat(RobotChoreo.filmGap(editorT)) : 0
+        let patched = task == .editing && RobotChoreo.filmPatched(editorT)
+        return ZStack {
+            // 奥の機材: 機材ケース、三脚のカメラ、モニター(画面に AI が見ているコマ)
+            prop("prop_case", 30, 25, x: 20, y: 92)
+            prop("prop_camera", 26, 34, x: 246, y: 86)
+            prop("prop_monitor", 36, 36, x: 232, y: 72)
+            Group {
+                if let frame {
+                    Image(decorative: frame, scale: 1, orientation: .up)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    LinearGradient(colors: [BrandStyle.green, BrandStyle.blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        .opacity(0.9)
+                }
+            }
+            .frame(width: 18.4, height: 14.4)
+            .clipShape(RoundedRectangle(cornerRadius: 1))
+            .position(x: 232.6, y: 66.6)
+            prop("prop_splicer", 20, 17, x: 172, y: 84)
+            // 机の奥の台に立つ係と、監督
+            RobotOnStage(pose: editor)
+            RobotOnStage(pose: director)
+            // 机(手前)。その上にリール・テープ・フィルム
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color(red: 0.79, green: 0.54, blue: 0.36))
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(Color(red: 0.61, green: 0.39, blue: 0.25)).frame(height: 2)
+                }
+                .frame(width: 84, height: 12)
+                .position(x: 134, y: 98)
+            if reelOnDesk {
+                prop("prop_reel", 15, 15, x: 102, y: 86)
+            }
+            prop("prop_tape", 11, 8, x: 118, y: 90)
+            filmHalf(left: true)
+                .position(x: 148 - gap / 2, y: 90)
+            filmHalf(left: false)
+                .position(x: 148 + gap / 2, y: 90)
+            if patched {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color(red: 0.95, green: 0.85, blue: 0.54).opacity(0.95))
+                    .frame(width: 4, height: 9)
+                    .rotationEffect(.degrees(-8))
+                    .position(x: 148, y: 90)
+            }
+            // 運ぶ係(いちばん手前)
+            RobotOnStage(pose: carrier)
+            if shouting {
+                Text(verbatim: "!")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(Color(red: 0.15, green: 0.2, blue: 0.35))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.white, in: Capsule())
+                    .position(x: 167, y: 56.5 - CGFloat(Int(floor(t * RobotStage.fps)) % 2))
+            }
+        }
+        .frame(width: RobotStage.width, height: RobotStage.height)
+    }
+
+    private func prop(_ name: String, _ w: CGFloat, _ h: CGFloat, x: CGFloat, y: CGFloat) -> some View {
+        Image(name)
+            .resizable()
+            .frame(width: w, height: h)
+            .position(x: x, y: y)
+    }
+
+    /// 机のフィルムの左半分 / 右半分(はさみで切ると離れる)
+    private func filmHalf(left: Bool) -> some View {
+        Image("prop_filmcurve")
+            .resizable()
+            .frame(width: 32, height: 12)
+            .mask {
+                HStack(spacing: 0) {
+                    if left {
+                        Rectangle()
+                        Color.clear
+                    } else {
+                        Color.clear
+                        Rectangle()
+                    }
+                }
+            }
     }
 }
 
@@ -744,7 +898,6 @@ struct TranscriptionPeekView: View {
                     .frame(maxWidth: .infinity)
             }
             RobotWorkshop(task: .listening, monitorFrame: frame)
-                .frame(height: 84)
         }
         .task(id: Int((min(max(fraction, 0), 1) * 100).rounded())) {
             await reload()
@@ -765,101 +918,3 @@ struct TranscriptionPeekView: View {
     }
 }
 
-/// フィルム(コマが並んだ帯)。split = 真ん中で切れて離れる量 0...1、joined = テープでつなぐ、paint = 左から塗る量 0...1
-private struct FilmStrip: View {
-    let offset: CGFloat
-    let split: CGFloat?
-    let joined: Bool
-    let paint: CGFloat
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let gap = (split ?? 0) * 16
-            ZStack {
-                HStack(spacing: gap) {
-                    strip(width: w / 2 - gap / 2, height: h * 0.7, phase: offset)
-                    strip(width: w / 2 - gap / 2, height: h * 0.7, phase: offset + w / 2)
-                }
-                if let split, split > 0.05 {
-                    // 切り口のきらきら
-                    Image(systemName: "sparkle")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.yellow)
-                        .opacity(Double(split))
-                }
-                if joined {
-                    // つなぎ目のテープ
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(red: 1, green: 0.85, blue: 0.4).opacity(0.9))
-                        .frame(width: 14, height: h * 0.8)
-                        .rotationEffect(.degrees(-8))
-                }
-                if paint > 0 {
-                    // ペンキで塗る(ブランドの色)
-                    HStack(spacing: 0) {
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(BrandStyle.gradient)
-                            .opacity(0.75)
-                            .frame(width: max(0, w * paint), height: h * 0.7)
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-            .frame(width: w, height: h)
-        }
-    }
-
-    private func strip(width: CGFloat, height: CGFloat, phase: CGFloat) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 3).fill(Color(white: 0.15))
-            // コマ
-            HStack(spacing: 4) {
-                ForEach(0..<6, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(LinearGradient(colors: [Color(red: 0.35, green: 0.55, blue: 0.8), Color(red: 0.3, green: 0.45, blue: 0.3)],
-                                             startPoint: .top, endPoint: .bottom))
-                        .frame(width: 18, height: height * 0.55)
-                        .offset(x: -(phase.truncatingRemainder(dividingBy: 22)))
-                        .id(i)
-                }
-            }
-            .frame(width: width, height: height)
-            .clipped()
-            // 穴
-            VStack {
-                perforations(width: width)
-                Spacer()
-                perforations(width: width)
-            }
-            .padding(.vertical, 2)
-        }
-        .frame(width: max(0, width), height: height)
-    }
-
-    private func perforations(width: CGFloat) -> some View {
-        HStack(spacing: 5) {
-            ForEach(0..<Int(max(1, width / 9)), id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 1).fill(Color.white.opacity(0.6)).frame(width: 4, height: 3)
-            }
-        }
-        .frame(width: width)
-        .clipped()
-    }
-}
-
-/// 聞いているときの音の波
-private struct SoundWave: View {
-    let t: Double
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<14, id: \.self) { i in
-                let v = (sin(t * 6 + Double(i) * 0.7) + 1) / 2
-                Capsule()
-                    .fill(BrandStyle.gradient)
-                    .frame(width: 5, height: 8 + CGFloat(v) * 40)
-            }
-        }
-    }
-}

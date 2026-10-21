@@ -350,9 +350,12 @@ struct SubtitleEditorView: View {
 
     private var autoCaptionIntro: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "captions.bubble.fill")
-                .font(.title)
-                .foregroundStyle(Color.accentColor)
+            // ヘッドホンで声を聞くロボット(粘土の 1 枚絵)
+            Image("robot_hero_listening")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 48, height: 64)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text("自動で字幕を作る")
                     .font(.headline)
