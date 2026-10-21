@@ -98,6 +98,15 @@ jobs:
           # アプリに権限(entitlements)だけを付けた仮の署名をしておく
           APP=$(find build/VideoEditor.xcarchive/Products/Applications -maxdepth 1 -name "*.app" | head -n 1)
           test -n "$APP"
+          # 中のフレームワーク(AdMob など配布済みのもの)も先に仮の署名にそろえる。
+          # 配布元の署名が残ったままだと、書き出しの検証で「正しく署名されていない」と弾かれる
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -maxdepth 1 \( -name "*.framework" -o -name "*.dylib" \) -print0 |
+              while IFS= read -r -d '' FW; do
+                echo "re-sign: $FW"
+                codesign --force --sign - --timestamp=none "$FW"
+              done
+          fi
           codesign --force --sign - --entitlements VideoEditor.entitlements --timestamp=none "$APP"
           codesign -d --entitlements - "$APP" || true
 
