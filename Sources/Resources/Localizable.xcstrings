@@ -18953,6 +18953,29 @@
         }
       }
     },
+    "モデルは Wi-Fi 接続でのダウンロードをおすすめします。文字起こし開始時に未ダウンロードなら自動でダウンロードします。large-v3 turbo は最も高精度です(約 630MB)。初めて使うときは準備に数分かかります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We recommend downloading models over Wi-Fi. If a model isn't downloaded when transcription starts, it downloads automatically. large-v3 turbo is the most accurate (about 630 MB). The first time you use it, preparing takes a few minutes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te recomendamos descargar los modelos con Wi-Fi. Si un modelo no está descargado al empezar la transcripción, se descarga automáticamente. large-v3 turbo es el más preciso (unos 630 MB). La primera vez que lo uses, la preparación tarda unos minutos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recomendamos baixar os modelos pelo Wi-Fi. Se um modelo não estiver baixado quando a transcrição começar, ele é baixado automaticamente. O large-v3 turbo é o mais preciso (cerca de 630 MB). Na primeira vez que você usar, a preparação leva alguns minutos."
+          }
+        }
+      }
+    },
     "モデルは Wi-Fi 接続でのダウンロードをおすすめします。文字起こし開始時に未ダウンロードなら自動でダウンロードします。large-v3 turbo は最も高精度ですが約 1.6GB で、メモリの少ない端末では読み込めないことがあります。": {
       "extractionState": "manual",
       "localizations": {
@@ -37671,6 +37694,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cerca de 500 MB"
+          }
+        }
+      }
+    },
+    "約630MB": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About 630 MB"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprox. 630 MB"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca de 630 MB"
           }
         }
       }

@@ -157,7 +157,7 @@ struct TranscriptionSettingsView: View {
         } header: {
             Text("Whisper モデル")
         } footer: {
-            Text("モデルは Wi-Fi 接続でのダウンロードをおすすめします。文字起こし開始時に未ダウンロードなら自動でダウンロードします。large-v3 turbo は最も高精度ですが約 1.6GB で、メモリの少ない端末では読み込めないことがあります。")
+            Text("モデルは Wi-Fi 接続でのダウンロードをおすすめします。文字起こし開始時に未ダウンロードなら自動でダウンロードします。large-v3 turbo は最も高精度です(約 630MB)。初めて使うときは準備に数分かかります。")
         }
     }
 

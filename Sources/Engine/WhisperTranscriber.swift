@@ -153,6 +153,19 @@ final class WhisperTranscriber {
         Self.directorySize(Self.modelsDirectory)
     }
 
+    /// 一覧に無くなったモデル(以前の約 1.6GB の版など)のフォルダを消して、容量を空ける
+    static func removeObsoleteModels() {
+        let parent = modelsDirectory
+            .appendingPathComponent("models", isDirectory: true)
+            .appendingPathComponent(modelRepo, isDirectory: true)
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: parent.path) else { return }
+        let current = Set(WhisperModelOption.all.map { $0.id })
+        for name in names where !current.contains(name) && AppSettings.replacedWhisperModels[name] != nil {
+            try? fm.removeItem(at: parent.appendingPathComponent(name, isDirectory: true))
+        }
+    }
+
     /// ダウンロード済みモデルをすべて削除(読み込み済みなら解放もする)
     func deleteDownloadedModels() {
         unload()
@@ -282,6 +295,7 @@ final class WhisperTranscriber {
     func prepare(model: String, progress: @escaping (Double, String) -> Void) async throws {
         #if canImport(WhisperKit)
         if isModelReady, loadedModelName == model { return }
+        Self.removeObsoleteModels()
 
         // ダウンロード済みなら download を通さない(通すと、先読みの読み込みが終わるまで「確認中」のまま待つため)
         if !isModelDownloaded(model) {

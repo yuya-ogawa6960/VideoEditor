@@ -161,9 +161,11 @@ struct WhisperModelOption: Identifiable, Hashable {
                            displayName: "small",
                            sizeHint: String(localized: "約500MB"),
                            detail: String(localized: "速さと精度のバランス型")),
-        WhisperModelOption(id: "openai_whisper-large-v3-v20240930_turbo",
+        // iPhone 向けに軽くした版(argmaxinc/whisperkit-coreml の対応表で iPhone 向けとされているもの)。
+        // 以前の約 1.6GB の版は Mac 向けで、iPhone では準備(Neural Engine 向けの変換)に 8 分以上かかることがあった
+        WhisperModelOption(id: "openai_whisper-large-v3-v20240930_turbo_632MB",
                            displayName: "large-v3 turbo",
-                           sizeHint: String(localized: "約1.6GB"),
+                           sizeHint: String(localized: "約630MB"),
                            detail: String(localized: "最高精度。iPhone 15 Pro 以降を推奨(メモリを多く使う)")),
     ]
 
@@ -225,7 +227,11 @@ enum KeychainStore {
 final class AppSettings {
     static let shared = AppSettings()
 
-    static let defaultWhisperModel = "openai_whisper-large-v3-v20240930_turbo"
+    static let defaultWhisperModel = "openai_whisper-large-v3-v20240930_turbo_632MB"
+    /// 以前のモデル名 → いまのモデル名(iPhone では準備に時間がかかりすぎる Mac 向けの版から切り替える)
+    static let replacedWhisperModels: [String: String] = [
+        "openai_whisper-large-v3-v20240930_turbo": "openai_whisper-large-v3-v20240930_turbo_632MB",
+    ]
 
     private enum Keys {
         static let engine = "transcription.engine"
@@ -251,7 +257,11 @@ final class AppSettings {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         storedEngine = TranscriptionEngine(rawValue: defaults.string(forKey: Keys.engine) ?? "") ?? .apple
-        let model = defaults.string(forKey: Keys.whisperModel) ?? AppSettings.defaultWhisperModel
+        var model = defaults.string(forKey: Keys.whisperModel) ?? AppSettings.defaultWhisperModel
+        if let replacement = AppSettings.replacedWhisperModels[model] {
+            model = replacement
+            defaults.set(model, forKey: Keys.whisperModel)
+        }
         storedWhisperModel = model.isEmpty ? AppSettings.defaultWhisperModel : model
         storedCloudProvider = CloudProvider(rawValue: defaults.string(forKey: Keys.cloudProvider) ?? "") ?? .openAI
         storedCloudQuality = CloudTranscriptionQuality(rawValue: defaults.string(forKey: Keys.cloudQuality) ?? "") ?? .fast
