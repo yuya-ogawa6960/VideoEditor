@@ -39,6 +39,22 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Clean up pasted values
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          # 貼り付けたときに入った改行や空白を取り除く
+          TOKEN=$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')
+          ACCOUNT=$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')
+          OPENAI=$(printf '%s' "$OPENAI_API_KEY" | tr -d '[:space:]')
+          echo "::add-mask::$TOKEN"
+          echo "::add-mask::$ACCOUNT"
+          echo "::add-mask::$OPENAI"
+          {
+            echo "CLOUDFLARE_API_TOKEN=$TOKEN"
+            echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT"
+            echo "OPENAI_API_KEY=$OPENAI"
+          } >> "$GITHUB_ENV"
+
       - uses: actions/setup-node@v4
         if: steps.check.outputs.ready == 'true'
         with:
