@@ -26,7 +26,7 @@ final class AdsManager: NSObject {
     // 本番の広告ユニット(AdMob「Video Mania」)
     private static let liveInterstitialUnit = "ca-app-pub-5816286661245536/1383318055"
     /// 本番のリワード広告ユニット(AdMob で作ったら入れる。空のあいだ本番ではボタンを出さない)
-    private static let liveRewardedUnit = ""
+    private static let liveRewardedUnit = "ca-app-pub-5816286661245536/4003023795"
     // Google のテスト用広告ユニット
     private static let testInterstitialUnit = "ca-app-pub-3940256099942544/4411468910"
     private static let testRewardedUnit = "ca-app-pub-3940256099942544/1712485313"
