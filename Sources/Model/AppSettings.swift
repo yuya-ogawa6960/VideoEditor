@@ -21,17 +21,17 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .apple: return "Apple(端末内・高速)"
-        case .whisper: return "Whisper(端末内・高精度)"
-        case .cloud: return "クラウドAI(最高精度・要APIキー)"
+        case .apple: return "Apple Intelligence(端末内・高速)"
+        case .whisper: return "OpenAI Whisper(端末内・高精度)"
+        case .cloud: return "クラウドAI(最高精度・ポイントかAPIキー)"
         }
     }
 
     /// 進捗表示などで使う短い名前
     var shortName: String {
         switch self {
-        case .apple: return "Apple"
-        case .whisper: return "Whisper"
+        case .apple: return "Apple Intelligence"
+        case .whisper: return "OpenAI Whisper"
         case .cloud: return "クラウドAI"
         }
     }
