@@ -1098,7 +1098,9 @@ struct ContentView: View {
             }
 
         case .pacing:
-            EditorPacingPanel(timeline: timeline, player: player, onRerun: { runPacingCheck() })
+            EditorPacingPanel(timeline: timeline, player: player,
+                              onRerun: { runPacingCheck() },
+                              onFix: { fix in applyEditingFix(fix) })
         case .mosaic(let textID):
             if let clip = project.textClipBinding(id: textID) {
                 EditorMosaicPanel(clip: clip)
@@ -1386,7 +1388,7 @@ struct ContentView: View {
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
             openPanel(.autoEditTemplates)
         })
-        items.append(EditorToolItem("中だるみチェック", systemImage: "gauge.with.dots.needle.33percent",
+        items.append(EditorToolItem("中だるみ・編集チェック", systemImage: "gauge.with.dots.needle.33percent",
                                     enabled: !running && !project.clips.isEmpty,
                                     disabledReason: project.clips.isEmpty ? "先に動画を追加してください" : Self.analysisBusyReason) {
             runPacingCheck()
@@ -1811,15 +1813,46 @@ struct ContentView: View {
     private func runPacingCheck() {
         player.pause()
         let snapshot = project.snapshot()
-        analysis.run(title: "中だるみをチェックしています") { report in
-            let result = try await PacingAnalyzer.analyze(snapshot: snapshot, progress: report)
+        analysis.run(title: "動画をチェックしています") { report in
+            let sensitivity = PacingSensitivity(rawValue: UserDefaults.standard.string(forKey: "pacing.sensitivity") ?? "") ?? .normal
+            let useAI: Bool = UserDefaults.standard.bool(forKey: "pacing.useAI")
+            let result = try await PacingAnalyzer.analyze(snapshot: snapshot, sensitivity: sensitivity,
+                                                          useAI: useAI, progress: report)
             if Task.isCancelled { return }
-            timeline.pacing = result
+            timeline.pacing = result.segments
+            timeline.pacingChecks = result.checks
+            if useAI && !result.usedAI && !snapshot.subtitles.isEmpty {
+                showToast("AI を使えなかったため、映像と音だけで判定しました", style: .warning)
+            }
             pacingClipsKey = Self.clipsKey(snapshot)
             selection = nil
             activePanel = .pacing
         } onError: { error in
             showToast("チェックできませんでした(\(error.localizedDescription))", style: .warning)
+        }
+    }
+
+    /// 編集チェックの「直す」ボタン
+    private func applyEditingFix(_ fix: EditingCheck.Fix) {
+        switch fix {
+        case .openCaptions:
+            activePanel = nil
+            history.record(project)
+            activeSheet = .subtitles
+        case .enableDucking:
+            history.record(project)
+            project.documentary.autoDucking = true
+            showToast("話している間は BGM を下げるようにしました", undo: true)
+        case .makeVertical:
+            history.record(project)
+            project.canvas.aspect = .portrait9x16
+            showToast("9:16 の縦にしました", undo: true)
+        case .openCover:
+            player.pause()
+            activePanel = nil
+            activeSheet = .coverMaker
+        case .seek(let time):
+            player.seek(to: time)
         }
     }
 
@@ -2875,6 +2908,7 @@ struct ContentView: View {
         if !timeline.pacing.isEmpty, Self.clipsKey(snapshot) != pacingClipsKey {
             // クリップを編集したら結果は古くなるので帯を消す
             timeline.pacing = []
+            timeline.pacingChecks = []
         }
         isDirty = true
         ProjectStore.scheduleSave(snapshot, projectID: projectID)

@@ -65,6 +65,8 @@ final class TimelineState {
 
     /// 中だるみチェックの結果(目盛りの下に緑・黄・赤の帯で出す。空なら出さない)
     var pacing: [PacingSegment] = []
+    /// 編集チェック(YouTuber・インフルエンサーが気をつける点)の結果
+    var pacingChecks: [EditingCheck] = []
 
     /// クリップの複数選択モード中か(タップで選択を足したり外したりする)
     var isMultiSelecting: Bool = false

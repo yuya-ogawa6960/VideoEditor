@@ -5,22 +5,29 @@ import Vision
 import SoundAnalysis
 
 // =====================================================================
-// 中だるみチェック(端末内の AI だけで判定。ネットには送らない)。
+// 中だるみチェックと編集チェック(端末内の AI で判定。AI に話の中身を採点させるときだけ
+// 字幕の文章を Apple Intelligence またはクラウド AI に渡す)。
 //
 // 出力タイムラインの 1 秒ごとに「見ている人が飽きそうな度合い」を 0...1 で出し、
 // 緑(テンポよい)/ 黄(少しゆるい)/ 赤(中だるみ)の区間にまとめる。
 //
 // 飽きやすさを上げるもの:
-//   - 同じカットが長く続く(カットが変わってからの秒数)
+//   - 同じカットが長く続く(クリップの境目・クリップ内の場面転換・オーバーレイの登場で 0 に戻る)
 //   - 画面の動きが少ない(2 コマ/秒の縮小画像の差)
 //   - 話し声も音楽も笑い声もなく、音が小さい
 //   - 画面が変わらないまま長く話し続けている
+//   - 話がゆっくり(字幕の 1 秒あたりの文字数)、話の途中の長い沈黙
+//   - (選んだとき)AI が「退屈・繰り返し・前置きが長い」と採点した区間
 // 下げるもの(「間」として見ていられるもの):
 //   - 景色・画のきれいさ(Vision の美しさスコア VNCalculateImageAestheticsScoresRequest)
 //   - 人の顔・笑顔(CIDetector の笑顔判定)
 //   - 笑い声・拍手・歓声、音楽、自然の音(波・風・鳥・雨など)= 雰囲気(SoundAnalysis)
-//   - 話し声、テキスト・ステッカー・オーバーレイが出ている
+//   - 話し声、テキスト・ステッカー・オーバーレイが出ている、AI が高く採点した区間
 // 何が映っているか(夕焼け・海など)は VNClassifyImageRequest で読み、理由の文に使う。
+// 動画ごとの真ん中の値で基準をならし、厳しさ(厳しめ / ふつう / ゆるめ)を選べる。
+//
+// あわせて、YouTuber・インフルエンサーが気をつける点(冒頭のつかみ・字幕・BGM と声・
+// テキストの表示時間・縦動画の安全な範囲・長さと比率・カットの頻度・終わり方・サムネ)を点検する。
 // =====================================================================
 
 enum PacingLevel: Int, Comparable {
@@ -39,6 +46,27 @@ enum PacingLevel: Int, Comparable {
     }
 }
 
+/// 判定の厳しさ
+enum PacingSensitivity: String, CaseIterable, Identifiable {
+    case strict, normal, relaxed
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .strict: return "厳しめ"
+        case .normal: return "ふつう"
+        case .relaxed: return "ゆるめ"
+        }
+    }
+    /// 点数に足す値(厳しいほど赤くなりやすい)
+    var bias: Double {
+        switch self {
+        case .strict: return 0.07
+        case .normal: return 0
+        case .relaxed: return -0.07
+        }
+    }
+}
+
 struct PacingSegment: Identifiable, Equatable {
     let id = UUID()
     /// 出力タイムライン上の秒
@@ -49,6 +77,29 @@ struct PacingSegment: Identifiable, Equatable {
     let reasons: [String]
     /// 直し方の提案
     let suggestions: [String]
+}
+
+/// 編集チェック(YouTuber・インフルエンサーが気をつける点)の 1 項目
+struct EditingCheck: Identifiable, Equatable {
+    enum Fix: Equatable {
+        case openCaptions
+        case enableDucking
+        case makeVertical
+        case openCover
+        case seek(Double)
+    }
+    let id = UUID()
+    let level: PacingLevel
+    let title: String
+    let detail: String
+    var fix: Fix? = nil
+    var fixTitle: String? = nil
+}
+
+struct PacingReport: Equatable {
+    var segments: [PacingSegment] = []
+    var checks: [EditingCheck] = []
+    var usedAI = false
 }
 
 /// 1 秒ごとの特徴(0...1)
@@ -67,32 +118,42 @@ private struct PacingSecond {
     var scene: String? = nil
     var decorated: Bool = false
     var hasVideo: Bool = false
+    /// ここで画が切り替わった(クリップの境目・クリップ内の場面転換・オーバーレイの登場)
+    var cut: Bool = false
+    /// 字幕から読んだ話す速さ(1 秒あたりの文字数)。字幕がなければ nil
+    var talkRate: Double? = nil
+    /// 話の途中の長い沈黙
+    var pause: Bool = false
+    /// AI が付けた話の面白さ(1...5)と一言
+    var aiScore: Int? = nil
+    var aiNote: String? = nil
 }
 
 enum PacingAnalyzer {
 
-    static func analyze(snapshot: ProjectSnapshot, progress: ((Double) -> Void)?) async throws -> [PacingSegment] {
+    static func analyze(snapshot: ProjectSnapshot, sensitivity: PacingSensitivity, useAI: Bool,
+                        progress: ((Double) -> Void)?) async throws -> PacingReport {
         let placements = CompositionBuilder.timelineLayout(for: snapshot)
         let total = placements.last?.end ?? 0
-        guard total > 1 else { return [] }
+        guard total > 1 else { return PacingReport() }
         let seconds = Int(total.rounded(.up))
         var timeline = [PacingSecond](repeating: PacingSecond(), count: seconds)
+        let mediaShare: Double = (useAI && !snapshot.subtitles.isEmpty) ? 0.85 : 1.0
 
         let clipCount = Double(max(1, snapshot.clips.count))
         for (index, clip) in snapshot.clips.enumerated() {
             try Task.checkCancellation()
             guard index < placements.count else { break }
             let placement = placements[index]
-            let base = Double(index) / clipCount
-            let share = 1 / clipCount
+            let base: Double = mediaShare * Double(index) / clipCount
+            let share: Double = mediaShare / clipCount
             let speed = max(clip.speed, 0.01)
 
-            // カットが変わってからの秒数
             let first = max(0, Int(placement.start.rounded(.down)))
             let last = min(seconds - 1, Int(placement.end.rounded(.up)) - 1)
             if last >= first {
+                timeline[first].cut = true
                 for s in first...last {
-                    timeline[s].shotAge = Double(s) - placement.start
                     timeline[s].hasVideo = !clip.isStill
                 }
             }
@@ -108,6 +169,7 @@ enum PacingAnalyzer {
                 timeline[s].smile = max(timeline[s].smile, value.smile)
                 if let a = value.aesthetic { timeline[s].aesthetic = a }
                 if let scene = value.scene { timeline[s].scene = scene }
+                if value.cut { timeline[s].cut = true }
             }
             // 1 秒より遅い速度のとき、間を埋める
             fillGaps(&timeline, from: first, to: last)
@@ -145,16 +207,136 @@ enum PacingAnalyzer {
         }
         for overlay in snapshot.overlays {
             mark(&timeline, start: overlay.start, end: overlay.end) { $0.decorated = true }
-            // オーバーレイが出ると画が変わるので、カットの経過もそこで戻す
-            let s0 = max(0, Int(overlay.start))
-            let s1 = min(seconds - 1, Int(overlay.end))
-            if s1 >= s0 {
-                for s in s0...s1 { timeline[s].shotAge = min(timeline[s].shotAge, Double(s) - overlay.start) }
+            // オーバーレイが出ると画が変わる
+            let s0 = Int(overlay.start)
+            if s0 >= 0, s0 < seconds { timeline[s0].cut = true }
+        }
+        applyTalkSignals(snapshot.subtitles, to: &timeline)
+        recomputeShotAge(&timeline)
+
+        // AI に話の面白さを採点してもらう(字幕があるときだけ)
+        var usedAI = false
+        if useAI, !snapshot.subtitles.isEmpty {
+            let start: Double = mediaShare
+            usedAI = await applyAIReview(snapshot.subtitles, to: &timeline) { fraction in
+                progress?(start + (1 - start) * fraction)
             }
         }
 
         progress?(1)
-        return segments(from: timeline)
+        let segments = makeSegments(from: timeline, sensitivity: sensitivity)
+        let checks = makeChecks(snapshot: snapshot, timeline: timeline, total: total)
+        return PacingReport(segments: segments, checks: checks, usedAI: usedAI)
+    }
+
+    // MARK: - 手がかりの追加
+
+    /// カットが変わってからの秒数(クリップの境目・クリップ内の場面転換・オーバーレイの登場で 0 に戻る)
+    private static func recomputeShotAge(_ timeline: inout [PacingSecond]) {
+        var age = 0.0
+        for s in timeline.indices {
+            if timeline[s].cut || s == 0 {
+                age = 0
+            } else {
+                age += 1
+            }
+            timeline[s].shotAge = age
+        }
+    }
+
+    /// 字幕から話す速さと、話の途中の長い沈黙を読む
+    private static func applyTalkSignals(_ subtitles: [SubtitleCue], to timeline: inout [PacingSecond]) {
+        let cues = subtitles.sorted { $0.start < $1.start }
+        for cue in cues where cue.duration > 0.3 {
+            let chars = cue.text.filter { !$0.isWhitespace && !$0.isPunctuation }.count
+            let rate: Double = Double(chars) / cue.duration
+            mark(&timeline, start: cue.start, end: cue.end) { second in
+                second.talkRate = max(second.talkRate ?? 0, rate)
+            }
+        }
+        // 話と話の間が 2.5 秒以上(20 秒以内)あいている所 = 話の途中の沈黙
+        guard cues.count >= 2 else { return }
+        for i in 0..<(cues.count - 1) {
+            let gapStart = cues[i].end
+            let gapEnd = cues[i + 1].start
+            let gap = gapEnd - gapStart
+            if gap >= 2.5 && gap <= 20 {
+                mark(&timeline, start: gapStart + 1, end: gapEnd) { $0.pause = true }
+            }
+        }
+    }
+
+    /// 字幕を約 30 秒ごとに区切って AI に読ませ、話の面白さ・情報量を 1...5 で付けてもらう。
+    /// 1 区間でも採点できたら true
+    private static func applyAIReview(_ subtitles: [SubtitleCue], to timeline: inout [PacingSecond],
+                                      progress: (Double) -> Void) async -> Bool {
+        let settings = AppSettings.shared
+        let engine = ScriptWriter.resolveEngine(settings: settings)
+        guard engine != .none else { return false }
+        let cues = subtitles.sorted { $0.start < $1.start }
+        var chunks: [(start: Double, end: Double, text: String)] = []
+        var current: (start: Double, end: Double, text: String)? = nil
+        for cue in cues {
+            if var c = current, cue.end - c.start <= 30 {
+                c.end = cue.end
+                c.text += " " + cue.text
+                current = c
+            } else {
+                if let c = current { chunks.append(c) }
+                current = (cue.start, cue.end, cue.text)
+            }
+        }
+        if let c = current { chunks.append(c) }
+        guard !chunks.isEmpty else { return false }
+
+        let instructions = """
+        あなたは YouTube 動画の編集者です。動画の字幕を区間ごとに読み、見ている人が飽きずに見続けられるかを判定します。
+        各区間について、話の面白さ・情報量・テンポを 1〜5 で採点します(5 = 引きつけられる、1 = 退屈・同じ話の繰り返し・前置きが長い)。
+        出力は 1 区間 1 行、「番号: 点数 / 理由(15 文字以内)」の形だけにしてください。
+        """
+        var applied = false
+        let batchSize = 12
+        var index = 0
+        while index < chunks.count {
+            if Task.isCancelled { break }
+            let upper = min(index + batchSize, chunks.count)
+            var prompt = "次の区間を採点してください。\n"
+            for k in index..<upper {
+                prompt += "\(k + 1): \(chunks[k].text.prefix(400))\n"
+            }
+            if let reply = try? await ScriptWriter.generate(engine: engine, instructions: instructions, prompt: prompt,
+                                                           apiKey: settings.cloudCredential, temperature: 0.2) {
+                for line in reply.components(separatedBy: .newlines) {
+                    guard let parsed = parseReviewLine(line), parsed.number >= 1, parsed.number <= chunks.count else { continue }
+                    let chunk = chunks[parsed.number - 1]
+                    mark(&timeline, start: chunk.start, end: chunk.end) { second in
+                        second.aiScore = parsed.score
+                        second.aiNote = parsed.note
+                    }
+                    applied = true
+                }
+            }
+            index = upper
+            progress(min(1, Double(index) / Double(chunks.count)))
+        }
+        return applied
+    }
+
+    /// 「3: 4 / 理由」→ (3, 4, "理由")
+    private static func parseReviewLine(_ line: String) -> (number: Int, score: Int, note: String)? {
+        let normalized = line
+            .replacingOccurrences(of: "：", with: ":")
+            .replacingOccurrences(of: "／", with: "/")
+        let parts = normalized.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return nil }
+        let digits = parts[0].filter { $0.isNumber }
+        guard let number = Int(digits) else { return nil }
+        let rest = parts[1].split(separator: "/", maxSplits: 1)
+        guard let first = rest.first else { return nil }
+        let scoreText = first.trimmingCharacters(in: .whitespaces).prefix(1)
+        guard let score = Int(scoreText), (1...5).contains(score) else { return nil }
+        let note: String = rest.count > 1 ? rest[1].trimmingCharacters(in: .whitespaces) : ""
+        return (number, score, note)
     }
 
     // MARK: - 採点
@@ -170,6 +352,16 @@ enum PacingAnalyzer {
         if sound < 0.3 && f.loud < 0.15 { score += 0.2 }
         // 画面が変わらないまま話し続けている
         if f.speech > 0.5 && f.shotAge > 12 && f.motion < 0.3 { score += 0.1 }
+        // 話す速さ: ゆっくりすぎると間延び、テンポよく話していれば見ていられる
+        if let rate = f.talkRate {
+            if rate < 3 {
+                score += 0.1
+            } else if rate > 7 {
+                score -= 0.05
+            }
+        }
+        // 話の途中の長い沈黙
+        if f.pause { score += 0.15 }
 
         // 見ていられるもの
         if let a = f.aesthetic, a > 0 { score -= min(1, a / 0.6) * 0.25 }
@@ -184,11 +376,21 @@ enum PacingAnalyzer {
             score -= 0.08 + 0.15 * min(1, pretty / 0.5)
         }
         if f.decorated { score -= 0.15 }
-        return min(max(score, 0), 1)
+        // AI の採点(話の中身)。3 を基準に 1 点で 0.1
+        if let ai = f.aiScore {
+            score += Double(3 - ai) * 0.1
+        }
+        return score
     }
 
-    private static func segments(from timeline: [PacingSecond]) -> [PacingSegment] {
-        let raw = timeline.map { dullness($0) }
+    private static func makeSegments(from timeline: [PacingSecond], sensitivity: PacingSensitivity) -> [PacingSegment] {
+        var raw: [Double] = timeline.map { dullness($0) }
+        // 動画ごとにならす: 全体がゆったりした動画で全部が赤にならないよう、真ん中の値が高すぎるときは下げる
+        let sorted = raw.sorted()
+        let median: Double = sorted.isEmpty ? 0 : sorted[sorted.count / 2]
+        let shift: Double = max(0, median - 0.45) * 0.7
+        raw = raw.map { min(max($0 - shift + sensitivity.bias, 0), 1) }
+
         // 前後 1 秒の平均でならす
         var smooth = raw
         for i in raw.indices {
@@ -209,9 +411,8 @@ enum PacingAnalyzer {
         }
         var merged: [(level: PacingLevel, start: Int, end: Int)] = []
         for run in runs {
-            if run.end - run.start < 2, let lastRun = merged.last {
+            if run.end - run.start < 2, !merged.isEmpty {
                 merged[merged.count - 1].end = run.end
-                _ = lastRun
             } else if let lastRun = merged.last, lastRun.level == run.level {
                 merged[merged.count - 1].end = run.end
             } else {
@@ -240,41 +441,191 @@ enum PacingAnalyzer {
         let smile = avg { $0.smile }
         let faces = avg { $0.faces }
         let loud = avg { $0.loud }
+        let pauses = slice.filter { $0.pause }.count
+        let rates = slice.compactMap { $0.talkRate }
+        let rate: Double? = rates.isEmpty ? nil : rates.reduce(0, +) / Double(rates.count)
         let aesthetics = slice.compactMap { $0.aesthetic }
-        let pretty = aesthetics.isEmpty ? 0 : aesthetics.reduce(0, +) / Double(aesthetics.count)
+        let pretty: Double = aesthetics.isEmpty ? 0 : aesthetics.reduce(0, +) / Double(aesthetics.count)
         let scene = mostCommon(slice.compactMap { $0.scene })
+        let aiScores = slice.compactMap { $0.aiScore }
+        let aiAverage: Double? = aiScores.isEmpty ? nil : Double(aiScores.reduce(0, +)) / Double(aiScores.count)
+        let aiNote = mostCommon(slice.compactMap { $0.aiNote }.filter { !$0.isEmpty })
 
         var good: [String] = []
         var bad: [String] = []
         var suggestions: [String] = []
 
+        if let aiAverage, let aiNote {
+            if aiAverage >= 3.5 {
+                good.append("AI: " + aiNote)
+            } else if aiAverage <= 2.5 {
+                bad.append("AI: " + aiNote)
+            }
+        }
         if pretty > 0.25 {
             good.append(scene.map { "\($0)がきれいに撮れていて、見ていられる画です" } ?? "画がきれいで、見ていられます")
         }
-        if smile > 0.3 { good.append("笑顔が映っています") } else if faces > 0.5 { good.append("人の表情が見えています") }
+        if smile > 0.3 {
+            good.append("笑顔が映っています")
+        } else if faces > 0.5 {
+            good.append("人の表情が見えています")
+        }
         if laughter > 0.3 { good.append("笑い声が入っていて盛り上がっています") }
         if max(music, nature) > 0.4 && pretty > 0.1 {
             good.append(nature > music ? "自然の音と景色で、雰囲気のある「間」になっています" : "音楽と画で雰囲気が出ています")
         }
-        if speech > 0.5 && level == .good { good.append("話が続いていてテンポがあります") }
+        if let rate, rate > 6 { good.append("話のテンポがよいです") }
 
         if maxAge > 10 { bad.append("同じカットが \(Int(maxAge)) 秒続いています") }
         if motion < 0.2 && slice.contains(where: { $0.hasVideo }) { bad.append("画面の動きが少なめです") }
+        if pauses >= 2 { bad.append("話の途中で \(pauses) 秒ほど間があいています") }
+        if let rate, rate < 3 { bad.append("話がゆっくりで、間延びしやすいです") }
         if speech < 0.3 && laughter < 0.2 && music < 0.3 && nature < 0.3 && loud < 0.15 {
             bad.append("声や音がほとんどありません")
         }
         if speech > 0.5 && maxAge > 12 && motion < 0.3 { bad.append("画面が変わらないまま話が続いています") }
 
         if level != .good {
-            if maxAge > 10 { suggestions.append("スプリットして間を詰めるか、途中で別のカットを挟む") }
+            if pauses >= 2 { suggestions.append("話の間をスプリットで詰める(ジャンプカット)") }
+            if maxAge > 10 { suggestions.append("途中で別のカットやズームを挟む(5〜10 秒ごとに画を変える)") }
             if speech > 0.5 && motion < 0.3 { suggestions.append("話の内容に合う写真や動画をオーバーレイで重ねる") }
-            if motion < 0.2 { suggestions.append("ゆっくりズーム(Ken Burns / キーフレーム)で画に動きをつける") }
+            if let aiAverage, aiAverage <= 2.5 { suggestions.append("話が長い所は要点だけ残してカットする") }
             if speech < 0.3 && loud < 0.15 { suggestions.append("無音部分を削除する、または BGM を足す") }
-            suggestions.append("テキストや字幕で情報を足す")
+            suggestions.append("テキストで要点を見せる")
         }
         let reasons = (level == .good ? good + bad : bad + good)
         return (Array(reasons.prefix(3)), Array(suggestions.prefix(3)))
     }
+
+    // MARK: - 編集チェック(YouTuber・インフルエンサーが気をつける点)
+
+    private static func makeChecks(snapshot: ProjectSnapshot, timeline: [PacingSecond], total: Double) -> [EditingCheck] {
+        var checks: [EditingCheck] = []
+        let size = CompositionBuilder.renderSize(for: snapshot, purpose: .preview)
+        let vertical: Bool = size.height > size.width * 1.2
+
+        // 1. 冒頭 3 秒のつかみ
+        let opening = Array(timeline.prefix(3))
+        let hook = opening.contains { $0.speech > 0.5 || $0.motion > 0.35 || $0.decorated || $0.smile > 0.5 || $0.laughter > 0.3 }
+        if hook {
+            checks.append(EditingCheck(level: .good, title: "冒頭 3 秒のつかみ",
+                                       detail: "最初の 3 秒に話・動き・テキストのどれかがあり、引きつけられます。"))
+        } else {
+            checks.append(EditingCheck(level: .dull, title: "冒頭 3 秒のつかみ",
+                                       detail: "最初の 3 秒が静かです。結論や一番いい場面を先に見せる、テキストで「何の動画か」を出すと離脱が減ります。",
+                                       fix: .seek(0), fixTitle: "冒頭を見る"))
+        }
+
+        // 2. 最初が静かすぎないか
+        if let first = timeline.first, first.loud < 0.08, first.motion < 0.05, first.speech < 0.3, !first.decorated {
+            checks.append(EditingCheck(level: .loose, title: "始まりの無音・止まった画面",
+                                       detail: "最初の 1 秒が無音で動きもありません。頭を少し切ると、テンポよく始まります。",
+                                       fix: .seek(0), fixTitle: "冒頭を見る"))
+        }
+
+        // 3. 字幕(音を出さずに見る人向け)
+        let speechSeconds = timeline.filter { $0.speech > 0.5 }.count
+        if speechSeconds >= 15 {
+            let covered = timeline.filter { $0.speech > 0.5 && $0.talkRate != nil }.count
+            let ratio: Double = Double(covered) / Double(speechSeconds)
+            if ratio < 0.5 {
+                let missing = Int(((1 - ratio) * 100).rounded())
+                checks.append(EditingCheck(level: .dull, title: "字幕",
+                                           detail: "話している所の \(missing)% に字幕がありません。SNS では音を出さずに見る人が多いので、字幕があると最後まで見てもらいやすくなります。",
+                                           fix: .openCaptions, fixTitle: "字幕を作る"))
+            } else {
+                checks.append(EditingCheck(level: .good, title: "字幕", detail: "話している所にほぼ字幕が付いています。"))
+            }
+        }
+
+        // 4. BGM と声
+        if snapshot.audio.bgmURL != nil && speechSeconds >= 5 {
+            if snapshot.documentary.autoDucking {
+                checks.append(EditingCheck(level: .good, title: "BGM と声", detail: "話している間は BGM が自動で下がります。"))
+            } else {
+                checks.append(EditingCheck(level: .loose, title: "BGM と声",
+                                           detail: "BGM と声が重なっています。話している間だけ BGM を下げる(ダッキング)と聞き取りやすくなります。",
+                                           fix: .enableDucking, fixTitle: "ダッキングをオン"))
+            }
+        }
+
+        // 5. テキストの表示時間
+        let shortTexts = snapshot.textClips.filter { clip in
+            guard !clip.isMosaic, !clip.isSticker else { return false }
+            let chars = clip.text.filter { !$0.isWhitespace }.count
+            return clip.duration < 0.8 + Double(chars) * 0.12
+        }
+        if let firstShort = shortTexts.min(by: { $0.start < $1.start }) {
+            checks.append(EditingCheck(level: .loose, title: "テキストの表示時間",
+                                       detail: "\(shortTexts.count) 個のテキストが、文字数に対して表示が短く読み切れない可能性があります(目安: 0.8 秒 + 1 文字 0.12 秒)。",
+                                       fix: .seek(firstShort.start), fixTitle: "最初の 1 つを見る"))
+        }
+
+        // 6. 縦動画の安全な範囲(下や右のボタン・説明文に隠れる)
+        if vertical {
+            let unsafe = snapshot.textClips.filter { !$0.isMosaic && ($0.center.y > 0.8 || $0.center.x > 0.85 || $0.center.y < 0.08) }
+            if let firstUnsafe = unsafe.min(by: { $0.start < $1.start }) {
+                checks.append(EditingCheck(level: .loose, title: "縦動画の安全な範囲",
+                                           detail: "\(unsafe.count) 個のテキストが画面の端にあり、TikTok・リール・ショートのボタンや説明文に隠れる可能性があります。少し内側に寄せましょう。",
+                                           fix: .seek(firstUnsafe.start), fixTitle: "見る"))
+            }
+            if snapshot.subtitleStyle.position == .bottom, !snapshot.subtitles.isEmpty {
+                checks.append(EditingCheck(level: .loose, title: "縦動画の字幕の位置",
+                                           detail: "縦動画で字幕がいちばん下にあると、説明文に隠れることがあります。「中央」寄りがおすすめです。"))
+            }
+        }
+
+        // 7. 長さと比率
+        if !vertical && total <= 60 {
+            checks.append(EditingCheck(level: .loose, title: "長さと比率",
+                                       detail: "1 分以内の動画です。ショート・リール・TikTok に出すなら 9:16 の縦にすると画面いっぱいに見てもらえます。",
+                                       fix: .makeVertical, fixTitle: "9:16 にする"))
+        } else if vertical && total > 180 {
+            checks.append(EditingCheck(level: .loose, title: "長さと比率",
+                                       detail: "縦動画で 3 分を超えています。ショート向けなら要点にしぼるか、長い動画なら 16:9 の横も検討しましょう。"))
+        }
+
+        // 8. カットの頻度
+        if total >= 60 {
+            let cuts = timeline.filter { $0.cut }.count
+            let perMinute: Double = Double(cuts) / (total / 60)
+            let text = String(format: "%.1f", perMinute)
+            if perMinute < 3 {
+                checks.append(EditingCheck(level: .loose, title: "カットの頻度",
+                                           detail: "1 分あたり \(text) 回しか画が変わっていません。5〜10 秒ごとにカット・ズーム・テキストなどで変化をつけると、見続けてもらいやすくなります。"))
+            } else {
+                checks.append(EditingCheck(level: .good, title: "カットの頻度",
+                                           detail: "1 分あたり \(text) 回、画が変わっていてテンポがあります。"))
+            }
+        }
+
+        // 9. 終わり方
+        let ending = Array(timeline.suffix(5))
+        if ending.count == 5 {
+            let quiet = ending.filter { $0.speech < 0.3 && $0.motion < 0.15 && !$0.decorated }.count
+            if quiet >= 4 {
+                checks.append(EditingCheck(level: .loose, title: "終わり方",
+                                           detail: "最後の 5 秒が静かです。余韻が長いと最後まで見られにくいので、短くするか、次の動画やチャンネル登録への一言を入れましょう。",
+                                           fix: .seek(max(0, total - 5)), fixTitle: "最後を見る"))
+            }
+        }
+
+        // 10. サムネ
+        let cover = snapshot.cover
+        let hasCover: Bool = cover.imageURL != nil || !cover.title.isEmpty || !cover.memoText.isEmpty
+        if hasCover {
+            checks.append(EditingCheck(level: .good, title: "サムネ", detail: "サムネが作られています。"))
+        } else {
+            checks.append(EditingCheck(level: .loose, title: "サムネ",
+                                       detail: "サムネがまだありません。一覧で選ばれるかはサムネで決まるので、顔や一番いい場面と短い言葉で作りましょう。",
+                                       fix: .openCover, fixTitle: "サムネを作る"))
+        }
+
+        // 気になる順(赤 → 黄 → 緑)
+        return checks.sorted { $0.level > $1.level }
+    }
+
+    // MARK: - 補助
 
     private static func mostCommon(_ values: [String]) -> String? {
         var counts: [String: Int] = [:]
@@ -311,6 +662,8 @@ enum PacingAnalyzer {
         var smile: Double = 0
         var aesthetic: Double? = nil
         var scene: String? = nil
+        /// この秒の中で場面が大きく変わった(撮りっぱなしの動画の中の場面転換)
+        var cut: Bool = false
     }
 
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -334,6 +687,7 @@ enum PacingAnalyzer {
             var lastAestheticSecond = -10
             var lastClassifySecond = -10
             var lastFaceSecond = -1
+            var averageMotion: Double = 0.2
             init(count: Int) { result = [VideoSecond](repeating: VideoSecond(), count: count) }
         }
         let state = State(count: count)
@@ -351,6 +705,11 @@ enum PacingAnalyzer {
                 for i in thumb.indices { diff += abs(Int(thumb[i]) - Int(state.previous[i])) }
                 let value = min(1, Double(diff) / Double(thumb.count) / 25)
                 state.result[s].motion = max(state.result[s].motion, value)
+                // 急に大きく変わったら場面の切り替わり(ふだんの動きの 3 倍以上、かつ大きな差)
+                if value > 0.6, value > state.averageMotion * 3, relative > 0.6 {
+                    state.result[s].cut = true
+                }
+                state.averageMotion = state.averageMotion * 0.85 + value * 0.15
             }
             state.previous = thumb
             // 顔と笑顔(1 秒に 1 回)、美しさ(2 秒に 1 回)、写っているもの(4 秒に 1 回)

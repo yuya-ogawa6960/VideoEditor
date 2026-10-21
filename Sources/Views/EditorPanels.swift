@@ -181,7 +181,7 @@ enum EditorPanel: Hashable {
         case .parallax, .overlayParallax: return "3Dズーム"
         case .textTracking, .overlayTracking: return "トラッキング"
         case .mosaic: return "モザイク"
-        case .pacing: return "中だるみチェック"
+        case .pacing: return "中だるみ・編集チェック"
         case .autoEditTemplates: return "おまかせテンプレ"
         }
     }

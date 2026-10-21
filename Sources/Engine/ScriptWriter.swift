@@ -267,7 +267,7 @@ enum ScriptWriter {
 
     // MARK: - 生成
 
-    private static func generate(engine: SubtitlePolisher.ResolvedEngine, instructions: String, prompt: String,
+    static func generate(engine: SubtitlePolisher.ResolvedEngine, instructions: String, prompt: String,
                                  apiKey: String, temperature: Double) async throws -> String {
         switch engine {
         case .onDevice:
