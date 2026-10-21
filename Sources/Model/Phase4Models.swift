@@ -170,7 +170,8 @@ struct AutoEditSettings: Equatable {
     /// 目標の長さ(秒)。0 = 全部使う
     var targetDuration: Double = 60
     var useBGMBeats: Bool = true
-    var addTitleCard: Bool = true
+    /// 最初にタイトルを入れる(ふだんはオフ)
+    var addTitleCard: Bool = false
     var titleText: String = ""
     var addTransitions: Bool = true
     var applyLook: Bool = true

@@ -126,7 +126,8 @@ enum AutoEditor {
         try Task.checkCancellation()
         progress?(0.66)
 
-        var pieces = plan(clips: snapshot.clips, settings: settings, highlights: segments)
+        let guardSpeech = SpeechGuard(snapshot: snapshot)
+        var pieces = plan(clips: snapshot.clips, settings: settings, highlights: segments, guardSpeech: guardSpeech)
         guard !pieces.isEmpty else { throw AutoEditorError.noMaterial }
         let transitions = transitionPlan(count: pieces.count, settings: settings)
 
@@ -141,7 +142,7 @@ enum AutoEditor {
             }
             try Task.checkCancellation()
             if !beats.isEmpty {
-                alignToBeats(&pieces, transitions: transitions, beats: beats, clips: snapshot.clips)
+                alignToBeats(&pieces, transitions: transitions, beats: beats, clips: snapshot.clips, guardSpeech: guardSpeech)
             }
         }
         progress?(0.85)
@@ -371,7 +372,8 @@ enum AutoEditor {
 
     // MARK: - 区間の選択
 
-    private static func plan(clips: [Clip], settings: AutoEditSettings, highlights: [HighlightSegment]) -> [Piece] {
+    private static func plan(clips: [Clip], settings: AutoEditSettings, highlights: [HighlightSegment],
+                             guardSpeech: SpeechGuard) -> [Piece] {
         let target = settings.targetDuration
         if target <= 0 {
             var all: [Piece] = []
@@ -388,8 +390,9 @@ enum AutoEditor {
         for segment in highlights {
             guard let index = indexByID[segment.clipID] else { continue }
             let clip = clips[index]
-            let s = max(clip.startTime, segment.start)
-            let e = min(clip.endTime, segment.end)
+            // 話の途中から始めたり、途中で終えたりしない(文の始まりから終わりまでに広げる)
+            let s = guardSpeech.safeStart(max(clip.startTime, segment.start), clip: index, lower: clip.startTime)
+            let e = guardSpeech.safeEnd(min(clip.endTime, segment.end), clip: index, upper: clip.endTime)
             guard e - s >= 0.8 else { continue }
             candidates.append(Candidate(piece: Piece(clipIndex: index, start: s, end: e, speed: clip.speed),
                                         score: segment.score))
@@ -416,7 +419,10 @@ enum AutoEditor {
             if total + piece.outputDuration > target {
                 let allowed = target - total
                 if allowed < 1.5 { continue }
-                piece.end = piece.start + allowed * piece.speed
+                // 話の途中で切らない: 話の切れ目まで戻す(短くなりすぎるなら使わない)
+                let cut = guardSpeech.retreatToSafe(piece.start + allowed * piece.speed, clip: piece.clipIndex)
+                if (cut - piece.start) / piece.speed < 1.5 { continue }
+                piece.end = cut
             }
             taken[ci] = true
             chosen.append(piece)
@@ -431,7 +437,9 @@ enum AutoEditor {
             if total + piece.outputDuration > target {
                 let allowed = target - total
                 if allowed < 1.5 { continue }
-                piece.end = piece.start + allowed * piece.speed
+                let cut = guardSpeech.retreatToSafe(piece.start + allowed * piece.speed, clip: piece.clipIndex)
+                if (cut - piece.start) / piece.speed < 1.5 { continue }
+                piece.end = cut
             }
             taken[ci] = true
             chosen.append(piece)
@@ -477,6 +485,21 @@ enum AutoEditor {
                 passes += 1
             }
         }
+        // 最後にもう一度、すべての切れ目を話の切れ目にそろえる(延ばした所が話の途中にならないように)
+        for i in chosen.indices {
+            let clip = clips[chosen[i].clipIndex]
+            var upper = clip.endTime
+            if i + 1 < chosen.count, chosen[i + 1].clipIndex == chosen[i].clipIndex {
+                upper = min(upper, chosen[i + 1].start)
+            }
+            var lower = clip.startTime
+            if i > 0, chosen[i - 1].clipIndex == chosen[i].clipIndex {
+                lower = max(lower, chosen[i - 1].end)
+            }
+            chosen[i].start = guardSpeech.safeStart(chosen[i].start, clip: chosen[i].clipIndex, lower: lower)
+            chosen[i].end = guardSpeech.safeEnd(chosen[i].end, clip: chosen[i].clipIndex, upper: upper)
+        }
+        chosen = chosen.filter { $0.end - $0.start > 0.3 }
         return merged(chosen)
     }
 
@@ -564,7 +587,8 @@ enum AutoEditor {
     }
 
     /// 各カット(トランジションの中央)が近いビートに乗るよう、区間の終わりを前後させる
-    private static func alignToBeats(_ pieces: inout [Piece], transitions: [ClipTransition], beats: [Double], clips: [Clip]) {
+    private static func alignToBeats(_ pieces: inout [Piece], transitions: [ClipTransition], beats: [Double], clips: [Clip],
+                                     guardSpeech: SpeechGuard) {
         guard pieces.count >= 2, !beats.isEmpty else { return }
         let sorted = beats.sorted()
         var cursor = 0.0
@@ -594,7 +618,9 @@ enum AutoEditor {
                     limit = min(limit, pieces[i + 1].start)
                 }
                 let newEnd = pieces[i].start + candidateOut * pieces[i].speed
-                if candidateOut >= 0.8 && newEnd <= limit + 1e-6 {
+                // ビートに合わせても、話の途中になる所では動かさない
+                if candidateOut >= 0.8 && newEnd <= limit + 1e-6
+                    && !guardSpeech.isInsideSpeech(newEnd, clip: pieces[i].clipIndex) {
                     pieces[i].end = newEnd
                     newOut = candidateOut
                 }
@@ -780,5 +806,88 @@ enum AutoEditor {
             }
             return nil
         }
+    }
+}
+
+
+// MARK: - 話している区間(この途中では切らない)
+
+/// クリップごとの「話している区間」(元素材上の秒)。字幕の文(。!? や間で区切る)と、
+/// HighlightAnalyzer が見つけた声の区間を合わせたもの。切れ目はこの区間の外にだけ置く
+struct SpeechGuard {
+    /// クリップの番号 → 重なりをまとめた区間(前後に 0.1 秒の余白)
+    private var intervals: [Int: [ClosedRange<Double>]] = [:]
+
+    init(snapshot: ProjectSnapshot) {
+        let layout = CompositionBuilder.timelineLayout(for: snapshot)
+        var byClip: [Int: [ClosedRange<Double>]] = [:]
+        // 字幕 → 文ごとの区間(出力タイムライン → 元素材の秒)
+        let cues = snapshot.subtitles.sorted { $0.start < $1.start }
+        var sentences: [(start: Double, end: Double)] = []
+        var previousText = ""
+        for cue in cues {
+            let text = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let endsSentence = ["。", "!", "?", "！", "？"].contains { previousText.hasSuffix($0) }
+            if var last = sentences.last, cue.start - last.end < 0.35, !endsSentence {
+                last.end = max(last.end, cue.end)
+                sentences[sentences.count - 1] = last
+            } else {
+                sentences.append((cue.start, cue.end))
+            }
+            previousText = text
+        }
+        for (index, clip) in snapshot.clips.enumerated() where index < layout.count {
+            let placement = layout[index]
+            var list: [ClosedRange<Double>] = HighlightAnalyzer.voiceRuns(for: clip.id)
+            for sentence in sentences where sentence.end > placement.start && sentence.start < placement.end {
+                let a = clip.sourceTime(atOutputOffset: max(0, sentence.start - placement.start))
+                let b = clip.sourceTime(atOutputOffset: min(placement.end, sentence.end) - placement.start)
+                if b > a { list.append(a...b) }
+            }
+            byClip[index] = Self.merge(list)
+        }
+        intervals = byClip
+    }
+
+    private static func merge(_ list: [ClosedRange<Double>]) -> [ClosedRange<Double>] {
+        let padded = list.map { ($0.lowerBound - 0.1)...($0.upperBound + 0.1) }.sorted { $0.lowerBound < $1.lowerBound }
+        var result: [ClosedRange<Double>] = []
+        for range in padded {
+            if let last = result.last, range.lowerBound <= last.upperBound + 0.15 {
+                result[result.count - 1] = last.lowerBound...max(last.upperBound, range.upperBound)
+            } else {
+                result.append(range)
+            }
+        }
+        return result
+    }
+
+    /// t が話している区間の途中か(区間の端ちょうどは途中ではない)
+    func isInsideSpeech(_ t: Double, clip: Int) -> Bool {
+        interval(containing: t, clip: clip) != nil
+    }
+
+    private func interval(containing t: Double, clip: Int) -> ClosedRange<Double>? {
+        intervals[clip]?.first { t > $0.lowerBound + 0.01 && t < $0.upperBound - 0.01 }
+    }
+
+    /// 終わりの位置: 話の途中なら、その話の終わりまで延ばす(upper を超えるなら話の始まりまで戻す)
+    func safeEnd(_ t: Double, clip: Int, upper: Double) -> Double {
+        guard let range = interval(containing: t, clip: clip) else { return t }
+        if range.upperBound <= upper { return range.upperBound }
+        return max(range.lowerBound, 0)
+    }
+
+    /// 始まりの位置: 話の途中なら、その話の始まりまで戻す(lower より前なら話の終わりまで進める)
+    func safeStart(_ t: Double, clip: Int, lower: Double) -> Double {
+        guard let range = interval(containing: t, clip: clip) else { return t }
+        if range.lowerBound >= lower { return range.lowerBound }
+        return range.upperBound
+    }
+
+    /// 長さに収めるために切るとき: 話の途中なら、その話が始まる前まで戻す
+    func retreatToSafe(_ t: Double, clip: Int) -> Double {
+        guard let range = interval(containing: t, clip: clip) else { return t }
+        return range.lowerBound
     }
 }

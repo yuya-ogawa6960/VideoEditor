@@ -507,3 +507,68 @@ struct CaptionColorPicker: View {
         }
     }
 }
+
+// MARK: - おまかせ編集のスタイル
+
+/// おまかせ編集のスタイルの見本(色味・黒帯・画面の形・文字の雰囲気)
+struct AutoEditStylePreview: View {
+    let style: AutoEditStyle
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            ZStack {
+                Color.black
+                switch style {
+                case .documentary:
+                    // くすんだ色味 + シネスコの黒帯 + 章タイトル
+                    LinearGradient(colors: [Color(red: 0.25, green: 0.36, blue: 0.38), Color(red: 0.42, green: 0.33, blue: 0.24)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: h * 0.62)
+                    Text("第1章")
+                        .font(.system(size: 9, weight: .medium, design: .serif))
+                        .foregroundStyle(.white.opacity(0.9))
+                case .vlog:
+                    // 暖かい色味 + 手書き風の日付
+                    LinearGradient(colors: [Color(red: 0.98, green: 0.74, blue: 0.45), Color(red: 0.85, green: 0.45, blue: 0.35)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Text("Day 1")
+                        .font(.custom("Pacifico-Regular", size: 12))
+                        .foregroundStyle(.white)
+                        .shadow(radius: 1)
+                case .short:
+                    // 縦の画面 + 大きな字幕
+                    LinearGradient(colors: [Color(red: 0.3, green: 0.2, blue: 0.6), Color(red: 0.9, green: 0.3, blue: 0.5)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(width: h * 0.56)
+                    Text("ヤバい!")
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(.yellow)
+                        .shadow(color: .black, radius: 0, x: 1, y: 1)
+                        .offset(y: h * 0.18)
+                case .family:
+                    // やわらかい明るい色味 + ハート
+                    LinearGradient(colors: [Color(red: 1.0, green: 0.88, blue: 0.8), Color(red: 0.95, green: 0.7, blue: 0.75)],
+                                   startPoint: .top, endPoint: .bottom)
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color(red: 0.95, green: 0.4, blue: 0.5))
+                case .howto:
+                    // すっきりした背景 + 手順の番号
+                    Color(red: 0.9, green: 0.92, blue: 0.95)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("STEP 1")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 3)
+                            .background(Color(red: 0.2, green: 0.5, blue: 0.9), in: RoundedRectangle(cornerRadius: 2))
+                        RoundedRectangle(cornerRadius: 1).fill(Color.gray.opacity(0.5)).frame(width: w * 0.5, height: 3)
+                        RoundedRectangle(cornerRadius: 1).fill(Color.gray.opacity(0.35)).frame(width: w * 0.35, height: 3)
+                    }
+                }
+            }
+            .frame(width: w, height: h)
+        }
+    }
+}

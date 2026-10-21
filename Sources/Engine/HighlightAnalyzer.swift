@@ -122,6 +122,24 @@ enum HighlightAnalyzer {
 
     // MARK: - 音声
 
+    // MARK: - 話している区間(切ってはいけない所)
+
+    private static let voiceLock = NSLock()
+    private static var voiceCache: [UUID: [ClosedRange<Double>]] = [:]
+
+    /// 最後の解析で見つけた、クリップの中で声が続いている区間(元素材上の秒)。未解析なら空
+    static func voiceRuns(for clipID: UUID) -> [ClosedRange<Double>] {
+        voiceLock.lock()
+        defer { voiceLock.unlock() }
+        return voiceCache[clipID] ?? []
+    }
+
+    private static func storeVoiceRuns(_ runs: [ClosedRange<Double>], for clipID: UUID) {
+        voiceLock.lock()
+        voiceCache[clipID] = runs
+        voiceLock.unlock()
+    }
+
     private static func analyzeAudio(clip: Clip, seconds: Int,
                                      progress: @escaping (Double) -> Void) async throws -> (loud: [Double], speech: [Double]) {
         final class Collector {
@@ -168,6 +186,32 @@ enum HighlightAnalyzer {
         let floorValue = Double(sortedRMS[Int(Double(lastIndex) * 0.2)])
         let p95 = Double(sortedRMS[Int(Double(lastIndex) * 0.95)])
         let speechThreshold = max(floorValue * 2.5, 0.004)
+
+        // 50 ms ごとの声の有無から、声が続いている区間を作る(0.35 秒未満の息つぎはつなぐ)
+        var runs: [ClosedRange<Double>] = []
+        var runStart: Int? = nil
+        var lastVoiced = -100
+        for i in 0..<rmsValues.count {
+            let voiced = Double(rmsValues[i]) > speechThreshold && zcrValues[i] >= 0.02 && zcrValues[i] <= 0.35
+            guard voiced else { continue }
+            if let s = runStart, Double(i - lastVoiced) / windowsPerSecond < 0.35 {
+                _ = s
+            } else {
+                if let s = runStart {
+                    let a = start + Double(s) / windowsPerSecond
+                    let b = start + Double(lastVoiced + 1) / windowsPerSecond
+                    if b - a >= 0.25 { runs.append(a...b) }
+                }
+                runStart = i
+            }
+            lastVoiced = i
+        }
+        if let s = runStart {
+            let a = start + Double(s) / windowsPerSecond
+            let b = start + Double(lastVoiced + 1) / windowsPerSecond
+            if b - a >= 0.25 { runs.append(a...b) }
+        }
+        storeVoiceRuns(runs, for: clip.id)
 
         for s in 0..<n {
             let lo = Int(Double(s) * windowsPerSecond)

@@ -53,7 +53,7 @@ struct AutoEditSheetView: View {
     @State private var isBGMImporterPresented = false
 
     private static let audioTypes: [UTType] = [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
-    private let durationOptions: [Double] = [0, 15, 30, 60, 90, 180]
+    private let durationOptions: [Double] = [0, 15, 30, 60, 180, 300, 600, 1200, 1800]
 
     private var sourceTotal: Double { project.totalDuration }
 
@@ -133,8 +133,10 @@ struct AutoEditSheetView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(AutoEditStyle.allCases) { style in
-                        EditorChip(title: style.displayName, isSelected: settings.style == style) {
+                        EditorVisualTile(title: style.displayName, isSelected: settings.style == style) {
                             settings.style = style
+                        } preview: {
+                            AutoEditStylePreview(style: style)
                         }
                     }
                 }
@@ -170,7 +172,7 @@ struct AutoEditSheetView: View {
                             .font(.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
-                    Slider(value: $settings.targetDuration, in: 10...300, step: 5)
+                    Slider(value: $settings.targetDuration, in: 10...1800, step: 10)
                 }
             }
         } header: {
@@ -665,8 +667,10 @@ struct SlideshowSheetView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(AutoEditStyle.allCases) { style in
-                        EditorChip(title: style.displayName, isSelected: settings.style == style) {
+                        EditorVisualTile(title: style.displayName, isSelected: settings.style == style) {
                             settings.style = style
+                        } preview: {
+                            AutoEditStylePreview(style: style)
                         }
                     }
                 }
