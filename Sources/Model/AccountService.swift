@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import AuthenticationServices
+import UIKit
 
 // =====================================================================
 // アカウントとポイント(server/ の Cloudflare Workers と話す)。
@@ -55,6 +56,8 @@ final class AccountService {
 
     private static let tokenKey = "vm.sessionToken"
     private static let sourceKey = "vm.cloudAISource"
+    /// 「Apple でサインイン」の利用者 ID(やめられていないかを確かめるのに使う)
+    private static let appleUserIDKey = "vm.appleUserID"
 
     /// 残りポイント(わからないときは nil)
     private(set) var points: Int?
@@ -68,6 +71,8 @@ final class AccountService {
     private(set) var adRewardPoints = 0
     var adRewardsRemaining: Int { max(0, adRewardLimit - adRewardsToday) }
     private(set) var isWorking = false
+    /// 残りポイントを取り直している途中か
+    private(set) var isRefreshing = false
     var lastError: String?
 
     /// クラウド AI をどちらで使うか
@@ -79,12 +84,30 @@ final class AccountService {
     @ObservationIgnored private let lock = NSLock()
     @ObservationIgnored private var cachedToken: String
     private(set) var isSignedIn: Bool
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     private init() {
         let token = KeychainStore.get(Self.tokenKey) ?? ""
         cachedToken = token
         isSignedIn = !token.isEmpty
         source = CloudAISource(rawValue: UserDefaults.standard.string(forKey: Self.sourceKey) ?? "") ?? .points
+
+        let center = NotificationCenter.default
+        // 設定 → Apple アカウント で「Apple でサインイン」をやめられたら、すぐにサインアウトする
+        let revoked = center.addObserver(forName: ASAuthorizationAppleIDProvider.credentialRevokedNotification,
+                                         object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                AccountService.shared.signOut()
+            }
+        }
+        // アプリが前面に戻るたびに、Apple でのサインインがまだ有効かを確かめる
+        let didBecomeActive = center.addObserver(forName: UIApplication.didBecomeActiveNotification,
+                                                 object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                await AccountService.shared.verifyAppleCredential()
+            }
+        }
+        observers = [revoked, didBecomeActive]
     }
 
     var isAvailable: Bool { Self.serverURL != nil }
@@ -136,6 +159,8 @@ final class AccountService {
                 let json = try await request("v1/auth/apple", method: "POST", body: body, authorized: false)
                 guard let token = json["token"] as? String else { throw AccountError.invalidResponse }
                 setToken(token)
+                // 起動時・前面に戻ったときに、Apple でのサインインがやめられていないかを確かめるため
+                _ = KeychainStore.set(credential.user, for: Self.appleUserIDKey)
                 points = json["points"] as? Int
                 dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
                 source = .points
@@ -148,6 +173,7 @@ final class AccountService {
     @MainActor
     func signOut() {
         setToken("")
+        KeychainStore.delete(Self.appleUserIDKey)
         points = nil
         dailyAvailable = false
         userID = nil
@@ -155,11 +181,66 @@ final class AccountService {
         adRewardLimit = 0
     }
 
+    /// クラウド AI の送信がサーバーから 401(ログインの期限切れ)を受け取ったときに呼ぶ。
+    /// sentToken はその送信に使ったセッショントークン。今のトークンと違えば(その間にサインインし直していれば)何もしない。
+    /// nil(背景セッションの送信など、送ったトークンがわからないとき)は、今のトークンでサーバーに聞き直す。
+    /// 今のトークンも 401 なら request がサインアウトする(その間にサインインし直していれば、そのまま)
+    @MainActor
+    func handleSessionExpired(sentToken: String?) {
+        guard isSignedIn else { return }
+        guard let sentToken else {
+            Task { await refresh() }
+            return
+        }
+        if sentToken != sessionToken { return }
+        signOut()
+    }
+
+    /// 「Apple でサインイン」がまだ有効かを確かめ、やめられていた(または見つからない)ならサインアウトする。
+    /// セッショントークンの期限(30 日)が過ぎていてもサインアウトする(送っても 401 になるだけなので)。
+    /// 起動時(VideoEditorApp)と、アプリが前面に戻るたびに呼ぶ
+    @MainActor
+    func verifyAppleCredential() async {
+        guard isSignedIn else { return }
+        let token = sessionToken
+        let claims = Self.sessionClaims(token)
+        if let exp = (claims?["exp"] as? NSNumber)?.doubleValue, exp < Date().timeIntervalSince1970 {
+            signOut()
+            return
+        }
+        // 利用者 ID を保存する前のバージョンでサインインした人は、トークンの sub("apple:…")から取る
+        var appleUserID = KeychainStore.get(Self.appleUserIDKey) ?? ""
+        if appleUserID.isEmpty, let sub = claims?["sub"] as? String, sub.hasPrefix("apple:") {
+            appleUserID = String(sub.dropFirst("apple:".count))
+        }
+        guard !appleUserID.isEmpty else { return }
+        guard let state = try? await ASAuthorizationAppleIDProvider().credentialState(forUserID: appleUserID) else { return }
+        // 確かめている間にサインアウト・サインインし直していれば何もしない
+        guard isSignedIn, token == sessionToken else { return }
+        if state == .revoked || state == .notFound {
+            signOut()
+        }
+    }
+
+    /// セッショントークン("vm1.<base64url の JSON>.<署名>")の中身(sub・exp)。読めなければ nil
+    private static func sessionClaims(_ token: String) -> [String: Any]? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "vm1" else { return nil }
+        var base64 = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 { base64 += "=" }
+        guard let data = Data(base64Encoded: base64) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
     // MARK: - ポイント
 
     @MainActor
     func refresh() async {
         guard isSignedIn, isAvailable else { return }
+        isRefreshing = true
+        // 前の失敗のエラーは、取り直すときに消す(成功したら赤い文が残らないように)
+        lastError = nil
+        defer { isRefreshing = false }
         do {
             let json = try await request("v1/me", method: "GET", body: nil, authorized: true)
             points = json["points"] as? Int
@@ -178,8 +259,10 @@ final class AccountService {
             points = json["points"] as? Int
             dailyAvailable = false
         } catch {
-            lastError = error.localizedDescription
+            let message = error.localizedDescription
             await refresh()
+            // refresh は前のエラーを消すので、受け取りの失敗はその後に入れる
+            lastError = message
         }
     }
 
@@ -218,8 +301,10 @@ final class AccountService {
                 await refresh()
             }
         } catch {
-            lastError = error.localizedDescription
+            let message = error.localizedDescription
             await refresh()
+            // refresh は前のエラーを消すので、受け取りの失敗はその後に入れる
+            lastError = message
         }
     }
 
@@ -256,10 +341,40 @@ final class AccountService {
             await MainActor.run { self.signOut() }
         }
         guard (200..<300).contains(status) else {
-            let message = ((json["error"] as? [String: Any])?["message"] as? String) ?? String(localized: "サーバーでエラーが起きました(\(status))")
+            // サーバーの文は日本語だけなので、知っている code は端末の言語の文にする(CloudAIErrorBody)
+            let detail = CloudAIErrorBody(data: data).displayMessage
+            let message = detail.isEmpty ? String(localized: "サーバーでエラーが起きました(\(status))") : detail
             throw AccountError.server(message)
         }
         return json
+    }
+}
+
+/// クラウド AI のエラー応答(OpenAI 形式 {error:{message,code}}。サーバーも同じ形で type が "videomania")を読む。
+/// サーバーの文は日本語だけなので、知っている code は端末の言語の文にして見せる
+struct CloudAIErrorBody {
+    private(set) var message = ""
+    private(set) var code = ""
+    /// Video Mania のサーバーが返したエラーか(OpenAI のエラーではない)
+    private(set) var fromServer = false
+
+    /// JSON でなければ message は空
+    init(data: Data) {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        if let error = object["error"] as? [String: Any] {
+            message = (error["message"] as? String) ?? ""
+            code = (error["code"] as? String) ?? ""
+            fromServer = (error["type"] as? String) == "videomania"
+        } else if let error = object["error"] as? String {
+            message = error
+            code = (object["code"] as? String) ?? ""
+        }
+    }
+
+    /// 利用者に見せる文(読めなければ空)
+    var displayMessage: String {
+        if fromServer, let localized = CloudAIGateway.localizedServerMessage(code: code) { return localized }
+        return message
     }
 }
 
@@ -296,5 +411,25 @@ enum CloudAIGateway {
     /// Authorization: Bearer に入れる値(セッショントークン、または利用者の OpenAI キー)
     static var credential: String {
         usesPoints ? AccountService.shared.sessionToken : AppSettings.shared.openAIKey
+    }
+
+    /// サーバーのエラーの code(server/src/index.js)を、端末の言語の文にする。知らない code は nil(サーバーの文を使う)
+    static func localizedServerMessage(code: String) -> String? {
+        switch code {
+        case "unauthorized":
+            return String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。")
+        case "insufficient_points":
+            return String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。")
+        case "upstream_auth":
+            return String(localized: "AI のサービスの設定に問題があります(サーバー側)。ポイントは戻しました。時間をおいてお試しください。")
+        case "upstream_unreachable":
+            return String(localized: "AI のサービスにつながりませんでした。時間をおいてお試しください。")
+        case "already_claimed":
+            return String(localized: "今日のボーナスは受け取り済み")
+        case "invalid_apple_token":
+            return String(localized: "Apple でのサインインを確認できませんでした。もう一度お試しください。")
+        default:
+            return nil
+        }
     }
 }

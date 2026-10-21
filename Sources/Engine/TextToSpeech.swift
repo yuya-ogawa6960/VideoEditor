@@ -152,7 +152,10 @@ enum TextToSpeech {
 enum CloudTextToSpeechError: LocalizedError {
     case notConfigured
     case insufficientPoints(String)
+    /// 自分の OpenAI キーが正しくない(自分のキーで送ったときだけ)
     case upstreamAuth
+    /// ポイント(サーバー)のログインの期限が切れた(サインアウト済み)
+    case sessionExpired
     case server(Int, String)
 
     var errorDescription: String? {
@@ -163,6 +166,8 @@ enum CloudTextToSpeechError: LocalizedError {
             return detail.isEmpty ? String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。") : detail
         case .upstreamAuth:
             return String(localized: "APIキーが正しくありません。「文字起こしの方式」の画面で OpenAI の API キーを確認してください。")
+        case .sessionExpired:
+            return String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。")
         case .server(let status, let detail):
             return String(localized: "クラウドの声を作れませんでした(\(status)): \(detail)")
         }
@@ -174,6 +179,8 @@ enum CloudTextToSpeech {
     static func render(text: String, voice: CloudVoice, speed: Double, instructions: String?) async throws -> URL {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw TextToSpeechError.emptyText }
+        // どちらに送ったか(エラーの見せ方を決める。送っている間に設定が変わっても、送った宛先で判断する)
+        let viaServer = CloudAIGateway.usesPoints
         let credential = CloudAIGateway.credential
         guard !credential.isEmpty else { throw CloudTextToSpeechError.notConfigured }
 
@@ -197,9 +204,20 @@ enum CloudTextToSpeech {
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            let detail = Self.message(in: data)
-            if status == 402 { throw CloudTextToSpeechError.insufficientPoints(detail) }
-            if status == 401 || status == 403 || detail.contains("upstream_auth") { throw CloudTextToSpeechError.upstreamAuth }
+            let errorBody = CloudAIErrorBody(data: data)
+            let detail = errorBody.displayMessage.isEmpty
+                ? (String(data: data.prefix(200), encoding: .utf8) ?? "")
+                : errorBody.displayMessage
+            // ポイント不足(サーバーの文は日本語だけなので、端末の言語の文を出す)
+            if status == 402 { throw CloudTextToSpeechError.insufficientPoints("") }
+            if status == 401, viaServer {
+                // ログインの期限切れ。送ったトークンが今のものならサインアウトする
+                await MainActor.run { AccountService.shared.handleSessionExpired(sentToken: credential) }
+                throw CloudTextToSpeechError.sessionExpired
+            }
+            // サーバー側の OpenAI キーの問題(ポイントは戻してある)。利用者のキーの問題ではない
+            if errorBody.code == "upstream_auth" { throw CloudTextToSpeechError.server(status, detail) }
+            if !viaServer, status == 401 || status == 403 { throw CloudTextToSpeechError.upstreamAuth }
             throw CloudTextToSpeechError.server(status, detail)
         }
         guard data.count > 100 else { throw TextToSpeechError.noAudioProduced }
@@ -210,23 +228,6 @@ enum CloudTextToSpeech {
             throw TextToSpeechError.cannotWrite(error.localizedDescription)
         }
         return destination
-    }
-
-    /// エラー応答(OpenAI 形式 {error:{message,code}} / サーバー形式 {error, code})から人が読む文を取り出す
-    private static func message(in data: Data) -> String {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return String(data: data.prefix(200), encoding: .utf8) ?? ""
-        }
-        if let error = object["error"] as? [String: Any] {
-            let message = (error["message"] as? String) ?? ""
-            let code = (error["code"] as? String) ?? ""
-            return [message, code].filter { !$0.isEmpty }.joined(separator: " ")
-        }
-        if let error = object["error"] as? String {
-            let code = (object["code"] as? String) ?? ""
-            return [error, code].filter { !$0.isEmpty }.joined(separator: " ")
-        }
-        return ""
     }
 }
 

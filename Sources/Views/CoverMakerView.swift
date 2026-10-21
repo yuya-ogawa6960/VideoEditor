@@ -35,6 +35,8 @@ struct CoverMakerView: View {
     @State private var shareURL: URL?
     @State private var alertTitle = ""
     @State private var alertMessage: String?
+    /// アラートに「設定を開く」を出すか(写真の追加が許可されていないときだけ)
+    @State private var alertOffersSettings = false
 
     /// プレビューの描画幅(px)
     private let previewWidth: CGFloat = 1280
@@ -95,6 +97,13 @@ struct CoverMakerView: View {
                 get: { alertMessage != nil },
                 set: { if !$0 { alertMessage = nil } }
             )) {
+                if alertOffersSettings {
+                    Button("設定を開く") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                }
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(alertMessage ?? "")
@@ -573,12 +582,12 @@ struct CoverMakerView: View {
                 if let picked = try await item.loadTransferable(type: PickedPhoto.self) {
                     project.cover.imageURL = picked.url
                 } else {
-                    alertTitle = String(localized: "写真を読み込めませんでした")
-                    alertMessage = String(localized: "別の写真を選んでください(この写真は読み込めない形式です)。")
+                    showAlert(title: String(localized: "写真を読み込めませんでした"),
+                              message: String(localized: "別の写真を選んでください(この写真は読み込めない形式です)。"))
                 }
             } catch {
-                alertTitle = String(localized: "写真を読み込めませんでした")
-                alertMessage = String(localized: "もう一度「写真を選ぶ」から選び直してください。\n\n詳細: ") + error.localizedDescription
+                showAlert(title: String(localized: "写真を読み込めませんでした"),
+                          message: String(localized: "もう一度「写真を選ぶ」から選び直してください。\n\n詳細: ") + error.localizedDescription)
             }
             photoItem = nil
         }
@@ -596,14 +605,26 @@ struct CoverMakerView: View {
             do {
                 let image = try await CoverRenderer.render(snapshot: snapshot, cover: cover, size: size)
                 try await CoverRenderer.saveToPhotos(image)
-                alertTitle = String(localized: "保存しました")
-                alertMessage = String(localized: "表紙の画像を写真アプリに保存しました。")
+                showAlert(title: String(localized: "保存しました"),
+                          message: String(localized: "表紙の画像を写真アプリに保存しました。"))
+            } catch CoverRendererError.photosAccessDenied {
+                showAlert(title: String(localized: "保存できませんでした"),
+                          message: String(localized: "「設定を開く」→「写真」で写真の追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: ")
+                              + CoverRendererError.photosAccessDenied.localizedDescription,
+                          offersSettings: true)
             } catch {
-                alertTitle = String(localized: "保存できませんでした")
-                alertMessage = String(localized: "設定アプリでこのアプリの「写真」への追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: ") + error.localizedDescription
+                // 画像の作成や写真ライブラリ側の失敗。許可の問題ではないので「設定を開く」は出さない
+                showAlert(title: String(localized: "保存できませんでした"),
+                          message: String(localized: "もう一度「写真に保存」を押してください。\n\n詳細: ") + error.localizedDescription)
             }
             isSaving = false
         }
+    }
+
+    private func showAlert(title: String, message: String, offersSettings: Bool = false) {
+        alertTitle = title
+        alertOffersSettings = offersSettings
+        alertMessage = message
     }
 
     private func prepareShare() {
@@ -621,13 +642,20 @@ struct CoverMakerView: View {
                 let formatter = DateFormatter()
                 formatter.locale = Locale(identifier: "en_US_POSIX")
                 formatter.dateFormat = "yyyyMMdd_HHmmss"
-                let url = FileManager.default.temporaryDirectory
+                let directory = FileManager.default.temporaryDirectory
+                // 前に送る用に作った画像は消す(tmp に溜まらないように。共有シートは閉じているので使い中のものは無い)
+                if let oldFiles = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+                    for file in oldFiles where file.lastPathComponent.hasPrefix("cover_") && file.pathExtension.lowercased() == "jpg" {
+                        try? FileManager.default.removeItem(at: file)
+                    }
+                }
+                let url = directory
                     .appendingPathComponent("cover_\(formatter.string(from: Date())).jpg")
                 try data.write(to: url, options: .atomic)
                 shareURL = url
             } catch {
-                alertTitle = String(localized: "画像を作れませんでした")
-                alertMessage = String(localized: "端末の空き容量を確かめて、もう一度お試しください。\n\n詳細: ") + error.localizedDescription
+                showAlert(title: String(localized: "画像を作れませんでした"),
+                          message: String(localized: "端末の空き容量を確かめて、もう一度お試しください。\n\n詳細: ") + error.localizedDescription)
             }
             isPreparingShare = false
         }

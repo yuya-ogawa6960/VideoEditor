@@ -26,13 +26,13 @@ enum ScriptWriterError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noEngine:
-            return "AI が使えません。iOS 26 以降で Apple Intelligence を有効にするか、設定で OpenAI の API キーを登録してください"
+            return String(localized: "AI が使えません。iOS 26 以降で Apple Intelligence を有効にするか、設定で OpenAI の API キーを登録してください")
         case .emptyTopic:
-            return "台本のテーマを入力してください"
+            return String(localized: "台本のテーマを入力してください")
         case .noSubtitles:
-            return "字幕がありません。先に文字起こしをしてください"
+            return String(localized: "字幕がありません。先に文字起こしをしてください")
         case .invalidResponse:
-            return "AI の応答を読み取れませんでした。もう一度お試しください"
+            return String(localized: "AI の応答を読み取れませんでした。もう一度お試しください")
         case .requestFailed(let detail):
             return detail
         }
@@ -280,7 +280,7 @@ enum ScriptWriter {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    throw ScriptWriterError.requestFailed("端末内 AI でエラーが起きました: \(error.localizedDescription)")
+                    throw ScriptWriterError.requestFailed(String(localized: "端末内 AI でエラーが起きました: \(error.localizedDescription)"))
                 }
             }
             #endif
@@ -305,8 +305,10 @@ enum ScriptWriter {
             ],
         ]
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
-            throw ScriptWriterError.requestFailed("リクエストを作成できませんでした")
+            throw ScriptWriterError.requestFailed(String(localized: "リクエストを作成できませんでした"))
         }
+        // どちらに送ったか(エラーの見せ方を決める。送っている間に設定が変わっても、送った宛先で判断する)
+        let viaServer = CloudAIGateway.usesPoints
         var request = URLRequest(url: cloudEndpoint)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -320,16 +322,25 @@ enum ScriptWriter {
         } catch {
             if error is CancellationError { throw CancellationError() }
             if let urlError = error as? URLError, urlError.code == .cancelled { throw CancellationError() }
-            throw ScriptWriterError.requestFailed("通信エラー: \(error.localizedDescription)")
+            throw ScriptWriterError.requestFailed(String(localized: "通信エラー: \(error.localizedDescription)"))
         }
         let data = result.0
         let response = result.1
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             switch status {
-            case 401: throw ScriptWriterError.requestFailed("OpenAI の API キーが正しくありません")
-            case 429: throw ScriptWriterError.requestFailed("OpenAI の利用上限に達しました")
-            default: throw ScriptWriterError.requestFailed("OpenAI がエラーを返しました(\(status))")
+            case 401 where viaServer:
+                // ポイント(サーバー)のログインの期限切れ。送ったトークンが今のものならサインアウトする
+                await MainActor.run { AccountService.shared.handleSessionExpired(sentToken: key) }
+                throw ScriptWriterError.requestFailed(String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。"))
+            case 401: throw ScriptWriterError.requestFailed(String(localized: "OpenAI の API キーが正しくありません"))
+            case 402: throw ScriptWriterError.requestFailed(String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。"))
+            case 429: throw ScriptWriterError.requestFailed(String(localized: "OpenAI の利用上限に達しました"))
+            default:
+                let summary = viaServer ? String(localized: "サーバーがエラーを返しました(\(status))")
+                                        : String(localized: "OpenAI がエラーを返しました(\(status))")
+                let detail = CloudAIErrorBody(data: data).displayMessage
+                throw ScriptWriterError.requestFailed(detail.isEmpty ? summary : summary + ": " + detail)
             }
         }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

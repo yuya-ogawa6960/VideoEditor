@@ -10,4 +10,12 @@ enum AudioSessionSetup {
         guard session.category != .playback, session.category != .playAndRecord else { return }
         try? session.setCategory(.playback, mode: .default, options: [])
     }
+
+    /// 音声セッションを手放し、止めていた他のアプリ(音楽など)の再生を再開させる(バックグラウンドに入ったときなど)。
+    /// 録音中(.playAndRecord)は触らない。次に再生するときは AVPlayer がまた有効にする
+    static func release() {
+        let session = AVAudioSession.sharedInstance()
+        guard session.category != .playAndRecord else { return }
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+    }
 }

@@ -75,7 +75,15 @@ enum GIFExporter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd_HHmmss"
-        let url = outputDirectory.appendingPathComponent("VideoMania_\(formatter.string(from: Date())).gif")
+        // 前に作った GIF は消す(tmp に溜まらないように)。GIF を送るのは書き出し画面からだけで、
+        // 新しい GIF を作るときには共有シートは閉じているので、使い中のものは無い
+        let directory = outputDirectory
+        if let oldFiles = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+            for file in oldFiles {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+        let url = directory.appendingPathComponent("VideoMania_\(formatter.string(from: Date())).gif")
         if FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.removeItem(at: url)
         }

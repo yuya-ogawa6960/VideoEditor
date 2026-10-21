@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import Photos
 import AVFoundation
 import Combine
 import UniformTypeIdentifiers
@@ -47,8 +48,17 @@ struct ContentView: View {
     @State private var isImporting = false
     @State private var importDone = 0
     @State private var importTotal = 0
+    /// 読み込み中の 1 件の進み具合(iCloud からのダウンロードなど。nil ならわからない)
+    @State private var importFraction: Double?
+    /// 読み込みの処理(「キャンセル」で止める)
+    @State private var importTask: Task<Void, Never>?
+    /// 「写真ライブラリから参照」なのに参照できず、アプリに取り込んだ動画があった(読み込みのたびに戻す)
+    @State private var importCopiedPhotoMedia = false
 
     @State private var alertMessage: String?
+    /// お知らせに「設定を開く」を出す(写真へのアクセスが許可されていないときなど)
+    @State private var alertOffersSettings = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showClearProjectConfirm = false
     @State private var showSilenceCutConfirm = false
     @State private var showPunchInDialog = false
@@ -186,34 +196,35 @@ struct ContentView: View {
             guard !newItems.isEmpty else { return }
             let items = newItems
             pickerItems = []
-            Task { await importItems(items) }
+            importTask = Task { await importItems(items) }
         }
         .onChange(of: slideshowPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             let items = newItems
             slideshowPickerItems = []
-            Task { await importSlideshowItems(items) }
+            importTask = Task { await importSlideshowItems(items) }
         }
         .onChange(of: overlayPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             let items = newItems
             overlayPickerItems = []
-            Task { await importOverlayItems(items) }
+            importTask = Task { await importOverlayItems(items) }
         }
         .onChange(of: replacePickerItem) { _, newItem in
             guard let item = newItem else { return }
             replacePickerItem = nil
             guard let clipID = selection?.clipID else { return }
-            Task { await replaceClip(clipID, with: item) }
+            importTask = Task { await replaceClip(clipID, with: item) }
         }
         .onChange(of: extractAudioPickerItem) { _, newItem in
             guard let item = newItem else { return }
             extractAudioPickerItem = nil
-            Task { await extractAudio(from: item) }
-        }
-        // 書き出し中は画面の自動ロックを止める
-        .onChange(of: ExportManager.shared.isRunning) { _, running in
-            IdleTimerGuard.set(running, for: "export")
+            // 進捗表示の「キャンセル」で止められるように mediaToolTask に入れる
+            mediaToolTask?.cancel()
+            mediaToolTask = Task { @MainActor in
+                await extractAudio(from: item)
+                mediaToolTask = nil
+            }
         }
         .onChange(of: project.snapshot()) { _, newSnapshot in
             player.update(with: newSnapshot)
@@ -276,6 +287,11 @@ struct ContentView: View {
             Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーション・テキスト・手書き・マーカーはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
         .alert("お知らせ", isPresented: alertIsPresented) {
+            if alertOffersSettings {
+                Button("設定を開く") {
+                    openSystemSettings()
+                }
+            }
             Button("OK", role: .cancel) {}
         } message: {
             Text(alertMessage ?? "")
@@ -291,8 +307,8 @@ struct ContentView: View {
                 undoFromToast()
             }
             .padding(.bottom, 84)
-            // 雲のようにふわっと現れ、消えるときは真ん中にスッと吸い込まれる
-            .transition(.toastCloud)
+            // 雲のようにふわっと現れ、消えるときは真ん中にスッと吸い込まれる(動きを減らす設定では薄く出入りするだけ)
+            .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.toastCloud)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: current.id) {
@@ -383,6 +399,10 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("プロジェクト一覧へ戻る")
+            // 上部バーは高さが決まっているので、大きな文字の設定では長押しで拡大して見せる
+            .accessibilityShowsLargeContentViewer {
+                Label("一覧", systemImage: "chevron.left")
+            }
 
             Button {
                 EditorHaptics.tap()
@@ -2497,9 +2517,11 @@ struct ContentView: View {
         isImporting = true
         importTotal = items.count
         importDone = 0
+        importFraction = nil
         var urls: [URL] = []
         var failures = 0
         for item in items {
+            if Task.isCancelled { break }
             do {
                 if let photo = try await item.loadTransferable(type: PickedPhoto.self) {
                     urls.append(photo.url)
@@ -2512,6 +2534,14 @@ struct ContentView: View {
             importDone += 1
         }
         isImporting = false
+        importTask = nil
+        if Task.isCancelled {
+            // キャンセルされたらシートは開かず、コピーした写真も片付ける
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
+            return
+        }
         if urls.isEmpty {
             alertMessage = failures > 0 ? String(localized: "写真を読み込めませんでした(\(failures) 枚)。") : String(localized: "写真を読み込めませんでした。")
             return
@@ -2524,14 +2554,31 @@ struct ContentView: View {
     }
 
     private var importOverlay: some View {
-        ZStack {
+        let total: Double = Double(max(importTotal, 1))
+        // 読み込み中の 1 件の進み具合も足す(iCloud にしかない大きな動画でも止まって見えないように)
+        let done: Double = min(Double(importDone) + (importFraction ?? 0), total)
+        return ZStack {
             Color.black.opacity(0.5)
                 .ignoresSafeArea()
             VStack(spacing: 12) {
-                ProgressView(value: Double(importDone), total: Double(max(importTotal, 1)))
+                ProgressView(value: done, total: total)
                 Text("読み込み中… \(importDone)/\(importTotal)")
                     .font(.callout)
                     .monospacedDigit()
+                Button {
+                    EditorHaptics.tap()
+                    importTask?.cancel()
+                } label: {
+                    Text("キャンセル")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.15), in: Capsule())
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .padding(20)
             .frame(width: 260)
@@ -2539,13 +2586,30 @@ struct ContentView: View {
         }
     }
 
+    /// index 件目(importDone と同じ数え方)の読み込みの進み具合を受け取る。
+    /// 終わった件から遅れて届いた値は、次の件の進み具合にしない
+    private func importProgress(for index: Int) -> MovieImporter.ProgressHandler {
+        { fraction in
+            guard isImporting, importDone == index else { return }
+            importFraction = fraction.isFinite ? min(max(fraction, 0), 1) : nil
+        }
+    }
+
     private var alertIsPresented: Binding<Bool> {
         Binding<Bool>(
             get: { alertMessage != nil },
             set: { newValue in
-                if !newValue { alertMessage = nil }
+                if !newValue {
+                    alertMessage = nil
+                    alertOffersSettings = false
+                }
             }
         )
+    }
+
+    private func openSystemSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     // MARK: - 状態
@@ -2787,15 +2851,22 @@ struct ContentView: View {
         isImporting = true
         importTotal = items.count
         importDone = 0
+        importFraction = nil
+        importCopiedPhotoMedia = false
         var failures: [String] = []
+        var needsPhotoSettings = false
         var recorded = false
         var lastAdded: UUID?
         var before: ProjectSnapshot?
         for item in items {
+            // キャンセルされたら、追加済みの分は残してやめる
+            if Task.isCancelled { break }
+            importFraction = nil
+            let progress = importProgress(for: importDone)
             do {
                 var overlay: OverlayClip?
                 if Self.looksLikeMovie(item) {
-                    let movieURL = try await importMovieURL(item)
+                    let movieURL = try await importMovieURL(item, onProgress: progress)
                     var video = try await MediaStore.makeOverlay(fromVideo: movieURL)
                     OverlayPreset.bRollFull.apply(to: &video)
                     overlay = video
@@ -2805,7 +2876,7 @@ struct ContentView: View {
                     overlay = image
                 } else {
                     // 種類が判定できなかった場合の保険
-                    let movieURL = try await importMovieURL(item)
+                    let movieURL = try await importMovieURL(item, onProgress: progress)
                     var video = try await MediaStore.makeOverlay(fromVideo: movieURL)
                     OverlayPreset.bRollFull.apply(to: &video)
                     overlay = video
@@ -2825,19 +2896,28 @@ struct ContentView: View {
                 project.sortOverlays()
                 lastAdded = added.id
             } catch {
+                // キャンセルは失敗として数えない
+                if error is CancellationError || Task.isCancelled { break }
+                if MovieImporterError.isPhotoAccessError(error) { needsPhotoSettings = true }
                 failures.append(error.localizedDescription)
             }
             importDone += 1
         }
+        let cancelled = Task.isCancelled
         isImporting = false
+        importFraction = nil
+        importTask = nil
         if let lastAdded {
             selection = .overlay(lastAdded)
             // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻せる
             panelSnapshot = before
             activePanel = .overlayPlacement(lastAdded)
         }
-        if !failures.isEmpty {
+        if !failures.isEmpty, !cancelled {
+            alertOffersSettings = needsPhotoSettings
             alertMessage = String(localized: "\(failures.count)件の素材を読み込めませんでした。\n") + failures.joined(separator: "\n")
+        } else if lastAdded != nil, importCopiedPhotoMedia {
+            showToast(Self.photoCopiedNote(), style: .info)
         }
     }
 
@@ -3013,16 +3093,34 @@ struct ContentView: View {
         isImporting = true
         importTotal = 1
         importDone = 0
-        defer { isImporting = false }
+        importFraction = nil
+        defer {
+            isImporting = false
+            importFraction = nil
+            importTask = nil
+        }
+        let progress = importProgress(for: 0)
+        // 取り込んだファイル(キャンセルしたときに消す。置き換えはいつもアプリ内へのコピーなので消してよい)
+        var importedURL: URL?
         do {
             // 動画でも写真でも置き換えられる(写真は静止画クリップになり、長さは元のクリップと同じ)
             let fresh: Clip
             if Self.looksLikeMovie(item) {
-                fresh = try await MediaStore.makeClip(from: try await MovieImporter.importMovie(item))
+                let url = try await MovieImporter.importMovie(item, onProgress: progress)
+                importedURL = url
+                fresh = try await MediaStore.makeClip(from: url)
             } else if let photo = try? await item.loadTransferable(type: PickedPhoto.self) {
+                importedURL = photo.url
                 fresh = try makeStillClip(from: photo.url)
             } else {
-                fresh = try await MediaStore.makeClip(from: try await MovieImporter.importMovie(item))
+                let url = try await MovieImporter.importMovie(item, onProgress: progress)
+                importedURL = url
+                fresh = try await MediaStore.makeClip(from: url)
+            }
+            // キャンセルされたら置き換えず、取り込んだファイルも消す
+            if Task.isCancelled {
+                Self.removeUnusedFiles([importedURL, fresh.url, fresh.stillImageURL])
+                return
             }
             guard let i = project.index(of: clipID) else { return }
             let old = project.clips[i]
@@ -3075,7 +3173,21 @@ struct ContentView: View {
                 showToast(String(localized: "置き換えました"), undo: true)
             }
         } catch {
+            // キャンセルはお知らせを出さない(取り込み済みのファイルは使わないので消す)
+            if error is CancellationError || Task.isCancelled {
+                Self.removeUnusedFiles([importedURL])
+                return
+            }
+            alertOffersSettings = MovieImporterError.isPhotoAccessError(error)
             alertMessage = String(localized: "動画を置き換えられませんでした。\n\(error.localizedDescription)")
+        }
+    }
+
+    /// 使わなくなった取り込みファイルを消す(nil と重複は飛ばす)
+    private static func removeUnusedFiles(_ urls: [URL?]) {
+        var seen = Set<String>()
+        for url in urls.compactMap({ $0 }) where seen.insert(url.path).inserted {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 
@@ -3084,20 +3196,46 @@ struct ContentView: View {
     private func extractAudio(from item: PhotosPickerItem) async {
         mediaToolProgress = ClipFXProgress(title: String(localized: "音声を取り出しています"), fraction: nil)
         defer { mediaToolProgress = nil }
+        // 取り込んだ動画のコピーと、取り出した音声(キャンセル・失敗したときに消す)
+        var movieURL: URL?
+        var audioURL: URL?
         do {
-            let movieURL = try await MovieImporter.importMovie(item)
-            let extracted = try await MediaTools.extractAudio(from: movieURL, start: nil, end: nil)
+            // iCloud からのダウンロード中は進み具合を出す
+            let movie = try await MovieImporter.importMovie(item, onProgress: { fraction in
+                if mediaToolProgress != nil {
+                    mediaToolProgress?.fraction = fraction.isFinite ? min(max(fraction, 0), 1) : nil
+                }
+            })
+            movieURL = movie
+            mediaToolProgress?.fraction = nil
+            if Task.isCancelled {
+                // 取り出し元の動画コピーは使わない
+                Self.removeUnusedFiles([movieURL])
+                return
+            }
+            let extracted = try await MediaTools.extractAudio(from: movie, start: nil, end: nil)
+            audioURL = extracted
             var url = extracted
             if !url.path.hasPrefix(MediaStore.mediaDirectory.path) {
                 url = try MediaStore.copyIntoMediaDirectory(extracted)
+                audioURL = url
+                if url != extracted {
+                    try? FileManager.default.removeItem(at: extracted)
+                }
             }
             // 取り出し元の動画コピーは不要になる
-            if movieURL != url {
-                try? FileManager.default.removeItem(at: movieURL)
+            if movie != url {
+                try? FileManager.default.removeItem(at: movie)
             }
+            movieURL = nil
             let asset = AVURLAsset(url: url)
             let seconds = try await asset.load(.duration).seconds
             let duration = (seconds.isFinite && seconds > 0) ? seconds : 1
+            // 取り出しの最後にキャンセルされたときも、ナレーションは追加しない
+            if Task.isCancelled {
+                Self.removeUnusedFiles([audioURL])
+                return
+            }
             history.record(project)
             let clip = NarrationClip(url: url,
                                      name: MediaStore.displayName(for: url, fallback: String(localized: "抽出した音声")),
@@ -3107,6 +3245,11 @@ struct ContentView: View {
             project.sortNarration()
             selection = .narration(clip.id)
         } catch {
+            // 途中までに作ったファイルは使わないので消す
+            Self.removeUnusedFiles([movieURL, audioURL])
+            // キャンセルはお知らせを出さない
+            if error is CancellationError || Task.isCancelled { return }
+            alertOffersSettings = MovieImporterError.isPhotoAccessError(error)
             alertMessage = String(localized: "音声を取り出せませんでした。\n\(error.localizedDescription)")
         }
     }
@@ -3384,6 +3527,8 @@ struct ContentView: View {
         activeSheet = nil
         selection = nil
         draftStrokes = []
+        // 写真ライブラリから読み出せずに保留していたクリップも消す(残すと保存のときに書き戻される)
+        ProjectStore.discardHeldUnresolvedItems(projectID: projectID)
         project.restore(ProjectSnapshot(clips: [],
                                         subtitles: [],
                                         subtitleStyle: SubtitleStyle(),
@@ -3412,6 +3557,9 @@ struct ContentView: View {
                     restoreSavedProject()
                     isLoadingPhotoMedia = false
                     if !missing.isEmpty {
+                        // 写真へのアクセスを許可していない・選んだ写真だけのときは、設定アプリへの入り口を出す
+                        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                        alertOffersSettings = status == .denied || status == .limited
                         alertMessage = String(localized: "写真ライブラリに見つからない動画が \(missing.count) 本ありました。写真アプリで削除したか、写真へのアクセスが許可されていない可能性があります(設定アプリの「Video Mania」→「写真」で「フルアクセス」を選んでください)。")
                     }
                 }
@@ -3441,12 +3589,29 @@ struct ContentView: View {
     /// 動画を取り込む。「写真ライブラリから参照」なら写真ライブラリの動画をそのまま使い、
     /// 参照できない動画(スローモーションなど)や「アプリに取り込む」ではアプリにコピーする
     @MainActor
-    private func importMovieURL(_ item: PhotosPickerItem) async throws -> URL {
-        if mediaMode == .photoLibrary, let id = item.itemIdentifier,
-           let url = await PhotoMediaResolver.resolve(assetID: id) {
+    private func importMovieURL(_ item: PhotosPickerItem, onProgress: MovieImporter.ProgressHandler? = nil) async throws -> URL {
+        // キャンセル後に写真へのアクセスの許可を求めたりしない
+        try Task.checkCancellation()
+        guard mediaMode == .photoLibrary, let id = item.itemIdentifier else {
+            return try await MovieImporter.importMovie(item, onProgress: onProgress)
+        }
+        if let url = await PhotoMediaResolver.resolve(assetID: id, onProgress: onProgress) {
             return url
         }
-        return try await MovieImporter.importMovie(item)
+        try Task.checkCancellation()
+        let url = try await MovieImporter.importMovie(item, onProgress: onProgress)
+        // 参照できずにアプリへ取り込んだ(読み込みが終わったらトーストで伝える)
+        importCopiedPhotoMedia = true
+        return url
+    }
+
+    /// 「写真ライブラリから参照」なのにアプリへ取り込んだときのお知らせ
+    private static func photoCopiedNote() -> String {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if status == .limited || status == .denied || status == .restricted {
+            return String(localized: "写真へのアクセスが制限されているため、動画をアプリに取り込みました")
+        }
+        return String(localized: "スローモーションなど参照できない動画は、アプリに取り込みました")
     }
 
     /// 復元したクリップのサムネイルを読み直す(保存ファイルには画像を含めないため)
@@ -3470,7 +3635,10 @@ struct ContentView: View {
         isImporting = true
         importTotal = items.count
         importDone = 0
+        importFraction = nil
+        importCopiedPhotoMedia = false
         var failures: [String] = []
+        var needsPhotoSettings = false
         var recorded = false
         var added = 0
         // 差し込む位置: 再生位置のクリップの後ろ(末尾の「+」からのときと、クリップが無いときは末尾)
@@ -3482,17 +3650,21 @@ struct ContentView: View {
         importAppendsAtEnd = false
         var firstAddedID: UUID? = nil
         for item in items {
+            // キャンセルされたら、追加済みの分は残してやめる
+            if Task.isCancelled { break }
+            importFraction = nil
+            let progress = importProgress(for: importDone)
             do {
                 let clip: Clip
                 if Self.looksLikeMovie(item) {
-                    let movieURL = try await importMovieURL(item)
+                    let movieURL = try await importMovieURL(item, onProgress: progress)
                     clip = try await MediaStore.makeClip(from: movieURL)
                 } else if let photo = try? await item.loadTransferable(type: PickedPhoto.self) {
                     // 写真は静止画クリップになる
                     clip = try makeStillClip(from: photo.url)
                 } else {
                     // 種類が判定できなかった場合の保険
-                    let movieURL = try await importMovieURL(item)
+                    let movieURL = try await importMovieURL(item, onProgress: progress)
                     clip = try await MediaStore.makeClip(from: movieURL)
                 }
                 if !recorded {
@@ -3508,19 +3680,31 @@ struct ContentView: View {
                 if firstAddedID == nil { firstAddedID = clip.id }
                 added += 1
             } catch {
+                // キャンセルは失敗として数えない
+                if error is CancellationError || Task.isCancelled { break }
+                if MovieImporterError.isPhotoAccessError(error) { needsPhotoSettings = true }
                 // MovieImporter / MediaStore のエラーは日本語の説明(LocalizedError)を持つ
                 failures.append(error.localizedDescription)
             }
             importDone += 1
         }
+        let cancelled = Task.isCancelled
         isImporting = false
-        if !failures.isEmpty {
+        importFraction = nil
+        importTask = nil
+        if !failures.isEmpty, !cancelled {
+            alertOffersSettings = needsPhotoSettings
             alertMessage = String(localized: "\(failures.count)件の動画・写真を読み込めませんでした。\n") + failures.joined(separator: "\n")
         } else if added > 0 {
             if let id = firstAddedID { selection = .clip(id) }
-            showToast(insertAt != nil
-                      ? String(localized: "再生位置の後ろに \(added)件を差し込みました")
-                      : String(localized: "\(added)件を追加しました"), undo: true)
+            if importCopiedPhotoMedia {
+                // 写真ライブラリから参照できずにアプリへ取り込んだことを伝える(元に戻すも出す)
+                showToast(Self.photoCopiedNote(), style: .info, undo: true)
+            } else {
+                showToast(insertAt != nil
+                          ? String(localized: "再生位置の後ろに \(added)件を差し込みました")
+                          : String(localized: "\(added)件を追加しました"), undo: true)
+            }
         }
     }
 }
@@ -3540,9 +3724,9 @@ struct EditorTransportRow: View {
 
         ZStack {
             HStack {
-                Text(currentText + " / " + totalText)
-                    .font(.system(size: 15).monospacedDigit())
-                    .foregroundStyle(Color.white.opacity(0.85))
+                // 真ん中の再生ボタンに重ならない大きさまで
+                EditorTimeReadout(text: currentText + " / " + totalText)
+                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 Spacer()
             }
 
@@ -3581,9 +3765,10 @@ struct EditorTransportRow: View {
             UIDevice.current.beginGeneratingDeviceOrientationNotifications()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
-            // iPhone を横にしたら全画面で見る
+            // iPhone を横にしたら全画面で見る。
+            // シート・アラート・写真の選択などを出している間は開かない(全画面を重ねて出せず、横向きのまま戻れなくなるため)
             let device = UIDevice.current.orientation
-            if device.isLandscape, !isFullScreen, player.duration > 0 {
+            if device.isLandscape, !isFullScreen, player.duration > 0, !Self.isPresentingSomething {
                 openFullScreen(OrientationController.landscapeMask(for: device))
             }
         }
@@ -3602,6 +3787,30 @@ struct EditorTransportRow: View {
     private func closeFullScreen() {
         OrientationController.rotate(to: .portrait)
         isFullScreen = false
+    }
+
+    /// 画面の上に何か(シート・アラート・写真の選択・広告など)を出しているか
+    private static var isPresentingSomething: Bool {
+        let root = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .rootViewController
+        return root?.presentedViewController != nil
+    }
+}
+
+/// 再生時刻の表示。文字の大きさの設定に合わせて大きくする。
+/// 高さ 44pt の行に収まるよう、使う側で .dynamicTypeSize(...) をつけて上限を決める
+/// (@ScaledMetric はこの View に届く文字の大きさで決まるので、中でつけても効かない)
+private struct EditorTimeReadout: View {
+    let text: String
+    @ScaledMetric(relativeTo: .subheadline) private var size: CGFloat = 15
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: size).monospacedDigit())
+            .foregroundStyle(Color.white.opacity(0.85))
     }
 }
 
@@ -3652,9 +3861,9 @@ struct EditorScrubBar: View {
                 .tint(.white)
                 .disabled(player.duration <= 0)
 
-            Text(timeText)
-                .font(.system(size: 15).monospacedDigit())
-                .foregroundStyle(Color.white.opacity(0.85))
+            EditorTimeReadout(text: timeText)
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                .fixedSize()
                 .frame(minWidth: 58, alignment: .trailing)
         }
     }

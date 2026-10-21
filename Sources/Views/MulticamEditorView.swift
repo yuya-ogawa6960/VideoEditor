@@ -141,7 +141,8 @@ struct MulticamEditorView: View {
                              maxSelectionCount: nil,
                              selectionBehavior: .ordered,
                              matching: .videos,
-                             preferredItemEncoding: .current) {
+                             preferredItemEncoding: .current,
+                             photoLibrary: .shared()) {
                     HStack {
                         Label("アングルを追加", systemImage: "plus.circle")
                         if isAddingAngles {
@@ -190,6 +191,8 @@ struct MulticamEditorView: View {
 
     private func angleRow(angle: CameraAngle, number: Int, clip: Clip) -> some View {
         let isSyncing = syncingAngleIDs.contains(angle.id)
+        // 写真ライブラリからいま読み出せないアングル(プロジェクトには残してある)
+        let isUnavailable = ProjectStore.isUnavailablePhotoURL(angle.url)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 ZStack {
@@ -247,7 +250,7 @@ struct MulticamEditorView: View {
                     .font(.caption)
                 }
                 .buttonStyle(.bordered)
-                .disabled(isSyncing || !clip.hasAudio)
+                .disabled(isSyncing || !clip.hasAudio || isUnavailable)
 
                 Spacer()
 
@@ -258,6 +261,11 @@ struct MulticamEditorView: View {
             }
 
             Slider(value: offsetBinding(angleID: angle.id), in: -10...10)
+            if isUnavailable {
+                Text("写真ライブラリからこの動画を読み出せないため、このアングルの区間はメインの映像になります。写真へのアクセスを許可してプロジェクトを開き直すと戻ります。")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
             if !clip.hasAudio {
                 Text("メインの動画に音がないため、自動で合わせられません。±ボタンで合わせてください。")
                     .font(.caption2)
@@ -423,14 +431,12 @@ struct MulticamEditorView: View {
         var failures: [String] = []
         for item in items {
             do {
-                if let movie = try await item.loadTransferable(type: PickedMovie.self) {
-                    let angle = try await MediaStore.makeAngle(from: movie.url)
-                    guard project.index(of: clipID) != nil else { break }
-                    updateClip { clip in
-                        clip.multicam.angles.append(angle)
-                    }
-                } else {
-                    failures.append(String(localized: "動画データを取得できませんでした。"))
+                // スローモーション・iCloud にしかない動画なども受け取れるよう、メインの取り込みと同じ手順で読む
+                let url = try await MovieImporter.importMovie(item)
+                let angle = try await MediaStore.makeAngle(from: url)
+                guard project.index(of: clipID) != nil else { break }
+                updateClip { clip in
+                    clip.multicam.angles.append(angle)
                 }
             } catch {
                 failures.append(error.localizedDescription)

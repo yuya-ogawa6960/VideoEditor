@@ -54,6 +54,15 @@ struct LandscapePreviewView: View {
                     withAnimation(.easeInOut(duration: 0.2)) { showsControls.toggle() }
                     scheduleHide()
                 }
+                // VoiceOver でも選べるようにし、ダブルタップで操作ボタンの表示を切り替える
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("プレビュー")
+                .accessibilityHint("操作ボタンの表示を切り替えます")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(.default) {
+                    withAnimation(.easeInOut(duration: 0.2)) { showsControls.toggle() }
+                    scheduleHide()
+                }
 
             if showsControls {
                 VStack {
@@ -123,6 +132,9 @@ struct LandscapePreviewView: View {
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        // VoiceOver: 2 本指の Z で閉じる・2 本指のダブルタップで再生 / 一時停止
+        .accessibilityAction(.escape) { onClose() }
+        .accessibilityAction(.magicTap) { player.togglePlay() }
         .onAppear { scheduleHide() }
         .onDisappear { hideTask?.cancel() }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
@@ -131,15 +143,33 @@ struct LandscapePreviewView: View {
                 onClose()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.voiceOverStatusDidChangeNotification)) { _ in
+            revealControlsForAssistiveTech()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIAccessibility.switchControlStatusDidChangeNotification)) { _ in
+            revealControlsForAssistiveTech()
+        }
     }
 
-    /// 再生中は 3 秒で操作ボタンを隠す
+    /// VoiceOver / スイッチコントロールの利用中は操作ボタンを隠さない(隠すと戻す手段が無くなる)
+    private var isAssistiveTechRunning: Bool {
+        UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning
+    }
+
+    /// VoiceOver / スイッチコントロールがオンになったら、隠していた操作ボタンを出す
+    private func revealControlsForAssistiveTech() {
+        guard isAssistiveTechRunning else { return }
+        hideTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) { showsControls = true }
+    }
+
+    /// 再生中は 3 秒で操作ボタンを隠す(VoiceOver / スイッチコントロールの利用中は隠さない)
     private func scheduleHide() {
         hideTask?.cancel()
         hideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             if Task.isCancelled { return }
-            if player.isPlaying {
+            if player.isPlaying && !isAssistiveTechRunning {
                 withAnimation(.easeInOut(duration: 0.3)) { showsControls = false }
             }
         }

@@ -23,13 +23,15 @@ struct GoogleFontFamily: Identifiable, Hashable {
 
     var id: String { family }
 
+    /// 一覧の絞り込みに出す分類名(表示のみ。比べるときも categoryName どうしで比べる)。
+    /// 「セリフ」「手書き」はほかの画面のキー(台詞・描く)と訳が違うので、別の書き方にしている
     var categoryName: String {
         switch category {
-        case "Sans Serif": return japanese ? "ゴシック" : "サンセリフ"
-        case "Serif": return japanese ? "明朝" : "セリフ"
-        case "Display": return "デザイン"
-        case "Handwriting": return "手書き"
-        case "Monospace": return "等幅"
+        case "Sans Serif": return japanese ? String(localized: "ゴシック") : String(localized: "サンセリフ")
+        case "Serif": return japanese ? String(localized: "明朝") : String(localized: "セリフ体")
+        case "Display": return String(localized: "デザイン")
+        case "Handwriting": return String(localized: "手書き風")
+        case "Monospace": return String(localized: "等幅")
         default: return category
         }
     }
@@ -41,8 +43,8 @@ enum GoogleFontsError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .network: return "フォントの一覧を取得できませんでした。通信できる所でもう一度お試しください。"
-        case .notFound: return "このフォントのファイルが見つかりませんでした。"
+        case .network: return String(localized: "フォントの一覧を取得できませんでした。通信できる所でもう一度お試しください。")
+        case .notFound: return String(localized: "このフォントのファイルが見つかりませんでした。")
         }
     }
 }
@@ -181,9 +183,13 @@ enum GoogleFontsService {
         UserDefaults.standard.set(map, forKey: displayNamesKey)
     }
 
-    /// Google Fonts から入れたフォントの表示名(なければ nil)
+    /// Google Fonts から入れたフォントの表示名(なければ nil)。
+    /// 保存した名前の「(太字)」は installedFamilies で外す目印なので訳さずに保存し、表示するときだけ端末の言語にする
     static func displayName(forPostScript name: String) -> String? {
-        (UserDefaults.standard.dictionary(forKey: displayNamesKey) as? [String: String])?[name]
+        guard let stored = (UserDefaults.standard.dictionary(forKey: displayNamesKey) as? [String: String])?[name] else { return nil }
+        let boldMark = "(太字)"
+        guard stored.hasSuffix(boldMark) else { return stored }
+        return String(stored.dropLast(boldMark.count)) + String(localized: "(太字)")
     }
 
     static func installedFamilies() -> Set<String> {

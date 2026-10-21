@@ -67,6 +67,9 @@ final class CompareSyncController {
     @ObservationIgnored private var lastSyncCheck: CFAbsoluteTime = 0
     @ObservationIgnored private var buildGeneration = 0
     @ObservationIgnored private var pendingSeeks = 0
+    /// A / B の項目が再生できなくなったこと(.failed / 途中で再生できなくなった)の監視
+    @ObservationIgnored private var failureWatchA: PlayerItemFailureWatch?
+    @ObservationIgnored private var failureWatchB: PlayerItemFailureWatch?
 
     init() {
         playerA.actionAtItemEnd = .pause
@@ -124,6 +127,7 @@ final class CompareSyncController {
         }
 
         guard !snapshot.isEmpty else {
+            failureWatchA = nil
             playerA.replaceCurrentItem(with: nil)
             duration = 0
             currentTime = 0
@@ -157,6 +161,14 @@ final class CompareSyncController {
             NotificationCenter.default.removeObserver(endObserver)
             self.endObserver = nil
         }
+        // 合成のエラーやメディアサービスのリセットで再生できなくなったら、止めて知らせる
+        failureWatchA = PlayerItemFailureWatch(item: item) { [weak self] failedItem, _ in
+            guard let self, self.playerA.currentItem === failedItem else { return }
+            self.playerA.pause()
+            self.playerB.pause()
+            self.isPlaying = false
+            self.errorMessage = String(localized: "現在の編集を再生できませんでした。比較画面を開き直してください")
+        }
         playerA.replaceCurrentItem(with: item)
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
                                                              object: item, queue: .main) { [weak self] _ in
@@ -170,6 +182,7 @@ final class CompareSyncController {
     /// B: 書き出したファイルを読み込む
     func loadExport(url: URL?) {
         exportError = nil
+        failureWatchB = nil
         guard let url else {
             playerB.replaceCurrentItem(with: nil)
             return
@@ -181,6 +194,12 @@ final class CompareSyncController {
         }
         let item = AVPlayerItem(url: url)
         item.audioTimePitchAlgorithm = .spectral
+        // ファイルが壊れている・メディアサービスのリセットなどで再生できなくなったら知らせる
+        failureWatchB = PlayerItemFailureWatch(item: item) { [weak self] failedItem, _ in
+            guard let self, self.playerB.currentItem === failedItem else { return }
+            self.playerB.pause()
+            self.exportError = String(localized: "前回の書き出しを再生できませんでした")
+        }
         playerB.replaceCurrentItem(with: item)
         let t = CMTime(seconds: currentTime, preferredTimescale: 600)
         playerB.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
@@ -193,6 +212,8 @@ final class CompareSyncController {
 
     func play() {
         guard playerA.currentItem != nil else { return }
+        // マナーモードでも音が出るカテゴリで再生する(書き出し後の広告などでカテゴリが変わっていることがある)
+        AudioSessionSetup.ensurePlayback()
         if duration > 0, currentTime >= duration - 0.05 {
             seek(to: 0)
         }

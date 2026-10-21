@@ -2370,6 +2370,52 @@
         }
       }
     },
+    "AI のサービスにつながりませんでした。時間をおいてお試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't connect to the AI service. Please try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo conectar con el servicio de IA. Inténtalo de nuevo más tarde."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível conectar ao serviço de IA. Tente novamente mais tarde."
+          }
+        }
+      }
+    },
+    "AI のサービスの設定に問題があります(サーバー側)。ポイントは戻しました。時間をおいてお試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There's a problem with the AI service setup (on the server). Your points were refunded. Please try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay un problema con la configuración del servicio de IA (en el servidor). Te devolvimos los puntos. Inténtalo de nuevo más tarde."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Há um problema na configuração do serviço de IA (no servidor). Seus pontos foram devolvidos. Tente novamente mais tarde."
+          }
+        }
+      }
+    },
     "AI の設定": {
       "extractionState": "manual",
       "localizations": {
@@ -2872,6 +2918,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Falha ao entrar com a Apple: %@"
+          }
+        }
+      }
+    },
+    "Apple でのサインインを確認できませんでした。もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't verify your Sign in with Apple. Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo verificar el inicio de sesión con Apple. Inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível verificar o login com a Apple. Tente novamente."
           }
         }
       }
@@ -4233,6 +4302,29 @@
         }
       }
     },
+    "OpenAI がエラーを返しました(%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI returned an error (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI devolvió un error (%lld)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A OpenAI retornou um erro (%lld)"
+          }
+        }
+      }
+    },
     "OpenAI の API キーが設定されていません。「文字起こしの方式」の画面でキーを入力してください。": {
       "extractionState": "manual",
       "localizations": {
@@ -4942,6 +5034,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reconhece com a família gpt-4o-transcribe (com separação de falantes). Um pouco menos de erros em áudio difícil e nomes próprios, mas o processamento demora bem mais. O custo é quase o mesmo da opção rápida."
+          }
+        }
+      }
+    },
+    "iCloud から動画をダウンロードできませんでした。インターネットに接続してから、もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't download the video from iCloud. Connect to the internet and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo descargar el video de iCloud. Conéctate a internet e inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível baixar o vídeo do iCloud. Conecte-se à internet e tente novamente."
           }
         }
       }
@@ -7384,6 +7499,29 @@
         }
       }
     },
+    "この動画は、アクセスを許可した写真に含まれていないため読み込めませんでした。設定アプリの「Video Mania」→「写真」で「フルアクセス」を選ぶか、許可する写真にこの動画を追加してから、もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video couldn't be loaded because it isn't one of the photos you allowed access to. In the Settings app, go to Video Mania > Photos and choose Full Access, or add this video to the allowed photos, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar este video porque no está entre las fotos a las que diste acceso. En la app Ajustes, ve a Video Mania > Fotos y elige Acceso completo, o añade este video a las fotos permitidas, y vuelve a intentarlo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar este vídeo porque ele não está entre as fotos às quais você deu acesso. No app Ajustes, vá em Video Mania > Fotos e escolha Acesso Total, ou adicione este vídeo às fotos permitidas e tente novamente."
+          }
+        }
+      }
+    },
     "この動画は読み込めませんでした。写真アプリで動画を開き、iCloud から本体にダウンロードしてからもう一度お試しください。": {
       "extractionState": "manual",
       "localizations": {
@@ -8948,6 +9086,29 @@
         }
       }
     },
+    "もう一度「写真に保存」を押してください。\n\n詳細: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please tap \"Save to Photos\" again.\\n\\nDetails: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vuelve a tocar «Guardar en Fotos».\\n\\nDetalles: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque em \"Salvar em Fotos\" de novo.\\n\\nDetalhes: "
+          }
+        }
+      }
+    },
     "もう一度「写真を選ぶ」から選び直してください。\n\n詳細: ": {
       "extractionState": "manual",
       "localizations": {
@@ -9036,6 +9197,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Escolha o arquivo novamente.\n\nDetalhes: "
+          }
+        }
+      }
+    },
+    "もう一度写真に保存": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save to Photos again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar en Fotos otra vez"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar em Fotos de novo"
           }
         }
       }
@@ -12766,6 +12950,75 @@
         }
       }
     },
+    "サーバーがエラーを返しました(%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server returned an error (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor devolvió un error (%lld)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O servidor retornou um erro (%lld)"
+          }
+        }
+      }
+    },
+    "サーバーがエラーを返しました(%lld): %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server returned an error (%lld): %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor devolvió un error (%lld): %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O servidor retornou um erro (%lld): %@"
+          }
+        }
+      }
+    },
+    "サーバーでエラーが起きました(%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An error occurred on the server (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se produjo un error en el servidor (%lld)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocorreu um erro no servidor (%lld)"
+          }
+        }
+      }
+    },
     "サーバーの応答がタイムアウトしました。通信環境を確認してもう一度お試しください。": {
       "extractionState": "manual",
       "localizations": {
@@ -13728,6 +13981,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Câmera lenta suave"
+          }
+        }
+      }
+    },
+    "スローモーションなど参照できない動画は、アプリに取り込みました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos that can't be referenced, such as slow-motion videos, were copied into the app"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los videos que no se pueden referenciar, como los de cámara lenta, se copiaron a la app"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeos que não podem ser referenciados, como os em câmera lenta, foram copiados para o app"
           }
         }
       }
@@ -14888,19 +15164,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design"
+            "value": "Display"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diseño"
+            "value": "Decorativa"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design"
+            "value": "Decorativa"
           }
         }
       }
@@ -17274,6 +17550,29 @@
         }
       }
     },
+    "プレビュー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista previa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prévia"
+          }
+        }
+      }
+    },
     "プレビューの上を指でなぞって描きます。「完了」を押すと、再生位置に 3 秒間表示されます。": {
       "extractionState": "manual",
       "localizations": {
@@ -17385,6 +17684,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível criar a prévia: %@"
+          }
+        }
+      }
+    },
+    "プレビューを再生できませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't play the preview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reproducir la vista previa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível reproduzir a prévia"
+          }
+        }
+      }
+    },
+    "プレビューを再生できませんでした: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't play the preview: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reproducir la vista previa: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível reproduzir a prévia: %@"
           }
         }
       }
@@ -23254,6 +23599,29 @@
         }
       }
     },
+    "再読み込み": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a cargar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarregar"
+          }
+        }
+      }
+    },
     "冒頭のつかみ": {
       "extractionState": "manual",
       "localizations": {
@@ -23599,6 +23967,29 @@
         }
       }
     },
+    "写真へのアクセスが制限されているため、動画をアプリに取り込みました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo access is limited, so the video was copied into the app"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El acceso a Fotos está limitado, así que el video se copió a la app"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acesso às fotos está limitado, então o vídeo foi copiado para o app"
+          }
+        }
+      }
+    },
     "写真や映像をゆっくり拡大・移動させて、動きのある見た目にします。": {
       "extractionState": "manual",
       "localizations": {
@@ -23756,6 +24147,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Salvar também em Fotos"
+          }
+        }
+      }
+    },
+    "写真ライブラリからこの動画を読み出せないため、このアングルの区間はメインの映像になります。写真へのアクセスを許可してプロジェクトを開き直すと戻ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video can't be read from the photo library, so this angle's sections show the main video. Allow photo access and reopen the project to bring it back."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede leer este video de la fototeca, así que las secciones de este ángulo muestran el video principal. Permite el acceso a Fotos y vuelve a abrir el proyecto para recuperarlo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível ler este vídeo da fototeca, então os trechos deste ângulo mostram o vídeo principal. Permita o acesso às fotos e abra o projeto de novo para recuperá-lo."
           }
         }
       }
@@ -24653,6 +25067,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Importando o resultado da transcrição anterior…"
+          }
+        }
+      }
+    },
+    "前回の書き出しを再生できませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't play the previous export"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reproducir la exportación anterior"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível reproduzir a exportação anterior"
           }
         }
       }
@@ -30580,13 +31017,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manuscrito"
+            "value": "Manuscrita"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Manuscrito"
+            "value": "Manuscrita"
           }
         }
       }
@@ -30909,6 +31346,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Analisar tremor"
+          }
+        }
+      }
+    },
+    "操作ボタンの表示を切り替えます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows or hides the controls"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra u oculta los controles"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra ou oculta os controles"
           }
         }
       }
@@ -32684,6 +33144,29 @@
         }
       }
     },
+    "書き出した動画を保存先に移せませんでした: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't move the exported video to its folder: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo mover el video exportado a su carpeta: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível mover o vídeo exportado para a pasta: %@"
+          }
+        }
+      }
+    },
     "書き出した動画を確認できませんでした: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -32887,6 +33370,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Falha ao configurar a exportação"
+          }
+        }
+      }
+    },
+    "書き出しは完了しましたが、写真への保存に失敗しました。アプリを開いて保存し直してください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The export finished, but saving to Photos failed. Open the app and save it again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La exportación terminó, pero no se pudo guardar en Fotos. Abre la app y vuelve a guardarla"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A exportação terminou, mas não foi possível salvar em Fotos. Abra o app e salve novamente"
           }
         }
       }
@@ -35371,6 +35877,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível extrair o áudio da edição atual"
+          }
+        }
+      }
+    },
+    "現在の編集を再生できませんでした。比較画面を開き直してください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't play the current edit. Please reopen the comparison screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reproducir la edición actual. Vuelve a abrir la pantalla de comparación"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível reproduzir a edição atual. Abra a tela de comparação novamente"
           }
         }
       }
@@ -43490,6 +44019,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "gravar"
+          }
+        }
+      }
+    },
+    "録音が中断されたため、ここまでを追加しました。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording was interrupted, so what was recorded so far has been added."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La grabación se interrumpió, así que se añadió lo grabado hasta ese momento."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A gravação foi interrompida, então o que foi gravado até ali foi adicionado."
+          }
+        }
+      }
+    },
+    "録音が中断されました。短すぎたため追加しませんでした。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording was interrupted. It was too short, so it wasn't added."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La grabación se interrumpió. Era demasiado corta, así que no se añadió."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A gravação foi interrompida. Era curta demais, então não foi adicionada."
           }
         }
       }

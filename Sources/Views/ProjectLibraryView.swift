@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
 /// アプリのルート。プロジェクトを開いていなければ一覧、開いていれば編集画面(ContentView)
 struct RootView: View {
     @State private var openProjectID: UUID?
+    /// 「ファイル」アプリや AirDrop から開かれた .videomania(一覧が表示されたら読み込む)
+    @State private var openedPackageURL: URL?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -27,7 +29,7 @@ struct RootView: View {
                 .id(projectID)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                ProjectLibraryView(onOpen: { meta in
+                ProjectLibraryView(openedPackageURL: $openedPackageURL, onOpen: { meta in
                     openProjectID = meta.id
                     Analytics.shared.track("project_open")
                 })
@@ -35,6 +37,11 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: openProjectID)
+        // .videomania をタップして開かれたとき。編集中なら、一覧に戻ったときに読み込む
+        .onOpenURL { url in
+            guard url.isFileURL, url.pathExtension.lowercased() == ProjectPackage.packageExtension else { return }
+            openedPackageURL = url
+        }
         // 広告(トラッキングの確認 → AdMob の開始 → 広告の読み込み)
         .task { await AdsManager.shared.start() }
         .onChange(of: scenePhase) { _, phase in
@@ -50,7 +57,12 @@ struct RootView: View {
 // MARK: - 一覧
 
 struct ProjectLibraryView: View {
+    /// 「ファイル」アプリなどから開かれた .videomania。読み込みを始めたら nil に戻す
+    @Binding var openedPackageURL: URL?
     let onOpen: (ProjectMeta) -> Void
+
+    /// 書き出したプロジェクトのパッケージ(<名前>.videomania)の種類(project.yml の UTExportedTypeDeclarations)
+    private static let packageType = UTType(exportedAs: "com.yuyaogawa6960.videomania.project", conformingTo: .package)
 
     private let library = ProjectLibrary.shared
 
@@ -77,7 +89,8 @@ struct ProjectLibraryView: View {
         GridItem(.flexible(), spacing: 12)
     ]
 
-    init(onOpen: @escaping (ProjectMeta) -> Void) {
+    init(openedPackageURL: Binding<URL?>, onOpen: @escaping (ProjectMeta) -> Void) {
+        self._openedPackageURL = openedPackageURL
         self.onOpen = onOpen
     }
 
@@ -123,9 +136,15 @@ struct ProjectLibraryView: View {
                 }
             }
             .fileImporter(isPresented: $isImporterPresented,
-                          allowedContentTypes: [.folder, .package, .item],
+                          allowedContentTypes: [Self.packageType, .folder, .package, .item],
                           allowsMultipleSelection: false) { result in
                 handlePackageImport(result)
+            }
+            .onChange(of: openedPackageURL, initial: true) { _, _ in
+                importOpenedPackageIfReady()
+            }
+            .onChange(of: isPackageBusy) { _, _ in
+                importOpenedPackageIfReady()
             }
             .sheet(item: $packageShareItem) { item in
                 PackageShareSheet(item: item)
@@ -209,6 +228,12 @@ struct ProjectLibraryView: View {
             Text("「写真ライブラリから参照」は動画をコピーしないので iPhone の容量を使いません。ただし写真アプリで動画を消すと、このプロジェクトでも使えなくなります。\n「アプリに取り込む」は動画をアプリ内にコピーします。あとから編集画面の「その他」で変えられます。")
         }
         .task {
+            // 前に書き出したプロジェクトのパッケージ(素材のコピー入り)と GIF は、もう共有に使わないので消す
+            // (この画面で新しく書き出す前に済むよう、先に行う)
+            await Task.detached(priority: .utility) {
+                ProjectPackage.cleanUpExportedPackages()
+                try? FileManager.default.removeItem(at: GIFExporter.outputDirectory)
+            }.value
             // どのプロジェクトからも使われなくなった動画を消して容量を空ける(1 日以上前に取り込んだものだけ)
             _ = await Task.detached(priority: .utility) {
                 ProjectStore.cleanUpUnusedMedia()
@@ -344,18 +369,45 @@ struct ProjectLibraryView: View {
                       String(localized: "もう一度「プロジェクト読み込み」から選び直してください。\n\n詳細: ") + error.localizedDescription)
         case .success(let urls):
             guard let url = urls.first else { return }
-            isImporting = true
-            Task { @MainActor in
-                do {
-                    let meta = try await ProjectPackage.importPackage(from: url)
-                    isImporting = false
-                    showAlert(String(localized: "受け取りました"), String(localized: "「\(meta.name)」を一覧に追加しました。タップすると開けます。"))
-                } catch {
-                    isImporting = false
-                    showAlert(String(localized: "受け取れませんでした"), String(localized: "「プロジェクト書き出し」で作ったファイル(名前が .videomania で終わるもの)を選んでください。送る途中で壊れた場合は、送り直してもらってください。\n\n詳細: ") + error.localizedDescription)
+            importPackage(from: url, removeAfterImport: false)
+        }
+    }
+
+    private func importPackage(from url: URL, removeAfterImport: Bool) {
+        isImporting = true
+        Task { @MainActor in
+            do {
+                let meta = try await ProjectPackage.importPackage(from: url)
+                isImporting = false
+                if removeAfterImport {
+                    // 読み込んだので、受け取り用にコピーされたパッケージ(Documents/Inbox)は要らない
+                    try? FileManager.default.removeItem(at: url)
                 }
+                showAlert(String(localized: "受け取りました"), String(localized: "「\(meta.name)」を一覧に追加しました。タップすると開けます。"))
+            } catch {
+                isImporting = false
+                showAlert(String(localized: "受け取れませんでした"), String(localized: "「プロジェクト書き出し」で作ったファイル(名前が .videomania で終わるもの)を選んでください。送る途中で壊れた場合は、送り直してもらってください。\n\n詳細: ") + error.localizedDescription)
             }
         }
+    }
+
+    /// 読み込み・書き出し・共有シートのどれかが進行中
+    private var isPackageBusy: Bool {
+        isImporting || exportingMeta != nil || packageShareItem != nil
+    }
+
+    /// 「ファイル」アプリなどから開かれた .videomania を、ほかの読み込み・書き出しが終わっていれば読み込む
+    private func importOpenedPackageIfReady() {
+        guard let url = openedPackageURL, !isPackageBusy else { return }
+        openedPackageURL = nil
+        importPackage(from: url, removeAfterImport: Self.isInInbox(url))
+    }
+
+    /// AirDrop などで、このアプリの Documents/Inbox にコピーされて渡されたファイルか
+    private static func isInInbox(_ url: URL) -> Bool {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let inbox = documents.appendingPathComponent("Inbox", isDirectory: true).resolvingSymlinksInPath().path
+        return url.resolvingSymlinksInPath().path.hasPrefix(inbox + "/")
     }
 }
 

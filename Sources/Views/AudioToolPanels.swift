@@ -72,6 +72,8 @@ struct EditorNarrationRecordPanel: View {
     @State private var resultText: String?
     /// 録音中、イヤホンがないので音を出さずに再生している
     @State private var isMonitorMuted = false
+    /// マイクの使用が拒否されている(設定アプリを開くボタンを出す)
+    @State private var micDenied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -118,6 +120,13 @@ struct EditorNarrationRecordPanel: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
+                if micDenied {
+                    // 一度拒否すると許可のダイアログは二度と出ないので、設定アプリへの入り口を出す
+                    Button("設定を開く") {
+                        openSystemSettings()
+                    }
+                    .font(.caption.weight(.semibold))
+                }
             } else if let resultText {
                 Text(resultText)
                     .font(.caption)
@@ -130,11 +139,21 @@ struct EditorNarrationRecordPanel: View {
             }
         }
         .padding(.top, 6)
+        .onChange(of: recorder.headphoneConnected) { _, connected in
+            // 録音中にイヤホンをつないだ / 外したら、音を出すかを切り替える(イヤホンのときだけ音を出す)。
+            // 外したときは AVPlayer が自分で止まるので、ここで再生し直さない
+            guard recorder.isRecording, playWhileRecording else { return }
+            isMonitorMuted = !connected
+            player.player.isMuted = isMonitorMuted
+        }
         .onDisappear {
             // パネルが閉じられたら録音を終えて追加しておく(録音を失わないため)
             if recorder.isRecording {
                 finishRecording()
             }
+            // 自動ロックの抑止を必ず解除し、中断の通知も外す(録音機とパネルの循環参照を切る)
+            IdleTimerGuard.set(false, for: "recording")
+            recorder.onInterrupted = nil
         }
     }
 
@@ -199,19 +218,27 @@ struct EditorNarrationRecordPanel: View {
     private func beginRecording() async {
         errorMessage = nil
         resultText = nil
+        micDenied = false
         let granted = await recorder.requestPermission()
         guard granted else {
             errorMessage = VoiceRecorderError.permissionDenied.localizedDescription
+            micDenied = AVAudioApplication.shared.recordPermission == .denied
             return
         }
         player.pause()
         playheadAtStart = max(0, player.currentTime)
+        // 電話・Siri・エラーなどで録音が止められたら、そこまでをナレーションとして追加する
+        recorder.onInterrupted = { url in
+            completeRecording(url: url, interrupted: true)
+        }
         do {
             try recorder.start()
         } catch {
             errorMessage = error.localizedDescription
             return
         }
+        // 録音中は画面の自動ロックを止める(ロックでアプリが止まると録音も止まるため)
+        IdleTimerGuard.set(true, for: "recording")
         if playWhileRecording {
             // イヤホンがないときは音を出さない(スピーカーの音がマイクに入るため)
             isMonitorMuted = !VoiceRecorder.isHeadphoneConnected
@@ -230,17 +257,27 @@ struct EditorNarrationRecordPanel: View {
 
     /// 録音を止めてナレーションとして追加する
     private func finishRecording() {
+        completeRecording(url: recorder.stop(), interrupted: false)
+    }
+
+    /// 止まった録音をナレーションとして追加する。
+    /// interrupted: 電話・Siri・エラーなどでシステム側に止められた(VoiceRecorder が stop() 済みで url を渡してくる)
+    private func completeRecording(url: URL?, interrupted: Bool) {
+        IdleTimerGuard.set(false, for: "recording")
         let startedWithPlayback = playWhileRecording
-        guard let url = recorder.stop() else {
+        guard let url else {
             stopPlaybackAndRewind(startedWithPlayback: startedWithPlayback)
             errorMessage = String(localized: "録音ファイルを保存できませんでした。")
             return
         }
         stopPlaybackAndRewind(startedWithPlayback: startedWithPlayback)
-        let duration = recorder.elapsed
+        // 長さは保存したファイルから測る(止められた録音機の経過秒は当てにならないため)
+        let duration = Self.recordedDuration(of: url, fallback: recorder.elapsed)
         guard duration >= 0.2 else {
             try? FileManager.default.removeItem(at: url)
-            errorMessage = String(localized: "録音が短すぎたため追加しませんでした。")
+            errorMessage = interrupted
+                ? String(localized: "録音が中断されました。短すぎたため追加しませんでした。")
+                : String(localized: "録音が短すぎたため追加しませんでした。")
             return
         }
 
@@ -251,8 +288,25 @@ struct EditorNarrationRecordPanel: View {
                                  duration: duration)
         project.narration.append(clip)
         project.sortNarration()
-        resultText = "\(MediaTimeText.precise(playheadAtStart)) に \(String(format: "%.1f", duration)) 秒のナレーションを追加しました。"
+        if interrupted {
+            resultText = String(localized: "録音が中断されたため、ここまでを追加しました。")
+        } else {
+            resultText = "\(MediaTimeText.precise(playheadAtStart)) に \(String(format: "%.1f", duration)) 秒のナレーションを追加しました。"
+        }
         onRecorded(clip.id)
+    }
+
+    /// 録音ファイルの長さ(秒)。読めなければ fallback(録音中に測った経過秒)を返す
+    private static func recordedDuration(of url: URL, fallback: Double) -> Double {
+        guard let file = try? AVAudioFile(forReading: url) else { return fallback }
+        let sampleRate = file.processingFormat.sampleRate
+        guard sampleRate > 0, file.length > 0 else { return fallback }
+        return Double(file.length) / sampleRate
+    }
+
+    private func openSystemSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 }
 

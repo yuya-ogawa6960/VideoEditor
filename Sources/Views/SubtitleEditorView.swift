@@ -654,6 +654,8 @@ struct SubtitleEditorView: View {
         let cues = project.subtitles
         let language = selectedLanguage
         let toEnglish = (language != .english)
+        // 始めたときにポイントで使っていたか(ログインの期限切れで途中でサインアウトしても、案内はこちらで決める)
+        let viaPoints = CloudAIGateway.usesPoints
         aiTranslationTask = Task { @MainActor in
             let result = await SubtitlePolisher.translate(cues, from: language, toEnglish: toEnglish,
                                                           settings: AppSettings.shared)
@@ -663,10 +665,16 @@ struct SubtitleEditorView: View {
             }
             aiTranslationTask = nil
             guard let result else {
-                let action = String(localized: "「文字起こしの方式とAI仕上げ」で Apple Intelligence か OpenAI の API キーを設定してから、もう一度お試しください。")
-                var message = action
-                if let detail = SubtitlePolisher.lastErrorMessage, !detail.isEmpty {
-                    message += String(localized: "\n\n詳細: ") + detail
+                let detail = SubtitlePolisher.lastErrorMessage ?? ""
+                var message: String
+                if viaPoints, !detail.isEmpty {
+                    // ポイントで使っているとき(ポイント不足・ログインの期限切れなど)は、API キーの案内を出さずに理由だけ
+                    message = detail
+                } else {
+                    message = String(localized: "「文字起こしの方式とAI仕上げ」で Apple Intelligence か OpenAI の API キーを設定してから、もう一度お試しください。")
+                    if !detail.isEmpty {
+                        message += String(localized: "\n\n詳細: ") + detail
+                    }
                 }
                 showAlert(title: String(localized: "AIで翻訳できませんでした"), message: message)
                 return

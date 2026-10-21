@@ -140,6 +140,22 @@ targets:
           - "com.personal.videoeditor.transcribe.*"
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # プロジェクトのパッケージ(<名前>.videomania、ProjectPackage)。「ファイル」アプリでフォルダではなく
+        # 1 つの書類として表示され、タップすると Video Mania で開ける(RootView の onOpenURL → 一覧で読み込み)
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.yuyaogawa6960.videomania.project
+            UTTypeDescription: Video Mania Project
+            UTTypeConformsTo:
+              - com.apple.package
+              - public.content
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - videomania
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Video Mania Project
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.yuyaogawa6960.videomania.project
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:
@@ -149,7 +165,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "NO"
         VM_SERVER_URL: "https://videomania-api.yuya-ogawa0906.workers.dev"
-        MARKETING_VERSION: "1.12.37"
+        MARKETING_VERSION: "1.12.38"
         CURRENT_PROJECT_VERSION: "1"
 
 schemes:

@@ -199,6 +199,10 @@ struct EditorToolbar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(state.groupTitle != nil ? String(localized: "戻る") : String(localized: "選択を解除"))
+                // 大きな文字の設定では長押しで拡大して見せる
+                .accessibilityShowsLargeContentViewer {
+                    Label(state.groupTitle ?? String(localized: "選択を解除"), systemImage: "chevron.left")
+                }
 
                 Rectangle()
                     .fill(Color.white.opacity(0.2))
@@ -332,6 +336,8 @@ struct EditorToolbar: View {
                 .lineSpacing(-1)
                 .fixedSize()
                 .frame(height: 28, alignment: .top)
+                // 読み上げは途中で折っていない名前で
+                .accessibilityLabel(item.title)
         }
         .foregroundStyle(color)
         .opacity(item.isEnabled ? 1 : 0.45)
@@ -339,6 +345,10 @@ struct EditorToolbar: View {
         .padding(.horizontal, 2)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+        // ツールバーは高さが決まっていて文字を大きくできないので、大きな文字の設定では長押しで拡大して見せる
+        .accessibilityShowsLargeContentViewer {
+            Label(item.title, systemImage: item.systemImage)
+        }
     }
 
     private func sectionLabel(_ item: EditorToolItem) -> some View {
@@ -549,6 +559,8 @@ enum EditorToolLabel {
             let tail = title[title.index(after: dot)...].trimmingCharacters(in: .whitespaces)
             if !head.isEmpty, !tail.isEmpty { return head + "\n" + tail }
         }
+        // 真ん中で折るのは日本語で表示しているときだけ(英語などの単語を途中で切らない。1 行のままセルが広がる)
+        guard Bundle.main.preferredLocalizations.first == "ja" else { return title }
         let mid = title.index(title.startIndex, offsetBy: title.count / 2)
         return String(title[..<mid]) + "\n" + String(title[mid...])
     }

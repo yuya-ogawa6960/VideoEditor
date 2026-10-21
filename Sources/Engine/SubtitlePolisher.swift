@@ -131,7 +131,7 @@ enum SubtitlePolisher {
         switch engine {
         case .onDevice: return "Apple Intelligence"
         case .cloud: return "OpenAI"
-        case .none: return "なし"
+        case .none: return String(localized: "なし")
         }
     }
 
@@ -388,12 +388,12 @@ enum SubtitlePolisher {
                 return response.content
             } catch {
                 if error is CancellationError { return nil }
-                setLastError("端末内 AI: \(error.localizedDescription)")
+                setLastError(String(localized: "端末内 AI: \(error.localizedDescription)"))
                 return nil
             }
         }
         #endif
-        setLastError("端末内 AI はこの端末では利用できません")
+        setLastError(String(localized: "端末内 AI はこの端末では利用できません"))
         return nil
     }
 
@@ -405,7 +405,7 @@ enum SubtitlePolisher {
                                        network: CloudRequestState) async -> String? {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
-            setLastError("OpenAI の API キーが設定されていません")
+            setLastError(String(localized: "OpenAI の API キーが設定されていません"))
             return nil
         }
         let payload: [String: Any] = [
@@ -423,6 +423,10 @@ enum SubtitlePolisher {
 
         /// フォアグラウンドで起きた一時的な通信エラーの回数
         var networkFailures = 0
+        // どちらに送るか(ポイントのサーバー / 自分の OpenAI キー)は、受け取った鍵に合わせて最初に 1 回だけ決める。
+        // 途中でサインアウトされても、セッションの鍵を OpenAI へ送らないように
+        let viaServer = CloudAIGateway.usesPoints
+        let endpoint = cloudEndpoint
 
         while true {
             if Task.isCancelled || network.hasGivenUp { return nil }
@@ -432,9 +436,11 @@ enum SubtitlePolisher {
             } catch {
                 return nil
             }
+            // 待っている間に、ほかのバッチが諦めた(ログインの期限切れなど)か、送り先が変わった(サインアウト)ならやめる
+            if Task.isCancelled || network.hasGivenUp || CloudAIGateway.usesPoints != viaServer { return nil }
 
             // リクエストは送るたびに作り直す
-            var request = URLRequest(url: cloudEndpoint)
+            var request = URLRequest(url: endpoint)
             request.httpMethod = "POST"
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -451,7 +457,7 @@ enum SubtitlePolisher {
                 // Task がキャンセルされていない .cancelled や NSPOSIXErrorDomain の接続中断(53 など)は、
                 // 画面ロックなどでシステムが通信を打ち切ったもの → 一時的
                 guard TransientNetworkRetry.isTransient(error) else {
-                    setLastError("通信エラー: \(error.localizedDescription)")
+                    setLastError(String(localized: "通信エラー: \(error.localizedDescription)"))
                     return nil
                 }
                 if AppLifecycle.shared.isInBackground || BackgroundEpoch.current != epochBefore {
@@ -462,7 +468,7 @@ enum SubtitlePolisher {
                 networkFailures += 1
                 if networkFailures >= TransientNetworkRetry.maxAttempts {
                     network.giveUp()
-                    setLastError("通信エラー: \(error.localizedDescription)")
+                    setLastError(String(localized: "通信エラー: \(error.localizedDescription)"))
                     return nil
                 }
                 do {
@@ -477,9 +483,23 @@ enum SubtitlePolisher {
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard (200..<300).contains(status) else {
                 switch status {
-                case 401: setLastError("APIキーが正しくありません")
-                case 429: setLastError("利用上限です")
-                default: setLastError("OpenAI がエラーを返しました(\(status))")
+                case 401 where viaServer:
+                    // ポイント(サーバー)のログインの期限切れ。送ったトークンが今のものならサインアウトし、残りのバッチも送らない
+                    // (サインアウトより先に止める。止める前に次のバッチが OpenAI 宛てにセッショントークンを送らないように)
+                    network.giveUp()
+                    await MainActor.run { AccountService.shared.handleSessionExpired(sentToken: key) }
+                    setLastError(String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。"))
+                case 401: setLastError(String(localized: "APIキーが正しくありません"))
+                case 402:
+                    // ポイント不足は他のバッチも同じなので、残りは送らない
+                    network.giveUp()
+                    setLastError(String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。"))
+                case 429: setLastError(String(localized: "利用上限です"))
+                default:
+                    let summary = viaServer ? String(localized: "サーバーがエラーを返しました(\(status))")
+                                            : String(localized: "OpenAI がエラーを返しました(\(status))")
+                    let detail = CloudAIErrorBody(data: data).displayMessage
+                    setLastError(detail.isEmpty ? summary : summary + ": " + detail)
                 }
                 return nil
             }
@@ -487,7 +507,7 @@ enum SubtitlePolisher {
                   let choices = root["choices"] as? [[String: Any]],
                   let message = choices.first?["message"] as? [String: Any],
                   let content = message["content"] as? String else {
-                setLastError("OpenAI の応答を読み取れませんでした")
+                setLastError(String(localized: "OpenAI の応答を読み取れませんでした"))
                 return nil
             }
             return content

@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import UIKit
+import Photos
 
 // =====================================================================
 // プロジェクトの自動保存と復元(プロジェクトごとに別ファイル)。
@@ -166,7 +167,9 @@ enum ProjectStore {
     }
 
     private static func writeSnapshot(_ snapshot: ProjectSnapshot, projectID: UUID) {
-        let file = ProjectFile(snapshot: snapshot)
+        var file = ProjectFile(snapshot: snapshot)
+        // 写真ライブラリから読み出せず編集画面に出していないクリップ・オーバーレイも、元の位置に戻して保存する
+        heldUnresolvedItems(projectID: projectID)?.restore(into: &file)
         do {
             let data = try JSONEncoder().encode(file)
             ensureProjectDirectory(projectID: projectID)
@@ -177,12 +180,19 @@ enum ProjectStore {
     }
 
     /// 保存済みのプロジェクトを読み込む。素材ファイルが消えているクリップは除外する。
+    /// 写真ライブラリの動画をいま読み出せない(許可がない・iCloud から取れない)クリップ・オーバーレイも除外するが、
+    /// 保存ファイルからは消さない(覚えておいて保存のたびに元の位置に戻す。読み出せるようになれば次に開いたときに戻る)。
     /// 保存ファイルがなければ nil(まだ何も保存していない新しいプロジェクト)
     static func load(projectID: UUID) -> ProjectSnapshot? {
         flush(projectID: projectID)
         guard let data = try? Data(contentsOf: projectFileURL(projectID: projectID)),
-              let file = try? JSONDecoder().decode(ProjectFile.self, from: data) else { return nil }
-        return file.makeSnapshot()
+              let file = try? JSONDecoder().decode(ProjectFile.self, from: data) else {
+            setHeldUnresolvedItems(nil, projectID: projectID)
+            return nil
+        }
+        let restored = file.makeSnapshotHoldingUnresolved()
+        setHeldUnresolvedItems(restored.unresolved, projectID: projectID)
+        return restored.snapshot
     }
 
     /// project.json の生データ(予約済みの書き込みを済ませてから読む)。なければ nil
@@ -210,6 +220,7 @@ enum ProjectStore {
         lock.lock()
         lastThumbnails[projectID] = nil
         lock.unlock()
+        setHeldUnresolvedItems(nil, projectID: projectID)
         let dir = projectDirectory(projectID: projectID)
         queue.sync {
             if FileManager.default.fileExists(atPath: dir.path) {
@@ -253,6 +264,7 @@ enum ProjectStore {
         lock.lock()
         lastThumbnails[projectID] = nil
         lock.unlock()
+        setHeldUnresolvedItems(nil, projectID: projectID)
         ensureProjectDirectory(projectID: projectID)
         var failure: Error?
         queue.sync {
@@ -291,6 +303,73 @@ enum ProjectStore {
             return (nil, nil)
         }
         return (values.creationDate, values.contentModificationDate)
+    }
+
+    // MARK: - 写真ライブラリから読み出せない項目(保存ファイルから消さない)
+    // 写真へのアクセスが「選択した写真のみ」「なし」のときや、オフラインで iCloud から取れないときに、
+    // 開いたプロジェクトのクリップが保存のたびに project.json から消えてしまわないようにする。
+    //   クリップ・オーバーレイ … 編集画面には出さず(プレビュー・書き出しは残りの素材だけで行う)、
+    //                           ここで覚えておいて保存のたびに元の位置へ戻す
+    //   マルチカムのアングル … 存在しない仮の URL のまま残す(切替点も残る。映像はメインのまま)
+    // 写真へのフルアクセスがあるのに写真ライブラリに無い動画は、写真アプリで削除されたとみなし、これまでどおり外す
+    // (残すと二度と戻らないのに、開くたびに「見つからない動画」と出続けてしまう)
+
+    /// 写真ライブラリの動画("photos:<id>")をいま読み出せないとき、保存ファイルに残しておくか
+    static func keepsUnresolvedPhotoReference(_ name: String) -> Bool {
+        guard let assetID = PhotoMediaResolver.assetID(fromReference: name) else { return false }
+        guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized else { return true }
+        return PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject != nil
+    }
+
+    private static let unresolvedLock = NSLock()
+    /// プロジェクト ID → 読み込み時に外したクリップ・オーバーレイ(load のたびに置き換える)
+    private static var unresolvedByProject: [UUID: UnresolvedPhotoItems] = [:]
+    /// 読み出せないアングルの仮の URL("photos:<id>" ごとに 1 つ)と、その逆引き
+    private static var unavailableURLByReference: [String: URL] = [:]
+    private static var unavailableReferenceByPath: [String: String] = [:]
+
+    private static func setHeldUnresolvedItems(_ items: UnresolvedPhotoItems?, projectID: UUID) {
+        unresolvedLock.lock()
+        unresolvedByProject[projectID] = items
+        unresolvedLock.unlock()
+    }
+
+    /// 保留していた読み出せない動画を捨てる(「プロジェクトを空にする」など、タイムラインを丸ごと置き換えるとき)。
+    /// 捨てないと、次の保存で project.json に書き戻されてしまう
+    static func discardHeldUnresolvedItems(projectID: UUID) {
+        setHeldUnresolvedItems(nil, projectID: projectID)
+    }
+
+    private static func heldUnresolvedItems(projectID: UUID) -> UnresolvedPhotoItems? {
+        unresolvedLock.lock()
+        defer { unresolvedLock.unlock() }
+        return unresolvedByProject[projectID]
+    }
+
+    /// 写真ライブラリの動画("photos:<id>")をいま読み出せないアングルに使う、存在しないファイルの URL。
+    /// 映像が読めないので CompositionBuilder はそのアングルの区間もメインの映像を使う。
+    /// 保存するときは storedMediaName が元の "photos:<id>" に戻す
+    static func unavailablePhotoURL(forReference name: String) -> URL {
+        unresolvedLock.lock()
+        defer { unresolvedLock.unlock() }
+        if let url = unavailableURLByReference[name] { return url }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VideoManiaUnavailable", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString + ".mov")
+        unavailableURLByReference[name] = url
+        unavailableReferenceByPath[url.standardizedFileURL.path] = name
+        return url
+    }
+
+    /// unavailablePhotoURL で作った(写真ライブラリから読み出せないアングルの)URL か
+    static func isUnavailablePhotoURL(_ url: URL) -> Bool {
+        unavailablePhotoReference(for: url) != nil
+    }
+
+    private static func unavailablePhotoReference(for url: URL) -> String? {
+        unresolvedLock.lock()
+        defer { unresolvedLock.unlock() }
+        return unavailableReferenceByPath[url.standardizedFileURL.path]
     }
 
     // MARK: - サムネイル
@@ -423,9 +502,10 @@ enum ProjectStore {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
-    /// 素材の URL → 保存する名前(写真ライブラリを参照している動画は "photos:<id>")
+    /// 素材の URL → 保存する名前(写真ライブラリを参照している動画は "photos:<id>"。
+    /// いま読み出せないアングルの仮の URL も元の "photos:<id>" に戻す)
     static func storedMediaName(for url: URL) -> String {
-        PhotoMediaResolver.reference(for: url) ?? url.lastPathComponent
+        unavailablePhotoReference(for: url) ?? PhotoMediaResolver.reference(for: url) ?? url.lastPathComponent
     }
 
     /// このプロジェクトが参照している写真ライブラリの動画("photos:<id>")
@@ -1378,6 +1458,11 @@ private struct StoredClip: Codable {
         parallax = StoredParallax(c.parallax)
     }
 
+    /// 写真ライブラリの動画("photos:<id>")を参照している動画クリップか
+    var refersToPhotoLibrary: Bool {
+        stillImageFile == nil && PhotoMediaResolver.isReference(file)
+    }
+
     /// 素材ファイル(静止画クリップなら画像)が消えていれば nil
     func makeClip() -> Clip? {
         var stillURL: URL? = nil
@@ -1407,7 +1492,15 @@ private struct StoredClip: Codable {
         clip.audio = clipAudio
         var info = MulticamInfo()
         info.angles = angles.compactMap { sa in
-            guard let aurl = ProjectStore.resolveMedia(sa.file) else { return nil }
+            let aurl: URL
+            if let resolved = ProjectStore.resolveMedia(sa.file) {
+                aurl = resolved
+            } else if ProjectStore.keepsUnresolvedPhotoReference(sa.file) {
+                // 写真ライブラリからいま読み出せないアングルは、仮の URL のまま残す(保存ファイルからも切替点からも消さない)
+                aurl = ProjectStore.unavailablePhotoURL(forReference: sa.file)
+            } else {
+                return nil
+            }
             return CameraAngle(id: sa.id, url: aurl, duration: sa.duration,
                                naturalSize: CGSize(width: sa.width, height: sa.height),
                                preferredTransform: sa.transform.value, thumbnail: nil,
@@ -1744,6 +1837,53 @@ private struct StoredLowerThird: Codable {
     var secondary: String
 }
 
+/// 写真ライブラリの動画("photos:<id>")をいま読み出せないため、読み込み時に外したクリップ・オーバーレイ。
+/// 編集画面には出さず、保存のたびに元の位置へ戻して project.json から消えないようにする
+private struct UnresolvedPhotoItems {
+    /// project.json に書かれていた順のクリップ ID(読み出せたものも含む)
+    var clipOrder: [UUID]
+    var clips: [StoredClip]
+    /// project.json に書かれていた順のオーバーレイ ID(読み出せたものも含む)
+    var overlayOrder: [UUID]
+    var overlays: [StoredOverlay]
+
+    /// 外していた項目を、保存する内容の元の位置に戻す
+    func restore(into file: inout ProjectFile) {
+        if !clips.isEmpty {
+            file.clips = reinsertingHeldItems(clips, originalOrder: clipOrder, into: file.clips, id: { $0.id })
+        }
+        if !overlays.isEmpty {
+            file.overlays = reinsertingHeldItems(overlays, originalOrder: overlayOrder,
+                                                 into: file.overlays ?? [], id: { $0.id })
+        }
+    }
+}
+
+/// 外していた項目 held を current に戻す。元の並びで後ろにあった項目のうち、いまも残っている最初のものの前に入れ、
+/// 後ろの項目がひとつも残っていなければ末尾に足す(前の項目を分割しても、分けた 2 つの間には入らない)。
+/// 同じ ID の項目がすでにあれば足さない
+private func reinsertingHeldItems<T>(_ held: [T], originalOrder: [UUID], into current: [T], id: (T) -> UUID) -> [T] {
+    var result = current
+    var present = Set(result.map { id($0) })
+    var heldByID: [UUID: T] = [:]
+    for item in held {
+        heldByID[id(item)] = item
+    }
+    for (position, itemID) in originalOrder.enumerated() {
+        guard let item = heldByID[itemID], !present.contains(itemID) else { continue }
+        var insertAt = result.count
+        for nextID in originalOrder[(position + 1)...] {
+            if let index = result.firstIndex(where: { id($0) == nextID }) {
+                insertAt = index
+                break
+            }
+        }
+        result.insert(item, at: insertAt)
+        present.insert(itemID)
+    }
+    return result
+}
+
 /// project.json 全体。version 1(旧形式)も読める
 private struct ProjectFile: Codable {
     var version = 2
@@ -1839,7 +1979,36 @@ private struct ProjectFile: Codable {
     }
 
     func makeSnapshot() -> ProjectSnapshot {
-        let restoredClips: [Clip] = clips.compactMap { $0.makeClip() }
+        makeSnapshotHoldingUnresolved().snapshot
+    }
+
+    /// スナップショットと、写真ライブラリの動画をいま読み出せないために外したクリップ・オーバーレイ(なければ nil)
+    func makeSnapshotHoldingUnresolved() -> (snapshot: ProjectSnapshot, unresolved: UnresolvedPhotoItems?) {
+        var restoredClips: [Clip] = []
+        var unresolvedClips: [StoredClip] = []
+        for stored in clips {
+            if let clip = stored.makeClip() {
+                restoredClips.append(clip)
+            } else if stored.refersToPhotoLibrary, ProjectStore.keepsUnresolvedPhotoReference(stored.file) {
+                unresolvedClips.append(stored)
+            }
+        }
+        var restoredOverlays: [OverlayClip] = []
+        var unresolvedOverlays: [StoredOverlay] = []
+        for stored in overlays ?? [] {
+            if let overlay = stored.makeOverlay() {
+                restoredOverlays.append(overlay)
+            } else if ProjectStore.keepsUnresolvedPhotoReference(stored.file) {
+                unresolvedOverlays.append(stored)
+            }
+        }
+        var unresolved: UnresolvedPhotoItems? = nil
+        if !unresolvedClips.isEmpty || !unresolvedOverlays.isEmpty {
+            unresolved = UnresolvedPhotoItems(clipOrder: clips.map { $0.id },
+                                              clips: unresolvedClips,
+                                              overlayOrder: (overlays ?? []).map { $0.id },
+                                              overlays: unresolvedOverlays)
+        }
 
         let style = subtitleStyle?.value ?? legacySubtitleStyle()
 
@@ -1854,20 +2023,21 @@ private struct ProjectFile: Codable {
 
         let canvasSettings = canvas?.value ?? legacyCanvas()
 
-        return ProjectSnapshot(
+        let snapshot = ProjectSnapshot(
             clips: restoredClips,
             subtitles: subtitles.map { $0.value },
             subtitleStyle: style, audio: audio, canvas: canvasSettings,
             documentary: documentary?.value ?? DocumentaryStyle(),
             titleCards: (titleCards ?? []).map { $0.value },
             lowerThirds: (lowerThirds ?? []).map { LowerThird(id: $0.id, kind: CaptionKind(rawValue: $0.kind) ?? .nameplate, start: $0.start, duration: $0.duration, primary: $0.primary, secondary: $0.secondary) },
-            overlays: (overlays ?? []).compactMap { $0.makeOverlay() },
+            overlays: restoredOverlays,
             narration: (narration ?? []).compactMap { $0.makeNarration() },
             textClips: (textClips ?? []).map { $0.value },
             drawings: (drawings ?? []).map { $0.value },
             markers: (markers ?? []).map { $0.value },
             watermark: watermark?.value ?? WatermarkSettings(),
             cover: cover?.value ?? CoverSettings())
+        return (snapshot, unresolved)
     }
 
     // MARK: 素材ファイル名の列挙・書き換え(パッケージ用)

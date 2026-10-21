@@ -14,6 +14,11 @@ struct VideoEditorApp: App {
         Analytics.shared.start()
         // クラウド文字起こしの背景セッションをつなぎ直す(前回の起動中に送ったピースの結果を受け取れるように)
         CloudBackgroundUploader.shared.activate()
+        // 「Apple でサインイン」がやめられていないか(設定 → Apple アカウント)を確かめる。
+        // 前面に戻るたびの確認と、やめられたときの通知は AccountService が受け取る
+        Task { @MainActor in
+            await AccountService.shared.verifyAppleCredential()
+        }
         // フィルタの LUT をバックグラウンドで先に作っておく(初回表示のもたつき防止)
         Task.detached(priority: .utility) { FilterLUT.prewarm() }
         // 読み込んだフォント(.ttf / .otf)を起動時に登録する

@@ -83,8 +83,11 @@ enum ProjectPackage {
                                clipCount: meta?.clipCount ?? snapshot?.clips.count ?? 0)
         let thumbnailURL = ProjectStore.thumbnailURL(projectID: projectID)
         return try await offMain {
-            try buildPackage(projectData: projectData, info: info, references: references,
-                             thumbnailURL: thumbnailURL, progress: progress)
+            // 前に書き出したパッケージ(素材のコピーで大きい)は消してから作る。
+            // 共有シートは 1 つずつしか開かないので、新しく書き出すときに使い中のものは無い
+            cleanUpExportedPackages()
+            return try buildPackage(projectData: projectData, info: info, references: references,
+                                    thumbnailURL: thumbnailURL, progress: progress)
         }
     }
 

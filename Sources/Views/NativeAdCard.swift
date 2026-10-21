@@ -20,6 +20,10 @@ final class NativeAdProvider: NSObject {
     private var loader: AdLoader?
     private var ready: NativeAd?
     private var waiting: [(NativeAd) -> Void] = []
+    /// 続けて読み込みに失敗した回数(読み込み直すまでの間隔に使う)
+    private var failures = 0
+    /// 読み込み直しの予定がすでにあるか(カードが出るたびの読み込みが失敗しても、予定を重ねないため)
+    private var isRetryScheduled = false
 
     /// 広告を 1 件もらう(なければ読み込みが終わったときに渡す)
     func request(_ handler: @escaping (NativeAd) -> Void) {
@@ -47,6 +51,7 @@ final class NativeAdProvider: NSObject {
 
     fileprivate func received(_ ad: NativeAd) {
         loader = nil
+        failures = 0
         if !waiting.isEmpty {
             let handler = waiting.removeFirst()
             handler(ad)
@@ -58,6 +63,16 @@ final class NativeAdProvider: NSObject {
 
     fileprivate func failed() {
         loader = nil
+        // 電波が弱いときなど。間をあけて読み込み直す(待っているカードがあればそこに渡す。予定がすでにあれば重ねない)
+        failures += 1
+        guard !isRetryScheduled else { return }
+        isRetryScheduled = true
+        let delay = AdsManager.retryDelay(failures: failures)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            self?.isRetryScheduled = false
+            self?.preload()
+        }
     }
 }
 

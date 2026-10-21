@@ -50,6 +50,7 @@ final class AdsManager: NSObject {
     /// リワード広告(見てポイント)を使えるか
     nonisolated static var hasRewarded: Bool { usesTestAds || !liveRewardedUnit.isEmpty }
 
+    /// AdMob SDK の開始まで終わったか(広告の読み込み・表示は true になってから。同意が取れる前には読み込まない)
     private(set) var isStarted = false
     /// リワード広告の準備ができているか(ボタンの有効・無効に使う)
     private(set) var isRewardedReady = false
@@ -67,11 +68,26 @@ final class AdsManager: NSObject {
     @ObservationIgnored private var lastShown: Date = .distantPast
     @ObservationIgnored private var earnedReward = false
     @ObservationIgnored private var rewardContinuation: CheckedContinuation<Bool, Never>?
+    /// start() の途中か(2 回目以降の呼び出しを重ねないため。終わったら、うまくいかなくても false に戻す)
+    @ObservationIgnored private var isStarting = false
+    @ObservationIgnored private var isObservingActivation = false
+    @ObservationIgnored private var isRequestingTracking = false
+    @ObservationIgnored private var isLoadingInterstitial = false
+    @ObservationIgnored private var isLoadingRewarded = false
+    /// 続けて読み込みに失敗した回数(読み込み直すまでの間隔に使う)
+    @ObservationIgnored private var interstitialFailures = 0
+    @ObservationIgnored private var rewardedFailures = 0
+    /// 読み込み直しの予定がすでにあるか(前面に戻ったときの読み込みなどが失敗しても、予定を重ねないため)
+    @ObservationIgnored private var isInterstitialRetryScheduled = false
+    @ObservationIgnored private var isRewardedRetryScheduled = false
 
-    /// 起動後、画面が出てから 1 回呼ぶ(トラッキングの許可を聞いてから SDK を始める)
+    /// 起動後、画面が出てから呼ぶ(トラッキングの許可を聞いてから SDK を始める)。
+    /// 同意情報が取れず SDK を始められなかったときは、次に前面に来たとき(appDidBecomeActive)にやり直す
     func start() async {
-        guard !isStarted else { return }
-        isStarted = true
+        observeActivationIfNeeded()
+        guard !isStarted, !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
         // 1) 広告の同意(ヨーロッパ・イギリスなど、必要な地域だけ同意画面が出る)
         do {
             try await ConsentInformation.shared.requestConsentInfoUpdate(with: RequestParameters())
@@ -80,29 +96,99 @@ final class AdsManager: NSObject {
             // 同意情報を取れなくても、前回の同意で広告を出せるなら続ける
         }
         privacyOptionsRequired = ConsentInformation.shared.privacyOptionsRequirementStatus == .required
+        // 広告を出せない(同意情報を取れなかった・同意がまだ)ときは、ここでやめて前面に戻ったときにやり直す
         guard ConsentInformation.shared.canRequestAds else { return }
         // 2) トラッキングの確認
         if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
-            // 起動直後は確認が出ないことがあるので少し待つ
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            // 確認はアプリが .active(前面で操作できる状態)のときしか出ないので、そうなるまで待つ
+            await waitUntilActive()
+            // 取り消されたときは、ここでやめる(次に前面に来たとき appDidBecomeActive からやり直す)
+            guard !Task.isCancelled else { return }
             _ = await ATTrackingManager.requestTrackingAuthorization()
         }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             MobileAds.shared.start { _ in continuation.resume() }
         }
+        // ここから広告を読み込み・表示できる
+        isStarted = true
         loadInterstitial()
         loadRewarded()
         NativeAdProvider.shared.preload()
     }
 
+    /// アプリが .active になるまで待つ(すでに .active ならすぐ戻る)
+    private func waitUntilActive() async {
+        while UIApplication.shared.applicationState != .active {
+            // 呼び出し元(画面の .task)が取り消されると、通知の待ち受けがすぐ終わって空回りするので抜ける
+            if Task.isCancelled { return }
+            for await _ in NotificationCenter.default.notifications(named: UIApplication.didBecomeActiveNotification) {
+                break
+            }
+        }
+    }
+
+    /// 前面に来たとき(.active になったとき)に、うまくいかなかったことをやり直すための通知を受け取る
+    private func observeActivationIfNeeded() {
+        guard !isObservingActivation else { return }
+        isObservingActivation = true
+        NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive),
+                                               name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    @objc private func appDidBecomeActive() {
+        guard isStarted else {
+            // 同意情報が取れずに SDK を始められていなければ、始めからやり直す(途中なら何もしない)
+            Task { await self.start() }
+            return
+        }
+        // 読み込めていない広告を読み込み直す(読み込み済み・読み込み中のものはそのまま)
+        if !isShowing {
+            loadInterstitial()
+            loadRewarded()
+            NativeAdProvider.shared.preload()
+        }
+        // 起動直後などでトラッキングの確認が出なかった(まだ決まっていない)ときは、もう一度聞く
+        if ATTrackingManager.trackingAuthorizationStatus == .notDetermined, !isRequestingTracking, !isShowing {
+            isRequestingTracking = true
+            Task {
+                _ = await ATTrackingManager.requestTrackingAuthorization()
+                self.isRequestingTracking = false
+            }
+        }
+    }
+
+    /// 読み込みに失敗したあと、読み込み直すまでの間隔(15 秒から倍々にのばし、最大 5 分)
+    nonisolated static func retryDelay(failures: Int) -> Duration {
+        let seconds: Int = min(300, 15 << min(max(failures, 1) - 1, 5))
+        return .seconds(seconds)
+    }
+
     // MARK: インタースティシャル
 
     private func loadInterstitial() {
+        guard isStarted, interstitial == nil, !isLoadingInterstitial else { return }
+        isLoadingInterstitial = true
         InterstitialAd.load(with: interstitialUnit, request: Request()) { [weak self] ad, _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.isLoadingInterstitial = false
                 self.interstitial = ad
                 ad?.fullScreenContentDelegate = self
+                if ad != nil {
+                    self.interstitialFailures = 0
+                } else {
+                    // 電波が弱いときなど。間をあけて読み込み直す(予定がすでにあれば重ねない)
+                    self.interstitialFailures += 1
+                    if !self.isInterstitialRetryScheduled {
+                        self.isInterstitialRetryScheduled = true
+                        let delay = AdsManager.retryDelay(failures: self.interstitialFailures)
+                        Task { @MainActor [weak self] in
+                            try? await Task.sleep(for: delay)
+                            self?.isInterstitialRetryScheduled = false
+                            self?.loadInterstitial()
+                        }
+                    }
+                }
             }
         }
     }
@@ -121,14 +207,31 @@ final class AdsManager: NSObject {
     // MARK: リワード
 
     private func loadRewarded() {
+        guard isStarted, Self.hasRewarded, rewarded == nil, !isLoadingRewarded else { return }
         isRewardedReady = false
-        guard Self.hasRewarded else { return }
+        isLoadingRewarded = true
         RewardedAd.load(with: rewardedUnit, request: Request()) { [weak self] ad, _ in
             Task { @MainActor in
                 guard let self else { return }
+                self.isLoadingRewarded = false
                 self.rewarded = ad
                 ad?.fullScreenContentDelegate = self
                 self.isRewardedReady = ad != nil
+                if ad != nil {
+                    self.rewardedFailures = 0
+                } else {
+                    // 電波が弱いときなど。間をあけて読み込み直す(予定がすでにあれば重ねない)
+                    self.rewardedFailures += 1
+                    if !self.isRewardedRetryScheduled {
+                        self.isRewardedRetryScheduled = true
+                        let delay = AdsManager.retryDelay(failures: self.rewardedFailures)
+                        Task { @MainActor [weak self] in
+                            try? await Task.sleep(for: delay)
+                            self?.isRewardedRetryScheduled = false
+                            self?.loadRewarded()
+                        }
+                    }
+                }
             }
         }
     }
@@ -156,6 +259,8 @@ final class AdsManager: NSObject {
     // MARK: 共通
 
     private func didFinishPresenting(_ ad: FullScreenPresentingAd) {
+        // 広告の動画で音の設定(カテゴリ)が変わっていることがあるので、再生用(マナーモードでも鳴る)に戻す
+        AudioSessionSetup.ensurePlayback()
         isShowing = false
         lastShown = Date()
         if ad is RewardedAd {

@@ -13,9 +13,13 @@ import Observation
 //
 // パイプライン: AVAssetReader(合成) → AVAssetWriter(.mp4 / .mov)
 //   映像: AVAssetReaderVideoCompositionOutput(32BGRA, カスタムコンポジタ) → H.264 / HEVC
-//         (preserveHDR + HEVC のときは HLG 10bit を試し、失敗したら SDR に自動で戻す)
+//         (preserveHDR + HEVC のときは HLG 10bit を試し、失敗したら SDR に自動で戻す。
+//          ただし合成が 8bit SDR のみのため、いまは runExport で preserveHDR を常にオフにしている)
 //   音声: AVAssetReaderAudioMixOutput(LPCM, .spectral) → AAC 48kHz 2ch(canvas.audioBitrateKbps)
 //   書き出し後に出力ファイルを開き直し、長さと映像トラックの有無を検証する。
+//   書き出し中のファイルは tmp/ExportWork(Files アプリに出ない作業フォルダ)に置き、
+//   検証に通ってから Documents/Exports に移す(途中で落ちても再生できないファイルが Exports に残らない)。
+//   失敗・キャンセル時は作業ファイルを消し、起動時(ExportManager の作成時)にも作業フォルダを空にする。
 //
 // バックグラウンド:
 //   - 書き出し全体を UIApplication.beginBackgroundTask で包む。
@@ -78,9 +82,22 @@ final class ExportManager {
     }
     /// 0...1
     private(set) var progress: Double = 0
-    private(set) var isRunning: Bool = false
+    private(set) var isRunning: Bool = false {
+        didSet {
+            // 書き出し中は画面の自動ロックを止める(どの画面から書き出しても効くよう、ここで切り替える)
+            guard isRunning != oldValue else { return }
+            let running = isRunning
+            exportOnMain {
+                IdleTimerGuard.set(running, for: "export")
+            }
+        }
+    }
     private(set) var lastOutputURL: URL?
     private(set) var savedToPhotos: Bool = false
+    /// 「写真アプリにも保存」で保存できなかったときの理由(縦横同時は 1 本目の分も残す)。保存できたら nil
+    private(set) var photoSaveError: String?
+    /// photoSaveError が写真ライブラリの許可がないためか(「設定を開く」を出す)
+    private(set) var photoSaveNeedsPermission: Bool = false
     /// ユーザー向けの状態表示(日本語)
     private(set) var statusText: String = String(localized: "待機中")
     /// 書き出し履歴(新しい順、最大 20 件。ファイルが無くなったものは除く)
@@ -112,12 +129,17 @@ final class ExportManager {
     @ObservationIgnored private var queuedJobs: [ExportJob] = []
     /// 状態表示の先頭に付ける「(1/2 横 16:9)」など
     @ObservationIgnored private var jobLabel: String = ""
+    /// 「写真アプリにも保存」で保存できなかった出力(縦横同時は 2 本とも入ることがある)。「もう一度写真に保存」で使う
+    @ObservationIgnored private var photoSaveFailedURLs: [URL] = []
 
     // 進捗の間引き(任意スレッドから)
     private let progressLock = NSLock()
     @ObservationIgnored private var lastProgressReport: CFAbsoluteTime = 0
 
     private init() {
+        // 前回、書き出し中に終了した(落ちた・強制終了された)ときの作業ファイルを消す。
+        // shared を作る前に書き出しが動いていることはないので、まるごと消してよい
+        try? FileManager.default.removeItem(at: Self.workDirectoryURL)
         loadHistory()
     }
 
@@ -159,6 +181,14 @@ final class ExportManager {
             if let last = self.lastOutputURL, last.path == record.url.path {
                 self.lastOutputURL = nil
             }
+            // 写真に保存できなかった動画を消したら、保存し直しの案内も片付ける
+            if !self.photoSaveFailedURLs.isEmpty {
+                self.photoSaveFailedURLs.removeAll { $0.path == record.url.path }
+                if self.photoSaveFailedURLs.isEmpty {
+                    self.photoSaveError = nil
+                    self.photoSaveNeedsPermission = false
+                }
+            }
             self.saveHistory()
         }
     }
@@ -170,13 +200,36 @@ final class ExportManager {
     }
 
     func saveLastOutputToPhotos() async throws {
-        let url: URL? = await MainActor.run { self.lastOutputURL }
-        guard let url, FileManager.default.fileExists(atPath: url.path) else {
+        // 書き出し時に写真に保存できなかった分があればそれを保存し直す(縦横同時で 1 本だけ失敗したとき、
+        // 保存できた方を二重に保存しない)。無ければ最後に書き出した動画を保存する
+        let urls: [URL] = await MainActor.run {
+            let pending = self.photoSaveFailedURLs
+            if !pending.isEmpty {
+                // 失敗した分だけを保存し直す。失敗した動画がもう消されていたら、保存できた方を二重に保存しないよう何もしない
+                let existing = pending.filter { FileManager.default.fileExists(atPath: $0.path) }
+                if existing.isEmpty {
+                    self.photoSaveFailedURLs = []
+                    self.photoSaveError = nil
+                    self.photoSaveNeedsPermission = false
+                }
+                return existing
+            }
+            if let last = self.lastOutputURL, FileManager.default.fileExists(atPath: last.path) { return [last] }
+            return []
+        }
+        guard !urls.isEmpty else {
             throw ExportManagerError.noOutput
         }
-        try await Self.saveVideoToPhotos(url)
+        for url in urls {
+            try await Self.saveVideoToPhotos(url)
+            // 保存できた分は外す(途中で失敗しても、もう一度押したときに同じものを二重に保存しない)
+            await MainActor.run { self.photoSaveFailedURLs.removeAll { $0 == url } }
+        }
         await MainActor.run {
+            self.photoSaveFailedURLs = []
             self.savedToPhotos = true
+            self.photoSaveError = nil
+            self.photoSaveNeedsPermission = false
             self.statusText = String(localized: "写真に保存しました")
         }
     }
@@ -220,6 +273,12 @@ final class ExportManager {
         state = .preparing
         progress = 0
         savedToPhotos = false
+        if jobsCompleted == 0 {
+            // 縦横同時の 2 本目では消さない(1 本目で写真に保存できなかったことを最後に伝える)
+            photoSaveError = nil
+            photoSaveNeedsPermission = false
+            photoSaveFailedURLs = []
+        }
         lastOutputURL = nil
         statusText = jobLabel + String(localized: "書き出しの準備中…")
         cancelRequested = false
@@ -300,6 +359,9 @@ final class ExportManager {
         state = .preparing
         progress = 0
         savedToPhotos = false
+        photoSaveError = nil
+        photoSaveNeedsPermission = false
+        photoSaveFailedURLs = []
         lastOutputURL = nil
         statusText = String(localized: "音声の書き出しを準備中…")
         cancelRequested = false
@@ -336,9 +398,14 @@ final class ExportManager {
 
     private func runExport(snapshot: ProjectSnapshot, saveToPhotos: Bool) async {
         let canvas = snapshot.canvas
+        // 書き出し中に使う作業用の場所(tmp/ExportWork)。失敗・キャンセルの後始末はこちらを消す
         let outputURL: URL
+        // 検証に通ったあとに移す場所(Documents/Exports)
+        let finalURL: URL
         do {
-            outputURL = try Self.makeOutputURL(fileExtension: StorageEstimator.fileExtension(for: snapshot))
+            let urls = try Self.makeOutputURLs(fileExtension: StorageEstimator.fileExtension(for: snapshot))
+            outputURL = urls.work
+            finalURL = urls.destination
         } catch {
             let message = String(localized: "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)")
             await MainActor.run { self.finishFailed(message, outputURL: nil) }
@@ -373,7 +440,9 @@ final class ExportManager {
                                       frameRate: max(1, canvas.frameRate),
                                       audioBitrate: StorageEstimator.audioBitrate(for: snapshot),
                                       fileType: Self.fileType(for: canvas.fileFormat),
-                                      preserveHDR: canvas.preserveHDR,
+                                      // HDR は使わない: 合成(VideoCompositor)が 8bit SDR のため、HLG の印だけ付いた
+                                      // SDR の映像になってしまう。本当の HDR 合成ができるまで canvas.preserveHDR は見ない
+                                      preserveHDR: false,
                                       onProgress: { [weak self] value in
                                           self?.pipelineReportedProgress(value)
                                       })
@@ -396,9 +465,18 @@ final class ExportManager {
         case .completed:
             let fellBackToSDR = pipeline.didFallBackToSDR
 
-            // 書き出したファイルを開き直して検証(長さ・映像トラック)。失敗してもファイルは残す
+            // 書き出したファイルを開き直して検証(長さ・映像トラック)。通らなければ作業ファイルは消す
             if let problem = await Self.verifyOutput(outputURL, expectedDuration: built.duration.seconds) {
                 await MainActor.run { self.finishVerificationFailed(problem, outputURL: outputURL) }
+                return
+            }
+
+            // 検証に通ったので Exports に移す(以降の写真への保存・履歴は移した先を使う)
+            do {
+                try Self.moveToExports(outputURL, to: finalURL)
+            } catch {
+                let message = String(localized: "書き出した動画を保存先に移せませんでした: \(error.localizedDescription)")
+                await MainActor.run { self.finishFailed(message, outputURL: outputURL) }
                 return
             }
 
@@ -406,7 +484,7 @@ final class ExportManager {
             var photoError: Error?
             if saveToPhotos {
                 do {
-                    try await Self.saveVideoToPhotos(outputURL)
+                    try await Self.saveVideoToPhotos(finalURL)
                     saved = true
                 } catch {
                     photoError = error
@@ -417,7 +495,7 @@ final class ExportManager {
             let durationSeconds = built.duration.seconds
             let description = Self.canvasDescription(for: snapshot, renderSize: built.renderSize)
             await MainActor.run {
-                self.finishSucceeded(outputURL: outputURL, saved: savedResult, photoError: photoErrorResult,
+                self.finishSucceeded(outputURL: finalURL, saved: savedResult, photoError: photoErrorResult,
                                      fellBackToSDR: fellBackToSDR,
                                      duration: durationSeconds, canvasDescription: description)
             }
@@ -432,9 +510,13 @@ final class ExportManager {
     // MARK: - Audio-only export (background)
 
     private func runAudioExport(snapshot: ProjectSnapshot) async {
+        // 作業用の場所(tmp/ExportWork)に書き出し、終わったら finalURL(Documents/Exports)に移す
         let outputURL: URL
+        let finalURL: URL
         do {
-            outputURL = try Self.makeOutputURL(fileExtension: "m4a")
+            let urls = try Self.makeOutputURLs(fileExtension: "m4a")
+            outputURL = urls.work
+            finalURL = urls.destination
         } catch {
             let message = String(localized: "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)")
             await MainActor.run { self.finishFailed(message, outputURL: nil) }
@@ -497,9 +579,15 @@ final class ExportManager {
                 if self.cancelRequested {
                     self.finishCancelled(outputURL: outputURL)
                 } else {
-                    self.finishSucceeded(outputURL: outputURL, saved: false, photoError: nil,
-                                         duration: durationSeconds, canvasDescription: String(localized: "音声のみ(m4a)"),
-                                         audioOnly: true)
+                    do {
+                        // 同じボリューム内の移動なので名前の付け替えだけ(メインでも重くない)
+                        try Self.moveToExports(outputURL, to: finalURL)
+                        self.finishSucceeded(outputURL: finalURL, saved: false, photoError: nil,
+                                             duration: durationSeconds, canvasDescription: String(localized: "音声のみ(m4a)"),
+                                             audioOnly: true)
+                    } catch {
+                        self.finishFailed(String(localized: "音声の書き出しに失敗しました: \(error.localizedDescription)"), outputURL: outputURL)
+                    }
                 }
             }
         } catch {
@@ -634,6 +722,12 @@ final class ExportManager {
         currentAudioSession = nil
         lastOutputURL = outputURL
         appendHistory(url: outputURL, duration: duration, canvasDescription: canvasDescription)
+        // 写真に保存できなかった理由は、縦横同時の 1 本目の分も最後まで残す(結果の画面で知らせる)
+        if let photoError {
+            photoSaveError = photoError.localizedDescription
+            photoSaveNeedsPermission = (photoError as? ExportManagerError) == .photosAccessDenied
+            photoSaveFailedURLs.append(outputURL)
+        }
 
         if (cancelRequested || continuedTaskExpired) && jobsCompleted + 1 < jobsTotal {
             // 縦横同時の 1 本目の検証・写真への保存中にキャンセル / 停止された(cancelOnMain が残りを消している)。
@@ -661,12 +755,15 @@ final class ExportManager {
         let label = jobLabel
         jobLabel = ""
         progress = 1
-        savedToPhotos = saved
+        // 縦横同時で 1 本でも写真に保存できなかったら「保存しました」とは言わない
+        let savedAll = saved && photoSaveError == nil
+        savedToPhotos = savedAll
         state = .finished
         isRunning = false
         let doneText = audioOnly ? String(localized: "音声の書き出し完了") : String(localized: "書き出し完了")
-        if let photoError {
-            statusText = String(localized: "\(doneText)(写真への保存に失敗: \(photoError.localizedDescription))")
+        if let photoSaveError {
+            let base = label.isEmpty ? doneText : String(localized: "2 本とも書き出しました")
+            statusText = base + String(localized: "(写真への保存に失敗: \(String(photoSaveError)))")
         } else if saved {
             statusText = label.isEmpty ? String(localized: "\(doneText)・写真に保存しました") : String(localized: "2 本とも書き出して写真に保存しました")
         } else {
@@ -676,9 +773,15 @@ final class ExportManager {
             statusText += "(\(Self.sdrFallbackNote))"
         }
         if AppLifecycle.shared.isInBackground {
-            Self.postLocalNotification(title: doneText,
-                                       body: saved ? String(localized: "動画を書き出して写真に保存しました")
-                                           : (audioOnly ? String(localized: "音声の書き出しが完了しました") : String(localized: "動画の書き出しが完了しました")))
+            let body: String
+            if photoSaveError != nil {
+                body = String(localized: "書き出しは完了しましたが、写真への保存に失敗しました。アプリを開いて保存し直してください")
+            } else if savedAll {
+                body = String(localized: "動画を書き出して写真に保存しました")
+            } else {
+                body = audioOnly ? String(localized: "音声の書き出しが完了しました") : String(localized: "動画の書き出しが完了しました")
+            }
+            Self.postLocalNotification(title: doneText, body: body)
         }
         endBackgroundWork(success: true)
     }
@@ -689,7 +792,7 @@ final class ExportManager {
         queuedJobs = []
         jobLabel = ""
         progress = 1
-        savedToPhotos = saved
+        savedToPhotos = saved && photoSaveError == nil
         state = .finished
         isRunning = false
         let reason: String
@@ -716,14 +819,14 @@ final class ExportManager {
         endBackgroundWork(success: false)
     }
 
-    /// 書き出し自体は終わったが検証に通らなかった。ファイルは残し、lastOutputURL からたどれるようにする
+    /// 書き出し自体は終わったが検証に通らなかった。outputURL は作業ファイル(Exports に移す前)なので消す
     @MainActor
     private func finishVerificationFailed(_ message: String, outputURL: URL) {
         currentPipeline = nil
         currentAudioSession = nil
         queuedJobs = []
         jobLabel = ""
-        lastOutputURL = outputURL
+        try? FileManager.default.removeItem(at: outputURL)
         isRunning = false
         state = .failed(message)
         statusText = message
@@ -920,16 +1023,36 @@ final class ExportManager {
         return directory
     }
 
-    private static func makeOutputURL(fileExtension: String = "mp4") throws -> URL {
+    /// 書き出し中のファイルを置く作業フォルダ(tmp/ExportWork)。Files アプリには出ず、
+    /// Documents と同じボリュームなので Exports への移動は名前の付け替えだけで済む
+    private static var workDirectoryURL: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("ExportWork", isDirectory: true)
+    }
+
+    /// 書き出し中に使う作業ファイル(work)と、検証後に移す Exports のファイル(destination)の場所
+    private static func makeOutputURLs(fileExtension: String = "mp4") throws -> (work: URL, destination: URL) {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         let ext = fileExtension.isEmpty ? "mp4" : fileExtension
-        let url = try exportsDirectory().appendingPathComponent("VideoEditor_\(formatter.string(from: Date())).\(ext)")
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+        let fileName = "VideoEditor_\(formatter.string(from: Date())).\(ext)"
+        let finalURL = try exportsDirectory().appendingPathComponent(fileName)
+        let workDirectory = workDirectoryURL
+        try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+        let workURL = workDirectory.appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: workURL.path) {
+            try FileManager.default.removeItem(at: workURL)
         }
-        return url
+        return (workURL, finalURL)
+    }
+
+    /// 作業フォルダで書き出し・検証したファイルを Exports に移す(同じ名前があれば置き換える)
+    private static func moveToExports(_ workURL: URL, to finalURL: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: finalURL.path) {
+            try fm.removeItem(at: finalURL)
+        }
+        try fm.moveItem(at: workURL, to: finalURL)
     }
 
     private static func saveVideoToPhotos(_ url: URL) async throws {

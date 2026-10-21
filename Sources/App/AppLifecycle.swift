@@ -77,6 +77,9 @@ final class AppLifecycle {
         let enterBackground = center.addObserver(forName: UIApplication.didEnterBackgroundNotification,
                                                  object: nil, queue: .main) { [weak self] _ in
             self?.setInBackground(true)
+            // バックグラウンドでは再生しない(audio のバックグラウンドモードは無い)ので、
+            // 音声セッションを手放して他のアプリ(音楽など)の再生を再開させる
+            AudioSessionSetup.release()
         }
         let willEnterForeground = center.addObserver(forName: UIApplication.willEnterForegroundNotification,
                                                      object: nil, queue: .main) { [weak self] _ in

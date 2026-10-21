@@ -492,7 +492,7 @@ struct ExportView: View {
         )
     }
 
-    /// HDR を維持できるコーデックか(H.264 は 8bit のみ)
+    /// HDR を維持できるコーデックか(H.264 は 8bit のみ)。「HDR を残す」は今は隠している(下の advancedSection を参照)
     private var hdrAvailable: Bool {
         project.canvas.codec != .h264
     }
@@ -561,8 +561,9 @@ struct ExportView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Toggle("HDR(明るさの幅が広い映像)を残す", isOn: $project.canvas.preserveHDR)
-                .disabled(!hdrAvailable)
+            // 「HDR(明るさの幅が広い映像)を残す」のトグルとその説明は隠している。
+            // 合成(VideoCompositor)が 8bit SDR のため、HDR の印だけ付いた SDR の映像になってしまう。
+            // 本当の HDR 合成ができるまで、ExportManager でも preserveHDR を常にオフにして書き出す
 
             Toggle("字幕を映像に入れる", isOn: $project.canvas.burnInSubtitles)
         } header: {
@@ -570,7 +571,6 @@ struct ExportView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("保存形式は迷ったら「自動」。HEVC は小さくきれい、H.264 は古い機器でも再生しやすい形式です。")
-                Text("HDR は保存形式が「自動」か HEVC のときだけ選べます。素材が HDR でないときは通常の映像で書き出します。")
                 Text("「字幕を映像に入れる」をオフにすると、字幕は動画に入りません(字幕ファイルを別に使うとき向け)。")
             }
         }
@@ -761,6 +761,25 @@ struct ExportView: View {
                       systemImage: "checkmark.circle.fill")
                     .foregroundStyle(Color.green)
                 if !exporter.savedToPhotos && lastOutputIsVideo {
+                    if let photoError = exporter.photoSaveError {
+                        // 「写真アプリにも保存」がオンだったのに保存できなかった(許可していない・空き容量など)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("写真に保存できませんでした", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(Color.orange)
+                            Text(photoError)
+                                .font(.caption)
+                                .foregroundStyle(Color.orange)
+                            if exporter.photoSaveNeedsPermission {
+                                Button {
+                                    openSystemSettings()
+                                } label: {
+                                    Label("設定を開く", systemImage: "gear")
+                                }
+                                .buttonStyle(.borderless)
+                                .frame(minHeight: 44)
+                            }
+                        }
+                    }
                     Button {
                         saveToPhotosLibrary()
                     } label: {
@@ -770,7 +789,8 @@ struct ExportView: View {
                                 Text("保存中…")
                             }
                         } else {
-                            Label("写真に保存", systemImage: "photo.on.rectangle")
+                            Label(exporter.photoSaveError == nil ? String(localized: "写真に保存") : String(localized: "もう一度写真に保存"),
+                                  systemImage: "photo.on.rectangle")
                         }
                     }
                     .buttonStyle(.borderless)
@@ -848,9 +868,15 @@ struct ExportView: View {
                 showAlert(title: String(localized: "保存しました"), message: String(localized: "動画を写真アプリに保存しました。"))
             } catch {
                 isSavingToPhotos = false
-                showAlert(title: String(localized: "写真に保存できませんでした"),
-                          message: String(localized: "「設定を開く」→「写真」で写真の追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: ") + error.localizedDescription,
-                          offersSettings: true)
+                if (error as? ExportManagerError) == .photosAccessDenied {
+                    showAlert(title: String(localized: "写真に保存できませんでした"),
+                              message: String(localized: "「設定を開く」→「写真」で写真の追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: ") + error.localizedDescription,
+                              offersSettings: true)
+                } else {
+                    // 許可の問題ではない(空き容量・写真ライブラリ側の失敗など)ので「設定を開く」は出さない
+                    showAlert(title: String(localized: "写真に保存できませんでした"),
+                              message: String(localized: "もう一度「写真に保存」を押してください。\n\n詳細: ") + error.localizedDescription)
+                }
             }
         }
     }
@@ -1163,6 +1189,10 @@ struct ExportView: View {
 
     private func startGIFExport() {
         guard gifTask == nil, let range = gifRange else { return }
+        // 前に作った GIF は消す(tmp に溜まらないように。GIFExporter でも作る前にフォルダを空にする)
+        if let old = gifURL {
+            try? FileManager.default.removeItem(at: old)
+        }
         gifURL = nil
         gifError = nil
         gifProgress = 0

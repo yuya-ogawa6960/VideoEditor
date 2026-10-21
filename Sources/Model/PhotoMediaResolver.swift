@@ -67,8 +67,9 @@ enum PhotoMediaResolver {
     }
 
     /// 写真ライブラリの動画を、読み出し用の URL として取り出す(コピーしない)。
-    /// 見つからない・許可がない・1 本のファイルでない(スローモーションなど)ときは nil
-    static func resolve(assetID: String) async -> URL? {
+    /// 見つからない・許可がない・1 本のファイルでない(スローモーションなど)・キャンセルされたときは nil。
+    /// onProgress には iCloud からのダウンロードの進み具合が届く
+    static func resolve(assetID: String, onProgress: MovieImporter.ProgressHandler? = nil) async -> URL? {
         lock.lock()
         let cached: URL? = urlByID[assetID]
         lock.unlock()
@@ -87,11 +88,8 @@ enum PhotoMediaResolver {
         options.isNetworkAccessAllowed = true
         options.version = .current
         options.deliveryMode = .highQualityFormat
-        let avAsset: AVAsset? = await withCheckedContinuation { continuation in
-            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { result, _, _ in
-                continuation.resume(returning: result)
-            }
-        }
+        // キャンセルされたら iCloud からのダウンロードも止める
+        let avAsset: AVAsset? = try? await MovieImporter.requestAVAsset(forVideo: asset, options: options, onProgress: onProgress)
         guard let urlAsset = avAsset as? AVURLAsset else { return nil }
         let url = urlAsset.url
         guard url.isFileURL, FileManager.default.isReadableFile(atPath: url.path) else { return nil }

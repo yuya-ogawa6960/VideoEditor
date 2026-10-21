@@ -67,6 +67,14 @@ enum CloudTranscriptionError: LocalizedError {
         case .fileTooLarge:
             return String(localized: "音声ファイルが大きすぎて送信できません。")
         case .server(let status, let message):
+            // 402 は Video Mania のポイント不足(サーバーからの応答。OpenAI のエラーではない)。
+            // 背景セッションの記録(CloudJobManifest.Failure)にも残るよう、新しい case を足さずに status で見分ける
+            if status == 402 {
+                return String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。")
+            }
+            if CloudAIGateway.usesPoints {
+                return String(localized: "サーバーがエラーを返しました(\(status)): \(message)")
+            }
             return String(localized: "OpenAI サーバーがエラーを返しました(\(status)): \(message)")
         case .badResponse:
             return String(localized: "サーバーの応答を読み取れませんでした。")
@@ -743,6 +751,10 @@ final class CloudTranscriber: @unchecked Sendable {
             let apiError = Self.apiError(from: data)
             switch status {
             case 401:
+                // ポイント(サーバー)からの 401 はログインの期限切れ。送ったトークンが今のものならサインアウトする
+                if apiError.type == Self.serverErrorType {
+                    await MainActor.run { AccountService.shared.handleSessionExpired(sentToken: apiKey) }
+                }
                 throw CloudTranscriptionError.invalidAPIKey
             case 413:
                 throw CloudTranscriptionError.fileTooLarge
@@ -796,6 +808,11 @@ final class CloudTranscriber: @unchecked Sendable {
     /// 一時的な通信エラーは .transientFailure で返し、それ以外の通信エラーは CloudTranscriptionError に変換して投げる。
     /// こちらからのキャンセル(Task のキャンセル)は CancellationError
     private func send(fileData: Data, model: String, language: String, apiKey: String) async throws -> SendOutcome {
+        // 送り先が OpenAI なのに、手元の鍵が自分の OpenAI キーでない = 途中でサインアウトされた(ログインの期限切れなど)。
+        // セッションの鍵を OpenAI へ送らずに止める(ポイントを使う設定なら「ログインの期限切れ」と表示される)
+        if !CloudAIGateway.usesPoints, apiKey != AppSettings.shared.openAIKey {
+            throw CloudTranscriptionError.invalidAPIKey
+        }
         let body = Self.multipartBody(audioData: fileData, model: model, language: language)
         let request = Self.makeUploadRequest(apiKey: apiKey, contentType: body.contentType, model: model)
 
@@ -902,6 +919,14 @@ final class CloudTranscriber: @unchecked Sendable {
         let apiError = Self.apiError(from: data)
         switch status {
         case 401:
+            // ポイント(サーバー)からの 401 はログインの期限切れ → サインアウトする。
+            // 背景セッションの完了はメインスレッドとは限らないので、メインアクターに移す
+            // (送ったトークンはここではわからないので、AccountService が今のトークンでサーバーに確かめてからサインアウトする)
+            if apiError.type == serverErrorType {
+                Task { @MainActor in
+                    AccountService.shared.handleSessionExpired(sentToken: nil)
+                }
+            }
             return .fail(.invalidAPIKey)
         case 403:
             return .fail(.server(status: status, message: apiError.message.isEmpty ? String(localized: "アクセスが拒否されました") : apiError.message))
@@ -960,6 +985,9 @@ final class CloudTranscriber: @unchecked Sendable {
         var code: String = ""
     }
 
+    /// Video Mania のサーバー(ポイント)が返すエラーの type(OpenAI のエラーと見分ける)
+    private static let serverErrorType = "videomania"
+
     private static func apiError(from data: Data) -> APIError {
         var result = APIError()
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -973,6 +1001,10 @@ final class CloudTranscriber: @unchecked Sendable {
             result.type = error["type"] as? String ?? ""
             result.param = error["param"] as? String ?? ""
             result.code = error["code"] as? String ?? ""
+            // サーバーの文は日本語だけなので、知っている code は端末の言語の文にする
+            if result.type == serverErrorType, let localized = CloudAIGateway.localizedServerMessage(code: result.code) {
+                result.message = localized
+            }
         } else if let message = root["message"] as? String {
             result.message = message
         }

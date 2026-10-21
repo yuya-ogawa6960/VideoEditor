@@ -34,9 +34,27 @@ final class EditorAnalysisRunner {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     @ObservationIgnored private var continuedHandle: ContinuedProcessingHandle?
-    @ObservationIgnored private var restoresIdleTimer = false
+    /// 画面の自動ロックを止めるときの名前(係ごとに別にする。書き出しやほかの解析が先に終わっても解除されないように)
+    @ObservationIgnored private let idleTimerKey = "analysis-" + UUID().uuidString
 
     var isRunning: Bool { progress != nil }
+
+    deinit {
+        // シートを下に引いて閉じたときなど、解析の途中で破棄されたら止める。
+        // 画面の自動ロックの止めとバックグラウンドの延長も外す(係ごとの名前なので、ほかの処理が終わっても外れないため)
+        guard let task else { return }
+        task.cancel()
+        let key = idleTimerKey
+        let taskID = backgroundTaskID
+        let handle = continuedHandle
+        Task { @MainActor in
+            handle?.finish(success: false)
+            if taskID != .invalid {
+                UIApplication.shared.endBackgroundTask(taskID)
+            }
+            IdleTimerGuard.set(false, for: key)
+        }
+    }
 
     /// 解析を始める(実行中のものは止める)。`report` に 0...1 を渡すと進捗表示が更新される。
     /// CancellationError は黙って終わり、それ以外のエラーは onError に渡す。
@@ -99,10 +117,7 @@ final class EditorAnalysisRunner {
     private func beginBackgroundSupport(title: String) {
         MainActor.assumeIsolated {
             let app = UIApplication.shared
-            if !app.isIdleTimerDisabled {
-                app.isIdleTimerDisabled = true
-                restoresIdleTimer = true
-            }
+            IdleTimerGuard.set(true, for: idleTimerKey)
             backgroundTaskID = app.beginBackgroundTask(withName: "Analysis") { [weak self] in
                 // 時間切れ(メインスレッドで呼ばれる)。終了しないとアプリが強制終了される。処理そのものは止めない
                 MainActor.assumeIsolated {
@@ -125,10 +140,7 @@ final class EditorAnalysisRunner {
                 handle.finish(success: success)
             }
             endBackgroundTask()
-            if restoresIdleTimer {
-                restoresIdleTimer = false
-                UIApplication.shared.isIdleTimerDisabled = false
-            }
+            IdleTimerGuard.set(false, for: idleTimerKey)
         }
     }
 

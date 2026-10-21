@@ -22,8 +22,13 @@ struct AccountPointsSection: View {
                     if let points = account.points {
                         Text("\(points)")
                             .font(.title3.monospacedDigit().weight(.bold))
-                    } else {
+                    } else if account.isRefreshing || account.lastError == nil {
                         ProgressView()
+                    } else {
+                        // 取得に失敗した(通信できない・サーバーが止まっている)ときは、回り続けずにやり直せるように
+                        Button("再読み込み") {
+                            Task { await account.refresh() }
+                        }
                     }
                 }
                 Button {

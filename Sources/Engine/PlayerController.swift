@@ -7,7 +7,8 @@ import Observation
 /// UI から(メインスレッドで)呼ばれる前提。状態の更新はすべてメインスレッドで行う。
 @Observable
 final class PlayerController {
-    let player: AVPlayer
+    /// メディアサービスのリセット後に作り直すので var(SwiftUI は player.player を読むと新しいものを受け取る)
+    private(set) var player: AVPlayer
 
     private(set) var currentTime: Double = 0
     private(set) var duration: Double = 0
@@ -34,13 +35,24 @@ final class PlayerController {
     @ObservationIgnored private var pendingSnapshot: ProjectSnapshot?
     /// 区間の繰り返し再生(トランジション選択中など)。nil なら通常再生
     @ObservationIgnored private var loopRange: ClosedRange<Double>?
+    /// update(with:) が最後に受け取ったスナップショット(元のまま)。再生できなくなったときの作り直しに使う
+    @ObservationIgnored private var latestSnapshot: ProjectSnapshot?
+    /// いまの項目が再生できなくなったこと(.failed / 途中で再生できなくなった)の監視
+    @ObservationIgnored private var itemFailureWatch: PlayerItemFailureWatch?
+    /// 再生できなくなって自動で作り直した世代(同じ世代では 1 回だけ自動で作り直す)
+    @ObservationIgnored private var autoRetryGeneration: Int?
+    /// いまの項目が再生できなくなったと知らされたか(途中で止まったときは item.status が .readyToPlay のままのことがある)
+    @ObservationIgnored private var currentItemFailed = false
+    @ObservationIgnored private var resetObserver: NSObjectProtocol?
 
     init() {
         player = AVPlayer()
         player.actionAtItemEnd = .pause
-        let interval = CMTime(value: 1, timescale: 30)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            self?.handleTick(time)
+        installTimeObserver()
+        // メディアサービスがリセットされる(mediaserverd の再起動)と、それまでの AVPlayer は使えなくなる
+        resetObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
+                                                               object: nil, queue: .main) { [weak self] _ in
+            self?.recreatePlayer()
         }
     }
 
@@ -51,6 +63,16 @@ final class PlayerController {
         }
         if let endObserver {
             NotificationCenter.default.removeObserver(endObserver)
+        }
+        if let resetObserver {
+            NotificationCenter.default.removeObserver(resetObserver)
+        }
+    }
+
+    private func installTimeObserver() {
+        let interval = CMTime(value: 1, timescale: 30)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            self?.handleTick(time)
         }
     }
 
@@ -73,6 +95,7 @@ final class PlayerController {
     /// 描画に関係しない変更(マーカー・表紙・クリップ名)は無視する。
     /// beginInteraction() 〜 endInteraction() の間は作り直さず、終了時に 1 回だけ反映する。
     func update(with snapshot: ProjectSnapshot) {
+        latestSnapshot = snapshot
         let projected = PlayerController.renderProjection(of: snapshot)
         if interactionDepth > 0 {
             if let lastSnapshot, lastSnapshot == projected {
@@ -139,6 +162,7 @@ final class PlayerController {
         isRebuilding = false
         errorMessage = nil
         scrubTarget = nil
+        currentItemFailed = false
     }
 
     private func install(_ built: BuiltComposition) {
@@ -151,6 +175,10 @@ final class PlayerController {
         item.audioTimePitchAlgorithm = .spectral
 
         removeEndObserver()
+        // 合成のエラー・素材の消失・メディアサービスのリセットなどで再生できなくなったら作り直す
+        itemFailureWatch = PlayerItemFailureWatch(item: item) { [weak self] failedItem, error in
+            self?.handleItemFailure(failedItem, error: error)
+        }
         player.replaceCurrentItem(with: item)
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
                                                              object: item, queue: .main) { [weak self] _ in
@@ -188,6 +216,7 @@ final class PlayerController {
         }
         isRebuilding = false
         errorMessage = nil
+        currentItemFailed = false
     }
 
     private func removeEndObserver() {
@@ -195,6 +224,72 @@ final class PlayerController {
             NotificationCenter.default.removeObserver(endObserver)
             self.endObserver = nil
         }
+        itemFailureWatch = nil
+    }
+
+    // MARK: - 再生できなくなったときの立て直し
+
+    /// 最後に受け取ったスナップショットから、内容が同じでも合成を作り直す(再生位置は維持)
+    private func rebuildFromLatestSnapshot() {
+        guard let snapshot = latestSnapshot else { return }
+        lastSnapshot = nil
+        update(with: snapshot)
+    }
+
+    /// いまの項目が再生できなくなったとき(status が .failed / 途中で再生できなくなった)。
+    /// 1 回だけ自動で作り直し、作り直したものも失敗したらエラーを表示する
+    private func handleItemFailure(_ item: AVPlayerItem, error: Error?) {
+        guard item === player.currentItem else { return }
+        currentItemFailed = true
+        player.pause()
+        isPlaying = false
+        if autoRetryGeneration != generation, latestSnapshot != nil {
+            if (error as? AVError)?.code == .mediaServicesWereReset || player.status == .failed {
+                // メディアサービスのリセットは通知より先にここへ届くことがある。AVPlayer ごと作り直す
+                recreatePlayer()
+            } else {
+                rebuildFromLatestSnapshot()
+            }
+            autoRetryGeneration = generation
+            return
+        }
+        if let error {
+            errorMessage = String(localized: "プレビューを再生できませんでした: \(error.localizedDescription)")
+        } else {
+            errorMessage = String(localized: "プレビューを再生できませんでした")
+        }
+    }
+
+    /// メディアサービスのリセット後は、それまでの AVPlayer / AVPlayerItem が使えなくなる。
+    /// 新しい AVPlayer を作り、最後のスナップショットから合成を作り直す(再生は勝手に再開しない)
+    private func recreatePlayer() {
+        rebuildTask?.cancel()
+        rebuildTask = nil
+        let wasMuted = player.isMuted
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+        removeEndObserver()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+
+        let newPlayer = AVPlayer()
+        newPlayer.actionAtItemEnd = .pause
+        // 録音中(イヤホンなし)のモニター用ミュートを引き継ぐ
+        newPlayer.isMuted = wasMuted
+        player = newPlayer
+        installTimeObserver()
+
+        pendingSeeks = 0
+        scrubSeekInFlight = false
+        scrubTarget = nil
+        loopRange = nil
+        isPlaying = false
+        isRebuilding = false
+        // リセット後はカテゴリが既定に戻っているので、再生用にし直す
+        AudioSessionSetup.ensurePlayback()
+        rebuildFromLatestSnapshot()
     }
 
     // MARK: - Time
@@ -229,8 +324,25 @@ final class PlayerController {
 
     // MARK: - Transport
 
+    /// 再生できなくなったままなら立て直す(AVPlayer ごと壊れていれば作り直す)。立て直したら true
+    private func recoverIfFailed() -> Bool {
+        if player.status == .failed {
+            recreatePlayer()
+            autoRetryGeneration = generation
+            return true
+        }
+        if currentItemFailed || player.currentItem?.status == .failed {
+            rebuildFromLatestSnapshot()
+            autoRetryGeneration = generation
+            return true
+        }
+        return false
+    }
+
     func play() {
         guard player.currentItem != nil else { return }
+        // 再生できなくなった項目のままなら作り直す(できあがったら、もう一度再生を押せば再生できる)
+        if recoverIfFailed() { return }
         // マナーモードでも音が出るカテゴリで再生する
         AudioSessionSetup.ensurePlayback()
         scrubTarget = nil
@@ -254,9 +366,12 @@ final class PlayerController {
         let changed = loopRange != newRange
         loopRange = newRange
         guard player.currentItem != nil else { return }
+        if recoverIfFailed() { return }
         if changed || !isPlaying || currentTime < lower || currentTime > upper {
             seek(to: lower)
         }
+        // マナーモードでも音が出るカテゴリで再生する(広告のあとなどでカテゴリが変わっていることがある)
+        AudioSessionSetup.ensurePlayback()
         player.play()
         isPlaying = true
     }
@@ -328,5 +443,45 @@ final class PlayerController {
                 }
             }
         }
+    }
+}
+
+/// AVPlayerItem が再生できなくなったこと(status が .failed / 途中で再生できなくなった)を、
+/// メインスレッドで 1 回だけ知らせる。破棄すると監視をやめる。
+/// PlayerController と比較画面(CompareSyncController)で使う
+final class PlayerItemFailureWatch {
+    private let onFail: (AVPlayerItem, Error?) -> Void
+    private var statusObservation: NSKeyValueObservation?
+    private var failObserver: NSObjectProtocol?
+    private var reported = false
+
+    init(item: AVPlayerItem, onFail: @escaping (AVPlayerItem, Error?) -> Void) {
+        self.onFail = onFail
+        // status の KVO はどのスレッドで届くか決まっていないので、メインスレッドに移してから知らせる
+        statusObservation = item.observe(\.status, options: [.new]) { [weak self] observed, _ in
+            guard observed.status == .failed else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.report(observed, error: observed.error)
+            }
+        }
+        failObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification,
+                                                              object: item, queue: .main) { [weak self, weak item] notification in
+            guard let item else { return }
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            self?.report(item, error: error)
+        }
+    }
+
+    deinit {
+        statusObservation?.invalidate()
+        if let failObserver {
+            NotificationCenter.default.removeObserver(failObserver)
+        }
+    }
+
+    private func report(_ item: AVPlayerItem, error: Error?) {
+        guard !reported else { return }
+        reported = true
+        onFail(item, error)
     }
 }

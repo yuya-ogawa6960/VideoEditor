@@ -82,6 +82,7 @@ struct AIWorkingCard: View {
     let onCancel: (() -> Void)?
 
     @State private var peek = AnalysisPeek.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// 解析・AI 処理(ClipFXProgress)用
     init(progress: ClipFXProgress, inlineAd: Bool = true, onCancel: (() -> Void)?) {
@@ -128,6 +129,10 @@ struct AIWorkingCard: View {
                     .font(.callout)
                     .monospacedDigit()
             } else {
+                // 動きを減らす設定ではロボットが止まるので、動いていることをくるくるで見せる
+                if reduceMotion {
+                    ProgressView()
+                }
                 Text(title)
                     .font(.callout)
             }
@@ -177,14 +182,17 @@ struct FloatingRobot: View {
     var height: CGFloat = 150
 
     @State private var up = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Image(name)
             .resizable()
             .scaledToFit()
             .frame(height: height)
-            .offset(y: up ? -6 : 6)
+            // 動きを減らす設定では浮かせない(途中で設定が変わっても止まる)
+            .offset(y: reduceMotion ? 0 : (up ? -6 : 6))
             .onAppear {
+                guard !reduceMotion else { return }
                 withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
                     up = true
                 }
@@ -211,8 +219,11 @@ struct WorkingCardWithAd<Card: View>: View {
 struct AIScanningFrame: View {
     let image: CGImage
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+        // 動きを減らす設定では時計を止める(走査線は出さず、赤い点も点滅させない)
+        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let phase = (sin(t * 2.2) + 1) / 2
             GeometryReader { geo in
@@ -223,18 +234,20 @@ struct AIScanningFrame: View {
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
                     // 走査線
-                    LinearGradient(colors: [BrandStyle.coral.opacity(0), BrandStyle.coral.opacity(0.75), BrandStyle.coral.opacity(0)],
-                                   startPoint: .top, endPoint: .bottom)
-                        .frame(height: 26)
-                        .offset(y: CGFloat(phase) * (geo.size.height - 26))
-                        .blendMode(.screen)
+                    if !reduceMotion {
+                        LinearGradient(colors: [BrandStyle.coral.opacity(0), BrandStyle.coral.opacity(0.75), BrandStyle.coral.opacity(0)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 26)
+                            .offset(y: CGFloat(phase) * (geo.size.height - 26))
+                            .blendMode(.screen)
+                    }
                     // 四隅の枠
                     CornerBrackets()
                         .stroke(Color.white.opacity(0.9), lineWidth: 2)
                         .padding(8)
                     HStack(spacing: 4) {
                         Circle().fill(Color.red).frame(width: 6, height: 6)
-                            .opacity(Int(t * 2) % 2 == 0 ? 1 : 0.3)
+                            .opacity(reduceMotion || Int(t * 2) % 2 == 0 ? 1 : 0.3)
                         Text("AI が見ています")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.white)
