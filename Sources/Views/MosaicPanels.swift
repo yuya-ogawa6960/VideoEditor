@@ -126,6 +126,7 @@ struct EditorPacingPanel: View {
 
     @AppStorage("pacing.sensitivity") private var sensitivityRaw: String = PacingSensitivity.normal.rawValue
     @AppStorage("pacing.useAI") private var useAI: Bool = false
+    @AppStorage("pacing.platform") private var platformRaw: String = TargetPlatform.youtube.rawValue
 
     private func seconds(_ level: PacingLevel) -> Int {
         Int(timeline.pacing.filter { $0.level == level }.reduce(0) { $0 + ($1.end - $1.start) })
@@ -145,6 +146,22 @@ struct EditorPacingPanel: View {
                     timeline.pacingChecks = []
                 }
             }
+
+            // 投稿先(場所ごとに基準が変わる)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(TargetPlatform.allCases) { platform in
+                        EditorChip(title: platform.displayName, isSelected: platformRaw == platform.rawValue) {
+                            platformRaw = platform.rawValue
+                            onRerun()
+                        }
+                    }
+                }
+            }
+            Text("投稿先を選ぶと、その場所で評価されやすい基準(比率・長さ・つかみ・字幕・終了画面など)でチェックします。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             Picker("厳しさ", selection: $sensitivityRaw) {
                 ForEach(PacingSensitivity.allCases) { level in

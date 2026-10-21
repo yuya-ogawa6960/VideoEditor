@@ -300,6 +300,121 @@
         }
       }
     },
+    "%@にしました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiado a %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterado para %@"
+          }
+        }
+      }
+    },
+    "%@にする": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar %@"
+          }
+        }
+      }
+    },
+    "%@に合った比率です。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The aspect suits %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La relación es adecuada para %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A proporção é adequada para %@."
+          }
+        }
+      }
+    },
+    "%@は %@ が基本です。比率を変えると、画面いっぱいに表示されます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ expects %@. Changing the aspect fills the screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ espera %@. Al cambiar la relación, se muestra a pantalla completa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ espera %@. Ao mudar a proporção, o vídeo preenche a tela."
+          }
+        }
+      }
+    },
+    "%@は %lld 秒以内が目安です(いま %lld 秒)。「おまかせ編集」で目標の長さを %lld 秒にすると、見どころだけを残して縮められます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ works best within %lld seconds (now %lld s). Set the target length to %lld s in “Auto Edit” to keep only the highlights."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ funciona mejor en menos de %lld segundos (ahora %lld s). Pon la duración objetivo en %lld s en “Edición automática” para conservar solo lo mejor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ funciona melhor em até %lld segundos (agora %lld s). Defina a duração desejada em %lld s em “Edição automática” para manter só os melhores momentos."
+          }
+        }
+      }
+    },
     "%lld か所でスプリットしました。": {
       "extractionState": "manual",
       "localizations": {
@@ -530,6 +645,29 @@
         }
       }
     },
+    "%lld 個に分けてパンチインを入れました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split into %lld pieces with punch-ins"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividido en %lld partes con punch-in"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividido em %lld partes com punch-in"
+          }
+        }
+      }
+    },
     "%lld 個のテキストが、文字数に対して表示が短く読み切れない可能性があります(目安: 0.8 秒 + 1 文字 0.12 秒)。": {
       "extractionState": "manual",
       "localizations": {
@@ -549,6 +687,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld textos podem aparecer por pouco tempo para o seu tamanho (referência: 0,8 s + 0,12 s por caractere)."
+          }
+        }
+      }
+    },
+    "%lld 個のテキストが小さく、スマホの縦画面では読みにくい可能性があります(画面幅の 4.5 パーセント未満)。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld texts are small and may be hard to read on a phone in portrait (under 4.5 percent of the screen width)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld textos son pequeños y pueden ser difíciles de leer en vertical en el teléfono (menos del 4.5 por ciento del ancho)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld textos são pequenos e podem ser difíceis de ler no celular em vertical (menos de 4,5 por cento da largura)."
           }
         }
       }
@@ -595,6 +756,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld batidas encontradas e marcadores adicionados."
+          }
+        }
+      }
+    },
+    "%lld 個のファイルができました。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld files are ready."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld archivos listos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld arquivos prontos."
+          }
+        }
+      }
+    },
+    "%lld 個のファイルができました。動画は書き出し中です。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld files are ready. The videos are exporting."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld archivos listos. Los videos se están exportando."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld arquivos prontos. Os vídeos estão sendo exportados."
           }
         }
       }
@@ -1197,25 +1404,25 @@
         }
       }
     },
-    "1 分以内の動画です。ショート・リール・TikTok に出すなら 9:16 の縦にすると画面いっぱいに見てもらえます。": {
+    "1 回で、YouTube 用の横動画、ショート用の縦動画、サムネ、字幕ファイル、チャプター一覧をまとめて作ります。動画は上の「書き出した動画」に並びます。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The video is under 1 minute. For Shorts, Reels or TikTok, 9:16 portrait fills the screen."
+            "value": "In one go, creates the landscape video for YouTube, the portrait video for Shorts, the thumbnail, the caption file and the chapter list. Videos appear under “Exported videos” above."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El video dura menos de 1 minuto. Para Shorts, Reels o TikTok, 9:16 vertical llena la pantalla."
+            "value": "De una vez, crea el video horizontal para YouTube, el vertical para Shorts, la miniatura, el archivo de subtítulos y la lista de capítulos. Los videos aparecen arriba en “Videos exportados”."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O vídeo tem menos de 1 minuto. Para Shorts, Reels ou TikTok, 9:16 vertical preenche a tela."
+            "value": "De uma vez, cria o vídeo horizontal para o YouTube, o vertical para Shorts, a miniatura, o arquivo de legendas e a lista de capítulos. Os vídeos aparecem acima em “Vídeos exportados”."
           }
         }
       }
@@ -1331,6 +1538,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "1. Toque em “Novo projeto” acima"
+          }
+        }
+      }
+    },
+    "1.15 倍・4 秒ごと": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.15× every 4 seconds"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,15× cada 4 segundos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,15× a cada 4 segundos"
+          }
+        }
+      }
+    },
+    "1.15 倍・話の区切りごと(おすすめ)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.15× at each speech break (recommended)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,15× en cada pausa del habla (recomendado)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,15× em cada pausa da fala (recomendado)"
+          }
+        }
+      }
+    },
+    "1.25 倍・話の区切りごと": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.25× at each speech break"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,25× en cada pausa del habla"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1,25× em cada pausa da fala"
           }
         }
       }
@@ -1538,6 +1814,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "2. Escolha a mídia em “Adicionar vídeo/foto”"
+          }
+        }
+      }
+    },
+    "20 秒以上の動画で使えます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available for videos of 20 s or longer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disponible para videos de 20 s o más"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disponível para vídeos com 20 s ou mais"
           }
         }
       }
@@ -1772,25 +2071,25 @@
         }
       }
     },
-    "9:16 にする": {
+    "8 分以上なので、途中に広告(ミッドロール)を入れられる長さです。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set 9:16"
+            "value": "Over 8 minutes, so mid-roll ads can be placed."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cambiar a 9:16"
+            "value": "Dura más de 8 minutos, así que se pueden insertar anuncios intermedios."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Definir 9:16"
+            "value": "Tem mais de 8 minutos, então dá para inserir anúncios no meio."
           }
         }
       }
@@ -3566,6 +3865,52 @@
         }
       }
     },
+    "Instagram フィード": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instagram feed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed de Instagram"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed do Instagram"
+          }
+        }
+      }
+    },
+    "Instagram リール": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instagram Reels"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instagram Reels"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instagram Reels"
+          }
+        }
+      }
+    },
     "J/Lカット": {
       "extractionState": "manual",
       "localizations": {
@@ -4026,6 +4371,52 @@
         }
       }
     },
+    "SNS パック(まとめて書き出し)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Social pack (export everything at once)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paquete para redes (exportar todo a la vez)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pacote para redes (exportar tudo de uma vez)"
+          }
+        }
+      }
+    },
+    "SNS パックを作る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create social pack"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear paquete para redes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar pacote para redes"
+          }
+        }
+      }
+    },
     "SNS(縦動画)": {
       "extractionState": "manual",
       "localizations": {
@@ -4436,6 +4827,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Usado para os capítulos do YouTube. “Copiar lista de capítulos” cria o texto para colar na descrição."
+          }
+        }
+      }
+    },
+    "YouTube ショート": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube Shorts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube Shorts"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube Shorts"
+          }
+        }
+      }
+    },
+    "YouTube(横)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube (landscape)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube (horizontal)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube (horizontal)"
           }
         }
       }
@@ -9730,6 +10167,75 @@
         }
       }
     },
+    "エンドスクリーン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pantalla final"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tela final"
+          }
+        }
+      }
+    },
+    "エンドスクリーンの余白": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End Screen Tail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio para pantalla final"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaço para tela final"
+          }
+        }
+      }
+    },
+    "エンドスクリーンの余白を作成中": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating the end screen tail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creando el espacio para la pantalla final"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criando o espaço para a tela final"
+          }
+        }
+      }
+    },
     "オフ": {
       "extractionState": "manual",
       "localizations": {
@@ -9887,6 +10393,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "automático"
+          }
+        }
+      }
+    },
+    "オートパンチイン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Punch-in"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punch-in automático"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punch-in automático"
+          }
+        }
+      }
+    },
+    "オートパンチイン(話の区切りでズームを切り替えます)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Punch-in (switches zoom at speech breaks)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punch-in automático (cambia el zoom en las pausas del habla)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punch-in automático (muda o zoom nas pausas da fala)"
           }
         }
       }
@@ -11386,6 +11938,29 @@
         }
       }
     },
+    "クリップの間で%@が大きく違います。別の日・別のカメラの素材が混ざっているときは、「カラーマッチ」でお手本のクリップに合わせると統一感が出ます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips differ a lot in %@. When footage from different days or cameras is mixed, “Color Match” to a reference clip gives a consistent look."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los clips difieren mucho en %@. Si mezclas material de distintos días o cámaras, “Igualar color” con un clip de referencia da un aspecto uniforme."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os clipes diferem muito em %@. Ao misturar material de dias ou câmeras diferentes, “Igualar cor” com um clipe de referência dá um visual uniforme."
+          }
+        }
+      }
+    },
     "クリップの間で音量が最大 %lld dB 違います。急に大きくなったり小さくなったりすると聞きづらいので、そろえましょう。": {
       "extractionState": "manual",
       "localizations": {
@@ -12141,6 +12716,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível obter uma miniatura, então a melhoria automática foi pulada."
+          }
+        }
+      }
+    },
+    "サムネ・字幕・チャプターを送る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share thumbnail, captions and chapters"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir miniatura, subtítulos y capítulos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar miniatura, legendas e capítulos"
+          }
+        }
+      }
+    },
+    "サムネ画像(JPEG 1280×720)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbnail image (JPEG 1280×720)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagen de miniatura (JPEG 1280×720)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagem de miniatura (JPEG 1280×720)"
           }
         }
       }
@@ -13751,6 +14372,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Lista de capítulos (para descrições do YouTube)"
+          }
+        }
+      }
+    },
+    "チャプター一覧(テキスト)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chapter list (text)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista de capítulos (texto)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista de capítulos (texto)"
           }
         }
       }
@@ -15890,6 +16534,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ajustes detalhados do arquivo"
+          }
+        }
+      }
+    },
+    "ファイルを作れませんでした: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not create the files: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron crear los archivos: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar os arquivos: %@"
           }
         }
       }
@@ -20425,6 +21092,29 @@
         }
       }
     },
+    "余白を作れませんでした: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not create the tail: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear el espacio: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar o espaço: %@"
+          }
+        }
+      }
+    },
     "作った音声はナレーションとして追加され、「音量」「音声効果」で調整できます。": {
       "extractionState": "manual",
       "localizations": {
@@ -21690,6 +22380,52 @@
         }
       }
     },
+    "先に字幕を作ってください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create captions first"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea los subtítulos primero"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crie as legendas primeiro"
+          }
+        }
+      }
+    },
+    "先に字幕を作ってください(字幕の言葉から探します)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create captions first (fillers are found from the caption words)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea los subtítulos primero (las muletillas se buscan en sus palabras)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crie as legendas primeiro (as hesitações são encontradas nas palavras)"
+          }
+        }
+      }
+    },
     "先に編集画面で動画を追加してください。": {
       "extractionState": "manual",
       "localizations": {
@@ -21709,6 +22445,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Adicione um vídeo no editor primeiro."
+          }
+        }
+      }
+    },
+    "先頭に出せる見どころが見つかりませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No highlight suitable for the opening was found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró un momento destacado para el inicio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum destaque adequado para a abertura foi encontrado"
           }
         }
       }
@@ -22472,25 +23231,25 @@
         }
       }
     },
-    "冒頭 3 秒のつかみ": {
+    "冒頭のつかみ": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "First 3-second hook"
+            "value": "Opening hook"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gancho de los primeros 3 segundos"
+            "value": "Gancho inicial"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gancho dos primeiros 3 segundos"
+            "value": "Gancho inicial"
           }
         }
       }
@@ -22537,6 +23296,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ver o início"
+          }
+        }
+      }
+    },
+    "冒頭フック": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cold Open"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gancho inicial"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gancho inicial"
           }
         }
       }
@@ -24837,6 +25619,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Escolha o clima de cor geral. As amostras usam o quadro da posição de reprodução."
+          }
+        }
+      }
+    },
+    "区切りが見つかりませんでした(クリップが短いか、話し声がありません)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No breaks found (clips are too short or there is no speech)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron pausas (los clips son muy cortos o no hay voz)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma pausa encontrada (clipes curtos demais ou sem fala)"
           }
         }
       }
@@ -27716,6 +28521,29 @@
         }
       }
     },
+    "字幕ファイル(SRT)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caption file (SRT)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivo de subtítulos (SRT)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivo de legendas (SRT)"
+          }
+        }
+      }
+    },
     "字幕ファイル(SRT)を作る": {
       "extractionState": "manual",
       "localizations": {
@@ -29671,6 +30499,75 @@
         }
       }
     },
+    "投稿先の比率": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspect for the platform"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relación para la plataforma"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proporção para a plataforma"
+          }
+        }
+      }
+    },
+    "投稿先の長さ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Length for the platform"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duración para la plataforma"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duração para a plataforma"
+          }
+        }
+      }
+    },
+    "投稿先を選ぶと、その場所で評価されやすい基準(比率・長さ・つかみ・字幕・終了画面など)でチェックします。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a platform to check against what performs there (aspect, length, hook, captions, end screen and more)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una plataforma para revisar según lo que funciona ahí (relación, duración, gancho, subtítulos, pantalla final y más)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma plataforma para verificar conforme o que funciona lá (proporção, duração, gancho, legendas, tela final e mais)."
+          }
+        }
+      }
+    },
     "抽出した音声": {
       "extractionState": "manual",
       "localizations": {
@@ -29966,6 +30863,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Texto (usado quando não há imagem)"
+          }
+        }
+      }
+    },
+    "文字の大きさ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text size"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño del texto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho do texto"
           }
         }
       }
@@ -32339,6 +33259,52 @@
         }
       }
     },
+    "最初の %lld 秒が静かです。結論や一番いい場面を先に見せる、テキストで「何の動画か」を出すと離脱が減ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first %lld seconds are quiet. Show the conclusion or best scene first, or add text saying what the video is about, to reduce drop-off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los primeros %lld segundos son tranquilos. Muestra primero la conclusión o la mejor escena, o agrega texto que diga de qué trata el video, para reducir el abandono."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os primeiros %lld segundos são quietos. Mostre primeiro a conclusão ou a melhor cena, ou adicione um texto dizendo do que é o vídeo, para reduzir o abandono."
+          }
+        }
+      }
+    },
+    "最初の %lld 秒に話・動き・テキストのどれかがあり、引きつけられます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first %lld seconds have speech, motion or text and grab attention."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los primeros %lld segundos tienen voz, movimiento o texto y captan la atención."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os primeiros %lld segundos têm fala, movimento ou texto e prendem a atenção."
+          }
+        }
+      }
+    },
     "最初の 1 つを見る": {
       "extractionState": "manual",
       "localizations": {
@@ -32385,52 +33351,6 @@
         }
       }
     },
-    "最初の 3 秒が静かです。結論や一番いい場面を先に見せる、テキストで「何の動画か」を出すと離脱が減ります。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The first 3 seconds are quiet. Show the conclusion or best scene first, or add text saying what the video is about, to reduce drop-off."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los primeros 3 segundos son tranquilos. Muestra primero la conclusión o la mejor escena, o agrega texto que diga de qué trata el video, para reducir el abandono."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os primeiros 3 segundos são quietos. Mostre primeiro a conclusão ou a melhor cena, ou adicione um texto dizendo do que é o vídeo, para reduzir o abandono."
-          }
-        }
-      }
-    },
-    "最初の 3 秒に話・動き・テキストのどれかがあり、引きつけられます。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The first 3 seconds have speech, motion or text and grab attention."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los primeros 3 segundos tienen voz, movimiento o texto y captan la atención."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Os primeiros 3 segundos têm fala, movimento ou texto e prendem a atenção."
-          }
-        }
-      }
-    },
     "最初のタイトルが %lld 秒あります。イントロは 2〜3 秒以内にして、すぐ本題に入るほうが離脱されにくいです。": {
       "extractionState": "manual",
       "localizations": {
@@ -32473,6 +33393,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "A primeira foto fica %lld segundos sem fala. Entre em uma cena com movimento em até 3 segundos."
+          }
+        }
+      }
+    },
+    "最後に %lld 秒の余白を足しました(終了画面用)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added a %lld s tail for the end screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se añadieron %lld s al final para la pantalla final"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foram adicionados %lld s no final para a tela final"
+          }
+        }
+      }
+    },
+    "最後に 10 秒の余白を足す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a 10 s tail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir 10 s al final"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar 10 s no final"
+          }
+        }
+      }
+    },
+    "最後の 10 秒まで話やテキストが続いています。YouTube の終了画面(次の動画・チャンネル登録)を置くには、最後に 10〜20 秒の静かな余白があると邪魔になりません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech or text continues into the last 10 seconds. A quiet 10–20 s tail leaves room for the YouTube end screen (next video, subscribe)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La voz o el texto continúan hasta los últimos 10 segundos. Un final tranquilo de 10–20 s deja espacio para la pantalla final de YouTube (siguiente video, suscripción)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A fala ou o texto continuam até os últimos 10 segundos. Um final tranquilo de 10–20 s deixa espaço para a tela final do YouTube (próximo vídeo, inscrição)."
           }
         }
       }
@@ -33048,6 +34037,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Horizontal"
+          }
+        }
+      }
+    },
+    "横 16:9(YouTube)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landscape 16:9 (YouTube)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontal 16:9 (YouTube)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontal 16:9 (YouTube)"
           }
         }
       }
@@ -36341,6 +37353,29 @@
         }
       }
     },
+    "終了画面の場所": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Room for the end screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio para la pantalla final"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaço para a tela final"
+          }
+        }
+      }
+    },
     "結果を保存できませんでした(空き容量を確認してください)": {
       "extractionState": "manual",
       "localizations": {
@@ -36709,6 +37744,29 @@
         }
       }
     },
+    "縦 9:16(ショート・リール・TikTok)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portrait 9:16 (Shorts, Reels, TikTok)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertical 9:16 (Shorts, Reels, TikTok)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertical 9:16 (Shorts, Reels, TikTok)"
+          }
+        }
+      }
+    },
     "縦の位置(上 ← → 下)": {
       "extractionState": "manual",
       "localizations": {
@@ -36751,29 +37809,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "vídeo vertical"
-          }
-        }
-      }
-    },
-    "縦動画で 3 分を超えています。ショート向けなら要点にしぼるか、長い動画なら 16:9 の横も検討しましょう。": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A portrait video over 3 minutes. For Shorts, focus on the key points; for long videos, consider 16:9 landscape too."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Video vertical de más de 3 minutos. Para Shorts, céntrate en lo esencial; para videos largos, considera también 16:9 horizontal."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vídeo vertical com mais de 3 minutos. Para Shorts, foque no essencial; para vídeos longos, considere também 16:9 horizontal."
           }
         }
       }
@@ -38848,6 +39883,29 @@
         }
       }
     },
+    "見どころ(%@)を先頭に差し込みました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserted a highlight (%@) at the start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se insertó un momento destacado (%@) al inicio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um destaque (%@) foi inserido no início"
+          }
+        }
+      }
+    },
     "見どころを探しています": {
       "extractionState": "manual",
       "localizations": {
@@ -38890,6 +39948,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Procurar os melhores momentos"
+          }
+        }
+      }
+    },
+    "見どころを探せませんでした(%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not find highlights (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron buscar momentos destacados (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível procurar destaques (%@)"
           }
         }
       }
@@ -39235,6 +40316,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Explicativo"
+          }
+        }
+      }
+    },
+    "言いよどみは見つかりませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No fillers found"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron muletillas"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma hesitação encontrada"
+          }
+        }
+      }
+    },
+    "言いよどみカット": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filler Cut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortar muletillas"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortar hesitações"
           }
         }
       }
@@ -39879,6 +41006,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sobreponha fotos ou vídeos que combinem com o que é dito"
+          }
+        }
+      }
+    },
+    "話の区切りを探しています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finding speech breaks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando pausas del habla"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procurando pausas na fala"
           }
         }
       }
@@ -42068,6 +43218,29 @@
         }
       }
     },
+    "選択中のクリップがあればそのクリップだけ、なければ全クリップに入れます。「元に戻す」で戻せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to the selected clip, or to all clips if none is selected. Undo to go back."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se aplica al clip seleccionado, o a todos si no hay ninguno seleccionado. Deshacer para volver."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplica ao clipe selecionado, ou a todos se nenhum estiver selecionado. Desfazer para voltar."
+          }
+        }
+      }
+    },
     "重なるトランジションでテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。": {
       "extractionState": "manual",
       "localizations": {
@@ -42547,29 +43720,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Duração %@ (até %@ restantes no material)"
-          }
-        }
-      }
-    },
-    "長さと比率": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Length & ratio"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duración y relación"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duração e proporção"
           }
         }
       }

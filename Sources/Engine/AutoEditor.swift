@@ -935,6 +935,11 @@ struct SpeechGuard {
         return min(range.upperBound, bounds[clip]?.upperBound ?? range.upperBound)
     }
 
+    /// 発話(ひとまとまりの話)の始まり(元素材の秒)。pad: 0 で作ったときは実際の始まり
+    func utteranceStarts(clip: Int) -> [Double] {
+        (intervals[clip] ?? []).map { $0.lowerBound }
+    }
+
     /// 長さに収めるために切るとき: 話の途中なら、その話が始まる前まで戻す
     func retreatToSafe(_ t: Double, clip: Int) -> Double {
         guard let range = interval(containing: t, clip: clip) else { return t }

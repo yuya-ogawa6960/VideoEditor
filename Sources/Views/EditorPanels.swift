@@ -234,7 +234,7 @@ enum EditorPanel: Hashable {
              .textAnimation, .textPlacement, .textKeyframes, .overlayKeyframes, .overlayBlend,
              .narrationEffects, .drawingCanvas, .drawingStyle, .drawingTiming, .markerName, .markerKind,
              .captionTemplate, .watermark, .mask, .autoReframe, .stabilize, .enhance, .parallax,
-             .overlayMask, .overlayParallax, .textTracking, .overlayTracking, .mosaic:
+             .overlayMask, .overlayParallax, .textTracking, .overlayTracking, .mosaic, .slip:
             return true
         }
     }
@@ -248,6 +248,7 @@ enum EditorPanel: Hashable {
         case .jlCut: return 250
         case .textStyle, .formatKit, .autoEditTemplates: return 360
         case .mask, .overlayMask: return 340
+        case .slip: return 330
         case .mosaic: return 300
         case .pacing: return 340
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,

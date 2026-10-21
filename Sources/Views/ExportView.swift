@@ -140,6 +140,14 @@ struct ExportView: View {
     @State private var gifProgress: Double = 0
     @State private var gifTask: Task<Void, Never>?
     @State private var gifURL: URL?
+    // SNS パック(まとめて書き出し)
+    @State private var packLandscape = true
+    @State private var packPortrait = true
+    @State private var packCover = true
+    @State private var packSRT = true
+    @State private var packChapters = true
+    @State private var packFiles: [URL] = []
+    @State private var packMessage: String?
     @State private var gifError: String?
 
     private var exporter: ExportManager { ExportManager.shared }
@@ -600,6 +608,7 @@ struct ExportView: View {
                     runningView
                 }
             }
+            packSection
             extrasSection
         }
         .navigationTitle("その他の書き出し")
@@ -899,6 +908,105 @@ struct ExportView: View {
             text += String(localized: " ・ 長いとファイルが大きくなります")
         }
         return text
+    }
+
+    /// 1 回で、横動画・縦動画・サムネ・字幕ファイル・チャプター一覧をまとめて作る
+    private var packSection: some View {
+        Section {
+            Toggle("横 16:9(YouTube)", isOn: $packLandscape)
+            Toggle("縦 9:16(ショート・リール・TikTok)", isOn: $packPortrait)
+            Toggle("サムネ画像(JPEG 1280×720)", isOn: $packCover)
+            Toggle("字幕ファイル(SRT)", isOn: $packSRT)
+                .disabled(project.subtitles.isEmpty)
+            Toggle("チャプター一覧(テキスト)", isOn: $packChapters)
+                .disabled(!hasChapters)
+            Button {
+                makePack()
+            } label: {
+                Label("SNS パックを作る", systemImage: "shippingbox")
+            }
+            .disabled(project.isEmpty || exporter.isRunning
+                      || (!packLandscape && !packPortrait && !packCover && !packSRT && !packChapters))
+            if let packMessage {
+                Text(packMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !packFiles.isEmpty {
+                ShareLink(items: packFiles) {
+                    Label("サムネ・字幕・チャプターを送る", systemImage: "square.and.arrow.up")
+                }
+            }
+        } header: {
+            Text("SNS パック(まとめて書き出し)")
+        } footer: {
+            Text("1 回で、YouTube 用の横動画、ショート用の縦動画、サムネ、字幕ファイル、チャプター一覧をまとめて作ります。動画は上の「書き出した動画」に並びます。")
+        }
+    }
+
+    private func makePack() {
+        let snapshot = project.snapshot()
+        let wantCover = packCover
+        let wantSRT = packSRT && !snapshot.subtitles.isEmpty
+        let wantChapters = packChapters && hasChapters
+        let landscape = packLandscape
+        let portrait = packPortrait
+        let save = saveToPhotos
+        packFiles = []
+        packMessage = String(localized: "作成中…")
+        Task { @MainActor in
+            var files: [URL] = []
+            do {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "yyyyMMdd_HHmmss"
+                let dir = try ExportManager.exportsDirectory()
+                    .appendingPathComponent("Pack_\(formatter.string(from: Date()))", isDirectory: true)
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                if wantCover {
+                    let image = try await CoverRenderer.render(snapshot: snapshot, cover: snapshot.cover,
+                                                               size: CGSize(width: 1280, height: 720))
+                    if let data = image.jpegData(compressionQuality: 0.9) {
+                        let url = dir.appendingPathComponent("thumbnail.jpg")
+                        try data.write(to: url, options: .atomic)
+                        files.append(url)
+                    }
+                }
+                if wantSRT {
+                    let text = SRTCodec.encode(snapshot.subtitles, useTranslation: false, bilingual: false)
+                    let url = dir.appendingPathComponent("subtitles.srt")
+                    try text.write(to: url, atomically: true, encoding: .utf8)
+                    files.append(url)
+                }
+                if wantChapters {
+                    let url = dir.appendingPathComponent("chapters.txt")
+                    try project.chapterListText().write(to: url, atomically: true, encoding: .utf8)
+                    files.append(url)
+                }
+            } catch {
+                packMessage = String(localized: "ファイルを作れませんでした: \(error.localizedDescription)")
+            }
+            packFiles = files
+            if landscape && portrait {
+                exporter.startDual(snapshot: snapshot, saveToPhotos: save)
+            } else if landscape {
+                var adjusted = snapshot
+                adjusted.canvas.aspect = .landscape16x9
+                exporter.start(snapshot: adjusted, saveToPhotos: save)
+            } else if portrait {
+                var adjusted = snapshot
+                adjusted.canvas.aspect = .portrait9x16
+                adjusted.canvas.scaling = .fitBlur
+                exporter.start(snapshot: adjusted, saveToPhotos: save)
+            }
+            if !files.isEmpty {
+                packMessage = (landscape || portrait)
+                    ? String(localized: "\(files.count) 個のファイルができました。動画は書き出し中です。")
+                    : String(localized: "\(files.count) 個のファイルができました。")
+            } else if landscape || portrait {
+                packMessage = nil
+            }
+        }
     }
 
     private var extrasSection: some View {

@@ -97,6 +97,10 @@ struct EditingCheck: Identifiable, Equatable {
         case openScriptWriter
         /// このクリップの「オートリフレーム」を開く
         case openAutoReframe(UUID)
+        /// 画面比率を変える(投稿先に合わせる)
+        case setAspect(CanvasAspect)
+        /// 最後に終了画面用の余白(静止画 10 秒)を足す
+        case addEndScreen
     }
     let id = UUID()
     let level: PacingLevel
@@ -104,6 +108,72 @@ struct EditingCheck: Identifiable, Equatable {
     let detail: String
     var fix: Fix? = nil
     var fixTitle: String? = nil
+}
+
+/// 投稿先。場所ごとに評価されやすい基準(比率・長さ・つかみ・字幕・終了画面)が違う
+enum TargetPlatform: String, CaseIterable, Identifiable {
+    case youtube, shorts, tiktok, reels, instagramFeed, x
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .youtube: return String(localized: "YouTube(横)")
+        case .shorts: return String(localized: "YouTube ショート")
+        case .tiktok: return "TikTok"
+        case .reels: return String(localized: "Instagram リール")
+        case .instagramFeed: return String(localized: "Instagram フィード")
+        case .x: return "X(Twitter)"
+        }
+    }
+
+    var preferredAspect: CanvasAspect {
+        switch self {
+        case .youtube, .x: return .landscape16x9
+        case .shorts, .tiktok, .reels: return .portrait9x16
+        case .instagramFeed: return .portrait4x5
+        }
+    }
+
+    var isVertical: Bool { self == .shorts || self == .tiktok || self == .reels }
+
+    /// この長さまでが目安(秒)。nil は制限なし
+    var recommendedSeconds: Double? {
+        switch self {
+        case .youtube: return nil
+        case .shorts: return 60
+        case .tiktok: return 90
+        case .reels: return 90
+        case .instagramFeed: return 60
+        case .x: return 140
+        }
+    }
+
+    /// これを超えると投稿できない・扱いが変わる(秒)
+    var maxSeconds: Double? {
+        switch self {
+        case .youtube: return nil
+        case .shorts: return 180
+        case .tiktok: return 600
+        case .reels: return 180
+        case .instagramFeed: return 60
+        case .x: return 140
+        }
+    }
+
+    /// 冒頭の「つかみ」に使える秒数
+    var hookSeconds: Int { self == .youtube ? 3 : 2 }
+
+    /// 1 分あたり、これより画の変化が少ないと単調
+    var cutsPerMinute: Double {
+        switch self {
+        case .youtube: return 3
+        case .shorts, .tiktok, .reels: return 8
+        case .instagramFeed: return 6
+        case .x: return 4
+        }
+    }
+
+    var wantsEndScreen: Bool { self == .youtube }
 }
 
 /// クリップごとの見た目の平均(色・明るさのばらつき、人物の位置のチェックに使う)
@@ -151,6 +221,7 @@ private struct PacingSecond {
 enum PacingAnalyzer {
 
     static func analyze(snapshot: ProjectSnapshot, sensitivity: PacingSensitivity, useAI: Bool,
+                        platform: TargetPlatform = .youtube,
                         progress: ((Double) -> Void)?) async throws -> PacingReport {
         let placements = CompositionBuilder.timelineLayout(for: snapshot)
         let total = placements.last?.end ?? 0
@@ -259,7 +330,7 @@ enum PacingAnalyzer {
         progress?(1)
         let segments = makeSegments(from: timeline, sensitivity: sensitivity)
         let checks = makeChecks(snapshot: snapshot, timeline: timeline, total: total,
-                                visuals: visuals, loudness: clipLoudness, bgmLUFS: bgmLUFS)
+                                visuals: visuals, loudness: clipLoudness, bgmLUFS: bgmLUFS, platform: platform)
         return PacingReport(segments: segments, checks: checks, usedAI: usedAI)
     }
 
@@ -535,20 +606,21 @@ enum PacingAnalyzer {
 
     private static func makeChecks(snapshot: ProjectSnapshot, timeline: [PacingSecond], total: Double,
                                    visuals: [ClipVisualStats] = [], loudness: [Int: Double] = [:],
-                                   bgmLUFS: Double? = nil) -> [EditingCheck] {
+                                   bgmLUFS: Double? = nil, platform: TargetPlatform = .youtube) -> [EditingCheck] {
         var checks: [EditingCheck] = []
         let size = CompositionBuilder.renderSize(for: snapshot, purpose: .preview)
         let vertical: Bool = size.height > size.width * 1.2
 
-        // 1. 冒頭 3 秒のつかみ
-        let opening = Array(timeline.prefix(3))
+        // 1. 冒頭のつかみ(YouTube は 3 秒、縦動画は 2 秒)
+        let hookSeconds = platform.hookSeconds
+        let opening = Array(timeline.prefix(hookSeconds))
         let hook = opening.contains { $0.speech > 0.5 || $0.motion > 0.35 || $0.decorated || $0.smile > 0.5 || $0.laughter > 0.3 }
         if hook {
-            checks.append(EditingCheck(level: .good, title: String(localized: "冒頭 3 秒のつかみ"),
-                                       detail: String(localized: "最初の 3 秒に話・動き・テキストのどれかがあり、引きつけられます。")))
+            checks.append(EditingCheck(level: .good, title: String(localized: "冒頭のつかみ"),
+                                       detail: String(localized: "最初の \(Int(hookSeconds)) 秒に話・動き・テキストのどれかがあり、引きつけられます。")))
         } else {
-            checks.append(EditingCheck(level: .dull, title: String(localized: "冒頭 3 秒のつかみ"),
-                                       detail: String(localized: "最初の 3 秒が静かです。結論や一番いい場面を先に見せる、テキストで「何の動画か」を出すと離脱が減ります。"),
+            checks.append(EditingCheck(level: .dull, title: String(localized: "冒頭のつかみ"),
+                                       detail: String(localized: "最初の \(Int(hookSeconds)) 秒が静かです。結論や一番いい場面を先に見せる、テキストで「何の動画か」を出すと離脱が減ります。"),
                                        fix: .seek(0), fixTitle: String(localized: "冒頭を見る")))
         }
 
@@ -561,7 +633,7 @@ enum PacingAnalyzer {
 
         // 3. 字幕(音を出さずに見る人向け)
         let speechSeconds = timeline.filter { $0.speech > 0.5 }.count
-        if speechSeconds >= 15 {
+        if speechSeconds >= (platform == .youtube ? 15 : 5) {
             let covered = timeline.filter { $0.speech > 0.5 && $0.talkRate != nil }.count
             let ratio: Double = Double(covered) / Double(speechSeconds)
             if ratio < 0.5 {
@@ -611,14 +683,47 @@ enum PacingAnalyzer {
             }
         }
 
-        // 7. 長さと比率
-        if !vertical && total <= 60 {
-            checks.append(EditingCheck(level: .loose, title: String(localized: "長さと比率"),
-                                       detail: String(localized: "1 分以内の動画です。ショート・リール・TikTok に出すなら 9:16 の縦にすると画面いっぱいに見てもらえます。"),
-                                       fix: .makeVertical, fixTitle: String(localized: "9:16 にする")))
-        } else if vertical && total > 180 {
-            checks.append(EditingCheck(level: .loose, title: String(localized: "長さと比率"),
-                                       detail: String(localized: "縦動画で 3 分を超えています。ショート向けなら要点にしぼるか、長い動画なら 16:9 の横も検討しましょう。")))
+        // 7. 投稿先ごとの基準(比率・長さ・終了画面・文字の大きさ)
+        let aspectOK: Bool = {
+            switch platform.preferredAspect {
+            case .portrait9x16, .portrait4x5: return vertical
+            case .landscape16x9: return !vertical
+            default: return true
+            }
+        }()
+        if !aspectOK {
+            checks.append(EditingCheck(level: platform.isVertical ? .dull : .loose, title: String(localized: "投稿先の比率"),
+                                       detail: String(localized: "\(platform.displayName)は \(platform.preferredAspect.displayName) が基本です。比率を変えると、画面いっぱいに表示されます。"),
+                                       fix: .setAspect(platform.preferredAspect),
+                                       fixTitle: String(localized: "\(platform.preferredAspect.displayName)にする")))
+        } else {
+            checks.append(EditingCheck(level: .good, title: String(localized: "投稿先の比率"),
+                                       detail: String(localized: "\(platform.displayName)に合った比率です。")))
+        }
+        if let limit = platform.recommendedSeconds, total > limit {
+            let hard = platform.maxSeconds.map { total > $0 } ?? false
+            checks.append(EditingCheck(level: hard ? .dull : .loose, title: String(localized: "投稿先の長さ"),
+                                       detail: String(localized: "\(platform.displayName)は \(Int(limit)) 秒以内が目安です(いま \(Int(total.rounded())) 秒)。「おまかせ編集」で目標の長さを \(Int(limit)) 秒にすると、見どころだけを残して縮められます。")))
+        } else if platform == .youtube, total >= 480 {
+            checks.append(EditingCheck(level: .good, title: String(localized: "投稿先の長さ"),
+                                       detail: String(localized: "8 分以上なので、途中に広告(ミッドロール)を入れられる長さです。")))
+        }
+        if platform.wantsEndScreen, total >= 60 {
+            let tail = Array(timeline.suffix(10))
+            let busy = tail.filter { $0.speech > 0.5 || $0.decorated }.count
+            if busy >= 7 {
+                checks.append(EditingCheck(level: .loose, title: String(localized: "終了画面の場所"),
+                                           detail: String(localized: "最後の 10 秒まで話やテキストが続いています。YouTube の終了画面(次の動画・チャンネル登録)を置くには、最後に 10〜20 秒の静かな余白があると邪魔になりません。"),
+                                           fix: .addEndScreen, fixTitle: String(localized: "最後に 10 秒の余白を足す")))
+            }
+        }
+        if platform.isVertical {
+            let small = snapshot.textClips.filter { !$0.isMosaic && !$0.isSticker && $0.style.sizeRatio < 0.045 }
+            if let first = small.min(by: { $0.start < $1.start }) {
+                checks.append(EditingCheck(level: .loose, title: String(localized: "文字の大きさ"),
+                                           detail: String(localized: "\(small.count) 個のテキストが小さく、スマホの縦画面では読みにくい可能性があります(画面幅の 4.5 パーセント未満)。"),
+                                           fix: .seek(first.start), fixTitle: String(localized: "最初の 1 つを見る")))
+            }
         }
 
         // 8. カットの頻度
@@ -626,7 +731,7 @@ enum PacingAnalyzer {
             let cuts = timeline.filter { $0.cut }.count
             let perMinute: Double = Double(cuts) / (total / 60)
             let text = String(format: "%.1f", perMinute)
-            if perMinute < 3 {
+            if perMinute < platform.cutsPerMinute {
                 checks.append(EditingCheck(level: .loose, title: String(localized: "カットの頻度"),
                                            detail: String(localized: "1 分あたり \(text) 回しか画が変わっていません。5〜10 秒ごとにカット・ズーム・テキストなどで変化をつけると、見続けてもらいやすくなります。")))
             } else {
@@ -735,9 +840,9 @@ enum PacingAnalyzer {
                     let db = abs((visuals[b].meanLuma ?? 0) - medianLuma) + abs((visuals[b].warmth ?? 0) - medianWarm) * 2
                     return da < db
                 } ?? videoIndices[0]
-                let what = lumaSpread >= 0.22 ? String(localized: "明るさ") : String(localized: "色味")
+                let label = lumaSpread >= 0.22 ? String(localized: "明るさ") : String(localized: "色味")
                 checks.append(EditingCheck(level: .loose, title: String(localized: "クリップごとの色"),
-                                           detail: String(localized: "クリップの間で\(what)が大きく違います。別の日・別のカメラの素材が混ざっているときは、「カラーマッチ」でお手本のクリップに合わせると統一感が出ます。"),
+                                           detail: String(localized: "クリップの間で\(label)が大きく違います。別の日・別のカメラの素材が混ざっているときは、「カラーマッチ」でお手本のクリップに合わせると統一感が出ます。"),
                                            fix: .openColorMatch(snapshot.clips[worst].id), fixTitle: String(localized: "カラーマッチを開く")))
             } else {
                 checks.append(EditingCheck(level: .good, title: String(localized: "クリップごとの色"),

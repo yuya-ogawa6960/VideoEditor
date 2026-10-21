@@ -51,6 +51,7 @@ struct ContentView: View {
     @State private var alertMessage: String?
     @State private var showClearProjectConfirm = false
     @State private var showSilenceCutConfirm = false
+    @State private var showPunchInDialog = false
     @State private var showNormalizeConfirm = false
     /// 無音カット・音量そろえの進捗(nil なら実行中でない)
     @State private var audioToolProgress: AudioToolProgress?
@@ -683,6 +684,16 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.22), value: activePanel)
+        .confirmationDialog("オートパンチイン(話の区切りでズームを切り替えます)",
+                            isPresented: $showPunchInDialog,
+                            titleVisibility: .visible) {
+            Button("1.15 倍・話の区切りごと(おすすめ)") { applyPunchIn(zoom: 1.15, interval: nil) }
+            Button("1.25 倍・話の区切りごと") { applyPunchIn(zoom: 1.25, interval: nil) }
+            Button("1.15 倍・4 秒ごと") { applyPunchIn(zoom: 1.15, interval: 4) }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("選択中のクリップがあればそのクリップだけ、なければ全クリップに入れます。「元に戻す」で戻せます。")
+        }
         .confirmationDialog("無音部分を自動で詰めます(全クリップ)",
                             isPresented: $showSilenceCutConfirm,
                             titleVisibility: .visible) {
@@ -1439,6 +1450,23 @@ struct ContentView: View {
                                     disabledReason: String(localized: "音声のあるクリップがありません")) {
             showSilenceCutConfirm = true
         })
+        items.append(EditorToolItem(String(localized: "オートパンチイン"), systemImage: "plus.magnifyingglass", id: "ai-punchin",
+                                    enabled: !running && !noClips, disabledReason: noClips ? needClips : Self.analysisBusyReason) {
+            showPunchInDialog = true
+        })
+        items.append(EditorToolItem(String(localized: "言いよどみカット"), systemImage: "scissors.badge.ellipsis", id: "ai-fillers",
+                                    enabled: !project.subtitles.isEmpty,
+                                    disabledReason: String(localized: "先に字幕を作ってください")) {
+            cutFillers()
+        })
+        items.append(EditorToolItem(String(localized: "冒頭フック"), systemImage: "bolt.fill", id: "ai-coldopen",
+                                    enabled: !running && !noClips, disabledReason: noClips ? needClips : Self.analysisBusyReason) {
+            insertColdOpen()
+        })
+        items.append(EditorToolItem(String(localized: "エンドスクリーンの余白"), systemImage: "rectangle.bottomthird.inset.filled", id: "ai-endscreen",
+                                    enabled: !noClips, disabledReason: needClips) {
+            appendEndScreen()
+        })
         items.append(EditorToolItem(String(localized: "顔に自動モザイク"), systemImage: "face.dashed", id: "ai-faces",
                                     enabled: !running && !noClips,
                                     disabledReason: noClips ? needClips : Self.analysisBusyReason) {
@@ -1956,8 +1984,9 @@ struct ContentView: View {
         analysis.run(title: String(localized: "動画をチェックしています")) { report in
             let sensitivity = PacingSensitivity(rawValue: UserDefaults.standard.string(forKey: "pacing.sensitivity") ?? "") ?? .normal
             let useAI: Bool = UserDefaults.standard.bool(forKey: "pacing.useAI")
+            let platform = TargetPlatform(rawValue: UserDefaults.standard.string(forKey: "pacing.platform") ?? "") ?? .youtube
             let result = try await PacingAnalyzer.analyze(snapshot: snapshot, sensitivity: sensitivity,
-                                                          useAI: useAI, progress: report)
+                                                          useAI: useAI, platform: platform, progress: report)
             if Task.isCancelled { return }
             timeline.pacing = result.segments
             timeline.pacingChecks = result.checks
@@ -2009,6 +2038,191 @@ struct ContentView: View {
         case .openAutoReframe(let clipID):
             selection = .clip(clipID)
             openPanel(.autoReframe(clipID))
+        case .setAspect(let aspect):
+            history.record(project)
+            project.canvas.aspect = aspect
+            showToast(String(localized: "\(aspect.displayName)にしました"), undo: true)
+        case .addEndScreen:
+            appendEndScreen()
+        }
+    }
+
+    // MARK: インフルエンサー向けの自動編集(パンチイン・言いよどみカット・冒頭フック・エンドスクリーン)
+
+    /// 話の区切りごとにズームを 1.0 と zoom 倍で交互に切り替える(選択中のクリップがあればそれだけ、なければ全クリップ)
+    private func applyPunchIn(zoom: Double, interval: Double?) {
+        player.pause()
+        let snapshot = project.snapshot()
+        let selected = selection?.clipID
+        analysis.run(title: String(localized: "話の区切りを探しています")) { report in
+            try await HighlightAnalyzer.ensureVoiceRuns(snapshot: snapshot, progress: report)
+            let guardSpeech = SpeechGuard(snapshot: snapshot, pad: 0)
+            var plan: [(id: UUID, cuts: [Double], base: Double)] = []
+            for (index, clip) in snapshot.clips.enumerated() where !clip.isStill {
+                if let selected, clip.id != selected { continue }
+                let cuts = PunchInPlanner.cutPoints(for: clip, index: index, guardSpeech: guardSpeech,
+                                                    fallbackInterval: interval ?? 4)
+                if !cuts.isEmpty { plan.append((clip.id, cuts, clip.geometry.zoom)) }
+            }
+            guard !plan.isEmpty else {
+                showToast(String(localized: "区切りが見つかりませんでした(クリップが短いか、話し声がありません)"), style: .warning)
+                return
+            }
+            history.record(project)
+            var pieces = 0
+            for item in plan {
+                guard let index = project.index(of: item.id) else { continue }
+                let original = project.clips[index]
+                for t in item.cuts.sorted(by: >) {
+                    _ = project.splitClip(id: item.id, atSourceTime: t)
+                }
+                var i = index
+                var punched = false
+                while i < project.clips.count,
+                      project.clips[i].url == original.url,
+                      project.clips[i].startTime >= original.startTime - 0.001,
+                      project.clips[i].endTime <= original.endTime + 0.001 {
+                    project.clips[i].geometry.zoom = punched ? min(4, item.base * zoom) : item.base
+                    let hasNextPiece = i + 1 < project.clips.count && project.clips[i + 1].url == original.url
+                        && project.clips[i + 1].endTime <= original.endTime + 0.001
+                    if hasNextPiece { project.clips[i].transition = ClipTransition() }
+                    punched.toggle()
+                    i += 1
+                    pieces += 1
+                }
+            }
+            showToast(String(localized: "\(Int(pieces)) 個に分けてパンチインを入れました"), undo: true)
+        } onError: { error in
+            showToast(String(localized: "チェックできませんでした(\(error.localizedDescription))"), style: .warning)
+        }
+    }
+
+    /// 字幕の言葉から「えー」「あのー」などを見つけて、その部分だけ詰める
+    private func cutFillers() {
+        let cues = project.subtitles
+        guard !cues.isEmpty else {
+            showToast(String(localized: "先に字幕を作ってください(字幕の言葉から探します)"), style: .warning)
+            return
+        }
+        let spans = FillerDetector.spans(in: cues)
+        guard !spans.isEmpty else {
+            showToast(String(localized: "言いよどみは見つかりませんでした"), style: .info)
+            return
+        }
+        player.pause()
+        history.record(project)
+        let removed = project.removeOutputRanges(spans.map { (start: max(0, $0.start - 0.03), end: $0.end + 0.03) })
+        showToast(String(localized: "\(spans.count) か所・\(String(format: "%.1f", removed)) 秒の言いよどみを詰めました"), undo: true)
+    }
+
+    /// いちばんの見どころ(3〜5 秒)を先頭にコピーして差し込む(結論から見せる構成)
+    private func insertColdOpen() {
+        player.pause()
+        let snapshot = project.snapshot()
+        guard snapshot.totalDuration >= 20 else {
+            showToast(String(localized: "20 秒以上の動画で使えます"), style: .warning)
+            return
+        }
+        analysis.run(title: String(localized: "見どころを探しています")) { report in
+            var settings = AutoEditSettings()
+            settings.style = .short
+            settings.targetDuration = 15
+            let segments = try await HighlightAnalyzer.analyze(snapshot: snapshot, settings: settings, progress: report)
+            let layout = CompositionBuilder.timelineLayout(for: snapshot)
+            let guardSpeech = SpeechGuard(snapshot: snapshot, pad: 0.15)
+            var best: (clipIndex: Int, start: Double, end: Double, score: Double)? = nil
+            for segment in segments {
+                guard let index = snapshot.clips.firstIndex(where: { $0.id == segment.clipID }), index < layout.count else { continue }
+                let clip = snapshot.clips[index]
+                let speed = max(clip.speed, 0.01)
+                let timelineStart = layout[index].start + (segment.start - clip.startTime) / speed
+                guard timelineStart >= 8 else { continue }
+                let s = guardSpeech.safeStart(segment.start, clip: index, lower: clip.startTime)
+                var e = guardSpeech.safeEnd(min(segment.end, s + 5), clip: index, upper: clip.endTime)
+                if e - s > 7 { e = guardSpeech.safeEnd(s + 5, clip: index, upper: clip.endTime) }
+                guard e - s >= 2 else { continue }
+                if best == nil || segment.score > (best?.score ?? 0) { best = (index, s, e, segment.score) }
+            }
+            guard let best else {
+                showToast(String(localized: "先頭に出せる見どころが見つかりませんでした"), style: .warning)
+                return
+            }
+            let source = snapshot.clips[best.clipIndex]
+            var piece = source.duplicated()
+            piece.startTime = best.start
+            piece.endTime = best.end
+            piece.transition = ClipTransition(type: .fadeBlack, duration: 0.4)
+            let length = piece.outputDuration
+            let speed = max(source.speed, 0.01)
+            let segStart = layout[best.clipIndex].start + (best.start - source.startTime) / speed
+            let segEnd = segStart + (best.end - best.start) / speed
+            history.record(project)
+            project.shiftTimelineItems(from: 0, by: length)
+            // 見どころの字幕も先頭にコピーする
+            var copies: [SubtitleCue] = []
+            for cue in snapshot.subtitles where cue.end > segStart && cue.start < segEnd {
+                var copy = cue
+                copy.id = UUID()
+                copy.start = max(0, cue.start - segStart)
+                copy.end = min(length, cue.end - segStart)
+                copy.words = cue.words.compactMap { word in
+                    var w = word
+                    w.start -= segStart
+                    w.end -= segStart
+                    return w.start >= 0 && w.end <= length ? w : nil
+                }
+                if copy.end - copy.start >= 0.2 { copies.append(copy) }
+            }
+            project.subtitles.append(contentsOf: copies)
+            project.sortSubtitles()
+            project.clips.insert(piece, at: 0)
+            player.seek(to: 0)
+            showToast(String(localized: "見どころ(\(clipFXSeconds(best.end - best.start)))を先頭に差し込みました"), undo: true)
+        } onError: { error in
+            showToast(String(localized: "見どころを探せませんでした(\(error.localizedDescription))"), style: .warning)
+        }
+    }
+
+    /// 最後に終了画面用の余白(最後のコマを少し暗くした静止画 10 秒)を足す
+    private func appendEndScreen(seconds: Double = 10) {
+        guard let last = project.clips.last else { return }
+        player.pause()
+        mediaToolTask?.cancel()
+        mediaToolTask = Task { @MainActor in
+            mediaToolProgress = ClipFXProgress(title: String(localized: "エンドスクリーンの余白を作成中"), fraction: nil)
+            do {
+                let imageURL: URL
+                if last.isStill, let still = last.stillImageURL {
+                    imageURL = still
+                } else {
+                    imageURL = try await MediaTools.freezeFrameImage(from: last.url, at: max(last.startTime, last.endTime - 0.1))
+                }
+                mediaToolProgress = nil
+                if Task.isCancelled { return }
+                let size = MediaStore.imagePixelSize(of: imageURL) ?? last.displaySize
+                let thumb = MediaStore.makeImageClipThumbnail(url: imageURL, maxPixel: 320)
+                var still = Clip(url: imageURL,
+                                 duration: 3600,
+                                 naturalSize: size,
+                                 preferredTransform: .identity,
+                                 hasAudio: false,
+                                 thumbnail: thumb,
+                                 name: String(localized: "エンドスクリーン"))
+                still.stillImageURL = imageURL
+                still.startTime = 0
+                still.endTime = seconds
+                // 終了画面の部品(次の動画・登録ボタン)が目立つよう少し暗くする
+                still.filter.adjustments.brightness = -0.25
+                history.record(project)
+                if project.clips.indices.last.map({ project.clips[$0].transition.type == .none }) ?? false {
+                    project.clips[project.clips.count - 1].transition = ClipTransition(type: .dissolve, duration: 0.5)
+                }
+                project.clips.append(still)
+                showToast(String(localized: "最後に \(Int(seconds)) 秒の余白を足しました(終了画面用)"), undo: true)
+            } catch {
+                mediaToolProgress = nil
+                showToast(String(localized: "余白を作れませんでした: \(error.localizedDescription)"), style: .warning)
+            }
         }
     }
 
