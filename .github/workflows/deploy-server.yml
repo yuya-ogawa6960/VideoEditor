@@ -47,6 +47,9 @@ jobs:
           ACCOUNT=$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')
           OPENAI=$(printf '%s' "$OPENAI_API_KEY" | tr -d '[:space:]')
           echo "::add-mask::$TOKEN"
+          # トークンが有効か(値は出さず、結果だけ表示)
+          curl -s -H "Authorization: Bearer $TOKEN" "https://api.cloudflare.com/client/v4/user/tokens/verify"             | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log("token verify:",j.success,j.result&&j.result.status,JSON.stringify(j.errors))}catch(e){console.log("token verify: unreadable")}})'
+          curl -s -H "Authorization: Bearer $TOKEN" "https://api.cloudflare.com/client/v4/accounts"             | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log("accounts:",j.success,(j.result||[]).length,JSON.stringify(j.errors))}catch(e){console.log("accounts: unreadable")}})'
           # アカウント ID はトークンから取り出せればそちらを使う(貼り付けた ID が途中で切れていても動くように)
           FOUND=$(curl -s -H "Authorization: Bearer $TOKEN" "https://api.cloudflare.com/client/v4/accounts"             | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const r=JSON.parse(s).result||[];process.stdout.write(r.length?r[0].id:"")}catch(e){}})')
           if [ -n "$FOUND" ]; then
