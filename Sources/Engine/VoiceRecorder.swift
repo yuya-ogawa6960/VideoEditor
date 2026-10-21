@@ -101,7 +101,9 @@ final class VoiceRecorder {
 
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            // Bluetooth イヤホンにも再生音を出せるようにする(マイクは本体のまま)
+            try session.setCategory(.playAndRecord, mode: .default,
+                                    options: [.defaultToSpeaker, .allowBluetoothA2DP])
             try session.setActive(true)
         } catch {
             throw VoiceRecorderError.sessionFailed(error.localizedDescription)
@@ -195,6 +197,14 @@ final class VoiceRecorder {
         let normalized = (db - floorDB) / (0 - floorDB)
         level = min(max(normalized, 0), 1)
         elapsed = recorder.currentTime
+    }
+
+    /// イヤホン・ヘッドホン(有線 / Bluetooth / USB / AirPlay)が出力先につながっているか。
+    /// つながっていないときにタイムラインを鳴らすと、スピーカーの音がマイクに入ってしまう。
+    static var isHeadphoneConnected: Bool {
+        let kinds: Set<AVAudioSession.Port> = [.headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE,
+                                                .usbAudio, .carAudio, .airPlay]
+        return AVAudioSession.sharedInstance().currentRoute.outputs.contains { kinds.contains($0.portType) }
     }
 
     /// 再生用カテゴリに戻す(プレイヤーの再生を妨げないよう非アクティブ化はしない)

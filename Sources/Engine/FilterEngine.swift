@@ -248,6 +248,21 @@ enum FilterEngine {
         }
     }
 
+    /// 「全体の仕上げ」パネル用のサムネイル(フィルム粒子・周辺減光。書き出しと同じ処理)
+    static func previewTexture(_ image: UIImage, grain: Double, vignette: Double) -> UIImage? {
+        renderPreview(image) { input in
+            var style = DocumentaryStyle()
+            style.filmGrain = grain
+            style.vignette = vignette
+            let info = DocumentaryRenderInfo(style: style, titleCards: [], lowerThirds: [],
+                                             totalDuration: 0, clipBoundaries: [])
+            let extent = input.extent
+            guard !extent.isInfinite, !extent.isEmpty else { return input }
+            let moved = input.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+            return DocumentaryRenderer.applyTexture(moved, time: 0, info: info, canvasSize: extent.size)
+        }
+    }
+
     /// 「マスク」パネル用のサムネイル(キャンバス比率の画像にマスクを掛ける。外は黒)
     static func previewMask(_ image: UIImage, mask: MaskSettings) -> UIImage? {
         renderPreview(image) { input in

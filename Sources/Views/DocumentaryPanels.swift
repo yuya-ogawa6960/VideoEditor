@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AVFoundation
 import Observation
 
 // =====================================================================
@@ -141,6 +142,11 @@ private func secondsText(_ value: Double) -> String {
 
 struct EditorDocumentaryPanel: View {
     @Bindable var project: EditorProject
+    /// 見本に使う再生位置のコマを取るため(なければ先頭クリップのサムネイル)
+    var player: PlayerController? = nil
+
+    @State private var previews = DocumentaryPreviews()
+    @State private var isLoadingPreviews = false
 
     /// 「おまかせ」で適用する設定
     static var recommendedStyle: DocumentaryStyle {
@@ -213,16 +219,31 @@ struct EditorDocumentaryPanel: View {
                 }
             }
 
-            // 色味
+            // 色味(再生位置のコマに色をかけた見本から選ぶ)
             VStack(alignment: .leading, spacing: 8) {
-                DocumentarySectionTitle(title: "色味")
-                DocumentaryHint(text: "動画全体の色の雰囲気を選びます。")
+                HStack {
+                    DocumentarySectionTitle(title: "色味")
+                    Spacer()
+                    Button {
+                        EditorHaptics.tap()
+                        reloadPreviews()
+                    } label: {
+                        Label("いまのコマで見本を更新", systemImage: "arrow.clockwise")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .disabled(isLoadingPreviews)
+                }
+                DocumentaryHint(text: "動画全体の色の雰囲気を選びます。見本は再生位置のコマです。")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(LookPreset.allCases) { preset in
-                            EditorChip(title: preset.displayName,
-                                       isSelected: project.documentary.look == preset) {
+                            EditorVisualTile(title: preset.displayName,
+                                             isSelected: project.documentary.look == preset) {
                                 project.documentary.look = preset
+                            } preview: {
+                                DocumentaryFrameTile(image: previews.looks[preset] ?? previews.base)
                             }
                         }
                     }
@@ -235,24 +256,63 @@ struct EditorDocumentaryPanel: View {
                     .opacity(project.documentary.look == .none ? 0.4 : 1)
             }
 
-            // 画面演出
+            // 画面演出(タップでオン・オフ。見本つき)
             VStack(alignment: .leading, spacing: 10) {
                 DocumentarySectionTitle(title: "画面")
-                Toggle("上下の黒帯(映画のような横長に)", isOn: $project.documentary.letterbox)
-                    .font(.subheadline)
-                    .tint(.accentColor)
-                Toggle("最初と最後を黒からふわっと出す", isOn: $project.documentary.fadeFromToBlack)
-                    .font(.subheadline)
-                    .tint(.accentColor)
-                Toggle("クリップのつなぎ目を一瞬黒に", isOn: $project.documentary.dipToBlackBetweenClips)
-                    .font(.subheadline)
-                    .tint(.accentColor)
-                EditorSliderRow(title: "フィルムのざらつき",
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        EditorVisualTile(title: "上下の黒帯",
+                                         isSelected: project.documentary.letterbox) {
+                            project.documentary.letterbox.toggle()
+                        } preview: {
+                            DocumentaryFrameTile(image: previews.base)
+                                .overlay(alignment: .top) { Color.black.frame(height: 9) }
+                                .overlay(alignment: .bottom) { Color.black.frame(height: 9) }
+                        }
+                        EditorVisualTile(title: "最初と最後を黒から",
+                                         isSelected: project.documentary.fadeFromToBlack) {
+                            project.documentary.fadeFromToBlack.toggle()
+                        } preview: {
+                            DocumentaryFrameTile(image: previews.base)
+                                .overlay {
+                                    LinearGradient(colors: [.black, .black.opacity(0)],
+                                                   startPoint: .leading,
+                                                   endPoint: UnitPoint(x: 0.65, y: 0.5))
+                                }
+                        }
+                        EditorVisualTile(title: "つなぎ目を一瞬黒に",
+                                         isSelected: project.documentary.dipToBlackBetweenClips) {
+                            project.documentary.dipToBlackBetweenClips.toggle()
+                        } preview: {
+                            HStack(spacing: 0) {
+                                DocumentaryFrameTile(image: previews.base)
+                                    .frame(width: 28, height: 44)
+                                    .clipped()
+                                Color.black.frame(width: 8, height: 44)
+                                DocumentaryFrameTile(image: previews.base)
+                                    .frame(width: 28, height: 44)
+                                    .clipped()
+                            }
+                        }
+                    }
+                }
+                DocumentaryHint(text: "黒帯は映画のような横長(2.39:1)にします。フェードは最初と最後の 1.5 秒、つなぎ目の黒は 0.5 秒です。")
+
+                DocumentarySectionTitle(title: "フィルムのざらつき")
+                levelTiles(current: project.documentary.filmGrain, images: previews.grain) { value in
+                    project.documentary.filmGrain = value
+                }
+                EditorSliderRow(title: "強さ",
                                 value: $project.documentary.filmGrain,
                                 range: 0...1,
                                 display: percentText(project.documentary.filmGrain))
                 DocumentaryHint(text: "昔のフィルムのような細かい粒を加えます。")
-                EditorSliderRow(title: "四すみを暗く",
+
+                DocumentarySectionTitle(title: "四すみを暗く")
+                levelTiles(current: project.documentary.vignette, images: previews.vignette) { value in
+                    project.documentary.vignette = value
+                }
+                EditorSliderRow(title: "強さ",
                                 value: $project.documentary.vignette,
                                 range: 0...1,
                                 display: percentText(project.documentary.vignette))
@@ -277,6 +337,142 @@ struct EditorDocumentaryPanel: View {
             }
         }
         .padding(.top, 6)
+        .onAppear { reloadPreviews() }
+    }
+
+    // MARK: 見本
+
+    /// 強さの見本(オフ / 弱め / ふつう / 強め)。タップでその強さにする
+    private func levelTiles(current: Double, images: [Int: UIImage],
+                            set: @escaping (Double) -> Void) -> some View {
+        let selectedIndex = DocumentaryPreviews.nearestLevel(current)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(DocumentaryPreviews.levels.enumerated()), id: \.offset) { index, level in
+                    EditorVisualTile(title: level.name, isSelected: index == selectedIndex) {
+                        set(level.value)
+                    } preview: {
+                        DocumentaryFrameTile(image: images[index] ?? previews.base)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 再生位置のコマを取り、色味・ざらつき・四すみの見本を作り直す
+    private func reloadPreviews() {
+        guard !isLoadingPreviews else { return }
+        let time = player?.currentTime ?? 0
+        var clip: Clip? = project.clips.first
+        var sourceTime: Double = clip?.startTime ?? 0
+        if let location = project.locate(timelineTime: time), location.index < project.clips.count {
+            clip = project.clips[location.index]
+            sourceTime = location.sourceTime
+        }
+        guard let clip else {
+            previews = DocumentaryPreviews()
+            return
+        }
+        isLoadingPreviews = true
+        Task {
+            let base = await DocumentaryPreviewSource.frame(clip: clip, sourceTime: sourceTime)
+            let built = await Task.detached(priority: .userInitiated) {
+                DocumentaryPreviews.build(from: base)
+            }.value
+            previews = built
+            isLoadingPreviews = false
+        }
+    }
+}
+
+/// 「全体の仕上げ」の見本画像(元のコマ、色味ごと、ざらつき・四すみの強さごと)
+struct DocumentaryPreviews {
+    var base: UIImage?
+    var looks: [LookPreset: UIImage] = [:]
+    var grain: [Int: UIImage] = [:]
+    var vignette: [Int: UIImage] = [:]
+
+    static let levels: [(name: String, value: Double)] = [("オフ", 0), ("弱め", 0.35), ("ふつう", 0.7), ("強め", 1)]
+
+    /// スライダーの値にいちばん近い見本の番号(0 はオフだけ)
+    static func nearestLevel(_ value: Double) -> Int {
+        if value <= 0.001 { return 0 }
+        var best = 1
+        var bestDistance = Double.infinity
+        for (index, level) in levels.enumerated() where index > 0 {
+            let distance = abs(level.value - value)
+            if distance < bestDistance {
+                bestDistance = distance
+                best = index
+            }
+        }
+        return best
+    }
+
+    static func build(from base: UIImage?) -> DocumentaryPreviews {
+        var result = DocumentaryPreviews(base: base)
+        guard let base else { return result }
+        for look in LookPreset.allCases {
+            result.looks[look] = look == .none ? base : (FilterEngine.previewLook(base, look: look, intensity: 1) ?? base)
+        }
+        for (index, level) in levels.enumerated() {
+            if index == 0 {
+                result.grain[index] = base
+                result.vignette[index] = base
+            } else {
+                result.grain[index] = FilterEngine.previewTexture(base, grain: level.value, vignette: 0) ?? base
+                result.vignette[index] = FilterEngine.previewTexture(base, grain: 0, vignette: level.value) ?? base
+            }
+        }
+        return result
+    }
+}
+
+/// 見本用に、クリップの元素材から 1 コマ取り出す(小さめ)
+enum DocumentaryPreviewSource {
+    static func frame(clip: Clip, sourceTime: Double) async -> UIImage? {
+        if let still = clip.stillImageURL, let image = UIImage(contentsOfFile: still.path) {
+            return await image.byPreparingThumbnail(ofSize: fitSize(image.size, max: 360)) ?? clip.thumbnail
+        }
+        let asset = AVURLAsset(url: clip.url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 360, height: 360)
+        generator.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 10)
+        generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
+        let time = CMTime(seconds: max(0, sourceTime), preferredTimescale: 600)
+        if let cg = try? await generator.image(at: time).image {
+            return UIImage(cgImage: cg)
+        }
+        return clip.thumbnail
+    }
+
+    private static func fitSize(_ size: CGSize, max limit: CGFloat) -> CGSize {
+        let longest = Swift.max(size.width, size.height, 1)
+        let scale = Swift.min(1, limit / longest)
+        return CGSize(width: Swift.max(1, size.width * scale), height: Swift.max(1, size.height * scale))
+    }
+}
+
+/// 見本のタイル(64 × 44 に切り抜いた 1 コマ)
+private struct DocumentaryFrameTile: View {
+    let image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color(white: 0.16)
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 64, height: 44)
+        .clipped()
     }
 }
 

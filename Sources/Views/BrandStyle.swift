@@ -1,12 +1,14 @@
 import SwiftUI
 
 // =====================================================================
-// アプリの色(アイコンの網点と同じ、オレンジ → ピンク。画面では少し深めの色にしている)。
-// 大事なボタン(新しいプロジェクト・書き出し・動画を追加)に使う。
-// アプリ全体の差し色(AccentColor)は、その中間のコーラル。
+// 大事なボタン(新しいプロジェクト・書き出し・動画を追加)の色: 緑 → 青のステンドグラス。
+// オレンジ / ピンクはアイコンの網点の色(ロボットの飾りなどに残している)。
+// アプリ全体の差し色(AccentColor)はコーラルのまま。
 // =====================================================================
 
 enum BrandStyle {
+    static let green = Color(red: 0.13, green: 0.58, blue: 0.40)
+    static let blue = Color(red: 0.12, green: 0.42, blue: 0.78)
     static let orange = Color(red: 0.86, green: 0.47, blue: 0.13)
     static let pink = Color(red: 0.76, green: 0.19, blue: 0.33)
     static let coral = Color(red: 0.85, green: 0.33, blue: 0.27)
@@ -14,11 +16,11 @@ enum BrandStyle {
     static let navy = Color(red: 0.063, green: 0.102, blue: 0.2)
 
     static var gradient: LinearGradient {
-        LinearGradient(colors: [orange, pink], startPoint: .leading, endPoint: .trailing)
+        LinearGradient(colors: [green, blue], startPoint: .leading, endPoint: .trailing)
     }
 }
 
-/// オレンジ → ピンクの塗りのボタン(書き出しなど)
+/// 緑 → 青のステンドグラス塗りのボタン(書き出しなど)
 struct BrandProminentButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
@@ -205,8 +207,9 @@ struct FacetedBrandBackground: View {
     }
 
     private static func color(x: Double, light: Double) -> Color {
-        let a: (Double, Double, Double) = (0.86, 0.47, 0.13)
-        let b: (Double, Double, Double) = (0.76, 0.19, 0.33)
+        // 左の緑 → 右の青(ガラスごとの明暗は shades で付ける)
+        let a: (Double, Double, Double) = (0.13, 0.58, 0.40)
+        let b: (Double, Double, Double) = (0.12, 0.42, 0.78)
         let t = min(max(x, 0), 1)
         func channel(_ from: Double, _ to: Double) -> Double {
             min(max((from + (to - from) * t) * light, 0), 1)

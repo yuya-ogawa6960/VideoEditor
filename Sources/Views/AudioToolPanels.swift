@@ -70,6 +70,8 @@ struct EditorNarrationRecordPanel: View {
     @State private var playheadAtStart: Double = 0
     @State private var errorMessage: String?
     @State private var resultText: String?
+    /// 録音中、イヤホンがないので音を出さずに再生している
+    @State private var isMonitorMuted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -101,6 +103,15 @@ struct EditorNarrationRecordPanel: View {
                 .font(.subheadline)
                 .tint(.accentColor)
                 .disabled(recorder.isRecording)
+            if playWhileRecording {
+                Label(recorder.isRecording && isMonitorMuted
+                      ? "イヤホンがないため、音を出さずに再生しています"
+                      : "イヤホンをしているときだけ音が聞こえます(スピーカーの音がマイクに入るのを防ぐため)",
+                      systemImage: "headphones")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if let errorMessage {
                 Text(errorMessage)
@@ -202,21 +213,30 @@ struct EditorNarrationRecordPanel: View {
             return
         }
         if playWhileRecording {
+            // イヤホンがないときは音を出さない(スピーカーの音がマイクに入るため)
+            isMonitorMuted = !VoiceRecorder.isHeadphoneConnected
+            player.player.isMuted = isMonitorMuted
             player.play()
         }
+    }
+
+    /// 録音中の再生を止め、音を戻し、録音を始めた位置にバーを戻す
+    private func stopPlaybackAndRewind(startedWithPlayback: Bool) {
+        if startedWithPlayback { player.pause() }
+        player.player.isMuted = false
+        isMonitorMuted = false
+        player.seek(to: playheadAtStart)
     }
 
     /// 録音を止めてナレーションとして追加する
     private func finishRecording() {
         let startedWithPlayback = playWhileRecording
         guard let url = recorder.stop() else {
-            if startedWithPlayback { player.pause() }
+            stopPlaybackAndRewind(startedWithPlayback: startedWithPlayback)
             errorMessage = "録音ファイルを保存できませんでした。"
             return
         }
-        if startedWithPlayback {
-            player.pause()
-        }
+        stopPlaybackAndRewind(startedWithPlayback: startedWithPlayback)
         let duration = recorder.elapsed
         guard duration >= 0.2 else {
             try? FileManager.default.removeItem(at: url)

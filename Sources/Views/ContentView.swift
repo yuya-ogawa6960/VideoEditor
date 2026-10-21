@@ -778,6 +778,7 @@ struct ContentView: View {
             finishDrawing()
         } else {
             activePanel = nil
+            rewindToText(of: panel)
         }
     }
 
@@ -794,6 +795,7 @@ struct ContentView: View {
             project.restore(snapshot)
             showToast("変更を取り消しました", style: .info)
         }
+        rewindToText(of: panel)
     }
 
     @ViewBuilder
@@ -832,7 +834,7 @@ struct ContentView: View {
         case .bgmVolume:
             EditorBGMVolumePanel(project: project)
         case .documentary:
-            EditorDocumentaryPanel(project: project)
+            EditorDocumentaryPanel(project: project, player: player)
         case .titleCard(let cardID):
             EditorTitleCardPanel(project: project,
                                  player: player,
@@ -1294,6 +1296,10 @@ struct ContentView: View {
                                           items: textGroupItems))
         items.append(EditorToolItem.group("オーディオ", systemImage: "music.note", id: "group-audio",
                                           items: audioGroupItems))
+        items.append(EditorToolItem.group("全体", systemImage: "rectangle.3.group", id: "group-whole",
+                                          items: wholeGroupItems))
+        items.append(EditorToolItem.group("AI", systemImage: "wand.and.stars", id: "group-ai",
+                                          items: autoGroupItems))
         items.append(EditorToolItem("オーバーレイ", systemImage: "photo.on.rectangle",
                                     enabled: !isImporting,
                                     disabledReason: Self.importingReason) {
@@ -1301,10 +1307,6 @@ struct ContentView: View {
         })
         items.append(EditorToolItem.group("エフェクト", systemImage: "sparkles", id: "group-effects",
                                           items: effectGroupItems))
-        items.append(EditorToolItem.group("全体", systemImage: "rectangle.3.group", id: "group-whole",
-                                          items: wholeGroupItems))
-        items.append(EditorToolItem.group("AI", systemImage: "wand.and.stars", id: "group-ai",
-                                          items: autoGroupItems))
         items.append(EditorToolItem.more(rootMoreItems))
         return items
     }
@@ -1354,7 +1356,7 @@ struct ContentView: View {
         return items
     }
 
-    /// エフェクト: モザイク / 顔に自動でかける / 手書き / ロゴ・透かし
+    /// エフェクト: モザイク / 顔に自動でかける / 手書き
     private var effectGroupItems: [EditorToolItem] {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem("モザイク", systemImage: "square.grid.3x3", id: "addMosaic") {
@@ -1368,13 +1370,10 @@ struct ContentView: View {
         items.append(EditorToolItem("手書き", systemImage: "pencil.tip.crop.circle") {
             startDrawing()
         })
-        items.append(EditorToolItem("ロゴ・透かし", systemImage: "seal") {
-            openPanel(.watermark)
-        })
         return items
     }
 
-    /// 全体: 比率 / 全体の仕上げ / ラウドネスを自動一致 / 無音部分を削除
+    /// 全体: 比率 / 全体の仕上げ / ロゴ・透かし / ラウドネスを自動一致 / 無音部分を削除
     private var wholeGroupItems: [EditorToolItem] {
         let hasNarration = !project.narration.isEmpty
         var items: [EditorToolItem] = []
@@ -1383,6 +1382,9 @@ struct ContentView: View {
         })
         items.append(EditorToolItem("全体の仕上げ", systemImage: "film.stack") {
             openPanel(.documentary)
+        })
+        items.append(EditorToolItem("ロゴ・透かし", systemImage: "seal") {
+            openPanel(.watermark)
         })
         items.append(EditorToolItem("ラウドネスを自動一致", systemImage: "speaker.wave.2",
                                     enabled: hasAudioClips || hasNarration,
@@ -1397,24 +1399,45 @@ struct ContentView: View {
         return items
     }
 
-    /// AI: おまかせ編集 / おまかせテンプレ / AI台本 / スライドショー
-    /// AI: AI を使う機能をすべてここに集める(ほかのメニューと重なってもよい)
+    /// AI: AI を使う機能をすべてここに集める(ほかのメニューと重なってもよい)。
+    /// 小見出しは付けず、よく使う順に 1 列で並べる。
     private var autoGroupItems: [EditorToolItem] {
         let running = analysis.isRunning
         let noClips = project.clips.isEmpty
+        let needClips = "先に動画を追加してください"
         var items: [EditorToolItem] = []
 
-        items.append(EditorToolItem.section("チェック"))
-        items.append(EditorToolItem("中だるみ・編集チェック", systemImage: "gauge.with.dots.needle.33percent",
-                                    enabled: !running && !noClips,
-                                    disabledReason: noClips ? "先に動画を追加してください" : Self.analysisBusyReason) {
-            runPacingCheck()
+        items.append(EditorToolItem("おまかせ編集", systemImage: "wand.and.stars",
+                                    enabled: !running, disabledReason: Self.analysisBusyReason) {
+            player.pause()
+            activePanel = nil
+            activeSheet = .autoEdit
         })
-
-        items.append(EditorToolItem.section("字幕・声"))
         items.append(EditorToolItem("キャプションを作成", systemImage: "text.bubble", id: "ai-captions") {
             history.record(project)
             activeSheet = .subtitles
+        })
+        items.append(EditorToolItem("中だるみ・編集チェック", systemImage: "gauge.with.dots.needle.33percent",
+                                    enabled: !running && !noClips,
+                                    disabledReason: noClips ? needClips : Self.analysisBusyReason) {
+            runPacingCheck()
+        })
+        items.append(EditorToolItem("無音部分を削除", systemImage: "waveform.slash", id: "ai-silence",
+                                    enabled: hasAudioClips,
+                                    disabledReason: "音声のあるクリップがありません") {
+            showSilenceCutConfirm = true
+        })
+        items.append(EditorToolItem("顔に自動モザイク", systemImage: "face.dashed", id: "ai-faces",
+                                    enabled: !running && !noClips,
+                                    disabledReason: noClips ? needClips : Self.analysisBusyReason) {
+            autoMosaicFaces()
+        })
+        items.append(EditorToolItem("スピーチを強調", systemImage: "person.wave.2", id: "ai-speech",
+                                    enabled: !noClips, disabledReason: needClips) {
+            withClipAtPlayhead { clipID in
+                openPanel(.audioEffects(clipID))
+                showToast("「スピーチを強調(AI)」を右に動かすと、声以外の雑音が消えます")
+            }
         })
         items.append(EditorToolItem("字幕を翻訳", systemImage: "character.book.closed", id: "ai-translate") {
             history.record(project)
@@ -1424,20 +1447,17 @@ struct ContentView: View {
         items.append(EditorToolItem("AI読み上げ", systemImage: "waveform.badge.mic", id: "ai-tts") {
             openPanel(.textToSpeech)
         })
-        items.append(EditorToolItem("スピーチを強調", systemImage: "person.wave.2", id: "ai-speech",
-                                    enabled: !noClips, disabledReason: "先に動画を追加してください") {
+        items.append(EditorToolItem("オートリフレーム", systemImage: "person.crop.rectangle", id: "ai-reframe",
+                                    enabled: !noClips, disabledReason: needClips) {
             withClipAtPlayhead { clipID in
-                openPanel(.audioEffects(clipID))
-                showToast("「スピーチを強調(AI)」を右に動かすと、声以外の雑音が消えます")
+                openPanel(.autoReframe(clipID))
             }
         })
-
-        items.append(EditorToolItem.section("自動で編集"))
-        items.append(EditorToolItem("おまかせ編集", systemImage: "wand.and.stars",
-                                    enabled: !running, disabledReason: Self.analysisBusyReason) {
-            player.pause()
-            activePanel = nil
-            activeSheet = .autoEdit
+        items.append(EditorToolItem("自動補正", systemImage: "wand.and.rays", id: "ai-enhance",
+                                    enabled: !noClips, disabledReason: needClips) {
+            withClipAtPlayhead { clipID in
+                autoEnhance(clipID)
+            }
         })
         items.append(EditorToolItem("おまかせテンプレ", systemImage: "square.grid.2x2",
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
@@ -1448,34 +1468,10 @@ struct ContentView: View {
             activePanel = nil
             activeSheet = .scriptWriter
         })
-        items.append(EditorToolItem("無音部分を削除", systemImage: "waveform.slash", id: "ai-silence",
-                                    enabled: hasAudioClips,
-                                    disabledReason: "音声のあるクリップがありません") {
-            showSilenceCutConfirm = true
-        })
         let slideshowBlocked = isImporting || running
         items.append(EditorToolItem.addSlideshow("スライドショー", systemImage: "photo.stack",
                                                  enabled: !slideshowBlocked,
                                                  disabledReason: Self.busyReason))
-
-        items.append(EditorToolItem.section("映像"))
-        items.append(EditorToolItem("顔に自動モザイク", systemImage: "face.dashed", id: "ai-faces",
-                                    enabled: !running && !noClips,
-                                    disabledReason: noClips ? "先に動画を追加してください" : Self.analysisBusyReason) {
-            autoMosaicFaces()
-        })
-        items.append(EditorToolItem("オートリフレーム", systemImage: "person.crop.rectangle", id: "ai-reframe",
-                                    enabled: !noClips, disabledReason: "先に動画を追加してください") {
-            withClipAtPlayhead { clipID in
-                openPanel(.autoReframe(clipID))
-            }
-        })
-        items.append(EditorToolItem("自動補正", systemImage: "wand.and.rays", id: "ai-enhance",
-                                    enabled: !noClips, disabledReason: "先に動画を追加してください") {
-            withClipAtPlayhead { clipID in
-                autoEnhance(clipID)
-            }
-        })
         return items
     }
 
@@ -1562,6 +1558,8 @@ struct ContentView: View {
                 openPanel(.volume(clipID))
             })
         }
+        items.append(EditorToolItem.group("AI", systemImage: "wand.and.stars", id: "group-clip-ai",
+                                          items: clipAIItems(clipID, isStill: isStill, hasAudio: hasAudio)))
         items.append(EditorToolItem("ビデオトランジション", systemImage: "arrow.left.arrow.right.square") {
             openPanel(.transition(clipID))
         })
@@ -1575,6 +1573,34 @@ struct ContentView: View {
         }
         items.append(EditorToolItem.more(clipMoreItems(clipID, clip: clip, isStill: isStill,
                                                        hasAudio: hasAudio, busy: busy)))
+        return items
+    }
+
+    /// クリップの「AI」: このクリップに使う AI 機能(全体の AI メニューと重なってもよい)
+    private func clipAIItems(_ clipID: UUID, isStill: Bool, hasAudio: Bool) -> [EditorToolItem] {
+        let running = analysis.isRunning
+        var items: [EditorToolItem] = []
+        items.append(EditorToolItem("スピーチを強調", systemImage: "person.wave.2", id: "clip-ai-speech",
+                                    enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
+            openPanel(.audioEffects(clipID))
+            showToast("「スピーチを強調(AI)」を右に動かすと、声以外の雑音が消えます")
+        })
+        items.append(EditorToolItem("自動補正", systemImage: "wand.and.rays", id: "clip-ai-enhance") {
+            autoEnhance(clipID)
+        })
+        if !isStill {
+            items.append(EditorToolItem("オートリフレーム", systemImage: "person.crop.rectangle", id: "clip-ai-reframe") {
+                openPanel(.autoReframe(clipID))
+            })
+        }
+        items.append(EditorToolItem("顔に自動モザイク", systemImage: "face.dashed", id: "clip-ai-faces",
+                                    enabled: !running, disabledReason: Self.analysisBusyReason) {
+            autoMosaicFaces()
+        })
+        items.append(EditorToolItem("キャプションを作成", systemImage: "text.bubble", id: "clip-ai-captions") {
+            history.record(project)
+            activeSheet = .subtitles
+        })
         return items
     }
 
@@ -2314,13 +2340,32 @@ struct ContentView: View {
     private func addTextAtPlayhead() {
         let before = project.snapshot()
         history.record(project)
-        let clip = TextClip(text: "テキスト", start: max(0, player.currentTime))
+        // 合成のコマに合わせる。合わせないと、いま見えているコマの時刻がテキストの開始より
+        // わずかに前になり、プレビューにテキストが出ないことがある
+        let start = frameAligned(player.currentTime)
+        let clip = TextClip(text: "テキスト", start: start)
         project.textClips.append(clip)
         project.sortTextClips()
         selection = .text(clip.id)
         // 履歴は追加前に記録済みなので openPanel は使わない。✕「やめる」で追加前に戻る
         panelSnapshot = before
         activePanel = .textStyle(clip.id)
+        player.seek(to: start)
+    }
+
+    /// 合成のコマ(プロジェクトのフレームレート)の境目に切り下げた時刻
+    private func frameAligned(_ time: Double) -> Double {
+        guard time.isFinite, time > 0 else { return 0 }
+        let fps = Double(min(max(project.canvas.frameRate, 1), 120))
+        return (time * fps).rounded(.down) / fps
+    }
+
+    /// テキストの編集が終わったら、そのテキストの先頭にバーを戻す
+    private func rewindToText(of panel: EditorPanel) {
+        guard case .textStyle(let textID) = panel,
+              let text = project.textClips.first(where: { $0.id == textID }) else { return }
+        player.pause()
+        player.seek(to: text.start)
     }
 
     /// 絵文字ステッカーを再生位置に追加して選択する(ステッカーパネルは選択の変化で閉じる)
