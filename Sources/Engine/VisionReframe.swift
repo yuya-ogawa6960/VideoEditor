@@ -66,10 +66,15 @@ enum AnalysisFrameReader {
         try Task.checkCancellation()
 
         let flag = MediaToolsCancelFlag()
+        // 解析中の画面に「AI が見ているコマ」として出す(間引いて縮小。AnalysisPeek)
+        let peekingHandler: (CVPixelBuffer, Double) -> Bool = { buffer, time in
+            AnalysisPeek.shared.post(buffer)
+            return handler(buffer, time)
+        }
         let work = Task.detached(priority: .userInitiated) {
             try AnalysisFrameReader.readBlocking(asset: asset, track: track, naturalSize: naturalSize,
                                                  transform: transform, start: rangeStart, end: rangeEnd,
-                                                 fps: fps, maxDimension: maxDimension, flag: flag, handler: handler)
+                                                 fps: fps, maxDimension: maxDimension, flag: flag, handler: peekingHandler)
         }
         try await withTaskCancellationHandler {
             try await work.value

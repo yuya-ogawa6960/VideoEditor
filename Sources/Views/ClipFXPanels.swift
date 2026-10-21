@@ -35,40 +35,10 @@ struct ClipFXProgressOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.5)
+            Color.black.opacity(0.55)
                 .ignoresSafeArea()
-            VStack(spacing: 14) {
-                if let fraction = progress.fraction {
-                    ProgressView(value: min(max(fraction, 0), 1))
-                    Text("\(progress.title) \(Int((min(max(fraction, 0), 1) * 100).rounded()))%")
-                        .font(.callout)
-                        .monospacedDigit()
-                } else {
-                    ProgressView()
-                        .tint(.white)
-                    Text(progress.title)
-                        .font(.callout)
-                }
-                if let onCancel {
-                    Button {
-                        EditorHaptics.tap()
-                        onCancel()
-                    } label: {
-                        Text("キャンセル")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 8)
-                            .background(Color.white.opacity(0.15), in: Capsule())
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(20)
-            .frame(width: 280)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            // AI が見ているコマと、ロボットの作業のアニメーション(AIWorkingOverlay.swift)
+            AIWorkingCard(progress: progress, onCancel: onCancel)
         }
     }
 }
