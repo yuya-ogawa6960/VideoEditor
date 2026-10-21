@@ -50,6 +50,8 @@ final class EditorAnalysisRunner {
         let current = generation
         progress = ClipFXProgress(title: title, fraction: indeterminate ? nil : 0)
         beginBackgroundSupport(title: title)
+        // 解析は広告の間も続く
+        Task { @MainActor in AdsManager.shared.showInterstitial(.analysisStart) }
 
         let report: (Double) -> Void = { [weak self] value in
             DispatchQueue.main.async {
@@ -76,6 +78,9 @@ final class EditorAnalysisRunner {
             self.progress = nil
             self.task = nil
             self.finishBackgroundSupport(success: succeeded)
+            if succeeded {
+                AdsManager.shared.showInterstitial(.analysisFinished)
+            }
         }
     }
 

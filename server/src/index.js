@@ -15,6 +15,8 @@ const POINTS = {
   transcribePerMinute: 5, // クラウド文字起こし 1 分
   chat: 2,                // 字幕の整え・翻訳・台本など 1 回
   speechPerThousandChars: 3, // クラウドの声(読み上げ)1000 文字あたり
+  adReward: 10,           // リワード広告 1 回
+  adRewardDailyLimit: 5,  // リワード広告の 1 日の上限(日本時間)
 };
 const SPEECH_MODEL = "gpt-4o-mini-tts";
 const SPEECH_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"];
@@ -33,6 +35,8 @@ export default {
       const path = url.pathname;
       if (request.method === "GET" && path === "/") return json({ ok: true, service: "videomania-api" });
       if (request.method === "POST" && path === "/v1/auth/apple") return await signInWithApple(request, env);
+      // AdMob のサーバー側検証(ログイン不要。署名で確かめる)
+      if (request.method === "GET" && path === "/v1/ads/ssv") return await admobSSV(url, env);
 
       // ここから先はログインが必要
       const user = await authenticate(request, env);
@@ -43,6 +47,7 @@ export default {
       if (request.method === "POST" && path === "/v1/audio/transcriptions") return await transcribe(request, user, env);
       if (request.method === "POST" && path === "/v1/chat/completions") return await chat(request, user, env);
       if (request.method === "POST" && path === "/v1/audio/speech") return await speech(request, user, env);
+      if (request.method === "POST" && path === "/v1/ads/claim") return await adClaim(user, env);
       return error(404, "見つかりません", "not_found");
     } catch (e) {
       return error(500, "サーバーでエラーが起きました: " + (e && e.message ? e.message : String(e)), "server_error");
@@ -210,7 +215,112 @@ async function signInWithApple(request, env) {
 // ---------------------------------------------------------------------
 
 async function me(user, env) {
-  return json({ points: user.points, dailyAvailable: user.last_daily !== todayJST(), prices: POINTS });
+  return json({
+    id: user.id,
+    points: user.points,
+    dailyAvailable: user.last_daily !== todayJST(),
+    prices: POINTS,
+    ...(await adState(env, user.id)),
+  });
+}
+
+// ---------------------------------------------------------------------
+// リワード広告
+// ---------------------------------------------------------------------
+
+async function adState(env, userID) {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM ad_rewards WHERE user_id = ? AND day = ?")
+    .bind(userID, todayJST())
+    .first();
+  return { adRewardsToday: row ? row.n : 0, adRewardLimit: POINTS.adRewardDailyLimit, adRewardPoints: POINTS.adReward };
+}
+
+/** 1 回分を付与(同じ transaction_id は 1 回だけ・1 日の上限まで)。付与したら true */
+async function grantAdReward(env, userID, transactionID, source) {
+  const exists = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(userID).first();
+  if (!exists) return false;
+  const state = await adState(env, userID);
+  if (state.adRewardsToday >= POINTS.adRewardDailyLimit) return false;
+  const inserted = await env.DB.prepare(
+    "INSERT OR IGNORE INTO ad_rewards (transaction_id, user_id, amount, day, source, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+  )
+    .bind(transactionID, userID, POINTS.adReward, todayJST(), source, nowISO())
+    .run();
+  if (!inserted.meta || inserted.meta.changes === 0) return false;
+  await env.DB.prepare("UPDATE users SET points = points + ? WHERE id = ?").bind(POINTS.adReward, userID).run();
+  await addLedger(env, userID, POINTS.adReward, "ad:" + source);
+  return true;
+}
+
+/** アプリが「最後まで見た」と伝える。テスト期間(ALLOW_CLIENT_AD_CLAIM=1)だけここで付与し、本番は SSV を待つ */
+async function adClaim(user, env) {
+  let granted = false;
+  if (env.ALLOW_CLIENT_AD_CLAIM === "1") {
+    granted = await grantAdReward(env, user.id, "client:" + crypto.randomUUID(), "client");
+  }
+  return json({
+    points: await balance(env, user.id),
+    granted,
+    pending: env.ALLOW_CLIENT_AD_CLAIM !== "1",
+    ...(await adState(env, user.id)),
+  });
+}
+
+/** AdMob のサーバー側検証のコールバック。署名(ECDSA P-256 / SHA-256)を Google の公開鍵で確かめてから付与 */
+async function admobSSV(url, env) {
+  const query = url.search.startsWith("?") ? url.search.slice(1) : url.search;
+  const at = query.indexOf("&signature=");
+  // AdMob の画面で URL を登録したときの確認(パラメータなし)には 200 を返す
+  if (at < 0) return json({ ok: true });
+  const message = query.slice(0, at);
+  const params = url.searchParams;
+  const signature = params.get("signature") || "";
+  const keyID = params.get("key_id") || "";
+  const verified = await verifyAdMobSignature(message, signature, keyID).catch(() => false);
+  if (!verified) return error(403, "署名が正しくありません", "bad_signature");
+
+  const userID = params.get("user_id") || "";
+  const transactionID = params.get("transaction_id") || "";
+  if (!userID || !transactionID) return json({ ok: true, granted: false });
+  const granted = await grantAdReward(env, userID, "ssv:" + transactionID, "ssv");
+  return json({ ok: true, granted });
+}
+
+async function verifyAdMobSignature(message, signatureB64url, keyID) {
+  const response = await fetch("https://www.gstatic.com/admob/reward/verifier-keys.json", { cf: { cacheTtl: 3600 } });
+  const body = await response.json();
+  const entry = (body.keys || []).find((k) => String(k.keyId) === String(keyID));
+  if (!entry) return false;
+  const spki = b64urlDecode(entry.base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""));
+  const key = await crypto.subtle.importKey("spki", spki, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+  const raw = derToRawSignature(b64urlDecode(signatureB64url));
+  if (!raw) return false;
+  return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, raw, new TextEncoder().encode(message));
+}
+
+/** DER(SEQUENCE { INTEGER r, INTEGER s })→ WebCrypto の r||s(各 32 バイト) */
+function derToRawSignature(der) {
+  if (der.length < 8 || der[0] !== 0x30) return null;
+  let i = 2;
+  if (der[1] & 0x80) i = 2 + (der[1] & 0x7f);
+  const readInt = () => {
+    if (der[i] !== 0x02) return null;
+    const len = der[i + 1];
+    let bytes = der.slice(i + 2, i + 2 + len);
+    i += 2 + len;
+    while (bytes.length > 32 && bytes[0] === 0) bytes = bytes.slice(1);
+    if (bytes.length > 32) return null;
+    const out = new Uint8Array(32);
+    out.set(bytes, 32 - bytes.length);
+    return out;
+  };
+  const r = readInt();
+  const s = readInt();
+  if (!r || !s) return null;
+  const raw = new Uint8Array(64);
+  raw.set(r, 0);
+  raw.set(s, 32);
+  return raw;
 }
 
 async function daily(user, env) {

@@ -13272,6 +13272,29 @@
         }
       }
     },
+    "テスト配信中のため、テスト用の広告が出ます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Because this is a test build, test ads are shown."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como es una versión de prueba, se muestran anuncios de prueba."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como esta é uma versão de teste, são exibidos anúncios de teste."
+          }
+        }
+      }
+    },
     "テロップ": {
       "extractionState": "manual",
       "localizations": {
@@ -19202,6 +19225,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Resgatar o bônus de hoje (+20)"
+          }
+        }
+      }
+    },
+    "今日の広告のポイントは受け取り済み": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today’s ad points already claimed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los puntos por anuncios de hoy ya fueron reclamados"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os pontos de anúncios de hoje já foram resgatados"
           }
         }
       }
@@ -27689,6 +27735,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Largura"
+          }
+        }
+      }
+    },
+    "広告を見て +%lld ポイント(今日あと %lld 回)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watch an ad for +%lld points (%lld left today)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mira un anuncio y gana +%lld puntos (quedan %lld hoy)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assista a um anúncio e ganhe +%lld pontos (restam %lld hoje)"
           }
         }
       }

@@ -15,3 +15,15 @@ CREATE TABLE IF NOT EXISTS ledger (
 );
 
 CREATE INDEX IF NOT EXISTS ledger_user ON ledger (user_id, id);
+
+-- リワード広告でもらったポイント(transaction_id で二重付与を防ぐ。day は日本時間 YYYY-MM-DD)
+CREATE TABLE IF NOT EXISTS ad_rewards (
+  transaction_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  source TEXT NOT NULL,           -- ssv(AdMob のサーバー側検証)/ client(テスト期間のアプリからの申告)
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ad_rewards_user_day ON ad_rewards (user_id, day);

@@ -68,7 +68,14 @@ final class ExportManager {
         case idle, preparing, exporting, finished, failed(String), cancelled
     }
 
-    private(set) var state: State = .idle
+    private(set) var state: State = .idle {
+        didSet {
+            // 書き出しが終わったら全画面広告(前の広告から間があいているときだけ)
+            if state == .finished, oldValue != .finished {
+                Task { @MainActor in AdsManager.shared.showInterstitial(.exportFinished) }
+            }
+        }
+    }
     /// 0...1
     private(set) var progress: Double = 0
     private(set) var isRunning: Bool = false

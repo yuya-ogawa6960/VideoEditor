@@ -7,6 +7,9 @@ compatibility_date = "2025-09-01"
 [vars]
 # アプリのバンドル ID(Apple でサインインのトークンの宛先チェック)
 APPLE_AUDIENCE = "com.yuyaogawa6960.videomania"
+# リワード広告: "1" ならアプリの申告(/v1/ads/claim)でポイントを足す(TestFlight のテスト広告は SSV が来ないため)。
+# App Store で本番広告を出すときは "0" にして、AdMob のサーバー側検証(/v1/ads/ssv)だけで足す
+ALLOW_CLIENT_AD_CLAIM = "1"
 
 [[d1_databases]]
 binding = "DB"

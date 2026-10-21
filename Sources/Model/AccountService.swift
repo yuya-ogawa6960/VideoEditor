@@ -60,6 +60,13 @@ final class AccountService {
     private(set) var points: Int?
     /// 今日の毎日ボーナスがまだ受け取れるか
     private(set) var dailyAvailable = false
+    /// サーバー上の利用者 ID(リワード広告のサーバー側検証に渡す)
+    private(set) var userID: String?
+    /// 今日すでに広告でもらった回数 / 1 日の上限 / 1 回のポイント
+    private(set) var adRewardsToday = 0
+    private(set) var adRewardLimit = 0
+    private(set) var adRewardPoints = 0
+    var adRewardsRemaining: Int { max(0, adRewardLimit - adRewardsToday) }
     private(set) var isWorking = false
     var lastError: String?
 
@@ -143,6 +150,9 @@ final class AccountService {
         setToken("")
         points = nil
         dailyAvailable = false
+        userID = nil
+        adRewardsToday = 0
+        adRewardLimit = 0
     }
 
     // MARK: - ポイント
@@ -154,6 +164,7 @@ final class AccountService {
             let json = try await request("v1/me", method: "GET", body: nil, authorized: true)
             points = json["points"] as? Int
             dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
+            applyAdState(json)
         } catch {
             lastError = error.localizedDescription
         }
@@ -166,6 +177,32 @@ final class AccountService {
             let json = try await request("v1/points/daily", method: "POST", body: Data("{}".utf8), authorized: true)
             points = json["points"] as? Int
             dailyAvailable = false
+        } catch {
+            lastError = error.localizedDescription
+            await refresh()
+        }
+    }
+
+    private func applyAdState(_ json: [String: Any]) {
+        if let id = json["id"] as? String { userID = id }
+        if let n = json["adRewardsToday"] as? Int { adRewardsToday = n }
+        if let n = json["adRewardLimit"] as? Int { adRewardLimit = n }
+        if let n = json["adRewardPoints"] as? Int { adRewardPoints = n }
+    }
+
+    /// リワード広告を最後まで見たあとに呼ぶ。テスト期間はサーバーがここでポイントを足し、
+    /// 本番は AdMob のサーバー側検証で足されるので、少し待って残高を取り直す
+    @MainActor
+    func claimAdReward() async {
+        lastError = nil
+        do {
+            let json = try await request("v1/ads/claim", method: "POST", body: Data("{}".utf8), authorized: true)
+            if let value = json["points"] as? Int { points = value }
+            applyAdState(json)
+            if (json["pending"] as? Bool) == true {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await refresh()
+            }
         } catch {
             lastError = error.localizedDescription
             await refresh()

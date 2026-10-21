@@ -22,6 +22,7 @@ struct RootView: View {
             if let projectID = openProjectID {
                 ContentView(projectID: projectID, onClose: {
                     openProjectID = nil
+                    AdsManager.shared.showInterstitial(.projectClosed)
                 })
                 .id(projectID)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -33,6 +34,8 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: openProjectID)
+        // 広告(トラッキングの確認 → AdMob の開始 → 広告の読み込み)
+        .task { await AdsManager.shared.start() }
         .onChange(of: scenePhase) { _, phase in
             // バックグラウンドに回ったら、まとめ書き待ちの保存をすぐに書き出す
             if phase == .background {

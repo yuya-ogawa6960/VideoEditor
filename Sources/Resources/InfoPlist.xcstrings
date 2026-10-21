@@ -116,6 +116,35 @@
           }
         }
       }
+    },
+    "NSUserTrackingUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたに合った広告を表示するために使用します。許可しなくてもアプリはすべて使えます。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used to show ads that suit you. Every feature of the app works even if you don’t allow it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se usa para mostrarte anuncios adecuados para ti. Todas las funciones de la app funcionan aunque no lo permitas."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usado para mostrar anúncios adequados a você. Todos os recursos do app funcionam mesmo se você não permitir."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

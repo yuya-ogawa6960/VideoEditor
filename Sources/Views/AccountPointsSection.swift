@@ -4,6 +4,8 @@ import AuthenticationServices
 /// 「文字起こしの方式」画面の、アカウントとポイントの欄
 struct AccountPointsSection: View {
     @State private var account = AccountService.shared
+    @State private var ads = AdsManager.shared
+    @State private var isWatchingAd = false
 
     var body: some View {
         Section {
@@ -29,6 +31,24 @@ struct AccountPointsSection: View {
                           systemImage: "gift")
                 }
                 .disabled(!account.dailyAvailable)
+
+                // 広告を見てポイント(リワード広告)
+                if account.adRewardLimit > 0 {
+                    Button {
+                        watchAd()
+                    } label: {
+                        Label(account.adRewardsRemaining > 0
+                              ? String(localized: "広告を見て +\(account.adRewardPoints) ポイント(今日あと \(account.adRewardsRemaining) 回)")
+                              : String(localized: "今日の広告のポイントは受け取り済み"),
+                              systemImage: "play.rectangle")
+                    }
+                    .disabled(account.adRewardsRemaining == 0 || !ads.isRewardedReady || isWatchingAd)
+                    if AdsManager.usesTestAds {
+                        Text("テスト配信中のため、テスト用の広告が出ます。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
                 Picker("クラウド AI", selection: Binding(get: { account.source }, set: { account.source = $0 })) {
                     ForEach(CloudAISource.allCases) { source in
@@ -65,6 +85,17 @@ struct AccountPointsSection: View {
         }
         .task {
             await account.refresh()
+        }
+    }
+
+    private func watchAd() {
+        isWatchingAd = true
+        Task { @MainActor in
+            let earned = await AdsManager.shared.showRewarded(userIdentifier: account.userID)
+            if earned {
+                await account.claimAdReward()
+            }
+            isWatchingAd = false
         }
     }
 }

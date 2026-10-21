@@ -822,6 +822,8 @@ struct ExportView: View {
         } else {
             exporter.start(snapshot: snapshot, saveToPhotos: saveToPhotos)
         }
+        // 書き出しは広告の間も続く
+        AdsManager.shared.showInterstitial(.exportStart)
     }
 
     private func saveToPhotosLibrary() {
