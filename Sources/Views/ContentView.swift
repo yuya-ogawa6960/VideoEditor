@@ -1375,9 +1375,41 @@ struct ContentView: View {
     }
 
     /// AI: おまかせ編集 / おまかせテンプレ / AI台本 / スライドショー
+    /// AI: AI を使う機能をすべてここに集める(ほかのメニューと重なってもよい)
     private var autoGroupItems: [EditorToolItem] {
         let running = analysis.isRunning
+        let noClips = project.clips.isEmpty
         var items: [EditorToolItem] = []
+
+        items.append(EditorToolItem.section("チェック"))
+        items.append(EditorToolItem("中だるみ・編集チェック", systemImage: "gauge.with.dots.needle.33percent",
+                                    enabled: !running && !noClips,
+                                    disabledReason: noClips ? "先に動画を追加してください" : Self.analysisBusyReason) {
+            runPacingCheck()
+        })
+
+        items.append(EditorToolItem.section("字幕・声"))
+        items.append(EditorToolItem("キャプションを作成", systemImage: "text.bubble", id: "ai-captions") {
+            history.record(project)
+            activeSheet = .subtitles
+        })
+        items.append(EditorToolItem("字幕を翻訳", systemImage: "character.book.closed", id: "ai-translate") {
+            history.record(project)
+            activeSheet = .subtitles
+            showToast("字幕の画面の「翻訳」から英語などに訳せます")
+        })
+        items.append(EditorToolItem("AI読み上げ", systemImage: "waveform.badge.mic", id: "ai-tts") {
+            openPanel(.textToSpeech)
+        })
+        items.append(EditorToolItem("スピーチを強調", systemImage: "person.wave.2", id: "ai-speech",
+                                    enabled: !noClips, disabledReason: "先に動画を追加してください") {
+            withClipAtPlayhead { clipID in
+                openPanel(.audioEffects(clipID))
+                showToast("「スピーチを強調(AI)」を右に動かすと、声以外の雑音が消えます")
+            }
+        })
+
+        items.append(EditorToolItem.section("自動で編集"))
         items.append(EditorToolItem("おまかせ編集", systemImage: "wand.and.stars",
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
             player.pause()
@@ -1388,21 +1420,50 @@ struct ContentView: View {
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
             openPanel(.autoEditTemplates)
         })
-        items.append(EditorToolItem("中だるみ・編集チェック", systemImage: "gauge.with.dots.needle.33percent",
-                                    enabled: !running && !project.clips.isEmpty,
-                                    disabledReason: project.clips.isEmpty ? "先に動画を追加してください" : Self.analysisBusyReason) {
-            runPacingCheck()
-        })
         items.append(EditorToolItem("AI台本", systemImage: "text.badge.star") {
             player.pause()
             activePanel = nil
             activeSheet = .scriptWriter
         })
+        items.append(EditorToolItem("無音部分を削除", systemImage: "waveform.slash", id: "ai-silence",
+                                    enabled: hasAudioClips,
+                                    disabledReason: "音声のあるクリップがありません") {
+            showSilenceCutConfirm = true
+        })
         let slideshowBlocked = isImporting || running
         items.append(EditorToolItem.addSlideshow("スライドショー", systemImage: "photo.stack",
                                                  enabled: !slideshowBlocked,
                                                  disabledReason: Self.busyReason))
+
+        items.append(EditorToolItem.section("映像"))
+        items.append(EditorToolItem("顔に自動モザイク", systemImage: "face.dashed", id: "ai-faces",
+                                    enabled: !running && !noClips,
+                                    disabledReason: noClips ? "先に動画を追加してください" : Self.analysisBusyReason) {
+            autoMosaicFaces()
+        })
+        items.append(EditorToolItem("オートリフレーム", systemImage: "person.crop.rectangle", id: "ai-reframe",
+                                    enabled: !noClips, disabledReason: "先に動画を追加してください") {
+            withClipAtPlayhead { clipID in
+                openPanel(.autoReframe(clipID))
+            }
+        })
+        items.append(EditorToolItem("自動補正", systemImage: "wand.and.rays", id: "ai-enhance",
+                                    enabled: !noClips, disabledReason: "先に動画を追加してください") {
+            withClipAtPlayhead { clipID in
+                autoEnhance(clipID)
+            }
+        })
         return items
+    }
+
+    /// 再生位置のクリップを選んでから処理する(クリップ用の AI 機能を「AI」メニューから使うため)
+    private func withClipAtPlayhead(_ body: (UUID) -> Void) {
+        guard let clipID = clipIDAtPlayhead else {
+            showToast("再生位置をクリップの上に合わせてください", style: .warning)
+            return
+        }
+        selection = .clip(clipID)
+        body(clipID)
     }
 
     /// ルートの「その他」
