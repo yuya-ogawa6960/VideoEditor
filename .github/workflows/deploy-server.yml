@@ -48,7 +48,9 @@ jobs:
           OPENAI=$(printf '%s' "$OPENAI_API_KEY" | tr -d '[:space:]')
           echo "::add-mask::$TOKEN"
           # トークンの形だけ確かめる(値は出さない)
-          printf '%s' "$TOKEN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{console.log("token length:",s.length,"starts with cfut_:",s.startsWith("cfut_"),"non-ASCII:",/[^ -~]/.test(s),"quotes:",/["']/.test(s),"has Bearer:",/bearer/i.test(s))})'
+          case "$TOKEN" in cfut_*) PREFIX=yes ;; *) PREFIX=no ;; esac
+          if printf '%s' "$TOKEN" | LC_ALL=C grep -q '[^A-Za-z0-9_-]'; then ODD=yes; else ODD=no; fi
+          echo "token length: ${#TOKEN} / starts with cfut_: $PREFIX / other characters: $ODD"
           # トークンが有効か(値は出さず、結果だけ表示)
           curl -s -H "Authorization: Bearer $TOKEN" "https://api.cloudflare.com/client/v4/user/tokens/verify"             | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log("token verify:",j.success,j.result&&j.result.status,JSON.stringify(j.errors))}catch(e){console.log("token verify: unreadable")}})'
           curl -s -H "Authorization: Bearer $TOKEN" "https://api.cloudflare.com/client/v4/accounts"             | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log("accounts:",j.success,(j.result||[]).length,JSON.stringify(j.errors))}catch(e){console.log("accounts: unreadable")}})'
