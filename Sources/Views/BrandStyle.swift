@@ -134,41 +134,82 @@ struct PolygonOutlineShape: Shape {
     }
 }
 
-/// 八角形のボタン背景(書き出し・新しいプロジェクトなど)
+/// ステンドグラス風の八角形のボタン背景(書き出し・新しいプロジェクトなど)。
+/// 八角形の中を、3 つの中心から放射状に伸びる白い線で三角形のガラスに分け、ガラスごとに明るさを変える
+/// (メルボルンのトラムの側面のような模様)。色は左のオレンジから右のピンクへ
 struct FacetedBrandBackground: View {
-    /// 上 → 右上 → 右 → 右下 → 下 → 左下 → 左 → 左上 の面の明るさ(左上から光)
-    private static let light: [Double] = [1.10, 1.02, 0.94, 0.86, 0.82, 0.90, 1.00, 1.14]
+    /// 放射の中心(正規化座標、左から右)
+    private static let hubs: [CGPoint] = [CGPoint(x: 0.22, y: 0.58), CGPoint(x: 0.5, y: 0.35), CGPoint(x: 0.78, y: 0.62)]
+    /// ガラスごとの明るさ(明暗を交互に)
+    private static let shades: [Double] = [1.18, 0.82, 1.06, 0.9, 1.22, 0.78, 1.0, 0.88, 1.14, 0.8, 1.1, 0.86, 1.2, 0.84, 1.04, 0.92]
 
     var body: some View {
         Canvas { context, size in
             let rect = CGRect(origin: .zero, size: size)
-            let v = PolygonOutlineShape.vertices(in: rect, cut: 0.3)
-            // 中心の稜線(横長なので、中心は左右に伸びた線にする)
-            let inset = min(size.height * 0.5, size.width / 2)
-            let left = CGPoint(x: inset, y: size.height / 2)
-            let right = CGPoint(x: size.width - inset, y: size.height / 2)
-            // 8 辺それぞれと中心線を結ぶ面(上の辺と下の辺は台形)
-            let faces: [[CGPoint]] = [
-                [v[0], v[1], right, left],   // 上
-                [v[1], v[2], right],         // 右上
-                [v[2], v[3], right],         // 右
-                [v[3], v[4], right],         // 右下
-                [v[4], v[5], left, right],   // 下
-                [v[5], v[6], left],          // 左下
-                [v[6], v[7], left],          // 左
-                [v[7], v[0], left]           // 左上
-            ]
+            let corners = PolygonOutlineShape.vertices(in: rect, cut: 0.3)
+            // 外周の点(上と下の長い辺は 4 つに分けて、放射の線を増やす)
+            var perimeter: [CGPoint] = []
+            for i in 0..<corners.count {
+                let a = corners[i]
+                let b = corners[(i + 1) % corners.count]
+                perimeter.append(a)
+                if abs(a.y - b.y) < 0.5 {
+                    for j in 1..<4 {
+                        let t = CGFloat(j) / 4
+                        perimeter.append(CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+                    }
+                }
+            }
+            let hubs: [CGPoint] = Self.hubs.map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) }
+            func nearest(_ p: CGPoint) -> Int {
+                var best = 0
+                var distance = CGFloat.greatestFiniteMagnitude
+                for (k, h) in hubs.enumerated() where abs(h.x - p.x) < distance {
+                    distance = abs(h.x - p.x)
+                    best = k
+                }
+                return best
+            }
+            var faces: [[CGPoint]] = []
+            let n = perimeter.count
+            for i in 0..<n {
+                let a = perimeter[i]
+                let b = perimeter[(i + 1) % n]
+                let c = perimeter[(i + 2) % n]
+                let k = nearest(CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2))
+                faces.append([a, b, hubs[k]])
+                let next = nearest(CGPoint(x: (b.x + c.x) / 2, y: (b.y + c.y) / 2))
+                if next != k {
+                    for j in min(k, next)..<max(k, next) {
+                        faces.append([b, hubs[j], hubs[j + 1]])
+                    }
+                }
+            }
+            // ガラス
             for (index, face) in faces.enumerated() {
-                var path = Path()
-                path.move(to: face[0])
-                for point in face.dropFirst() { path.addLine(to: point) }
-                path.closeSubpath()
-                let cx = face.reduce(0) { $0 + Double($1.x) } / Double(face.count) / Double(max(size.width, 1))
-                context.fill(path, with: .color(Self.color(x: cx, light: Self.light[index])))
-                context.stroke(path, with: .color(Color(red: 1, green: 0.78, blue: 0.62).opacity(0.3)), lineWidth: 0.6)
+                let path = Self.triangle(face)
+                let cx = Double((face[0].x + face[1].x + face[2].x) / 3 / max(size.width, 1))
+                context.fill(path, with: .color(Self.color(x: cx, light: Self.shades[index % Self.shades.count])))
+            }
+            // 鉛の線(白い細線)と中心の点
+            for face in faces {
+                context.stroke(Self.triangle(face), with: .color(Color(red: 1, green: 0.95, blue: 0.9).opacity(0.85)), lineWidth: 0.9)
+            }
+            for hub in hubs {
+                context.fill(Path(ellipseIn: CGRect(x: hub.x - 1.6, y: hub.y - 1.6, width: 3.2, height: 3.2)),
+                             with: .color(.white))
             }
         }
         .clipShape(PolygonOutlineShape())
+    }
+
+    private static func triangle(_ points: [CGPoint]) -> Path {
+        var path = Path()
+        path.move(to: points[0])
+        path.addLine(to: points[1])
+        path.addLine(to: points[2])
+        path.closeSubpath()
+        return path
     }
 
     private static func color(x: Double, light: Double) -> Color {
