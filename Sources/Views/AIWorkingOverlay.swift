@@ -355,7 +355,8 @@ struct TranscriptionWorkingOverlay: View {
     let project: EditorProject
     let fraction: Double
     let status: String
-    let onCancel: () -> Void
+    /// nil のときはキャンセルボタンを出さない(キャンセルを押して止まるのを待っている間)
+    let onCancel: (() -> Void)?
 
     @State private var frame: CGImage?
     @State private var lastTime: Double = -10

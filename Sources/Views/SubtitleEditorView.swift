@@ -133,6 +133,9 @@ struct SubtitleEditorView: View {
         transcriptionTask != nil || transcriber.isRunning
     }
 
+    /// キャンセルを押してから、実際に止まるまでの間
+    @State private var isCancellingTranscription = false
+
     private var isTranslating: Bool {
         translationRequest != nil || aiTranslationTask != nil
     }
@@ -253,9 +256,14 @@ struct SubtitleEditorView: View {
             if isTranscribing {
                 TranscriptionWorkingOverlay(project: project,
                                             fraction: transcriber.progress,
-                                            status: transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText,
-                                            onCancel: { cancelTranscription() })
+                                            status: isCancellingTranscription
+                                                ? String(localized: "キャンセルしています…")
+                                                : (transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText),
+                                            onCancel: isCancellingTranscription ? nil : { cancelTranscription() })
             }
+        }
+        .onChange(of: isTranscribing) { _, running in
+            if !running { isCancellingTranscription = false }
         }
         .subtitleTranslation(project: project, request: $translationRequest, onFinish: { result in
             switch result {
@@ -469,6 +477,8 @@ struct SubtitleEditorView: View {
     private func cancelTranscription() {
         if transcriber.isRunning {
             transcriber.cancel()
+            // 止まるまでの間も、押したことがすぐ分かるように(ボタンを消して「キャンセルしています…」)
+            isCancellingTranscription = true
         }
         transcriptionTask?.cancel()
         transcriptionTask = nil

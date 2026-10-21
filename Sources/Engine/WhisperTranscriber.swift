@@ -153,6 +153,38 @@ final class WhisperTranscriber {
         Self.directorySize(Self.modelsDirectory)
     }
 
+    #if canImport(WhisperKit)
+    /// 読み込みが終わった(キャンセルされた後に終わった場合も)。次の準備のために覚えておき、印を外す
+    private func finishLoading(_ kit: WhisperKit, model: String, startedAt: Date) {
+        lock.lock()
+        whisperKit = kit
+        loadedModel = model
+        lastLoadDuration = Date().timeIntervalSince(startedAt)
+        preparing = false
+        let idle = activeUses == 0
+        lock.unlock()
+        UserDefaults.standard.set(true, forKey: Self.loadedOnceKey(model))
+        // 誰も使わなければ、しばらくして解放する(すぐ文字起こしが始まれば beginUse が取り消す)
+        if idle { scheduleUnload() }
+    }
+    #endif
+
+    /// task の結果を待つ。待っている側がキャンセルされたら、task は止めずに CancellationError ですぐ戻る
+    private static func valueUnlessCancelled<T>(_ task: Task<T, Never>) async throws -> T {
+        let gate = ResumeGate<T>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+                gate.attach(continuation)
+                Task {
+                    let value = await task.value
+                    gate.resume(.success(value))
+                }
+            }
+        } onCancel: {
+            gate.resume(.failure(CancellationError()))
+        }
+    }
+
     /// 一覧に無くなったモデル(以前の約 1.6GB の版など)のフォルダを消して、容量を空ける
     static func removeObsoleteModels() {
         let parent = modelsDirectory
@@ -322,7 +354,10 @@ final class WhisperTranscriber {
         defer { ticker.cancel() }
 
         try await beginPreparing()
-        defer { setPreparing(false) }
+        // 読み込み(下の loader)を始めたら、終わるまで「準備中」の印を付けたままにする(キャンセルしても CoreML の
+        // 読み込みは止まらないので、次の準備が同じモデルを二重に読み込まないように)。始めずに抜けるときだけ、ここで外す
+        var loadStarted = false
+        defer { if !loadStarted { setPreparing(false) } }
         // 先読みが先に読み込み終えていれば、それをそのまま使う
         if isModelReady, loadedModelName == model { return }
 
@@ -339,17 +374,22 @@ final class WhisperTranscriber {
         config.load = true
         config.download = false
 
-        do {
-            let kit = try await WhisperKit(config)
-            ticker.cancel()
-            lock.lock()
-            whisperKit = kit
-            loadedModel = model
-            lastLoadDuration = Date().timeIntervalSince(loadStart)
-            lock.unlock()
-            UserDefaults.standard.set(true, forKey: Self.loadedOnceKey(model))
-        } catch {
-            ticker.cancel()
+        // CoreML の読み込みは途中で止められない。キャンセルされたら待つのをやめてすぐ戻り(画面はすぐ閉じる)、
+        // 読み込みは裏で最後まで続けて次回に使う(使われなければ keepLoadedSeconds 後に解放)
+        loadStarted = true
+        let loader = Task.detached(priority: .userInitiated) { [weak self] () -> Result<WhisperKit, Error> in
+            do {
+                let kit = try await WhisperKit(config)
+                self?.finishLoading(kit, model: model, startedAt: loadStart)
+                return .success(kit)
+            } catch {
+                self?.setPreparing(false)
+                return .failure(error)
+            }
+        }
+        let outcome = try await Self.valueUnlessCancelled(loader)
+        ticker.cancel()
+        if case .failure(let error) = outcome {
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
             throw WhisperTranscriberError.loadFailed(error.localizedDescription)
         }
@@ -1115,5 +1155,43 @@ enum TranscriptionAudioExtractor {
             first = firstTime
             lock.unlock()
         }
+    }
+}
+
+/// 続き(continuation)を 1 回だけ再開する。再開の知らせが続きより先に来たら覚えておき、続きが来たらすぐ再開する
+private final class ResumeGate<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+    private var pending: Result<T, Error>?
+    private var done = false
+
+    func attach(_ continuation: CheckedContinuation<T, Error>) {
+        lock.lock()
+        if let pending {
+            done = true
+            self.pending = nil
+            lock.unlock()
+            continuation.resume(with: pending)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resume(_ result: Result<T, Error>) {
+        lock.lock()
+        if done {
+            lock.unlock()
+            return
+        }
+        if let continuation {
+            done = true
+            self.continuation = nil
+            lock.unlock()
+            continuation.resume(with: result)
+            return
+        }
+        if pending == nil { pending = result }
+        lock.unlock()
     }
 }
