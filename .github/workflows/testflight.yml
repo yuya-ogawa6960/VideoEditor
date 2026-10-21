@@ -107,6 +107,15 @@ jobs:
                 codesign --force --sign - --timestamp=none "$FW"
               done
           fi
+          # 共有用の拡張機能(PlugIns/*.appex)も、App Group の権限を付けた仮の署名にしてからアプリを署名する
+          if [ -d "$APP/PlugIns" ]; then
+            find "$APP/PlugIns" -maxdepth 1 -name "*.appex" -print0 |
+              while IFS= read -r -d '' EXT; do
+                echo "sign extension: $EXT"
+                codesign --force --sign - --entitlements ShareExtension.entitlements --timestamp=none "$EXT"
+                codesign -d --entitlements - "$EXT" || true
+              done
+          fi
           codesign --force --sign - --entitlements VideoEditor.entitlements --timestamp=none "$APP"
           codesign -d --entitlements - "$APP" || true
 

@@ -50,6 +50,10 @@ struct RootView: View {
                 ProjectStore.flushAll()
                 ProjectLibrary.shared.flush()
             }
+            // アプリに戻ってきたら、共有で受け取った動画・写真がないか見る(一覧・編集画面がそれぞれ確認を出す)
+            if phase == .active {
+                IncomingMediaCenter.shared.refresh()
+            }
         }
     }
 }
@@ -83,6 +87,16 @@ struct ProjectLibraryView: View {
     @State private var packageShareItem: PackageShareItem?
     @State private var alertTitle = ""
     @State private var alertMessage: String?
+
+    /// 共有で受け取った動画・写真を「新しいプロジェクトで編集」するか聞く
+    @State private var showIncomingPrompt = false
+    @State private var incomingPromptCount = 0
+    /// 「あとで」を選んだときに受け取っていた素材(同じ内容のままならもう聞かない)。
+    /// 編集画面を開くと一覧は作り直されるので、@State ではなくアプリが動いている間だけ覚えておく
+    @MainActor private static var postponedIncomingURLs: [URL] = []
+    /// 共有で受け取った素材の確認を少し待ってから行う処理(広告やシートなどが閉じてから聞く)
+    @State private var incomingCheckTask: Task<Void, Never>?
+    @State private var incomingCheckAttempts = 0
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -118,6 +132,17 @@ struct ProjectLibraryView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 32)
+                // ほかのお知らせ(ScrollView・NavigationStack に付けたもの)と別の View に付ける
+                .alert("共有で受け取った動画・写真が \(incomingPromptCount)件あります", isPresented: $showIncomingPrompt) {
+                    Button("新しいプロジェクトで編集") {
+                        createProject(mediaMode: .appCopy, importingIncomingMedia: true)
+                    }
+                    Button("あとで", role: .cancel) {
+                        Self.postponedIncomingURLs = IncomingMediaCenter.shared.pendingURLs
+                    }
+                } message: {
+                    Text("今あるプロジェクトに追加するときは「あとで」を選んでから、そのプロジェクトを開いてください。")
+                }
             }
             .background(Color.black.ignoresSafeArea())
             .navigationTitle("プロジェクト")
@@ -143,8 +168,24 @@ struct ProjectLibraryView: View {
             .onChange(of: openedPackageURL, initial: true) { _, _ in
                 importOpenedPackageIfReady()
             }
-            .onChange(of: isPackageBusy) { _, _ in
+            .onChange(of: isPackageBusy) { _, busy in
                 importOpenedPackageIfReady()
+                if !busy { scheduleIncomingCheck() }
+            }
+            // 共有で受け取った動画・写真がないか見る(編集画面から戻ったときの広告などが閉じるのを少し待つ)
+            .onAppear {
+                IncomingMediaCenter.shared.refresh()
+                scheduleIncomingCheck()
+            }
+            .onDisappear {
+                incomingCheckTask?.cancel()
+                incomingCheckTask = nil
+            }
+            .onChange(of: IncomingMediaCenter.shared.pendingURLs) { _, _ in
+                scheduleIncomingCheck()
+            }
+            .onChange(of: alertMessage) { _, message in
+                if message == nil { scheduleIncomingCheck() }
             }
             .sheet(item: $packageShareItem) { item in
                 PackageShareSheet(item: item)
@@ -241,10 +282,50 @@ struct ProjectLibraryView: View {
         }
     }
 
-    private func createProject(mediaMode: ProjectMediaMode) {
+    /// importingIncomingMedia: 共有で受け取った動画・写真を編集するために作る(開いた編集画面が聞かずに取り込む)
+    private func createProject(mediaMode: ProjectMediaMode, importingIncomingMedia: Bool = false) {
         Analytics.shared.track("project_create", ["media": String(describing: mediaMode)])
         let meta = library.create(mediaMode: mediaMode)
+        if importingIncomingMedia {
+            IncomingMediaCenter.shared.autoImportProjectID = meta.id
+        }
         onOpen(meta)
+    }
+
+    // MARK: 共有で受け取った動画・写真
+
+    /// 共有で受け取った動画・写真があれば「新しいプロジェクトで編集」するか聞く。
+    /// 読み込み・書き出し中やお知らせを出している間は終わってから(onChange で呼び直す)。
+    /// 広告・シート・ダイアログなどを出している間は、少し待って確かめ直す
+    private func checkIncomingMedia() {
+        let urls: [URL] = IncomingMediaCenter.shared.pendingURLs
+        guard !urls.isEmpty, !showIncomingPrompt, urls != Self.postponedIncomingURLs else { return }
+        guard !isPackageBusy, alertMessage == nil else { return }
+        if ScreenPresentation.isPresentingSomething {
+            // 重ねて出せない(出せなかった確認が残ってしまう)ので、閉じてから聞く
+            scheduleIncomingCheck(retry: true)
+            return
+        }
+        incomingPromptCount = urls.count
+        showIncomingPrompt = true
+    }
+
+    /// 少し待ってから checkIncomingMedia を呼ぶ。
+    /// retry は何かを出していて聞けなかったときの確かめ直し(40 回、約 1 分まで。あとはアプリに戻ったときなどに呼び直す)
+    private func scheduleIncomingCheck(retry: Bool = false) {
+        if retry {
+            incomingCheckAttempts += 1
+            guard incomingCheckAttempts <= 40 else { return }
+        } else {
+            incomingCheckAttempts = 0
+        }
+        let delay: UInt64 = retry ? 1_500_000_000 : 800_000_000
+        incomingCheckTask?.cancel()
+        incomingCheckTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delay)
+            if Task.isCancelled { return }
+            checkIncomingMedia()
+        }
     }
 
     private var emptyHint: some View {
@@ -408,6 +489,22 @@ struct ProjectLibraryView: View {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let inbox = documents.appendingPathComponent("Inbox", isDirectory: true).resolvingSymlinksInPath().path
         return url.resolvingSymlinksInPath().path.hasPrefix(inbox + "/")
+    }
+}
+
+// MARK: - 画面の上に何かを出しているか
+
+/// 画面の上に何か(シート・アラート・ダイアログ・写真やファイルの選択・広告など)を出しているか。
+/// 出している間は、共有で受け取った素材の確認を出さない(重ねて出せず、出せなかった確認が残ってしまうため)
+@MainActor
+enum ScreenPresentation {
+    static var isPresentingSomething: Bool {
+        let root = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .rootViewController
+        return root?.presentedViewController != nil
     }
 }
 

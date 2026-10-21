@@ -390,7 +390,7 @@ const PAGE_STYLE = `<meta name="viewport" content="width=device-width, initial-s
 
 const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania プライバシーポリシー</title>${PAGE_STYLE}</head><body>
 <h1>Video Mania プライバシーポリシー</h1>
-<p>最終更新日: 2026年10月21日</p>
+<p>最終更新日: 2026年10月22日</p>
 <h2>1. 動画・写真</h2>
 <p>編集する動画・写真・プロジェクトは、お使いの iPhone の中だけで処理・保存されます。開発者のサーバーに送られることはありません。</p>
 <h2>2. クラウド AI を使う場合</h2>
@@ -401,13 +401,21 @@ const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <p>どの機能がどれだけ使われているかを、端末ごとのランダムな ID(アプリを削除すると変わります)で開発者のサーバーに送り、改善に役立てます。動画・文章・氏名は送りません。アプリの「文字起こしの方式」画面の「プライバシー」でいつでもオフにできます。</p>
 <h2>5. 広告</h2>
 <p>アプリは Google AdMob の広告を表示します。AdMob は広告の配信・測定のために、端末の広告識別子(許可した場合)やおおよその位置などを利用することがあります。詳しくは <a href="https://policies.google.com/technologies/ads?hl=ja">Google のポリシー</a>をご覧ください。トラッキングは iPhone の設定でいつでも許可を取り消せます。</p>
-<h2>6. 第三者への提供</h2>
+<h2>6. Google フォトからの取り込み</h2>
+<p>「Google フォト」から追加する機能では、Google でログインし、Google フォト Picker API を使います。アプリが受け取るのは、あなたが Google フォトの選択画面で選んだ写真・動画(とそのファイル名・種類などの情報)だけです。ライブラリ全体やアルバム、ほかの写真・動画を見ることはありません。</p>
+<p>選んだ写真・動画は Google から直接お使いの iPhone にダウンロードされ、編集のためだけに使われます。開発者のサーバーや第三者に送ることはなく、広告や AI の学習にも使いません(ただし、取り込んだ動画であなた自身が「クラウド AI」の文字起こしなどを選んだときは、その音声だけが 2. のとおり送られます)。Google のログインの情報(トークン)はお使いの iPhone の中(キーチェーン)にだけ保存され、開発者のサーバーには送られません。</p>
+<p>アプリの「ログアウト」で接続をやめられます。Google 側の許可は、Google アカウント →「セキュリティ」→「サードパーティ製のアプリとサービスへのアクセス」(<a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>)から Video Mania を選んで、いつでも取り消せます。</p>
+<p>Video Mania が Google API から受け取った情報の使用および他のアプリへの転送は、限定的な使用(Limited Use)の要件を含む <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API サービスのユーザーデータに関するポリシー</a>に準拠します。</p>
+<h2>7. 第三者への提供</h2>
 <p>上記のほか、法令に基づく場合を除き、個人情報を第三者に提供しません。</p>
-<h2>7. お問い合わせ</h2>
+<h2>8. お問い合わせ</h2>
 <p><a href="/support">サポートページ</a>をご覧ください。</p>
 <hr>
 <h1>Privacy Policy (English)</h1>
 <p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI; with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. Anonymous usage statistics (which features are used, keyed by a random per-install ID) are sent to our server to improve the app; you can turn this off in the app. We do not share personal data with third parties except as required by law.</p>
+<h2>Google Photos</h2>
+<p>When you add media from Google Photos, you sign in with Google and the app uses the Google Photos Picker API. The app only receives the photos and videos you select in the Google Photos picker (and their file name and type); it cannot see the rest of your library or your albums. The selected items are downloaded directly from Google to your iPhone and used only for editing there. They are never sent to our server or to any third party, and are not used for advertising or AI training (the only exception: if you yourself choose a Cloud AI feature such as cloud transcription for an imported video, only its audio is sent as described above). Your Google sign-in tokens are stored only on your iPhone (in the Keychain) and are never sent to our server. You can disconnect with "Log out" in the app, and revoke access at any time in your Google Account under Security &rarr; Third-party apps &amp; services (<a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>).</p>
+<p>Video Mania's use and transfer to any other app of information received from Google APIs will adhere to <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
 </body></html>`;
 
 const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania サポート</title>${PAGE_STYLE}</head><body>

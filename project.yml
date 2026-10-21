@@ -12,6 +12,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
+    # アプリと共有用の拡張機能で同じ番号にする(App Store の決まり)。上げるときはここだけ
+    MARKETING_VERSION: "1.12.43"
+    CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: ""
     CODE_SIGNING_REQUIRED: "NO"
@@ -41,7 +44,11 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: Sources
+      # 共有用の拡張機能と共通(App Group の置き場所)
+      - path: Shared
     dependencies:
+      # 「共有」から Video Mania に送る拡張機能(ShareExtension/)
+      - target: ShareExtension
       - package: WhisperKit
         product: WhisperKit
       - package: GoogleMobileAds
@@ -54,11 +61,16 @@ targets:
         # Apple でサインイン(ポイントのアカウント)
         com.apple.developer.applesignin:
           - Default
+        # 共有用の拡張機能が受け取った動画・写真を置く共有フォルダ(Shared/AppGroup.swift)
+        com.apple.security.application-groups:
+          - group.com.yuyaogawa6960.videomania
     info:
       path: Info.plist
       properties:
         # ポイント・AI 中継サーバー(server/。空ならポイントの機能は「準備中」)
         VMServerURL: "$(VM_SERVER_URL)"
+        # Google フォトから直接取り込む(Google Photos Picker API)の OAuth クライアント ID
+        GoogleOAuthClientID: "$(GOOGLE_OAUTH_CLIENT_ID)"
         CFBundleDisplayName: Video Mania
         CFBundleName: VideoEditor
         CFBundleDevelopmentRegion: ja
@@ -165,8 +177,52 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "NO"
         VM_SERVER_URL: "https://videomania-api.yuya-ogawa0906.workers.dev"
-        MARKETING_VERSION: "1.12.42"
-        CURRENT_PROJECT_VERSION: "1"
+        # Google フォトから直接取り込むときの OAuth クライアント ID(iOS 用。docs/GooglePhotosSetup.md)。
+        # 空のあいだは、追加の選択肢に「Google フォト」を出さない
+        GOOGLE_OAUTH_CLIENT_ID: ""
+
+  # 写真アプリ・Google フォトなどの「共有」から、動画・写真を Video Mania に送る拡張機能。
+  # 受け取ったファイルは App Group の Inbox に置き、アプリを開いたときに取り込む(Sources/Model/IncomingMedia.swift)
+  ShareExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: ShareExtension
+      - path: Shared
+    entitlements:
+      path: ShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.yuyaogawa6960.videomania
+    info:
+      path: ShareExtension-Info.plist
+      properties:
+        CFBundleDisplayName: Video Mania
+        CFBundleDevelopmentRegion: ja
+        CFBundleLocalizations:
+          - ja
+          - en
+          - es
+          - pt-BR
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsMovieWithMaxCount: 20
+              NSExtensionActivationSupportsImageWithMaxCount: 20
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yuyaogawa6960.videomania.share
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: "NO"
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+        # アーカイブには埋め込んだアプリ(Products/Applications/VideoEditor.app)だけを入れる。
+        # NO のままだと .appex がアーカイブの Products 直下にも入り、書き出しできない「汎用アーカイブ」になる
+        SKIP_INSTALL: "YES"
 
 schemes:
   VideoEditor:

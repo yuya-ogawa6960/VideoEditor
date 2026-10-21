@@ -806,6 +806,52 @@
         }
       }
     },
+    "%lld 個はダウンロードできませんでした。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld couldn't be downloaded."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld no se pudieron descargar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld não puderam ser baixados."
+          }
+        }
+      }
+    },
+    "%lld 個を追加する": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar %lld"
+          }
+        }
+      }
+    },
     "%lld 分": {
       "extractionState": "manual",
       "localizations": {
@@ -871,6 +917,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld clipes excluídos"
+          }
+        }
+      }
+    },
+    "%lld 本の動画は Google フォトでまだ処理中のため、取り込めませんでした。少し待ってからもう一度選んでください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld videos are still being processed in Google Photos and couldn't be imported. Wait a moment and pick them again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld videos aún se están procesando en Google Fotos y no se pudieron importar. Espera un momento y vuelve a elegirlos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld vídeos ainda estão sendo processados no Google Fotos e não puderam ser importados. Aguarde um pouco e escolha-os de novo."
           }
         }
       }
@@ -3773,6 +3842,535 @@
         }
       }
     },
+    "Google でエラーが起きました(%@)。時間をおいてもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An error occurred with Google (%@). Please try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se produjo un error en Google (%@). Inténtalo de nuevo más tarde."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocorreu um erro no Google (%@). Tente novamente mais tarde."
+          }
+        }
+      }
+    },
+    "Google でログイン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with Google"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión con Google"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar com o Google"
+          }
+        }
+      }
+    },
+    "Google につながりませんでした。時間をおいてもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't connect to Google. Please try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo conectar con Google. Inténtalo de nuevo más tarde."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível conectar ao Google. Tente novamente mais tarde."
+          }
+        }
+      }
+    },
+    "Google のログインの期限が切れました。もう一度ログインしてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Google sign-in has expired. Please sign in again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu inicio de sesión de Google caducó. Vuelve a iniciar sesión."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu login do Google expirou. Entre novamente."
+          }
+        }
+      }
+    },
+    "Google の応答を読めませんでした。もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read Google's response. Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer la respuesta de Google. Inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler a resposta do Google. Tente novamente."
+          }
+        }
+      }
+    },
+    "Google フォト": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Photos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Fotos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Fotos"
+          }
+        }
+      }
+    },
+    "Google フォトから直接取り込む機能は準備中です": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing directly from Google Photos is coming soon"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La importación directa desde Google Fotos llegará pronto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A importação direta do Google Fotos chegará em breve"
+          }
+        }
+      }
+    },
+    "Google フォトから直接取り込む機能は準備中です。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing directly from Google Photos is coming soon."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La importación directa desde Google Fotos llegará pronto."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A importação direta do Google Fotos chegará em breve."
+          }
+        }
+      }
+    },
+    "Google フォトから追加": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add from Google Photos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir desde Google Fotos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar do Google Fotos"
+          }
+        }
+      }
+    },
+    "Google フォトが混み合っています。少し待ってからもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Photos is busy. Please wait a moment and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Fotos está saturado. Espera un momento e inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Google Fotos está sobrecarregado. Aguarde um pouco e tente novamente."
+          }
+        }
+      }
+    },
+    "Google フォトでエラーが起きました(%@)。時間をおいてもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An error occurred in Google Photos (%@). Please try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se produjo un error en Google Fotos (%@). Inténtalo de nuevo más tarde."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocorreu um erro no Google Fotos (%@). Tente novamente mais tarde."
+          }
+        }
+      }
+    },
+    "Google フォトで写真・動画を選び、「共有」から「Video Mania」を選ぶ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select photos or videos in Google Photos, then tap Share and choose Video Mania"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige fotos o videos en Google Fotos, toca Compartir y elige Video Mania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha fotos ou vídeos no Google Fotos, toque em Compartilhar e escolha Video Mania"
+          }
+        }
+      }
+    },
+    "Google フォトで写真・動画を選ぶと、この iPhone にダウンロードしてタイムラインに追加します。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you pick photos or videos in Google Photos, they're downloaded to this iPhone and added to the timeline."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando eliges fotos o videos en Google Fotos, se descargan en este iPhone y se añaden a la línea de tiempo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando você escolhe fotos ou vídeos no Google Fotos, eles são baixados para este iPhone e adicionados à linha do tempo."
+          }
+        }
+      }
+    },
+    "Google フォトで選んで「完了」を押したら、このアプリに戻ってください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After picking in Google Photos and tapping Done, come back to this app"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de elegir en Google Fotos y tocar Listo, vuelve a esta app"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depois de escolher no Google Fotos e tocar em Concluído, volte para este app"
+          }
+        }
+      }
+    },
+    "Google フォトにアクセスできませんでした。ログアウトしてから、もう一度ログインしてお試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't access Google Photos. Sign out, sign in again, and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo acceder a Google Fotos. Cierra sesión, vuelve a iniciarla e inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível acessar o Google Fotos. Saia, entre novamente e tente de novo."
+          }
+        }
+      }
+    },
+    "Google フォトの写真・動画を、この iPhone にダウンロードして編集できます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download photos and videos from Google Photos to this iPhone and edit them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descarga fotos y videos de Google Fotos en este iPhone y edítalos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixe fotos e vídeos do Google Fotos para este iPhone e edite-os."
+          }
+        }
+      }
+    },
+    "Google フォトの写真・動画を選ぶ許可がありませんでした。もう一度ログインして、許可にチェックを入れてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission to pick Google Photos items wasn't granted. Sign in again and check the permission box."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se concedió el permiso para elegir elementos de Google Fotos. Vuelve a iniciar sesión y marca la casilla del permiso."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A permissão para escolher itens do Google Fotos não foi concedida. Entre novamente e marque a caixa de permissão."
+          }
+        }
+      }
+    },
+    "Google フォトの応答を読めませんでした。もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the response from Google Photos. Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer la respuesta de Google Fotos. Inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler a resposta do Google Fotos. Tente novamente."
+          }
+        }
+      }
+    },
+    "Google フォトへの問い合わせが多すぎました。少し待ってからもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many requests to Google Photos. Please wait a moment and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiadas solicitudes a Google Fotos. Espera un momento e inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muitas solicitações ao Google Fotos. Aguarde um pouco e tente novamente."
+          }
+        }
+      }
+    },
+    "Google フォトを開いています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening Google Photos…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abriendo Google Fotos…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrindo o Google Fotos…"
+          }
+        }
+      }
+    },
+    "Google フォトを開いて選ぶ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Google Photos to pick"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Google Fotos para elegir"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir o Google Fotos para escolher"
+          }
+        }
+      }
+    },
+    "Google フォトを開けませんでした。「もう一度 Google フォトを開く」を押してください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open Google Photos. Tap \"Open Google Photos again\"."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir Google Fotos. Toca «Abrir Google Fotos otra vez»."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir o Google Fotos. Toque em \"Abrir o Google Fotos de novo\"."
+          }
+        }
+      }
+    },
+    "Google フォトを開けませんでした。もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open Google Photos. Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir Google Fotos. Inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir o Google Fotos. Tente novamente."
+          }
+        }
+      }
+    },
     "H.264(互換性重視)": {
       "extractionState": "manual",
       "localizations": {
@@ -5153,6 +5751,29 @@
         }
       }
     },
+    "iPhone の空き容量が足りません。空きを増やしてからもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough storage on your iPhone. Free up space and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay suficiente espacio en tu iPhone. Libera espacio e inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há espaço suficiente no iPhone. Libere espaço e tente novamente."
+          }
+        }
+      }
+    },
     "project.json を読み取れませんでした。新しいバージョンの Video Mania で作られた可能性があります。": {
       "extractionState": "manual",
       "localizations": {
@@ -6211,6 +6832,29 @@
         }
       }
     },
+    "あとで": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Later"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más tarde"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais tarde"
+          }
+        }
+      }
+    },
     "ある日の記録": {
       "extractionState": "manual",
       "localizations": {
@@ -6621,6 +7265,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não deu certo"
+          }
+        }
+      }
+    },
+    "うまくいきませんでした。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algo salió mal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algo deu errado."
           }
         }
       }
@@ -7357,6 +8024,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Este projeto não tem mais os clipes usados na transcrição anterior."
+          }
+        }
+      }
+    },
+    "このプロジェクトに追加": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to This Project"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir a este proyecto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar a este projeto"
           }
         }
       }
@@ -8304,6 +8994,29 @@
         }
       }
     },
+    "どこから追加しますか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where do you want to add from?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Desde dónde quieres añadir?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De onde você quer adicionar?"
+          }
+        }
+      }
+    },
     "どこで使いますか?": {
       "extractionState": "manual",
       "localizations": {
@@ -8695,6 +9408,29 @@
         }
       }
     },
+    "ほかのアプリの「共有」から Video Mania を選んで送ることもできます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can also send items from another app by tapping Share and choosing Video Mania."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También puedes enviar desde otra app tocando Compartir y eligiendo Video Mania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você também pode enviar de outro app tocando em Compartilhar e escolhendo Video Mania."
+          }
+        }
+      }
+    },
     "ほかのクリップがありません": {
       "extractionState": "manual",
       "localizations": {
@@ -8783,6 +9519,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Do desfoque"
+          }
+        }
+      }
+    },
+    "または「共有」→「ファイルに保存」してから、Video Mania の追加で「ファイル(Google ドライブなど)」を選ぶ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or tap Share > Save to Files, then choose \"Files (Google Drive, etc.)\" when adding in Video Mania"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O toca Compartir > Guardar en Archivos y luego elige «Archivos (Google Drive, etc.)» al añadir en Video Mania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou toque em Compartilhar > Salvar em Arquivos e depois escolha \"Arquivos (Google Drive etc.)\" ao adicionar no Video Mania"
           }
         }
       }
@@ -8948,6 +9707,29 @@
         }
       }
     },
+    "まだ選び終わっていないようです。Google フォトで選んで「完了」を押してください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It looks like you haven't finished picking. Pick in Google Photos and tap Done."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parece que aún no terminaste de elegir. Elige en Google Fotos y toca Listo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parece que você ainda não terminou de escolher. Escolha no Google Fotos e toque em Concluído."
+          }
+        }
+      }
+    },
     "まとめて": {
       "extractionState": "manual",
       "localizations": {
@@ -9013,6 +9795,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "De novo"
+          }
+        }
+      }
+    },
+    "もう一度 Google フォトを開く": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Google Photos again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Google Fotos otra vez"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir o Google Fotos de novo"
           }
         }
       }
@@ -9312,6 +10117,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Medir de novo"
+          }
+        }
+      }
+    },
+    "もう一度試す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentar de novo"
           }
         }
       }
@@ -10255,6 +11083,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Instantâneo"
+          }
+        }
+      }
+    },
+    "インターネットにつながっていません。通信できる所でもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're not connected to the internet. Please try again where you have a connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No estás conectado a internet. Inténtalo de nuevo donde tengas conexión."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você não está conectado à internet. Tente novamente onde houver conexão."
           }
         }
       }
@@ -11750,6 +12601,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "IA na nuvem (máxima precisão, pontos ou chave de API)"
+          }
+        }
+      }
+    },
+    "クラウドからダウンロードしています…(大きな動画は数分かかります)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading from the cloud… (large videos can take a few minutes)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descargando de la nube… (los videos grandes pueden tardar unos minutos)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixando da nuvem… (vídeos grandes podem levar alguns minutos)"
           }
         }
       }
@@ -14445,6 +15319,29 @@
         }
       }
     },
+    "ダウンロードしたファイルを保存できませんでした。もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the downloaded file. Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar el archivo descargado. Inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível salvar o arquivo baixado. Tente novamente."
+          }
+        }
+      }
+    },
     "ダウンロードに失敗しました": {
       "extractionState": "manual",
       "localizations": {
@@ -14464,6 +15361,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "O download falhou"
+          }
+        }
+      }
+    },
+    "ダウンロードに失敗しました(%lld)。もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download failed (%lld). Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La descarga falló (%lld). Inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O download falhou (%lld). Tente novamente."
+          }
+        }
+      }
+    },
+    "ダウンロード中 %lld / %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading %lld / %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descargando %lld / %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixando %lld / %lld"
           }
         }
       }
@@ -16676,6 +17619,29 @@
         }
       }
     },
+    "ファイル(Google ドライブなど)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files (Google Drive, etc.)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivos (Google Drive, etc.)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivos (Google Drive etc.)"
+          }
+        }
+      }
+    },
     "ファイルが空です。": {
       "extractionState": "manual",
       "localizations": {
@@ -16902,6 +17868,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível abrir o arquivo"
+          }
+        }
+      }
+    },
+    "ファイルを開けませんでした。\n%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open the file.\\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el archivo.\\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir o arquivo.\\n%@"
           }
         }
       }
@@ -19436,6 +20425,52 @@
         }
       }
     },
+    "ログアウト": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar sesión"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair"
+          }
+        }
+      }
+    },
+    "ログインの情報はこの iPhone にだけ保存します。ログアウトすればいつでも接続をやめられます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your sign-in information is stored only on this iPhone. You can disconnect anytime by signing out."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu información de inicio de sesión solo se guarda en este iPhone. Puedes desconectarte en cualquier momento cerrando sesión."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suas informações de login ficam salvas só neste iPhone. Você pode desconectar a qualquer momento saindo."
+          }
+        }
+      }
+    },
     "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。": {
       "extractionState": "manual",
       "localizations": {
@@ -19455,6 +20490,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Seu login expirou. Entre com a Apple novamente na tela “Método de transcrição”."
+          }
+        }
+      }
+    },
+    "ログインをやめました。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in was cancelled."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se canceló el inicio de sesión."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O login foi cancelado."
+          }
+        }
+      }
+    },
+    "ログイン画面を開けませんでした。もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open the sign-in screen. Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir la pantalla de inicio de sesión. Inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir a tela de login. Tente novamente."
           }
         }
       }
@@ -20076,6 +21157,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Constante"
+          }
+        }
+      }
+    },
+    "一度に %lld 個まで選べます。動画は Google フォトでの処理が終わったものだけ取り込めます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can pick up to %lld at a time. Only videos that Google Photos has finished processing can be imported."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puedes elegir hasta %lld a la vez. Solo se pueden importar los videos que Google Fotos ya terminó de procesar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você pode escolher até %lld de cada vez. Só os vídeos que o Google Fotos já terminou de processar podem ser importados."
           }
         }
       }
@@ -21023,6 +22127,29 @@
         }
       }
     },
+    "今あるプロジェクトに追加するときは「あとで」を選んでから、そのプロジェクトを開いてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To add them to an existing project, choose Later and then open that project."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para añadirlos a un proyecto existente, elige Más tarde y luego abre ese proyecto."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para adicioná-los a um projeto existente, escolha Mais tarde e depois abra esse projeto."
+          }
+        }
+      }
+    },
     "今ある字幕": {
       "extractionState": "manual",
       "localizations": {
@@ -21134,6 +22261,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Indisponível agora"
+          }
+        }
+      }
+    },
+    "今は次の方法で、Google フォトの写真・動画を追加できます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For now, you can add photos and videos from Google Photos this way:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por ahora, puedes añadir fotos y videos de Google Fotos así:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por enquanto, você pode adicionar fotos e vídeos do Google Fotos assim:"
           }
         }
       }
@@ -23323,6 +24473,29 @@
         }
       }
     },
+    "共有で受け取った動画・写真が %lld件あります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You have %lld shared videos or photos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tienes %lld videos o fotos compartidos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você tem %lld vídeos ou fotos compartilhados"
+          }
+        }
+      }
+    },
     "円": {
       "extractionState": "manual",
       "localizations": {
@@ -23641,6 +24814,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ir para a posição de reprodução"
+          }
+        }
+      }
+    },
+    "再生位置のクリップの後ろに追加します。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They'll be added after the clip at the playhead."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se añadirán después del clip en la posición de reproducción."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eles serão adicionados depois do clipe na posição de reprodução."
           }
         }
       }
@@ -24243,6 +25439,29 @@
         }
       }
     },
+    "写真ライブラリ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo Library"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fototeca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fototeca"
+          }
+        }
+      }
+    },
     "写真ライブラリからこの動画を読み出せないため、このアングルの区間はメインの映像になります。写真へのアクセスを許可してプロジェクトを開き直すと戻ります。": {
       "extractionState": "manual",
       "localizations": {
@@ -24400,6 +25619,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Salvar na biblioteca de fotos não está permitido. Permita nos Ajustes"
+          }
+        }
+      }
+    },
+    "写真・動画が選ばれていませんでした。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No photos or videos were picked."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se eligió ninguna foto ni video."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma foto ou vídeo foi escolhido."
           }
         }
       }
@@ -26037,6 +27279,29 @@
         }
       }
     },
+    "動画を準備しています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the video…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando el video…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando o vídeo…"
+          }
+        }
+      }
+    },
     "動画を置き換えられませんでした。\n%@": {
       "extractionState": "manual",
       "localizations": {
@@ -26585,6 +27850,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível importar"
+          }
+        }
+      }
+    },
+    "取り込んだ写真・動画は iPhone の中で編集します。開発者のサーバーに保存することはありません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported photos and videos are edited on your iPhone and are never stored on the developer's server."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las fotos y los videos importados se editan en tu iPhone y nunca se guardan en el servidor del desarrollador."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As fotos e os vídeos importados são editados no seu iPhone e nunca são armazenados no servidor do desenvolvedor."
           }
         }
       }
@@ -32059,6 +33347,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Novo projeto"
+          }
+        }
+      }
+    },
+    "新しいプロジェクトで編集": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit in a New Project"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar en un proyecto nuevo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar em um projeto novo"
           }
         }
       }
@@ -38043,6 +39354,29 @@
         }
       }
     },
+    "終わるまでこの画面のままお待ちください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please stay on this screen until it finishes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quédate en esta pantalla hasta que termine"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fique nesta tela até terminar"
+          }
+        }
+      }
+    },
     "終了 ": {
       "extractionState": "manual",
       "localizations": {
@@ -40803,6 +42137,29 @@
         }
       }
     },
+    "見られるのは、あなたが Google フォトで選んだ写真・動画だけです。ライブラリ全体は見ません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the photos and videos you pick in Google Photos can be seen. Your whole library is never accessed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se pueden ver las fotos y los videos que elijas en Google Fotos. Nunca se accede a toda tu biblioteca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só as fotos e os vídeos que você escolher no Google Fotos podem ser vistos. A biblioteca inteira nunca é acessada."
+          }
+        }
+      }
+    },
     "見る": {
       "extractionState": "manual",
       "localizations": {
@@ -42735,6 +44092,29 @@
         }
       }
     },
+    "追加しています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adding…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadiendo…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionando…"
+          }
+        }
+      }
+    },
     "追加しました": {
       "extractionState": "manual",
       "localizations": {
@@ -43471,6 +44851,29 @@
         }
       }
     },
+    "通信に時間がかかりすぎました。通信の良い所でもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection took too long. Please try again where the connection is better."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión tardó demasiado. Inténtalo de nuevo donde haya mejor conexión."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão demorou demais. Tente novamente onde a conexão for melhor."
+          }
+        }
+      }
+    },
     "通信エラー: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -43950,6 +45353,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ao escolher um, cor, contorno, sombra e mais mudam juntos."
+          }
+        }
+      }
+    },
+    "選ぶ時間が過ぎました。もう一度 Google フォトを開いて選んでください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time to pick ran out. Open Google Photos again and pick."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se acabó el tiempo para elegir. Abre Google Fotos otra vez y elige."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tempo para escolher acabou. Abra o Google Fotos de novo e escolha."
+          }
+        }
+      }
+    },
+    "選んだ写真・動画をダウンロードできませんでした。もう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't download the picked photos and videos. Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron descargar las fotos y los videos elegidos. Inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível baixar as fotos e os vídeos escolhidos. Tente novamente."
+          }
+        }
+      }
+    },
+    "選んだ写真・動画を確かめています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking the picked photos and videos…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobando las fotos y los videos elegidos…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificando as fotos e os vídeos escolhidos…"
+          }
+        }
+      }
+    },
+    "選んだ動画は Google フォトでまだ処理中です。少し待ってからもう一度お試しください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The picked video is still being processed in Google Photos. Please wait a moment and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El video elegido aún se está procesando en Google Fotos. Espera un momento e inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vídeo escolhido ainda está sendo processado no Google Fotos. Aguarde um pouco e tente novamente."
           }
         }
       }

@@ -50,6 +50,8 @@ struct ContentView: View {
     @State private var importTotal = 0
     /// 読み込み中の 1 件の進み具合(iCloud からのダウンロードなど。nil ならわからない)
     @State private var importFraction: Double?
+    /// 「ファイル」アプリの項目(Google ドライブなど)をダウンロード・コピーしている途中(進み具合はわからない)
+    @State private var importIsDownloading = false
     /// 読み込みの処理(「キャンセル」で止める)
     @State private var importTask: Task<Void, Never>?
     /// 「写真ライブラリから参照」なのに参照できず、アプリに取り込んだ動画があった(読み込みのたびに戻す)
@@ -95,6 +97,18 @@ struct ContentView: View {
     @State private var showMediaPicker = false
     /// タイムライン末尾の「+」から追加したときは末尾に足す(それ以外は再生位置のクリップの後ろに差し込む)
     @State private var importAppendsAtEnd = false
+    /// 「動画・写真を追加」で、どこから追加するか(写真ライブラリ / ファイル / Google フォト)を選ぶ
+    @State private var showMediaSourceDialog = false
+    /// 「ファイル」アプリ(Google ドライブ・iCloud Drive など)から選ぶ
+    @State private var showFileImporter = false
+    /// 共有で受け取った動画・写真を「このプロジェクトに追加」するか聞く
+    @State private var showIncomingPrompt = false
+    @State private var incomingPromptCount = 0
+    /// 「あとで」を選んだときに受け取っていた素材(同じ内容のままならもう聞かない)
+    @State private var postponedIncomingURLs: [URL] = []
+    /// 共有で受け取った素材の確認を少し待ってから行う処理(シートなどが閉じてから聞く)
+    @State private var incomingCheckTask: Task<Void, Never>?
+    @State private var incomingCheckAttempts = 0
     @State private var showOverlayPicker = false
     /// 「オーバーレイ」を押したときの「動画だけ / 写真だけ / 両方」の選択
     @State private var showOverlayKindDialog = false
@@ -125,6 +139,8 @@ struct ContentView: View {
         case slideshow
         /// AI 台本(第4弾)
         case scriptWriter
+        /// Google フォトから選んで取り込む(GooglePhotosImportView)
+        case googlePhotos
 
         var id: String {
             switch self {
@@ -139,6 +155,7 @@ struct ContentView: View {
             case .autoEdit: return "autoEdit"
             case .slideshow: return "slideshow"
             case .scriptWriter: return "scriptWriter"
+            case .googlePhotos: return "googlePhotos"
             }
         }
     }
@@ -148,15 +165,7 @@ struct ContentView: View {
             Color.black
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                topBarWithDialogs
-                ExportProgressBanner()
-                if project.isEmpty {
-                    emptyState
-                } else {
-                    editor
-                }
-            }
+            mainColumn
 
             if isImporting {
                 importOverlay
@@ -295,6 +304,96 @@ struct ContentView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(alertMessage ?? "")
+        }
+    }
+
+    // MARK: - 上部バー + 空の画面 / 編集画面
+
+    /// 上部バーと、空の画面 / 編集画面。
+    /// 「動画・写真を追加」の取り込み元の選択と、共有で受け取った素材の確認もここに付ける
+    /// (body の型チェックを軽くするため、またほかのシート・お知らせと別の View に付けるため分けている)
+    private var mainColumn: some View {
+        VStack(spacing: 0) {
+            topBarWithDialogs
+            ExportProgressBanner()
+            if project.isEmpty {
+                emptyState
+            } else {
+                editor
+            }
+        }
+        .confirmationDialog("どこから追加しますか?",
+                            isPresented: $showMediaSourceDialog,
+                            titleVisibility: .visible) {
+            Button("写真ライブラリ") {
+                showMediaPicker = true
+            }
+            Button("ファイル(Google ドライブなど)") {
+                showFileImporter = true
+            }
+            if GoogleOAuth.isConfigured {
+                Button("Google フォト") {
+                    player.pause()
+                    activeSheet = .googlePhotos
+                }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("ほかのアプリの「共有」から Video Mania を選んで送ることもできます。")
+        }
+        // 「ファイル」から選ぶ画面は、下のパネル(LUT・フォントの読み込み)の .fileImporter と入れ子にならないよう、
+        // 本体とは別の枝(背景)に付ける
+        .background {
+            Color.clear
+                .fileImporter(isPresented: $showFileImporter,
+                              allowedContentTypes: [.movie, .image],
+                              allowsMultipleSelection: true) { result in
+                    handleFileImport(result)
+                }
+        }
+        .alert("共有で受け取った動画・写真が \(incomingPromptCount)件あります", isPresented: $showIncomingPrompt) {
+            Button("このプロジェクトに追加") {
+                importIncomingMedia()
+            }
+            Button("あとで", role: .cancel) {
+                postponedIncomingURLs = IncomingMediaCenter.shared.pendingURLs
+            }
+        } message: {
+            Text("再生位置のクリップの後ろに追加します。")
+        }
+        // アプリに戻ってきたら、共有で受け取った動画・写真がないか見る
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            IncomingMediaCenter.shared.refresh()
+            scheduleIncomingCheck()
+        }
+        .onChange(of: IncomingMediaCenter.shared.pendingURLs) { _, _ in
+            checkIncomingMedia()
+        }
+        // 読み込み・復元・シート・お知らせが終わったら、待たせていた確認を出す
+        .onChange(of: isImporting) { _, busy in
+            if !busy { scheduleIncomingCheck() }
+        }
+        .onChange(of: isLoadingPhotoMedia) { _, loading in
+            if !loading { scheduleIncomingCheck() }
+        }
+        .onChange(of: activeSheet) { _, sheet in
+            if sheet == nil { scheduleIncomingCheck() }
+        }
+        .onChange(of: alertMessage) { _, message in
+            if message == nil { scheduleIncomingCheck() }
+        }
+        // 下のパネルを閉じた・画面内の処理(無音カット・逆再生・解析など)が終わったときも、待たせていた確認を出す
+        // (どれかが残っている間は確認しないので、全部なくなったときに呼び直す)
+        .onChange(of: isPanelOrToolBusy) { _, busy in
+            if !busy { scheduleIncomingCheck() }
+        }
+        .onDisappear {
+            incomingCheckTask?.cancel()
+            incomingCheckTask = nil
+            // 取り込まずに閉じたときは、次に開いたときに聞かずに取り込まないよう忘れる
+            if IncomingMediaCenter.shared.autoImportProjectID == projectID {
+                IncomingMediaCenter.shared.autoImportProjectID = nil
+            }
         }
     }
 
@@ -506,12 +605,10 @@ struct ContentView: View {
             FloatingRobot(name: "robot_hero_film", height: 160)
             Text("動画や写真を追加して編集を始めましょう")
                 .foregroundStyle(.secondary)
-            PhotosPicker(selection: $pickerItems,
-                         maxSelectionCount: nil,
-                         selectionBehavior: .ordered,
-                         matching: .any(of: [.videos, .images]),
-                         preferredItemEncoding: .current,
-                         photoLibrary: .shared()) {
+            Button {
+                EditorHaptics.tap()
+                requestMediaAdd(appendAtEnd: false)
+            } label: {
                 Label("動画・写真を追加", systemImage: "plus.circle.fill")
                     .font(.title2.bold())
                     .foregroundStyle(.white)
@@ -519,6 +616,7 @@ struct ContentView: View {
                     .padding(.vertical, 16)
                     .background(FacetedBrandBackground())
             }
+            .buttonStyle(.plain)
             .disabled(isImporting)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -645,14 +743,21 @@ struct ContentView: View {
         showOverlayPicker = true
     }
 
+    /// 「動画・写真を追加」(下のツールバー・空の画面・タイムラインの「+」)。
+    /// どこから追加するか(写真ライブラリ / ファイル / Google フォト)を選んでもらう。
+    /// appendAtEnd: タイムライン末尾の「+」からのときは末尾に足す(それ以外は再生位置のクリップの後ろ)
+    private func requestMediaAdd(appendAtEnd: Bool) {
+        guard !isImporting else { return }
+        importAppendsAtEnd = appendAtEnd
+        showMediaSourceDialog = true
+    }
+
     /// タイムラインの「+」(空のトラックをまとめた行・最後のクリップの後ろ)から追加する
     private func handleTimelineAdd(_ kind: TimelineAddKind) {
         EditorHaptics.tap()
         switch kind {
         case .media:
-            guard !isImporting else { return }
-            importAppendsAtEnd = true
-            showMediaPicker = true
+            requestMediaAdd(appendAtEnd: true)
         case .text:
             addTextAtPlayhead()
         case .subtitle:
@@ -1334,9 +1439,12 @@ struct ContentView: View {
     // 何も選んでいないとき: 足すもの と 全体にかけるもの だけを並べる
     private var rootItems: [EditorToolItem] {
         var items: [EditorToolItem] = []
-        items.append(EditorToolItem.addMedia(String(localized: "動画・写真を追加"), systemImage: "plus.rectangle.on.rectangle",
-                                             enabled: !isImporting,
-                                             disabledReason: Self.importingReason))
+        // どこから追加するか(写真ライブラリ / ファイル / Google フォト)を選んでから開く
+        items.append(EditorToolItem(String(localized: "動画・写真を追加"), systemImage: "plus.rectangle.on.rectangle",
+                                    enabled: !isImporting,
+                                    disabledReason: Self.importingReason) {
+            requestMediaAdd(appendAtEnd: false)
+        })
         items.append(EditorToolItem.group(String(localized: "テキスト"), systemImage: "textformat", id: "group-text",
                                           items: textGroupItems))
         items.append(EditorToolItem.group(String(localized: "オーディオ"), systemImage: "music.note", id: "group-audio",
@@ -2498,6 +2606,11 @@ struct ContentView: View {
                                   player: player,
                                   history: history,
                                   onNarrationAdded: { id in selection = .narration(id) })
+        case .googlePhotos:
+            // 選んだ写真・動画は一時ファイルで届く(取り込んだら消す)。シートは自分で閉じる
+            GooglePhotosImportView(onPicked: { urls in
+                startLocalImport(urls, securityScoped: false, deleteSourcesAfter: true)
+            })
         }
     }
 
@@ -2557,11 +2670,32 @@ struct ContentView: View {
         let total: Double = Double(max(importTotal, 1))
         // 読み込み中の 1 件の進み具合も足す(iCloud にしかない大きな動画でも止まって見えないように)
         let done: Double = min(Double(importDone) + (importFraction ?? 0), total)
+        // 進み具合がわからない間は、0% や 100% で止まった棒ではなく動き続ける表示にする
+        // (「ファイル」アプリの項目のダウンロード・コピー中と、写真ライブラリからのダウンロードを終えて動画を準備している間)
+        let downloading: Bool = importIsDownloading
+        let preparing: Bool = !downloading && (importFraction ?? 0) >= 1
         return ZStack {
             Color.black.opacity(0.5)
                 .ignoresSafeArea()
             VStack(spacing: 12) {
-                ProgressView(value: done, total: total)
+                if downloading || preparing {
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(.white)
+                    Group {
+                        if downloading {
+                            Text("クラウドからダウンロードしています…(大きな動画は数分かかります)")
+                        } else {
+                            Text("動画を準備しています…")
+                        }
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ProgressView(value: done, total: total)
+                }
                 Text("読み込み中… \(importDone)/\(importTotal)")
                     .font(.callout)
                     .monospacedDigit()
@@ -3566,6 +3700,9 @@ struct ContentView: View {
             }
         }
         player.update(with: project.snapshot())
+        // 共有で受け取った動画・写真がないか見る(一覧の「新しいプロジェクトで編集」から開いたときは、ここで取り込む)
+        IncomingMediaCenter.shared.refresh()
+        checkIncomingMedia()
     }
 
     /// 保存済みの内容を読み込んで表示する
@@ -3706,6 +3843,379 @@ struct ContentView: View {
                           : String(localized: "\(added)件を追加しました"), undo: true)
             }
         }
+    }
+
+    // MARK: 端末にあるファイルの取り込み(「ファイル」アプリ・Google フォト・共有で受け取ったもの)
+
+    /// 「ファイル」アプリで選んだ動画・写真を取り込む
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            startLocalImport(urls, securityScoped: true, deleteSourcesAfter: false)
+        case .failure(let error):
+            alertMessage = String(localized: "ファイルを開けませんでした。\n\(error.localizedDescription)")
+        }
+    }
+
+    /// importLocalFiles を「キャンセル」で止められるように importTask で始める
+    private func startLocalImport(_ urls: [URL], securityScoped: Bool, deleteSourcesAfter: Bool) {
+        guard !urls.isEmpty else { return }
+        guard !isImporting else {
+            // 取り込めないので、Google フォトの一時ファイルは残さない
+            // (共有で受け取ったファイルは残して IncomingMediaCenter に返す。あとでまた聞く)
+            if deleteSourcesAfter {
+                let incoming: [URL] = urls.filter { LocalMediaImport.isInIncomingInbox($0) }
+                IncomingMediaCenter.shared.giveBack(incoming)
+                removeImportSources(urls.filter { !LocalMediaImport.isInIncomingInbox($0) })
+            }
+            return
+        }
+        importTask = Task {
+            await importLocalFiles(urls, securityScoped: securityScoped, deleteSourcesAfter: deleteSourcesAfter)
+        }
+    }
+
+    /// すでに端末にあるファイル(「ファイル」アプリ・Google フォト・共有で受け取ったもの)を取り込む。
+    /// アプリの Media フォルダにコピーし(共有で受け取ったファイルは移し)、動画はクリップ、写真は静止画クリップにして
+    /// importItems と同じ位置に差し込む。
+    /// - securityScoped: 「ファイル」アプリで選んだファイル(読むあいだだけアクセスを許可してもらう。
+    ///   Google ドライブなどの端末にまだないファイルは、ダウンロードが終わるのを待ってからコピーする)
+    /// - deleteSourcesAfter: 元のファイルを消す(Google フォトの一時ファイル・共有で受け取ったファイル)。
+    ///   共有で受け取ったファイルは 1 件済むごとに消し(途中でアプリが終了しても、取り込み済みのものをまた聞かないように)、
+    ///   キャンセルで取り込まなかったものは IncomingMediaCenter に返す
+    @MainActor
+    private func importLocalFiles(_ urls: [URL], securityScoped: Bool, deleteSourcesAfter: Bool) async {
+        isImporting = true
+        importTotal = urls.count
+        importDone = 0
+        importFraction = nil
+        importIsDownloading = false
+        importCopiedPhotoMedia = false
+        // 共有で受け取ったファイルか(Media フォルダへ移したあとはパスで判定できないことがあるので、先に決めておく)
+        let incomingFlags: [Bool] = urls.map { deleteSourcesAfter && LocalMediaImport.isInIncomingInbox($0) }
+        var failures: [String] = []
+        var recorded = false
+        var added = 0
+        // 差し込む位置: 再生位置のクリップの後ろ(末尾の「+」からのときと、クリップが無いときは末尾)
+        var insertAt: Int? = nil
+        if !importAppendsAtEnd, !project.clips.isEmpty,
+           let location = project.locate(timelineTime: player.currentTime), location.index < project.clips.count {
+            insertAt = location.index + 1
+        }
+        importAppendsAtEnd = false
+        var firstAddedID: UUID? = nil
+        // 取り込みを終えた(または読み込めなかった)ファイルの数。先頭からこの数だけが済んでいる
+        var processed = 0
+        for (index, url) in urls.enumerated() {
+            // キャンセルされたら、追加済みの分は残してやめる
+            if Task.isCancelled { break }
+            importFraction = nil
+            let isIncoming: Bool = incomingFlags[index]
+            // 共有で受け取ったファイル・Google フォトの一時ファイルは "<NNN>-<元の名前>"(先頭の番号は外す)
+            let fileName: String = LocalMediaImport.storedFileName(for: url, stripsNumberPrefix: deleteSourcesAfter)
+            // Media フォルダに置いたファイル(クリップにできなかったときは消すか、元の場所に戻す)
+            var copied: URL? = nil
+            // 共有で受け取ったファイルを Media フォルダへ移した(取り込まなかったときは元の場所に戻す)
+            var movedFromInbox = false
+            do {
+                let destination: URL
+                if isIncoming {
+                    // 共有で受け取ったファイルは移す(コピーより速く、空き容量も要らない。移せなければコピーする)
+                    let stored = try await LocalMediaImport.moveIntoMediaDirectory(url, fileName: fileName)
+                    destination = stored.url
+                    movedFromInbox = stored.moved
+                } else {
+                    // 「ファイル」アプリの項目は、端末にないとダウンロードを待つ(進み具合はわからないので、動き続ける表示にする)
+                    importIsDownloading = securityScoped
+                    defer { importIsDownloading = false }
+                    destination = try await LocalMediaImport.copyIntoMediaDirectory(url,
+                                                                                 fileName: fileName,
+                                                                                 securityScoped: securityScoped)
+                }
+                copied = destination
+                // コピーの途中でキャンセルされたら、コピーしたファイルは消して(移したファイルは戻して)やめる
+                try Task.checkCancellation()
+                let clip: Clip
+                switch LocalMediaImport.kind(of: destination) {
+                case .movie:
+                    clip = try await MediaStore.makeClip(from: destination)
+                case .image:
+                    // 写真は静止画クリップになる
+                    clip = try makeStillClip(from: destination)
+                }
+                if !recorded {
+                    history.record(project)
+                    recorded = true
+                }
+                if let i = insertAt, i <= project.clips.count {
+                    project.clips.insert(clip, at: i)
+                    insertAt = i + 1
+                } else {
+                    project.clips.append(clip)
+                }
+                if firstAddedID == nil { firstAddedID = clip.id }
+                added += 1
+            } catch {
+                if let copied {
+                    if movedFromInbox {
+                        // 受け取ったファイルをなくさないよう、元の場所に戻す
+                        await LocalMediaImport.moveBack(copied, to: url)
+                    } else {
+                        try? FileManager.default.removeItem(at: copied)
+                    }
+                }
+                // キャンセルは失敗として数えない(このファイルはまだ済んでいないので、あとで IncomingMediaCenter に返す)
+                if error is CancellationError || Task.isCancelled { break }
+                if copied == nil {
+                    // コピーできなかった(どのファイルかわかるように名前をつける)
+                    failures.append(fileName + ": " + error.localizedDescription)
+                } else {
+                    // MediaStore のエラーは日本語の説明(LocalizedError)を持つ
+                    failures.append(error.localizedDescription)
+                }
+            }
+            // 済んだ(追加した・読み込めなかった)共有のファイルはすぐに消す。
+            // 途中でアプリが終了しても、取り込み済みのものをまた聞かないように
+            if isIncoming {
+                IncomingMediaCenter.shared.discard([url])
+            }
+            importDone += 1
+            processed += 1
+        }
+        let cancelled = Task.isCancelled
+        // キャンセルで取り込まなかった共有のファイルは IncomingMediaCenter に返す。
+        // すぐにまた聞かないよう「あとで」と同じ扱いにする(一覧に戻ったときや、次にプロジェクトを開いたときにまた聞く)
+        let unprocessedIncoming: [URL] = zip(urls, incomingFlags).dropFirst(processed).filter { $0.1 }.map { $0.0 }
+        if !unprocessedIncoming.isEmpty {
+            IncomingMediaCenter.shared.giveBack(unprocessedIncoming)
+            postponedIncomingURLs = IncomingMediaCenter.shared.pendingURLs
+        }
+        if deleteSourcesAfter {
+            // Google フォトの一時ファイルは、キャンセルで取り込まなかったものも含めて消す
+            let temporary: [URL] = zip(urls, incomingFlags).filter { !$0.1 }.map { $0.0 }
+            removeImportSources(temporary)
+        }
+        isImporting = false
+        importFraction = nil
+        importIsDownloading = false
+        importTask = nil
+        if !failures.isEmpty, !cancelled {
+            alertMessage = String(localized: "\(failures.count)件の動画・写真を読み込めませんでした。\n") + failures.joined(separator: "\n")
+        } else if added > 0 {
+            if let id = firstAddedID { selection = .clip(id) }
+            showToast(insertAt != nil
+                      ? String(localized: "再生位置の後ろに \(added)件を差し込みました")
+                      : String(localized: "\(added)件を追加しました"), undo: true)
+        }
+    }
+
+    /// 取り込みが終わった元のファイルを消す。共有で受け取ったものは IncomingMediaCenter に任せる(空になったフォルダも消える)
+    private func removeImportSources(_ urls: [URL]) {
+        var incoming: [URL] = []
+        for url in urls {
+            if LocalMediaImport.isInIncomingInbox(url) {
+                incoming.append(url)
+            } else {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        if !incoming.isEmpty {
+            IncomingMediaCenter.shared.discard(incoming)
+        }
+    }
+
+    // MARK: 共有で受け取った動画・写真
+
+    /// 下のパネルを開いている、または画面内の処理(無音カット・音量そろえ・逆再生・解析など)が動いている
+    /// (この間は共有で受け取った素材を聞かない・取り込まない)
+    private var isPanelOrToolBusy: Bool {
+        activePanel != nil || audioToolProgress != nil || mediaToolProgress != nil || analysis.progress != nil
+    }
+
+    /// 共有で受け取った動画・写真があれば、取り込む(一覧の「新しいプロジェクトで編集」から開いたとき)か、
+    /// このプロジェクトに追加するかを聞く。
+    /// 読み込み中・復元中・下のパネルを開いている間・画面内の処理(無音カット・逆再生・解析など)の間は終わってから
+    /// (onChange で呼び直す)。シートや写真の選択などを出している間は、少し待って確かめ直す
+    private func checkIncomingMedia() {
+        let center = IncomingMediaCenter.shared
+        let urls: [URL] = center.pendingURLs
+        guard !urls.isEmpty, didRestore, !isLoadingPhotoMedia, !isImporting else { return }
+        // パネルの ✕「キャンセル」で取り込んだクリップまで消えないよう、パネルを閉じてから。
+        // 画面内の処理の進み具合と読み込み中の表示も重ねない
+        guard !isPanelOrToolBusy else { return }
+        if center.autoImportProjectID == projectID {
+            // このプロジェクトは受け取った素材を編集するために作った: 聞かずに取り込む
+            center.autoImportProjectID = nil
+            importIncomingMedia()
+            return
+        }
+        guard !showIncomingPrompt, urls != postponedIncomingURLs else { return }
+        if activeSheet != nil || alertMessage != nil || ScreenPresentation.isPresentingSomething {
+            // 重ねて出せない(出せなかった確認が残ってしまう)ので、閉じてから聞く
+            scheduleIncomingCheck(retry: true)
+            return
+        }
+        incomingPromptCount = urls.count
+        showIncomingPrompt = true
+    }
+
+    /// 少し待ってから checkIncomingMedia を呼ぶ(閉じかけのシートなどが消えてから)。
+    /// retry は何かを出していて聞けなかったときの確かめ直し(40 回、約 1 分までは 1.5 秒ごと。
+    /// そのあとも、まだ聞いていない素材が残っている間は 5 秒ごとに確かめる。checkIncomingMedia が続けるかを決める)
+    private func scheduleIncomingCheck(retry: Bool = false) {
+        let delay: UInt64
+        if retry {
+            incomingCheckAttempts += 1
+            delay = incomingCheckAttempts <= 40 ? 1_500_000_000 : 5_000_000_000
+        } else {
+            incomingCheckAttempts = 0
+            delay = 800_000_000
+        }
+        incomingCheckTask?.cancel()
+        incomingCheckTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delay)
+            if Task.isCancelled { return }
+            checkIncomingMedia()
+        }
+    }
+
+    /// 共有で受け取った動画・写真を、再生位置のクリップの後ろに取り込む(取り込んだら受け取ったファイルは消す)
+    private func importIncomingMedia() {
+        guard !isImporting else { return }
+        let urls: [URL] = IncomingMediaCenter.shared.takeAll()
+        guard !urls.isEmpty else { return }
+        postponedIncomingURLs = []
+        importAppendsAtEnd = false
+        startLocalImport(urls, securityScoped: false, deleteSourcesAfter: true)
+    }
+}
+
+// MARK: - 端末にあるファイルを Media フォルダにコピーする
+
+/// 「ファイル」アプリ・Google フォト・共有で受け取った動画・写真を Media フォルダにコピーする(共有で受け取ったものは移す)。
+/// メインスレッドを止めないよう、コピー・移動はバックグラウンドで行う
+enum LocalMediaImport {
+    /// 動画か写真か
+    enum Kind {
+        case movie
+        case image
+    }
+
+    /// 拡張子から動画か写真かを決める。拡張子でわからないときは、画像として読めるかで決める
+    static func kind(of url: URL) -> Kind {
+        let ext = url.pathExtension
+        if !ext.isEmpty, let type = UTType(filenameExtension: ext) {
+            if type.conforms(to: .movie) || type.conforms(to: .audiovisualContent) { return .movie }
+            if type.conforms(to: .image) { return .image }
+        }
+        return MediaStore.imagePixelSize(of: url) != nil ? .image : .movie
+    }
+
+    /// 共有で受け取ったファイル(App Group の Inbox の中)か
+    static func isInIncomingInbox(_ url: URL) -> Bool {
+        guard let inbox = AppGroup.inboxURL else { return false }
+        let inboxPath = inbox.standardizedFileURL.resolvingSymlinksInPath().path
+        return url.standardizedFileURL.resolvingSymlinksInPath().path.hasPrefix(inboxPath + "/")
+    }
+
+    /// 保存するファイル名。共有で受け取ったファイル(Inbox/<日時>-<UUID>/<NNN>-<元の名前>)と、
+    /// stripsNumberPrefix のとき(Google フォトの一時ファイルも "<NNN>-<元の名前>")は先頭の番号を外す
+    static func storedFileName(for url: URL, stripsNumberPrefix: Bool = false) -> String {
+        let name = url.lastPathComponent
+        guard stripsNumberPrefix || isInIncomingInbox(url) else { return name }
+        let characters = Array(name)
+        guard characters.count > 4,
+              characters[0...2].allSatisfy({ $0.isASCII && $0.isNumber }),
+              characters[3] == "-" else { return name }
+        return String(characters[4...])
+    }
+
+    /// url を Media フォルダに fileName でコピーし、コピー先を返す。
+    /// NSFileCoordinator で読むので、「ファイル」アプリの項目(Google ドライブなど)がまだ端末にないときはダウンロードを待つ。
+    /// キャンセルされたら読み込みを止める
+    static func copyIntoMediaDirectory(_ url: URL, fileName: String, securityScoped: Bool) async throws -> URL {
+        try Task.checkCancellation()
+        let box = CoordinatorBox()
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                try LocalMediaImport.coordinatedCopy(url, fileName: fileName,
+                                                     securityScoped: securityScoped,
+                                                     coordinator: box.coordinator)
+            }.value
+        } onCancel: {
+            box.coordinator.cancel()
+        }
+    }
+
+    /// 共有で受け取ったファイル(Inbox の中)を Media フォルダに fileName で移し、置いた先を返す
+    /// (コピーより速く、空き容量も要らない)。移せなかったときはコピーする(moved が false。元のファイルは残る)
+    static func moveIntoMediaDirectory(_ url: URL, fileName: String) async throws -> (url: URL, moved: Bool) {
+        try Task.checkCancellation()
+        let destination = MediaStore.uniqueDestination(forFileName: fileName)
+        let moved: Bool = await Task.detached(priority: .userInitiated) {
+            do {
+                try FileManager.default.moveItem(at: url, to: destination)
+                return true
+            } catch {
+                // 途中まで書いたファイルが残らないように
+                try? FileManager.default.removeItem(at: destination)
+                return false
+            }
+        }.value
+        if moved {
+            return (destination, true)
+        }
+        let copied = try await copyIntoMediaDirectory(url, fileName: fileName, securityScoped: false)
+        return (copied, false)
+    }
+
+    /// moveIntoMediaDirectory で移したファイルを元の場所に戻す(取り込まなかったとき。受け取ったファイルをなくさないように)。
+    /// 受け取りフォルダが片づけられていたら作り直す。戻せなかったときは Media フォルダのファイルを消す
+    static func moveBack(_ moved: URL, to original: URL) async {
+        await Task.detached(priority: .userInitiated) {
+            let fileManager = FileManager.default
+            do {
+                try fileManager.createDirectory(at: original.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+                try fileManager.moveItem(at: moved, to: original)
+            } catch {
+                try? fileManager.removeItem(at: moved)
+            }
+        }.value
+    }
+
+    /// キャンセルのときに別のスレッドから NSFileCoordinator.cancel() を呼ぶための入れ物
+    /// (cancel() はどのスレッドから呼んでもよい)
+    private final class CoordinatorBox: @unchecked Sendable {
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+    }
+
+    private static func coordinatedCopy(_ url: URL, fileName: String, securityScoped: Bool,
+                                        coordinator: NSFileCoordinator) throws -> URL {
+        let accessing = securityScoped && url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing { url.stopAccessingSecurityScopedResource() }
+        }
+        let destination = MediaStore.uniqueDestination(forFileName: fileName)
+        var coordinationError: NSError?
+        var copyError: Error?
+        coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinationError) { readableURL in
+            do {
+                try FileManager.default.copyItem(at: readableURL, to: destination)
+            } catch {
+                copyError = error
+            }
+        }
+        var failure: Error? = copyError
+        if let coordinationError {
+            failure = coordinationError
+        }
+        if let failure {
+            // 途中まで書いたファイルが残らないように
+            try? FileManager.default.removeItem(at: destination)
+            throw failure
+        }
+        return destination
     }
 }
 
