@@ -22,12 +22,19 @@ import Observation
 
 /// 長い解析を 1 つだけ走らせる。ContentView は `progress` が nil でないとき ClipFXProgressOverlay を出し、
 /// キャンセルで `cancel()` を呼ぶ。body は @MainActor で動くので、結果をそのままプロジェクトへ書いてよい。
+/// 書き出し・文字起こしと同じように、ホームに戻ったり画面をロックしても続く:
+///   - iOS 26 以降: ContinuedProcessing.begin(kind: .analyze)(ロック画面に進み具合が出る。ユーザーが止めたらキャンセル)
+///   - それ以前: UIApplication.beginBackgroundTask(約 30 秒だけ続く)
+///   - 実行中は画面を自動でロックしない
 @Observable
 final class EditorAnalysisRunner {
     var progress: ClipFXProgress?
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var continuedHandle: ContinuedProcessingHandle?
+    @ObservationIgnored private var restoresIdleTimer = false
 
     var isRunning: Bool { progress != nil }
 
@@ -38,24 +45,29 @@ final class EditorAnalysisRunner {
              body: @escaping @MainActor (_ report: @escaping (Double) -> Void) async throws -> Void,
              onError: @escaping @MainActor (Error) -> Void) {
         task?.cancel()
+        finishBackgroundSupport(success: false)
         generation += 1
         let current = generation
         progress = ClipFXProgress(title: title, fraction: indeterminate ? nil : 0)
+        beginBackgroundSupport(title: title)
 
         let report: (Double) -> Void = { [weak self] value in
             DispatchQueue.main.async {
                 guard let self, self.generation == current, self.progress != nil else { return }
                 let clamped = value.isFinite ? min(max(value, 0), 1) : 0
                 self.progress?.fraction = clamped
+                self.continuedHandle?.update(completed: clamped, subtitle: nil)
             }
         }
 
         task = Task { @MainActor [weak self] in
+            var succeeded = true
             do {
                 try await body(report)
             } catch is CancellationError {
-                // キャンセルは静かに終わる
+                succeeded = false
             } catch {
+                succeeded = false
                 if !Task.isCancelled {
                     onError(error)
                 }
@@ -63,6 +75,7 @@ final class EditorAnalysisRunner {
             guard let self, self.generation == current else { return }
             self.progress = nil
             self.task = nil
+            self.finishBackgroundSupport(success: succeeded)
         }
     }
 
@@ -71,6 +84,53 @@ final class EditorAnalysisRunner {
         task = nil
         progress = nil
         generation += 1
+        finishBackgroundSupport(success: false)
+    }
+
+    // MARK: バックグラウンドでも続ける
+
+    /// run() はユーザー操作からメインスレッドで呼ばれる(継続処理はアプリが前面にある間にしか始められない)
+    private func beginBackgroundSupport(title: String) {
+        MainActor.assumeIsolated {
+            let app = UIApplication.shared
+            if !app.isIdleTimerDisabled {
+                app.isIdleTimerDisabled = true
+                restoresIdleTimer = true
+            }
+            backgroundTaskID = app.beginBackgroundTask(withName: "Analysis") { [weak self] in
+                // 時間切れ(メインスレッドで呼ばれる)。終了しないとアプリが強制終了される。処理そのものは止めない
+                MainActor.assumeIsolated {
+                    self?.endBackgroundTask()
+                }
+            }
+            let handle = ContinuedProcessing.begin(kind: .analyze, title: title, subtitle: title, wantsGPU: true)
+            handle?.onExpire = { [weak self] in
+                // ロック画面などでユーザーが止めた / システムが打ち切った → 解析もやめる
+                self?.cancel()
+            }
+            continuedHandle = handle
+        }
+    }
+
+    private func finishBackgroundSupport(success: Bool) {
+        MainActor.assumeIsolated {
+            if let handle = continuedHandle {
+                continuedHandle = nil
+                handle.finish(success: success)
+            }
+            endBackgroundTask()
+            if restoresIdleTimer {
+                restoresIdleTimer = false
+                UIApplication.shared.isIdleTimerDisabled = false
+            }
+        }
+    }
+
+    @MainActor
+    private func endBackgroundTask() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
     }
 }
 

@@ -101,6 +101,12 @@ struct AIWorkingCard: View {
                 Text(progress.title)
                     .font(.callout)
             }
+            Label(BackgroundWorkNote.analysis,
+                  systemImage: BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
             if let onCancel {
                 Button {
                     EditorHaptics.tap()

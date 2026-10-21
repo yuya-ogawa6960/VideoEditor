@@ -26,12 +26,15 @@ import MachO
 enum ContinuedProcessingKind: String {
     case export
     case transcribe
+    /// 見どころ探し・おまかせ編集・中だるみチェックなどの長い解析(EditorAnalysisRunner)
+    case analyze
 
     /// 診断表示用の日本語名
     var displayName: String {
         switch self {
         case .export: return String(localized: "書き出し")
         case .transcribe: return String(localized: "文字起こし")
+        case .analyze: return String(localized: "解析")
         }
     }
 }

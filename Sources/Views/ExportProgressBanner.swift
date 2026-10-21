@@ -137,4 +137,12 @@ enum BackgroundWorkNote {
         }
         return String(localized: "終わるまで、この画面を開いたままにしてください(ホームに戻ると約30秒で一時停止します)。画面は自動でロックされません。")
     }
+
+    /// 見どころ探し・おまかせ編集などの解析(EditorAnalysisRunner)
+    static var analysis: String {
+        if canContinueInBackground {
+            return String(localized: "ホームに戻ったり画面をロックしても、この処理は続きます。")
+        }
+        return String(localized: "終わるまで、このアプリを開いたままにしてください(ホームに戻ると約30秒で止まります)。画面は自動でロックされません。")
+    }
 }

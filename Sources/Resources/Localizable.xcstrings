@@ -16124,6 +16124,29 @@
         }
       }
     },
+    "ホームに戻ったり画面をロックしても、この処理は続きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This keeps running even if you go to the Home Screen or lock the screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este proceso continúa aunque vayas a la pantalla de inicio o bloquees la pantalla."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este processo continua mesmo se você for para a tela inicial ou bloquear a tela."
+          }
+        }
+      }
+    },
     "ホームに戻ったり画面をロックしても、文字起こしは続きます。": {
       "extractionState": "manual",
       "localizations": {
@@ -34294,6 +34317,29 @@
         }
       }
     },
+    "終わるまで、このアプリを開いたままにしてください(ホームに戻ると約30秒で止まります)。画面は自動でロックされません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep this app open until it finishes (it stops about 30 s after you go to the Home Screen). The screen will not lock automatically."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén esta app abierta hasta que termine (se detiene unos 30 s después de ir a la pantalla de inicio). La pantalla no se bloqueará automáticamente."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenha este app aberto até terminar (ele para cerca de 30 s depois de ir para a tela inicial). A tela não será bloqueada automaticamente."
+          }
+        }
+      }
+    },
     "終わるまで、この画面を開いたままにしてください(ホームに戻ると約30秒で一時停止します)。画面は自動でロックされません。": {
       "extractionState": "manual",
       "localizations": {
@@ -37073,6 +37119,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Resolução"
+          }
+        }
+      }
+    },
+    "解析": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analysis"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Análisis"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Análise"
           }
         }
       }
