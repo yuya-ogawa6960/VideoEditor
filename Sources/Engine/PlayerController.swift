@@ -231,6 +231,8 @@ final class PlayerController {
 
     func play() {
         guard player.currentItem != nil else { return }
+        // マナーモードでも音が出るカテゴリで再生する
+        AudioSessionSetup.ensurePlayback()
         scrubTarget = nil
         if duration > 0 && currentTime >= duration - 0.05 {
             seek(to: 0)

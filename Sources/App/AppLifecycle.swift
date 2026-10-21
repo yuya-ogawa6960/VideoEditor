@@ -81,6 +81,8 @@ final class AppLifecycle {
         let willEnterForeground = center.addObserver(forName: UIApplication.willEnterForegroundNotification,
                                                      object: nil, queue: .main) { [weak self] _ in
             self?.setInBackground(false)
+            // 他のアプリや広告の再生でカテゴリが変わっていても、戻ったら再生用に戻す
+            AudioSessionSetup.ensurePlayback()
         }
         let didBecomeActive = center.addObserver(forName: UIApplication.didBecomeActiveNotification,
                                                  object: nil, queue: .main) { [weak self] _ in

@@ -8,6 +8,8 @@ struct VideoEditorApp: App {
 
     init() {
         AppLifecycle.shared.start()
+        // マナーモードでも動画の音が鳴るように(.playback)
+        AudioSessionSetup.ensurePlayback()
         // 使い方の統計(匿名。設定で止められる)
         Analytics.shared.start()
         // クラウド文字起こしの背景セッションをつなぎ直す(前回の起動中に送ったピースの結果を受け取れるように)

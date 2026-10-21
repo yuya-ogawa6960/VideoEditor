@@ -482,9 +482,8 @@ struct ContentView: View {
 
     private var emptyState: some View {
         VStack(spacing: 24) {
-            Image(systemName: "film")
-                .font(.system(size: 64))
-                .foregroundStyle(.secondary)
+            // フィルムを抱えて運ぶ係のロボット(AIWorkingOverlay.swift)
+            FloatingRobot(name: "robot_hero_film", height: 160)
             Text("動画や写真を追加して編集を始めましょう")
                 .foregroundStyle(.secondary)
             PhotosPicker(selection: $pickerItems,

@@ -195,6 +195,27 @@ struct AIWorkingCard: View {
     }
 }
 
+/// 1 枚絵のロボット(フィルムを抱えて歩く係など)をゆっくり上下に浮かせる。動画が無いときの画面などに
+struct FloatingRobot: View {
+    let name: String
+    var height: CGFloat = 150
+
+    @State private var up = false
+
+    var body: some View {
+        Image(name)
+            .resizable()
+            .scaledToFit()
+            .frame(height: height)
+            .offset(y: up ? -6 : 6)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
+                    up = true
+                }
+            }
+    }
+}
+
 /// 作業中のカードの上に、画面に空きがあれば大きめのネイティブ広告を出す。空きが無ければカードだけ(中に小さな広告)
 struct WorkingCardWithAd<Card: View>: View {
     @ViewBuilder let card: (_ inlineAd: Bool) -> Card
@@ -468,7 +489,17 @@ private struct DirectorRobot: View {
             .frame(width: 46, height: 26)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.4), lineWidth: 1))
-            Robot(pose: m.pose, scale: 0.6)
+            if task == .listening {
+                // 聞く係は、ヘッドホンで手を耳に当てた 1 枚絵(ゆっくり息をして、少し左右に揺れる)
+                Image("robot_hero_listening")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 92 * 0.6)
+                    .rotationEffect(.degrees(sin(t * 1.1) * 2), anchor: .bottom)
+                    .offset(x: 2, y: m.pose.bob * 0.6)
+            } else {
+                Robot(pose: m.pose, scale: 0.6)
+            }
         }
         .overlay(alignment: .topTrailing) {
             if task == .editing {
