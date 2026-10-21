@@ -940,9 +940,38 @@ enum ExportPipelineError: LocalizedError {
     }
 }
 
-/// requestMediaDataWhenReady のブロック内で使う完了フラグ(各キュー内でのみ触る)
+/// 1 トラック分の流し込みの状態。完了の通知はどのスレッドからでも 1 回だけ
+/// (キャンセル時は、入力が「受け取れる状態」にならなくても外から終わらせられる)
 private final class ExportPumpState {
-    var finished = false
+    private let lock = NSLock()
+    private var done = false
+    private var completion: (() -> Void)?
+
+    init(completion: @escaping () -> Void) {
+        self.completion = completion
+    }
+
+    var finished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return done
+    }
+
+    /// 初回だけ completion を呼ぶ。呼んだら true
+    @discardableResult
+    func finishOnce() -> Bool {
+        lock.lock()
+        if done {
+            lock.unlock()
+            return false
+        }
+        done = true
+        let handler = completion
+        completion = nil
+        lock.unlock()
+        handler?()
+        return true
+    }
 }
 
 /// 1 回分の書き出し処理(AVAssetReader → AVAssetWriter)
@@ -966,6 +995,8 @@ final class ExportPipeline {
     private let lock = NSLock()
     private var cancelled = false
     private var activeReader: AVAssetReader?
+    /// 流し込み中のトラック(キャンセル時に待たずに終わらせる)
+    private var activePumps: [ExportPumpState] = []
     private var fellBackToSDR = false
 
     private let videoQueue = DispatchQueue(label: "com.personal.videoeditor.export.video", qos: .userInitiated)
@@ -1009,8 +1040,14 @@ final class ExportPipeline {
         lock.lock()
         cancelled = true
         let reader = activeReader
+        let pumps = activePumps
         lock.unlock()
         reader?.cancelReading()
+        // 入力が「次を受け取れる状態」にならないと流し込みのブロックが呼ばれず、キャンセルに気づけない
+        // (最後のほうは音声と映像の足並みをそろえる待ちで止まりやすい)。ここで各トラックを終わらせる
+        for pump in pumps {
+            pump.finishOnce()
+        }
     }
 
     func run() async -> Outcome {
@@ -1207,6 +1244,7 @@ final class ExportPipeline {
 
         lock.lock()
         activeReader = nil
+        activePumps = []
         lock.unlock()
 
         if isCancelled {
@@ -1258,16 +1296,24 @@ final class ExportPipeline {
                       queue: DispatchQueue,
                       progressDuration: Double?,
                       completion: @escaping () -> Void) {
-        let pumpState = ExportPumpState()
+        let pumpState = ExportPumpState(completion: completion)
+        lock.lock()
+        activePumps.append(pumpState)
+        let alreadyCancelled = cancelled
+        lock.unlock()
+        if alreadyCancelled {
+            pumpState.finishOnce()
+            return
+        }
         input.requestMediaDataWhenReady(on: queue) { [weak self] in
             if pumpState.finished { return }
 
             func finish(markFinished: Bool) {
+                if pumpState.finished { return }
                 if markFinished && writer.status == .writing {
                     input.markAsFinished()
                 }
-                pumpState.finished = true
-                completion()
+                pumpState.finishOnce()
             }
 
             while input.isReadyForMoreMediaData {
