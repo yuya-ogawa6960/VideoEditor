@@ -1179,6 +1179,12 @@ struct EditorWatermarkPanel: View {
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var thumbnail: UIImage?
+    @State private var presetStore = WatermarkPresetStore.shared
+
+    /// いまの設定に保存できる中身(画像か文字)があるか
+    private var hasContent: Bool {
+        project.watermark.imageURL != nil || !project.watermark.text.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1188,6 +1194,40 @@ struct EditorWatermarkPanel: View {
             }
             .tint(.accentColor)
             TextPanelHint(text: String(localized: "動画の隅に、名前やロゴをずっと表示します。"))
+
+            // 自分用に保存したロゴ(最大 5 件)。タップで使う、長押しで消す
+            VStack(alignment: .leading, spacing: 6) {
+                EditorSectionTitle(title: String(localized: "保存したロゴ(自分用・最大 5 件)"))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(presetStore.presets) { preset in
+                            Button {
+                                EditorHaptics.tap()
+                                project.watermark = presetStore.settings(from: preset)
+                                loadThumbnail()
+                            } label: {
+                                WatermarkPresetTile(preset: preset, image: presetStore.thumbnail(of: preset))
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    presetStore.remove(preset)
+                                } label: {
+                                    Label("削除", systemImage: "trash")
+                                }
+                            }
+                        }
+                        EditorPillButton(title: String(localized: "いまの設定を保存"), systemImage: "plus") {
+                            presetStore.save(project.watermark)
+                        }
+                        .disabled(presetStore.isFull || !hasContent)
+                        .opacity(presetStore.isFull || !hasContent ? 0.4 : 1)
+                    }
+                }
+                TextPanelHint(text: presetStore.isFull
+                              ? String(localized: "5 件まで保存できます。消すには長押しします。")
+                              : String(localized: "タップで使います。消すには長押しします。"))
+            }
 
             Group {
                 EditorTextFieldRow(title: String(localized: "文字(画像がないときに使います)"),
@@ -1300,6 +1340,35 @@ struct EditorWatermarkPanel: View {
             errorText = error.localizedDescription
         }
         isLoading = false
+    }
+}
+
+/// 保存したロゴの 1 枚(画像があれば画像、なければ文字)
+private struct WatermarkPresetTile: View {
+    let preset: WatermarkPresetStore.Preset
+    let image: UIImage?
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.white.opacity(0.08))
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(4)
+            } else {
+                Text(preset.text.isEmpty ? "Aa" : preset.text)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(4)
+            }
+        }
+        .frame(width: 56, height: 56)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.2), lineWidth: 1))
+        .contentShape(Rectangle())
     }
 }
 

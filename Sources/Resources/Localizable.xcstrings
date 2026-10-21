@@ -1611,6 +1611,29 @@
         }
       }
     },
+    "5 件まで保存できます。消すには長押しします。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to 5 can be saved. Long-press to delete."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se pueden guardar hasta 5. Mantén pulsado para eliminar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dá para salvar até 5. Toque e segure para excluir."
+          }
+        }
+      }
+    },
     "9:16 にする": {
       "extractionState": "manual",
       "localizations": {
@@ -5774,6 +5797,29 @@
         }
       }
     },
+    "いまの設定を保存": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save current settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar ajustes actuales"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar ajustes atuais"
+          }
+        }
+      }
+    },
     "いまは「詳細設定」で決めた設定で書き出します。上から選ぶと、その使いみちに合わせて設定し直します。": {
       "extractionState": "manual",
       "localizations": {
@@ -5885,6 +5931,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Visuais recomendados"
+          }
+        }
+      }
+    },
+    "おまかせ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "auto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automátic"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automátic"
           }
         }
       }
@@ -12099,6 +12168,29 @@
         }
       }
     },
+    "スライド": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "slide"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "presentación"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "apresentação"
+          }
+        }
+      }
+    },
     "スライド(上)": {
       "extractionState": "manual",
       "localizations": {
@@ -12647,6 +12739,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Toque para adicionar um adesivo de 3 segundos na posição de reprodução. Depois dá para arrastar, apertar e girar na prévia."
+          }
+        }
+      }
+    },
+    "タップで使います。消すには長押しします。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to use. Long-press to delete."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca para usar. Mantén pulsado para eliminar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque para usar. Toque e segure para excluir."
           }
         }
       }
@@ -19777,6 +19892,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ajustes de saída salvos"
+          }
+        }
+      }
+    },
+    "保存したロゴ(自分用・最大 5 件)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved logos (yours, up to 5)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logos guardados (tuyos, hasta 5)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logos salvos (seus, até 5)"
           }
         }
       }
@@ -34363,6 +34501,29 @@
         }
       }
     },
+    "編集": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "edit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "edici"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "edi"
+          }
+        }
+      }
+    },
     "編集チェック": {
       "extractionState": "manual",
       "localizations": {
@@ -35164,6 +35325,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "O idioma de origem e o de destino são iguais."
+          }
+        }
+      }
+    },
+    "聞": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "listen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "escuch"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ouv"
           }
         }
       }

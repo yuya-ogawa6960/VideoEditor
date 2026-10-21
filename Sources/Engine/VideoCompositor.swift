@@ -258,6 +258,8 @@ final class VideoCompositorScene {
     let drawings: [DrawingClip]
     let watermark: WatermarkSettings
     let documentary: DocumentaryRenderInfo
+    /// 書き出し中: 作ったコマを AnalysisPeek に流して「いま作っている映像」として画面に出す
+    let postsFrames: Bool
     /// Bロール / ワイプ / 写真(開始時刻順)
     let mediaOverlays: [VideoCompositorOverlay]
     let totalDuration: Double
@@ -270,6 +272,7 @@ final class VideoCompositorScene {
          drawings: [DrawingClip],
          watermark: WatermarkSettings,
          documentary: DocumentaryRenderInfo,
+         postsFrames: Bool = false,
          mediaOverlays: [VideoCompositorOverlay],
          totalDuration: Double) {
         self.renderSize = renderSize
@@ -280,6 +283,7 @@ final class VideoCompositorScene {
         self.drawings = drawings
         self.watermark = watermark
         self.documentary = documentary
+        self.postsFrames = postsFrames
         self.mediaOverlays = mediaOverlays
         self.totalDuration = totalDuration
     }
@@ -395,6 +399,10 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             autoreleasepool {
                 do {
                     let buffer = try self.render(request)
+                    if let instruction = request.videoCompositionInstruction as? VideoCompositorInstruction,
+                       instruction.scene.postsFrames {
+                        AnalysisPeek.shared.post(buffer)
+                    }
                     request.finish(withComposedVideoFrame: buffer)
                 } catch {
                     request.finish(with: error)

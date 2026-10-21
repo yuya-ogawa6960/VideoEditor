@@ -548,6 +548,7 @@ enum CompositionBuilder {
                 .sorted { $0.start < $1.start },
             watermark: snapshot.watermark,
             documentary: documentaryInfo,
+            postsFrames: purpose == .export,
             mediaOverlays: overlayInfos,
             totalDuration: totalSeconds)
 

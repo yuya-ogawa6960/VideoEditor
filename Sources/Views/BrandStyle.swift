@@ -136,10 +136,13 @@ struct PolygonOutlineShape: Shape {
     }
 }
 
-/// ステンドグラス風の八角形のボタン背景(書き出し・新しいプロジェクトなど)。
-/// 八角形の中を、3 つの中心から放射状に伸びる白い線で三角形のガラスに分け、ガラスごとに明るさを変える
-/// (メルボルンのトラムの側面のような模様)。色は左のオレンジから右のピンクへ
+/// ステンドグラス風の角丸四角のボタン背景(書き出し・新しいプロジェクトなど)。
+/// 四角の中を、3 つの中心から放射状に伸びる線で三角形のガラスに分け、ガラスごとに明るさを変える
+/// (メルボルンのトラムの側面のような模様)。色は左の緑から右の青へ
 struct FacetedBrandBackground: View {
+    /// 角の丸み
+    static let cornerRadius: CGFloat = 14
+
     /// 放射の中心(正規化座標、左から右)
     private static let hubs: [CGPoint] = [CGPoint(x: 0.22, y: 0.76), CGPoint(x: 0.5, y: 0.22), CGPoint(x: 0.78, y: 0.8)]
     /// ガラスごとの明るさ(明暗を交互に)
@@ -148,7 +151,8 @@ struct FacetedBrandBackground: View {
     var body: some View {
         Canvas { context, size in
             let rect = CGRect(origin: .zero, size: size)
-            let corners = PolygonOutlineShape.vertices(in: rect, cut: 0.3)
+            let corners = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+                           CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY)]
             // 外周の点(上と下の長い辺は 4 つに分けて、放射の線を増やす)
             var perimeter: [CGPoint] = []
             for i in 0..<corners.count {
@@ -194,7 +198,7 @@ struct FacetedBrandBackground: View {
                 context.fill(path, with: .color(Self.color(x: cx, light: Self.shades[index % Self.shades.count])))
             }
         }
-        .clipShape(PolygonOutlineShape())
+        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
     }
 
     private static func triangle(_ points: [CGPoint]) -> Path {

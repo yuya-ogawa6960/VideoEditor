@@ -114,6 +114,8 @@ struct ExportView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var estimate: StorageEstimate?
+    /// 書き出し中に作っている映像(コンポジタが流すコマ)
+    @State private var peek = AnalysisPeek.shared
     @State private var saveToPhotos: Bool = true
     @State private var isSavingToPhotos: Bool = false
     @State private var alertTitle: String = ""
@@ -686,6 +688,14 @@ struct ExportView: View {
         let progress = min(max(exporter.progress, 0), 1)
         let remaining = ExportTimeEstimator.shared.remainingText(isRunning: exporter.isRunning, progress: progress)
         return VStack(alignment: .leading, spacing: 8) {
+            // いま作っている映像のコマと、切ってつなぐロボットたち
+            if let frame = peek.frame {
+                AIScanningFrame(image: frame)
+                    .frame(height: 120)
+                    .frame(maxWidth: .infinity)
+            }
+            RobotWorkshop(task: .editing, monitorFrame: peek.frame)
+                .frame(height: 84)
             ProgressView(value: progress)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(verbatim: "\(Int((progress * 100).rounded()))%")
@@ -711,6 +721,7 @@ struct ExportView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+        .onDisappear { AnalysisPeek.shared.clear() }
     }
 
     /// 書き出しの結果(完了・失敗・中止)。いちばん上に出す

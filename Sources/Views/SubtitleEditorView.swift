@@ -378,6 +378,8 @@ struct SubtitleEditorView: View {
 
     private var transcriptionProgressView: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // いま読み取っている位置の映像と、聞き取り中のロボットたち
+            TranscriptionPeekView(project: project, fraction: transcriber.progress)
             ProgressView(value: min(max(transcriber.progress, 0), 1))
             Text(transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText)
                 .font(.caption)
