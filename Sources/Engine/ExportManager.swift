@@ -608,7 +608,6 @@ final class ExportManager {
     private static let backgroundLimitMessage = String(localized: "バックグラウンドの時間制限で中断しました。アプリを開いたまま再度書き出してください")
     private static let sdrFallbackNote = String(localized: "HDRで書き出せなかったためSDRで書き出しました")
 
-    @MainActor
     /// 統計に送る書き出しの条件(個人情報は含まない)
     private static func analyticsParams(_ snapshot: ProjectSnapshot, dual: Bool, saveToPhotos: Bool) -> [String: String] {
         let seconds = CompositionBuilder.totalDuration(for: snapshot)
@@ -624,6 +623,7 @@ final class ExportManager {
         ]
     }
 
+    @MainActor
     private func finishSucceeded(outputURL: URL, saved: Bool, photoError: Error?, fellBackToSDR: Bool = false,
                                  duration: Double, canvasDescription: String, audioOnly: Bool = false) {
         Analytics.shared.track("export_done", ["length": Analytics.durationBucket(duration),
