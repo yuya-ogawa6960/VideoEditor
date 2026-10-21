@@ -231,6 +231,29 @@
         }
       }
     },
+    "%@(自分の声)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (my voice)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (mi voz)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (minha voz)"
+          }
+        }
+      }
+    },
     "%@(読み込み)": {
       "extractionState": "manual",
       "localizations": {
@@ -10535,6 +10558,75 @@
         }
       }
     },
+    "クラウドの声(OpenAI)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud voices (OpenAI)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voces en la nube (OpenAI)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vozes na nuvem (OpenAI)"
+          }
+        }
+      }
+    },
+    "クラウドの声は 1000 文字ごとにポイントを使います(自分の OpenAI キーならその料金)。日本語・英語ほか多くの言語を話せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud voices use points per 1,000 characters (or your own OpenAI key's fees). They speak Japanese, English and many other languages."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las voces en la nube usan puntos por cada 1000 caracteres (o la tarifa de tu propia clave de OpenAI). Hablan japonés, inglés y muchos otros idiomas."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As vozes na nuvem usam pontos a cada 1000 caracteres (ou a tarifa da sua própria chave da OpenAI). Falam japonês, inglês e muitos outros idiomas."
+          }
+        }
+      }
+    },
+    "クラウドの声を使うには、「文字起こしの方式」の画面で Apple でサインインするか、OpenAI の API キーを設定してください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To use cloud voices, sign in with Apple or set an OpenAI API key on the “Transcription method” screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para usar las voces en la nube, inicia sesión con Apple o configura una clave de API de OpenAI en la pantalla “Método de transcripción”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para usar as vozes na nuvem, entre com a Apple ou configure uma chave de API da OpenAI na tela “Método de transcrição”."
+          }
+        }
+      }
+    },
     "クラウドの精度": {
       "extractionState": "manual",
       "localizations": {
@@ -16262,6 +16354,29 @@
         }
       }
     },
+    "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough points. Claim the daily bonus or use your own OpenAI key."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tienes suficientes puntos. Reclama el bono diario o usa tu propia clave de OpenAI."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pontos insuficientes. Resgate o bônus diário ou use sua própria chave da OpenAI."
+          }
+        }
+      }
+    },
     "ポイントで AI を使う機能は準備中です。今は自分の OpenAI キーで使えます。": {
       "extractionState": "manual",
       "localizations": {
@@ -18654,6 +18769,29 @@
         }
       }
     },
+    "中性的・落ち着き": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "neutral, calm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "neutra, tranquila"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "neutra, calma"
+          }
+        }
+      }
+    },
     "丸い帯でハイライト": {
       "extractionState": "manual",
       "localizations": {
@@ -19800,6 +19938,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "ex.: Diretor executivo"
+          }
+        }
+      }
+    },
+    "例: 元気に、ゆっくり落ち着いて、ささやくように": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. cheerfully, slowly and calmly, in a whisper"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ej. con energía, lento y tranquilo, susurrando"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ex.: animado, devagar e calmo, sussurrando"
           }
         }
       }
@@ -25048,6 +25209,29 @@
         }
       }
     },
+    "声の雰囲気": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice mood"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ambiente de la voz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clima da voz"
+          }
+        }
+      }
+    },
     "声の高さ": {
       "extractionState": "manual",
       "localizations": {
@@ -25113,6 +25297,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "adicionar voz"
+          }
+        }
+      }
+    },
+    "声を増やす: iPhone の「設定」→「アクセシビリティ」→「読み上げコンテンツ」→「声」で、高品質の声をダウンロードするとここに並びます。「パーソナルボイス」で作った自分の声も使えます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More voices: in iPhone Settings → Accessibility → Spoken Content → Voices, download higher-quality voices and they appear here. A voice made with “Personal Voice” can be used too."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más voces: en Ajustes del iPhone → Accesibilidad → Contenido hablado → Voces, descarga voces de mayor calidad y aparecerán aquí. También puedes usar una voz creada con “Voz personal”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais vozes: em Ajustes do iPhone → Acessibilidade → Conteúdo Falado → Vozes, baixe vozes de maior qualidade e elas aparecem aqui. Uma voz criada com “Voz Pessoal” também pode ser usada."
           }
         }
       }
@@ -25619,6 +25826,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "Verificando dados de profundidade…"
+          }
+        }
+      }
+    },
+    "女性・元気": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "female, energetic"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "femenina, enérgica"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feminina, animada"
+          }
+        }
+      }
+    },
+    "女性・明るい": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "female, bright"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "femenina, alegre"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feminina, alegre"
+          }
+        }
+      }
+    },
+    "女性・澄んだ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "female, clear"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "femenina, clara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "feminina, clara"
           }
         }
       }
@@ -32339,6 +32615,29 @@
         }
       }
     },
+    "物語の語り手": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "storyteller"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "narrador de historias"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "narrador de histórias"
+          }
+        }
+      }
+    },
     "特定の色": {
       "extractionState": "manual",
       "localizations": {
@@ -32565,6 +32864,121 @@
           "stringUnit": {
             "state": "translated",
             "value": "Salvar ajustes atuais"
+          }
+        }
+      }
+    },
+    "男性・はっきり": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "male, crisp"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, nítida"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, nítida"
+          }
+        }
+      }
+    },
+    "男性・やわらかい": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "male, soft"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, suave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, suave"
+          }
+        }
+      }
+    },
+    "男性・低く深い": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "male, deep"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, grave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, grave"
+          }
+        }
+      }
+    },
+    "男性・若い": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "male, young"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, joven"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, jovem"
+          }
+        }
+      }
+    },
+    "男性・落ち着き": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "male, calm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, tranquila"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "masculina, calma"
           }
         }
       }
@@ -33374,6 +33788,29 @@
         }
       }
     },
+    "穏やか・知的": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gentle, thoughtful"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "serena, reflexiva"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "serena, reflexiva"
+          }
+        }
+      }
+    },
     "空": {
       "extractionState": "manual",
       "localizations": {
@@ -33600,6 +34037,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cartões de título"
+          }
+        }
+      }
+    },
+    "端末の声": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device voices"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voces del dispositivo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vozes do aparelho"
           }
         }
       }
@@ -35624,6 +36084,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Usar minha própria chave da OpenAI"
+          }
+        }
+      }
+    },
+    "自分の声を使う(パーソナルボイス)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use my voice (Personal Voice)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar mi voz (Voz personal)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar minha voz (Voz Pessoal)"
           }
         }
       }
@@ -37809,6 +38292,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "A música agora abaixa enquanto alguém fala"
+          }
+        }
+      }
+    },
+    "話し方の指示(任意)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaking instructions (optional)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicaciones de habla (opcional)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instruções de fala (opcional)"
           }
         }
       }

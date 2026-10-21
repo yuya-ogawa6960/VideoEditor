@@ -5,7 +5,7 @@
 //   セッショントークン(30 日)を以後の Authorization: Bearer に使う
 // - AI(OpenAI)はこのサーバーが代わりに呼ぶ。キーはサーバーにだけ置く(OPENAI_API_KEY)
 // - 使う前に必要なポイントを確保し、実際に使った量で精算する。失敗したら戻す
-// - パスは OpenAI と同じ(/v1/audio/transcriptions, /v1/chat/completions)にして、
+// - パスは OpenAI と同じ(/v1/audio/transcriptions, /v1/chat/completions, /v1/audio/speech)にして、
 //   アプリ側は宛先とトークンを差し替えるだけで使えるようにしている
 // =====================================================================
 
@@ -14,7 +14,11 @@ const POINTS = {
   daily: 20,              // 毎日ボーナス(日本時間で 1 日 1 回)
   transcribePerMinute: 5, // クラウド文字起こし 1 分
   chat: 2,                // 字幕の整え・翻訳・台本など 1 回
+  speechPerThousandChars: 3, // クラウドの声(読み上げ)1000 文字あたり
 };
+const SPEECH_MODEL = "gpt-4o-mini-tts";
+const SPEECH_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"];
+const MAX_SPEECH_CHARS = 4000;
 
 const OPENAI = "https://api.openai.com";
 const ALLOWED_TRANSCRIBE_MODELS = ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-4o-transcribe-diarize"];
@@ -38,6 +42,7 @@ export default {
       if (request.method === "POST" && path === "/v1/points/daily") return await daily(user, env);
       if (request.method === "POST" && path === "/v1/audio/transcriptions") return await transcribe(request, user, env);
       if (request.method === "POST" && path === "/v1/chat/completions") return await chat(request, user, env);
+      if (request.method === "POST" && path === "/v1/audio/speech") return await speech(request, user, env);
       return error(404, "見つかりません", "not_found");
     } catch (e) {
       return error(500, "サーバーでエラーが起きました: " + (e && e.message ? e.message : String(e)), "server_error");
@@ -331,6 +336,46 @@ async function transcribe(request, user, env) {
   return new Response(text, {
     status: 200,
     headers: { "content-type": "application/json; charset=utf-8", "x-vm-points": String(await balance(env, user.id)) },
+  });
+}
+
+// クラウドの声(読み上げ)。本文: { input, voice, speed?, instructions? }。音声(mp3)をそのまま返す
+async function speech(request, user, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body.input !== "string") return error(400, "形式が正しくありません", "bad_request");
+  const input = body.input.trim();
+  if (!input) return error(400, "読み上げる文章が空です", "bad_request");
+  if (input.length > MAX_SPEECH_CHARS) return error(413, "文章が長すぎます(" + MAX_SPEECH_CHARS + " 文字まで)", "too_large");
+  const voice = SPEECH_VOICES.includes(body.voice) ? body.voice : "alloy";
+  const speed = Math.min(4, Math.max(0.25, Number(body.speed || 1)));
+  const payload = { model: SPEECH_MODEL, input, voice, speed, response_format: "mp3" };
+  if (typeof body.instructions === "string" && body.instructions.trim()) payload.instructions = body.instructions.trim().slice(0, 400);
+
+  const cost = Math.max(1, Math.ceil(input.length / 1000)) * POINTS.speechPerThousandChars;
+  if (!(await reserve(env, user.id, cost, "speech"))) {
+    return insufficient(cost, await balance(env, user.id));
+  }
+  let upstream;
+  try {
+    upstream = await fetch(OPENAI + "/v1/audio/speech", {
+      method: "POST",
+      headers: { authorization: "Bearer " + env.OPENAI_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    await refund(env, user.id, cost, "speech:refund");
+    return error(502, "読み上げのサービスにつながりませんでした", "upstream_unreachable");
+  }
+  if (!upstream.ok) {
+    await refund(env, user.id, cost, "speech:refund");
+    if (upstream.status === 401 || upstream.status === 403) return upstreamAuthError();
+    const text = await upstream.text();
+    return new Response(text, { status: upstream.status, headers: { "content-type": upstream.headers.get("content-type") || "application/json" } });
+  }
+  const audio = await upstream.arrayBuffer();
+  return new Response(audio, {
+    status: 200,
+    headers: { "content-type": "audio/mpeg", "x-vm-points": String(await balance(env, user.id)) },
   });
 }
 

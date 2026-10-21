@@ -31,6 +31,8 @@ struct ScriptWriterSheetView: View {
     @State private var language = "ja-JP"
     @State private var voices: [(id: String, name: String)] = []
     @State private var voiceID: String?
+    /// クラウドの声(nil なら端末の声)
+    @State private var cloudVoice: CloudVoice?
     @State private var rate: Float = 0.5
     @State private var pitch: Float = 1.0
     @State private var replaceSubtitles = false
@@ -38,6 +40,7 @@ struct ScriptWriterSheetView: View {
     private let durationOptions: [Double] = [30, 60, 90, 120, 180]
 
     private var currentVoiceName: String {
+        if let cloudVoice { return cloudVoice.displayName }
         guard let voiceID, let voice = voices.first(where: { $0.id == voiceID }) else { return String(localized: "標準の声") }
         return voice.name
     }
@@ -301,9 +304,16 @@ struct ScriptWriterSheetView: View {
                 Text("声")
                 Spacer()
                 Menu {
-                    Button("標準の声") { voiceID = nil }
-                    ForEach(voices, id: \.id) { voice in
-                        Button(voice.name) { voiceID = voice.id }
+                    Section(String(localized: "端末の声")) {
+                        Button(String(localized: "標準の声")) { voiceID = nil; cloudVoice = nil }
+                        ForEach(voices, id: \.id) { voice in
+                            Button(voice.name) { voiceID = voice.id; cloudVoice = nil }
+                        }
+                    }
+                    Section(String(localized: "クラウドの声(OpenAI)")) {
+                        ForEach(CloudVoice.allCases) { voice in
+                            Button(voice.displayName) { cloudVoice = voice }
+                        }
                     }
                 } label: {
                     HStack(spacing: 6) {
@@ -360,7 +370,7 @@ struct ScriptWriterSheetView: View {
     private func insertNarration() {
         let items = nonEmptyLines
         guard !items.isEmpty else { return }
-        let chosenVoice = voiceID
+        let chosenChoice: TTSVoiceChoice = cloudVoice.map { .cloud($0) } ?? .device(voiceID)
         let chosenRate = rate
         let chosenPitch = pitch
         errorText = nil
@@ -372,10 +382,8 @@ struct ScriptWriterSheetView: View {
             for (i, line) in items.enumerated() {
                 if Task.isCancelled { break }
                 let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                let url = try await TextToSpeech.render(text: text,
-                                                        voiceIdentifier: chosenVoice,
-                                                        rate: chosenRate,
-                                                        pitch: chosenPitch)
+                let url = try await TextToSpeech.render(choice: chosenChoice, text: text,
+                                                        rate: chosenRate, pitch: chosenPitch, instructions: nil)
                 let asset = AVURLAsset(url: url)
                 let loaded = try? await asset.load(.duration)
                 let seconds: Double = loaded?.seconds ?? 1

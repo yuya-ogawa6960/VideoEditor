@@ -1540,11 +1540,23 @@ struct EditorTextToSpeechPanel: View {
     @State private var language = "ja-JP"
     @State private var voices: [(id: String, name: String)] = []
     @State private var voiceID: String?
+    /// クラウドの声(nil なら端末の声)
+    @State private var cloudVoice: CloudVoice?
+    /// クラウドの声への話し方の指示(「元気に」「ささやくように」など)
+    @State private var instructions = ""
+    /// 作ったナレーションにかける声の雰囲気(音声効果)
+    @State private var voiceEffect: VoicePreset = .none
+    @State private var personalVoiceAuthorized = TextToSpeech.personalVoiceAuthorized
     @State private var rate: Float = 0.5
     @State private var pitch: Float = 1.0
     @State private var isRendering = false
     @State private var errorText: String?
     @State private var resultText: String?
+
+    private var choice: TTSVoiceChoice {
+        if let cloudVoice { return .cloud(cloudVoice) }
+        return .device(voiceID)
+    }
 
     private var rateText: String {
         if rate < 0.45 { return String(localized: "ゆっくり") }
@@ -1559,6 +1571,7 @@ struct EditorTextToSpeechPanel: View {
     }
 
     private var currentVoiceName: String {
+        if let cloudVoice { return cloudVoice.displayName }
         guard let voiceID, let voice = voices.first(where: { $0.id == voiceID }) else { return String(localized: "標準の声") }
         return voice.name
     }
@@ -1584,29 +1597,77 @@ struct EditorTextToSpeechPanel: View {
                 }
             }
 
-            HStack {
-                Text("声")
-                    .font(.caption)
-                Spacer()
-                Menu {
-                    Button("標準の声") { voiceID = nil }
-                    ForEach(voices, id: \.id) { voice in
-                        Button(voice.name) { voiceID = voice.id }
+            // 声: 端末の声(Siri と同じ仕組み・無料)か、クラウドの声(OpenAI・11 種類・ポイントかキー)
+            VStack(alignment: .leading, spacing: 6) {
+                EditorSectionTitle(title: String(localized: "声"))
+                HStack(spacing: 8) {
+                    EditorChip(title: String(localized: "端末の声"), isSelected: cloudVoice == nil) {
+                        cloudVoice = nil
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(currentVoiceName)
-                            .font(.system(size: 13))
-                            .lineLimit(1)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2)
+                    EditorChip(title: String(localized: "クラウドの声(OpenAI)"), isSelected: cloudVoice != nil) {
+                        if cloudVoice == nil { cloudVoice = .alloy }
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color.white.opacity(0.12), in: Capsule())
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
+                    Spacer()
+                }
+                HStack {
+                    Spacer()
+                    Menu {
+                        if cloudVoice == nil {
+                            Button(String(localized: "標準の声")) { voiceID = nil }
+                            ForEach(voices, id: \.id) { voice in
+                                Button(voice.name) { voiceID = voice.id }
+                            }
+                        } else {
+                            ForEach(CloudVoice.allCases) { voice in
+                                Button(voice.displayName) { cloudVoice = voice }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(currentVoiceName)
+                                .font(.system(size: 13))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.12), in: Capsule())
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                }
+                if cloudVoice == nil {
+                    if !personalVoiceAuthorized && !TextToSpeech.personalVoiceDenied {
+                        EditorPillButton(title: String(localized: "自分の声を使う(パーソナルボイス)"), systemImage: "person.wave.2") {
+                            Task { @MainActor in
+                                personalVoiceAuthorized = await TextToSpeech.requestPersonalVoice()
+                                reloadVoices()
+                            }
+                        }
+                    }
+                    TextPanelHint(text: String(localized: "声を増やす: iPhone の「設定」→「アクセシビリティ」→「読み上げコンテンツ」→「声」で、高品質の声をダウンロードするとここに並びます。「パーソナルボイス」で作った自分の声も使えます。"))
+                } else {
+                    EditorTextFieldRow(title: String(localized: "話し方の指示(任意)"),
+                                       placeholder: String(localized: "例: 元気に、ゆっくり落ち着いて、ささやくように"),
+                                       text: $instructions)
+                    TextPanelHint(text: String(localized: "クラウドの声は 1000 文字ごとにポイントを使います(自分の OpenAI キーならその料金)。日本語・英語ほか多くの言語を話せます。"))
+                }
+            }
+
+            // 声の雰囲気(作ったナレーションにかける音声効果)
+            VStack(alignment: .leading, spacing: 6) {
+                EditorSectionTitle(title: String(localized: "声の雰囲気"))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(VoicePreset.allCases) { preset in
+                            EditorChip(title: preset == .none ? String(localized: "そのまま") : preset.displayName,
+                                       isSelected: voiceEffect == preset) {
+                                voiceEffect = preset
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1618,9 +1679,13 @@ struct EditorTextToSpeechPanel: View {
                             value: $pitch,
                             range: 0.6...1.6,
                             display: pitchText)
+                .disabled(cloudVoice != nil)
+                .opacity(cloudVoice != nil ? 0.4 : 1)
             TextPanelResetRow {
                 rate = 0.5
                 pitch = 1.0
+                voiceEffect = .none
+                instructions = ""
             }
 
             HStack(spacing: 10) {
@@ -1672,19 +1737,22 @@ struct EditorTextToSpeechPanel: View {
         errorText = nil
         resultText = nil
         let startTime = max(0, player.currentTime)
-        let chosenVoice = voiceID
+        let chosen = choice
         let chosenRate = rate
         let chosenPitch = pitch
+        let chosenInstructions = instructions
+        let chosenEffect = voiceEffect
         Task { @MainActor in
             do {
-                let url = try await TextToSpeech.render(text: content, voiceIdentifier: chosenVoice,
-                                                        rate: chosenRate, pitch: chosenPitch)
+                let url = try await TextToSpeech.render(choice: chosen, text: content, rate: chosenRate,
+                                                        pitch: chosenPitch, instructions: chosenInstructions)
                 let asset = AVURLAsset(url: url)
                 let seconds = try await asset.load(.duration).seconds
                 let duration = (seconds.isFinite && seconds > 0) ? seconds : 1
                 history.record(project)
                 let name = String(localized: "読み上げ: ") + String(content.prefix(12))
-                let clip = NarrationClip(url: url, name: name, start: startTime, duration: duration)
+                var clip = NarrationClip(url: url, name: name, start: startTime, duration: duration)
+                clip.effects.voicePreset = chosenEffect
                 project.narration.append(clip)
                 project.sortNarration()
                 resultText = "\(MediaTimeText.precise(startTime)) に \(String(format: "%.1f", duration)) 秒のナレーションを追加しました。"

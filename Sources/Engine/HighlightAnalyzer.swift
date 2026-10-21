@@ -134,6 +134,27 @@ enum HighlightAnalyzer {
         return voiceCache[clipID] ?? []
     }
 
+    /// SpeechGuard のために、声の区間がまだ無いクリップだけ音声を解析する
+    /// (「見どころを探す」を先に済ませて解析を飛ばすとき、アプリを開き直したあとなど)
+    static func ensureVoiceRuns(snapshot: ProjectSnapshot, progress: ((Double) -> Void)?) async throws {
+        let pending = snapshot.clips.filter {
+            $0.hasAudio && !$0.isStill && $0.trimmedDuration > 0.3 && voiceRuns(for: $0.id).isEmpty
+        }
+        guard !pending.isEmpty else { return }
+        for (i, clip) in pending.enumerated() {
+            try Task.checkCancellation()
+            let seconds = Int(clip.trimmedDuration.rounded(.up))
+            do {
+                _ = try await analyzeAudio(clip: clip, seconds: seconds) { _ in }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // 音声が読めないクリップはガードなしで続ける
+            }
+            progress?(Double(i + 1) / Double(pending.count))
+        }
+    }
+
     private static func storeVoiceRuns(_ runs: [ClosedRange<Double>], for clipID: UUID) {
         voiceLock.lock()
         voiceCache[clipID] = runs

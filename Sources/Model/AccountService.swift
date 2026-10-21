@@ -212,6 +212,7 @@ final class AccountService {
 enum CloudAIGateway {
     private static let openAITranscriptions = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
     private static let openAIChat = URL(string: "https://api.openai.com/v1/chat/completions")!
+    private static let openAISpeech = URL(string: "https://api.openai.com/v1/audio/speech")!
 
     static var usesPoints: Bool { AccountService.shared.usesPoints }
 
@@ -227,6 +228,14 @@ enum CloudAIGateway {
             return base.appendingPathComponent("v1/chat/completions")
         }
         return openAIChat
+    }
+
+    /// クラウドの声(読み上げ)
+    static var speechURL: URL {
+        if usesPoints, let base = AccountService.serverURL {
+            return base.appendingPathComponent("v1/audio/speech")
+        }
+        return openAISpeech
     }
 
     /// Authorization: Bearer に入れる値(セッショントークン、または利用者の OpenAI キー)
