@@ -639,22 +639,22 @@ enum AutoEditor {
             d.look = .documentary
             d.lookIntensity = 0.85
             d.letterbox = true
-            d.filmGrain = 0.25
-            d.vignette = 0.35
+            d.filmGrain = 0
+            d.vignette = 0
             d.fadeFromToBlack = true
         case .family:
             d.look = .documentary
             d.lookIntensity = 0.6
             d.letterbox = false
-            d.filmGrain = 0.1
-            d.vignette = 0.2
+            d.filmGrain = 0
+            d.vignette = 0
             d.fadeFromToBlack = true
         case .vlog:
             d.look = .cinematicWarm
             d.lookIntensity = 0.7
             d.letterbox = false
-            d.filmGrain = 0.1
-            d.vignette = 0.25
+            d.filmGrain = 0
+            d.vignette = 0
             d.fadeFromToBlack = true
         case .short:
             d.look = LookPreset.none
@@ -666,7 +666,7 @@ enum AutoEditor {
             d.look = LookPreset.none
             d.letterbox = false
             d.filmGrain = 0
-            d.vignette = 0.1
+            d.vignette = 0
             d.fadeFromToBlack = true
         }
         d.dipToBlackBetweenClips = false

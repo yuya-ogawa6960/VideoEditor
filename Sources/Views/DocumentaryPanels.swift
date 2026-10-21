@@ -148,8 +148,8 @@ struct EditorDocumentaryPanel: View {
         style.look = .documentary
         style.lookIntensity = 0.85
         style.letterbox = true
-        style.filmGrain = 0.25
-        style.vignette = 0.35
+        style.filmGrain = 0
+        style.vignette = 0
         style.fadeFromToBlack = true
         style.dipToBlackBetweenClips = false
         style.autoDucking = true
