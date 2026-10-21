@@ -409,3 +409,101 @@ struct CaptionTemplatePicker: View {
         }
     }
 }
+
+// MARK: - 字幕の見た目(色・大きさ・背景・位置・原文/訳文)
+
+/// 字幕の見た目の見本(小さな画面に「今日はいい天気」を出す)
+struct CaptionLookPreview: View {
+    var color: Color = .white
+    /// 文字の大きさ(sizeRatio。0.02 ... 0.08)
+    var sizeRatio: CGFloat = 0.045
+    var background: Bool = false
+    var position: SubtitlePosition = .bottom
+    var mode: SubtitleDisplayMode = .original
+
+    var body: some View {
+        GeometryReader { geo in
+            let h = geo.size.height
+            let fontSize: CGFloat = max(6, min(14, h * sizeRatio * 3.2))
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.35, green: 0.55, blue: 0.75), Color(red: 0.2, green: 0.32, blue: 0.22)],
+                               startPoint: .top, endPoint: .bottom)
+                VStack(spacing: 0) {
+                    if position != .top { Spacer(minLength: 0) }
+                    VStack(spacing: 1) {
+                        if mode != .translated {
+                            line("今日はいい天気", size: fontSize)
+                        }
+                        if mode != .original {
+                            line("Nice weather today", size: fontSize * 0.85)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    if position != .bottom { Spacer(minLength: 0) }
+                }
+            }
+        }
+    }
+
+    private func line(_ text: String, size: CGFloat) -> some View {
+        Text(text)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .padding(.horizontal, background ? 3 : 0)
+            .background(background ? Color.black.opacity(0.6) : Color.clear, in: RoundedRectangle(cornerRadius: 2))
+            .shadow(color: background ? .clear : .black.opacity(0.8), radius: 1)
+    }
+}
+
+/// 字幕の位置を見本付きで選ぶ
+struct CaptionPositionPicker: View {
+    @Binding var selection: SubtitlePosition
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(SubtitlePosition.allCases) { position in
+                EditorVisualTile(title: position.displayName, isSelected: selection == position) {
+                    selection = position
+                } preview: {
+                    CaptionLookPreview(position: position)
+                }
+            }
+        }
+    }
+}
+
+/// 原文 / 訳文 / 両方を見本付きで選ぶ
+struct CaptionDisplayModePicker: View {
+    @Binding var selection: SubtitleDisplayMode
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(SubtitleDisplayMode.allCases) { mode in
+                EditorVisualTile(title: mode.displayName, isSelected: selection == mode) {
+                    selection = mode
+                } preview: {
+                    CaptionLookPreview(mode: mode)
+                }
+            }
+        }
+    }
+}
+
+/// 文字色を色の見本で選ぶ
+struct CaptionColorPicker: View {
+    @Binding var selection: SubtitleColor
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(SubtitleColor.allCases) { color in
+                EditorVisualTile(title: color.displayName, isSelected: selection == color) {
+                    selection = color
+                } preview: {
+                    CaptionLookPreview(color: Color(uiColor: color.uiColor))
+                }
+            }
+        }
+    }
+}

@@ -831,12 +831,7 @@ struct EditorSubtitleStylePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             row("位置") {
-                Picker("位置", selection: $project.subtitleStyle.position) {
-                    ForEach(SubtitlePosition.allCases) { position in
-                        Text(position.displayName).tag(position)
-                    }
-                }
-                .pickerStyle(.segmented)
+                CaptionPositionPicker(selection: $project.subtitleStyle.position)
             }
 
             row("色") {
@@ -879,12 +874,7 @@ struct EditorSubtitleStylePanel: View {
                 .tint(.accentColor)
 
             row("表示") {
-                Picker("表示", selection: $project.subtitleStyle.displayMode) {
-                    ForEach(SubtitleDisplayMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
+                CaptionDisplayModePicker(selection: $project.subtitleStyle.displayMode)
             }
         }
         .padding(.top, 6)

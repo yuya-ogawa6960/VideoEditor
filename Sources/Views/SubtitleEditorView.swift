@@ -833,24 +833,18 @@ struct SubtitleEditorView: View {
 
     private var presetChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 ForEach(SubtitleStylePreset.allCases) { preset in
-                    let selected = preset.matches(project.subtitleStyle)
-                    Button {
+                    EditorVisualTile(title: preset.displayName, isSelected: preset.matches(project.subtitleStyle)) {
                         var style = project.subtitleStyle
                         preset.apply(to: &style)
                         project.subtitleStyle = style
-                    } label: {
-                        Text(preset.displayName)
-                            .font(.subheadline.weight(selected ? .semibold : .regular))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule().fill(selected ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
-                            )
-                            .foregroundStyle(selected ? Color.white : Color.primary)
+                    } preview: {
+                        CaptionLookPreview(color: Color(uiColor: preset.color.uiColor),
+                                           sizeRatio: preset.sizeRatio,
+                                           background: preset.hasBackground,
+                                           position: preset.position)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(.vertical, 2)
@@ -943,17 +937,14 @@ struct SubtitleEditorView: View {
                 presetChips
             }
 
-            Picker("位置", selection: $project.subtitleStyle.position) {
-                ForEach(SubtitlePosition.allCases) { p in
-                    Text(p.displayName).tag(p)
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("位置")
+                CaptionPositionPicker(selection: $project.subtitleStyle.position)
             }
-            .pickerStyle(.segmented)
 
-            Picker("文字色", selection: $project.subtitleStyle.color) {
-                ForEach(SubtitleColor.allCases) { c in
-                    Text(c.displayName).tag(c)
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("文字色")
+                CaptionColorPicker(selection: $project.subtitleStyle.color)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -969,12 +960,10 @@ struct SubtitleEditorView: View {
 
             Toggle("背景を付ける", isOn: $project.subtitleStyle.hasBackground)
 
-            Picker("表示", selection: $project.subtitleStyle.displayMode) {
-                ForEach(SubtitleDisplayMode.allCases) { m in
-                    Text(m.displayName).tag(m)
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("表示する字幕")
+                CaptionDisplayModePicker(selection: $project.subtitleStyle.displayMode)
             }
-            .pickerStyle(.segmented)
         } header: {
             Text("スタイル")
         } footer: {
