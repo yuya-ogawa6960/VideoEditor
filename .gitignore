@@ -13,3 +13,4 @@ DerivedData/
 # OS
 .DS_Store
 Thumbs.db
+STATS_TOKEN.local.txt
