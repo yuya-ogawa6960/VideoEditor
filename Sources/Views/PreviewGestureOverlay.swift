@@ -830,7 +830,7 @@ struct PreviewGestureOverlay: View {
                 }
                 guard let start = mosaicHandleStart else { return }
                 // 指の動きを、モザイクの向きに合わせた軸(枠の縦横)へ直す
-                let r = clip.rotation * Double.pi / 180
+                let r = CGFloat(clip.rotation * Double.pi / 180)
                 let dx = value.translation.width
                 let dy = value.translation.height
                 let lx = dx * cos(r) + dy * sin(r)
@@ -870,7 +870,7 @@ struct PreviewGestureOverlay: View {
                     session.startRotation = clip.rotation
                 }
                 // つまみの最初の位置(中心からのベクトル、画面の向き)に指の動きを足して角度にする
-                let r0 = session.startRotation * Double.pi / 180
+                let r0 = CGFloat(session.startRotation * Double.pi / 180)
                 let length = frame.height / 2 + knobDistance
                 let knob = CGPoint(x: length * sin(r0), y: -length * cos(r0))
                 let v = CGPoint(x: knob.x + value.translation.width, y: knob.y + value.translation.height)
