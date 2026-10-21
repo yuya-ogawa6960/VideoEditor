@@ -26,6 +26,10 @@ packages:
   GoogleMobileAds:
     url: https://github.com/googleads/swift-package-manager-google-mobile-ads
     from: 12.0.0
+  # 広告の同意(ヨーロッパなどで必要な同意画面)
+  UserMessagingPlatform:
+    url: https://github.com/googleads/swift-package-manager-google-user-messaging-platform.git
+    from: 3.0.0
   WhisperKit:
     url: https://github.com/argmaxinc/WhisperKit
     from: 0.9.0
@@ -42,6 +46,8 @@ targets:
         product: WhisperKit
       - package: GoogleMobileAds
         product: GoogleMobileAds
+      - package: UserMessagingPlatform
+        product: GoogleUserMessagingPlatform
     entitlements:
       path: VideoEditor.entitlements
       properties:
@@ -143,7 +149,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "NO"
         VM_SERVER_URL: "https://videomania-api.yuya-ogawa0906.workers.dev"
-        MARKETING_VERSION: "1.12.20"
+        MARKETING_VERSION: "1.12.21"
         CURRENT_PROJECT_VERSION: "1"
 
 schemes:

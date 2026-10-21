@@ -72,8 +72,9 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
     /// 進み具合が止まって見えないよう、少しずつ進める見張り(仕上げ中など、進捗が動かない間)
     private var heartbeat: DispatchSourceTimer?
     private var lastPushTime: CFAbsoluteTime = 0
-    /// いまシステムに見せている進み具合(単位数)
+    /// いまシステムに見せている進み具合(単位数)と全体(見張りが端まで来たら全体を広げて、進み続けて見せる)
     private var shownUnits: Int64 = 0
+    private var totalUnits: Int64 = ContinuedProcessingHandle.unitCount
     /// 通常の進捗はここまで(残りは見張りが少しずつ進める分)
     private static let normalCap: Int64 = 980
     /// 進捗がこの秒数動かなければ、見張りが 1 単位進める
@@ -175,8 +176,7 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *), let continued = currentTask as? BGContinuedProcessingTask {
             if success {
-                continued.progress.totalUnitCount = Self.unitCount
-                continued.progress.completedUnitCount = Self.unitCount
+                continued.progress.completedUnitCount = continued.progress.totalUnitCount
             }
             continued.setTaskCompleted(success: success)
         }
@@ -203,15 +203,17 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
     private func push(fraction value: Double, subtitle text: String?, to task: AnyObject) {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *), let continued = task as? BGContinuedProcessingTask {
-            let wanted = min(Self.normalCap, Int64((value * Double(Self.unitCount)).rounded()))
             lock.lock()
+            let total = totalUnits
+            let cap = total - (Self.unitCount - Self.normalCap)
+            let wanted = min(cap, Int64((value * Double(total)).rounded()))
             // 後ろに戻さない(見張りが進めた分より小さいときはそのまま)
             let units = max(shownUnits, wanted)
             let changed = units != shownUnits
             shownUnits = units
             if changed { lastPushTime = CFAbsoluteTimeGetCurrent() }
             lock.unlock()
-            continued.progress.totalUnitCount = Self.unitCount
+            continued.progress.totalUnitCount = total
             continued.progress.completedUnitCount = units
             if let text {
                 continued.updateTitle(title, subtitle: text)
@@ -240,21 +242,28 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
         let now = CFAbsoluteTimeGetCurrent()
         lock.lock()
         guard !finished, !expired, let currentTask = task,
-              now - lastPushTime >= Self.heartbeatInterval, shownUnits < Self.unitCount - 1 else {
+              now - lastPushTime >= Self.heartbeatInterval else {
             lock.unlock()
             return
         }
         shownUnits += 1
+        // 端まで来たら全体を広げる(仕上げが長引いても、止まって見えないように)
+        if shownUnits >= totalUnits - 1 {
+            totalUnits += 20
+        }
         lastPushTime = now
         let units = shownUnits
+        let total = totalUnits
         lock.unlock()
         #if compiler(>=6.2)
         if #available(iOS 26.0, *), let continued = currentTask as? BGContinuedProcessingTask {
+            continued.progress.totalUnitCount = total
             continued.progress.completedUnitCount = units
         }
         #else
         _ = currentTask
         _ = units
+        _ = total
         #endif
     }
 

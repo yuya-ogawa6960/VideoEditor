@@ -28,8 +28,6 @@ final class PreviewPlayerContainerView: UIView {
     private var videoOutput: AVPlayerItemVideoOutput?
     private weak var outputItem: AVPlayerItem?
 
-    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
-
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
@@ -148,8 +146,13 @@ final class PreviewPlayerContainerView: UIView {
             snapshotView.image = nil
             return
         }
+        // 裏にあるときは作らない(画面に出ないうえ、裏で GPU を使うと終了させられることがある)
+        if AppLifecycle.shared.isInBackground {
+            snapshotView.image = nil
+            return
+        }
         let ciImage = CIImage(cvPixelBuffer: buffer)
-        guard let cgImage = Self.ciContext.createCGImage(ciImage, from: ciImage.extent) else {
+        guard let cgImage = FilterEngineContexts.current.createCGImage(ciImage, from: ciImage.extent) else {
             snapshotView.image = nil
             return
         }

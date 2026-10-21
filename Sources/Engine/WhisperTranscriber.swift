@@ -859,6 +859,11 @@ enum TranscriptionAudioExtractor {
 
         let firstTime: Double = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Double, Error>) in
+                state.hold(continuation)
+                if state.isCancelled {
+                    state.resumeCancelled()
+                    return
+                }
                 input.requestMediaDataWhenReady(on: queue) {
                     while input.isReadyForMoreMediaData {
                         if state.isCancelled {
@@ -919,6 +924,7 @@ enum TranscriptionAudioExtractor {
         } onCancel: {
             state.cancel()
             reader.cancelReading()
+            state.resumeCancelled()
         }
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path)
@@ -936,6 +942,22 @@ enum TranscriptionAudioExtractor {
         private var resumed = false
         private var startedFlag = false
         private var first: Double = 0
+        private var pending: CheckedContinuation<Double, Error>?
+
+        /// 外(キャンセル)から終わらせられるように、待っている continuation を預かる
+        func hold(_ continuation: CheckedContinuation<Double, Error>) {
+            lock.lock(); pending = continuation; lock.unlock()
+        }
+
+        /// まだ終わっていなければキャンセルとして終わらせる(入力が受け取れる状態にならなくても抜けられる)
+        func resumeCancelled() {
+            lock.lock()
+            let continuation = resumed ? nil : pending
+            if continuation != nil { resumed = true }
+            pending = nil
+            lock.unlock()
+            continuation?.resume(throwing: CancellationError())
+        }
 
         var isCancelled: Bool {
             lock.lock(); defer { lock.unlock() }

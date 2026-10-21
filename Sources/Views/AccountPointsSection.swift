@@ -6,6 +6,8 @@ struct AccountPointsSection: View {
     @State private var account = AccountService.shared
     @State private var ads = AdsManager.shared
     @State private var isWatchingAd = false
+    @State private var showDeleteConfirm = false
+    @State private var isDeleting = false
 
     var body: some View {
         Section {
@@ -57,6 +59,28 @@ struct AccountPointsSection: View {
                 }
                 Button("サインアウト", role: .destructive) {
                     account.signOut()
+                }
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    if isDeleting {
+                        ProgressView()
+                    } else {
+                        Text("アカウントを削除")
+                    }
+                }
+                .disabled(isDeleting)
+                .confirmationDialog("アカウントを削除しますか?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+                    Button("削除する", role: .destructive) {
+                        isDeleting = true
+                        Task { @MainActor in
+                            _ = await account.deleteAccount()
+                            isDeleting = false
+                        }
+                    }
+                    Button("キャンセル", role: .cancel) {}
+                } message: {
+                    Text("ポイントと利用の記録がサーバーから削除され、元に戻せません。プロジェクトや動画はこの iPhone に残ります。")
                 }
             } else {
                 Text("サインインすると、自分の OpenAI キーがなくてもポイントでクラウド AI(高精度の文字起こし・字幕の整え・翻訳・台本)を使えます。はじめてのサインインで 100 ポイント、毎日 20 ポイントもらえます。")

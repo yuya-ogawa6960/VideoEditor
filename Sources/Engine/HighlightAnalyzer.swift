@@ -331,6 +331,7 @@ enum HighlightAnalyzer {
 
             if state.frameIndex % faceEvery == 0 {
                 let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up, options: [:])
+                VisionCompute.prepare([state.faceRequest])
                 if (try? handler.perform([state.faceRequest])) != nil {
                     let faces = state.faceRequest.results ?? []
                     if !faces.isEmpty {

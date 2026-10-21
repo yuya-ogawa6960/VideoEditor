@@ -56,6 +56,7 @@ enum MotionTracker {
             state.lastTime = relative
             progress?(min(1, relative / span))
             do {
+                VisionCompute.prepare([state.request])
                 try state.sequence.perform([state.request], on: buffer, orientation: .up)
             } catch {
                 state.consecutiveFailures += 1

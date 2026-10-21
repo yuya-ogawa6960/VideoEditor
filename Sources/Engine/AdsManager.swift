@@ -3,6 +3,7 @@ import UIKit
 import Observation
 import AppTrackingTransparency
 import GoogleMobileAds
+import UserMessagingPlatform
 
 // =====================================================================
 // 広告(Google AdMob)
@@ -53,6 +54,13 @@ final class AdsManager: NSObject {
     /// リワード広告の準備ができているか(ボタンの有効・無効に使う)
     private(set) var isRewardedReady = false
     private(set) var isShowing = false
+    /// 広告の同意を見直すボタンが必要な地域か(設定画面に「広告の同意を変更」を出す)
+    private(set) var privacyOptionsRequired = false
+
+    /// 広告の同意を見直す画面を出す
+    func presentPrivacyOptions() async {
+        try? await ConsentForm.presentPrivacyOptionsForm(from: Self.topViewController())
+    }
 
     @ObservationIgnored private var interstitial: InterstitialAd?
     @ObservationIgnored private var rewarded: RewardedAd?
@@ -64,6 +72,16 @@ final class AdsManager: NSObject {
     func start() async {
         guard !isStarted else { return }
         isStarted = true
+        // 1) 広告の同意(ヨーロッパ・イギリスなど、必要な地域だけ同意画面が出る)
+        do {
+            try await ConsentInformation.shared.requestConsentInfoUpdate(with: RequestParameters())
+            try await ConsentForm.loadAndPresentIfRequired(from: Self.topViewController())
+        } catch {
+            // 同意情報を取れなくても、前回の同意で広告を出せるなら続ける
+        }
+        privacyOptionsRequired = ConsentInformation.shared.privacyOptionsRequirementStatus == .required
+        guard ConsentInformation.shared.canRequestAds else { return }
+        // 2) トラッキングの確認
         if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
             // 起動直後は確認が出ないことがあるので少し待つ
             try? await Task.sleep(nanoseconds: 1_000_000_000)

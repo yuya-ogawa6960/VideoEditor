@@ -3520,75 +3520,6 @@
         }
       }
     },
-    "Lumetri カラー": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lumetri Color"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color Lumetri"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cor Lumetri"
-          }
-        }
-      }
-    },
-    "Lumetri スコープ": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lumetri Scopes"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ámbitos Lumetri"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escopos Lumetri"
-          }
-        }
-      }
-    },
-    "Lumetri プリセット": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lumetri Presets"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajustes preestablecidos Lumetri"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Predefinições Lumetri"
-          }
-        }
-      }
-    },
     "Lカット": {
       "extractionState": "manual",
       "localizations": {
@@ -8925,6 +8856,52 @@
         }
       }
     },
+    "アカウントを削除": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete account"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar cuenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir conta"
+          }
+        }
+      }
+    },
+    "アカウントを削除しますか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete your account?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar tu cuenta?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir sua conta?"
+          }
+        }
+      }
+    },
     "アクセスが拒否されました": {
       "extractionState": "manual",
       "localizations": {
@@ -10098,6 +10075,52 @@
         }
       }
     },
+    "カラースコープ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color Scopes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ámbitos de color"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escopos de cor"
+          }
+        }
+      }
+    },
+    "カラープリセット": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color Presets"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preajustes de color"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinições de cor"
+          }
+        }
+      }
+    },
     "カラーマッチ": {
       "extractionState": "manual",
       "localizations": {
@@ -10117,6 +10140,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Igualar cor"
+          }
+        }
+      }
+    },
+    "カラー補正": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color Correction"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrección de color"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correção de cor"
           }
         }
       }
@@ -12187,6 +12233,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Redefinir estilo"
+          }
+        }
+      }
+    },
+    "スタビライザー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stabilizer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estabilizador"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estabilizador"
           }
         }
       }
@@ -16768,6 +16837,29 @@
         }
       }
     },
+    "ポイントと利用の記録がサーバーから削除され、元に戻せません。プロジェクトや動画はこの iPhone に残ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your points and usage history are deleted from the server and cannot be restored. Projects and videos stay on this iPhone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus puntos y tu historial de uso se eliminan del servidor y no se pueden recuperar. Los proyectos y videos permanecen en este iPhone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus pontos e histórico de uso são excluídos do servidor e não podem ser recuperados. Projetos e vídeos ficam neste iPhone."
+          }
+        }
+      }
+    },
     "ポイントのサーバーがまだ用意されていません。": {
       "extractionState": "manual",
       "localizations": {
@@ -18282,29 +18374,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cortina (esquerda)"
-          }
-        }
-      }
-    },
-    "ワープスタビライザー": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warp Stabilizer"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estabilizador de deformación"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estabilizador de distorção"
           }
         }
       }
@@ -22974,6 +23043,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Excluído"
+          }
+        }
+      }
+    },
+    "削除する": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir"
           }
         }
       }
@@ -28149,6 +28241,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anúncio"
+          }
+        }
+      }
+    },
+    "広告の同意を変更": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change ad consent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar consentimiento de anuncios"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterar consentimento de anúncios"
           }
         }
       }

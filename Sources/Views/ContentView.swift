@@ -1604,7 +1604,7 @@ struct ContentView: View {
         return items
     }
 
-    /// クリップの「モーション」: モーション・クロップ / アニメーション / オートリフレーム / ワープスタビライザー / マスク / 3Dズーム
+    /// クリップの「モーション」: モーション・クロップ / アニメーション / オートリフレーム / スタビライザー / マスク / 3Dズーム
     private func clipMotionItems(_ clipID: UUID, isStill: Bool) -> [EditorToolItem] {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem(String(localized: "モーション・クロップ"), systemImage: "crop.rotate") {
@@ -1617,7 +1617,7 @@ struct ContentView: View {
             items.append(EditorToolItem(String(localized: "オートリフレーム"), systemImage: "person.crop.rectangle") {
                 openPanel(.autoReframe(clipID))
             })
-            items.append(EditorToolItem(String(localized: "ワープスタビライザー"), systemImage: "camera.metering.center.weighted") {
+            items.append(EditorToolItem(String(localized: "スタビライザー"), systemImage: "camera.metering.center.weighted") {
                 openPanel(.stabilize(clipID))
             })
         }
@@ -1658,13 +1658,13 @@ struct ContentView: View {
     /// 色調整: 自動補正 / 色調整 / HSL / 色合わせ / LUT読み込み / スコープ
     private func colorGroupItems(_ clipID: UUID) -> [EditorToolItem] {
         var items: [EditorToolItem] = []
-        items.append(EditorToolItem(String(localized: "Lumetri プリセット"), systemImage: "camera.filters") {
+        items.append(EditorToolItem(String(localized: "カラープリセット"), systemImage: "camera.filters") {
             openPanel(.filter(clipID))
         })
         items.append(EditorToolItem(String(localized: "自動補正"), systemImage: "wand.and.stars") {
             autoEnhance(clipID)
         })
-        items.append(EditorToolItem(String(localized: "Lumetri カラー"), systemImage: "circle.lefthalf.filled") {
+        items.append(EditorToolItem(String(localized: "カラー補正"), systemImage: "circle.lefthalf.filled") {
             openPanel(.colorAdjust(clipID))
         })
         items.append(EditorToolItem(String(localized: "HSL セカンダリ"), systemImage: "paintpalette") {
@@ -1678,7 +1678,7 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "LUT を参照"), systemImage: "cube") {
             openPanel(.lut(clipID))
         })
-        items.append(EditorToolItem(String(localized: "Lumetri スコープ"), systemImage: "chart.bar.xaxis") {
+        items.append(EditorToolItem(String(localized: "カラースコープ"), systemImage: "chart.bar.xaxis") {
             player.pause()
             activePanel = nil
             activeSheet = .scopes(clipID)
@@ -1757,7 +1757,7 @@ struct ContentView: View {
         }
         items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "move.3d", id: "group-motion", items: motion))
         var color: [EditorToolItem] = []
-        color.append(EditorToolItem(String(localized: "Lumetri プリセット"), systemImage: "camera.filters") {
+        color.append(EditorToolItem(String(localized: "カラープリセット"), systemImage: "camera.filters") {
             openPanel(.overlayFilter(overlayID))
         })
         color.append(EditorToolItem(String(localized: "描画モード"), systemImage: "circle.lefthalf.striped.horizontal") {

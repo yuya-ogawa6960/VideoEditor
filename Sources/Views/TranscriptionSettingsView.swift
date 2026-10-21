@@ -47,6 +47,7 @@ struct TranscriptionSettingsView: View {
                 whisperSection
             }
             AccountPointsSection()
+            AdPrivacySection()
             cloudSection
             polishSection
             diagnosticsSection

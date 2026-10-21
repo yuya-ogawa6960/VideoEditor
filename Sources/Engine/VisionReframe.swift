@@ -47,7 +47,6 @@ enum VisionAnalysisError: LocalizedError {
 // MARK: - コマ読み出し(解析用)
 
 enum AnalysisFrameReader {
-    private static let context = CIContext(options: [.cacheIntermediates: false])
 
     /// [start, end](元素材上の秒)のコマを約 fps コマ/秒、長辺 maxDimension px 以下の正立 BGRA で順に渡す。
     /// fps <= 0 ならすべてのコマ。handler(buffer, 元素材上の秒) が false を返すと中断する(エラーにはならない)。
@@ -156,7 +155,8 @@ enum AnalysisFrameReader {
             var outBuffer: CVPixelBuffer?
             _ = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &outBuffer)
             guard let destination = outBuffer else { throw VisionAnalysisError.readFailed(String(localized: "バッファを確保できません")) }
-            context.render(image, to: destination, bounds: bounds, colorSpace: colorSpace)
+            // 裏で GPU を使う許可が無いときは CPU で描く(FilterEngineContexts.current)
+            FilterEngineContexts.current.render(image, to: destination, bounds: bounds, colorSpace: colorSpace)
             delivered += 1
             if !handler(destination, pts) {
                 reader.cancelReading()
@@ -315,6 +315,7 @@ enum VisionReframe {
     private static func detect(in buffer: CVPixelBuffer, state: State) -> Candidate? {
         let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up, options: [:])
         do {
+            VisionCompute.prepare([state.faceRequest, state.humanRequest])
             try handler.perform([state.faceRequest, state.humanRequest])
         } catch {
             return nil

@@ -133,6 +133,7 @@ enum Stabilizer {
         let request = VNTranslationalImageRegistrationRequest(targetedCVPixelBuffer: current, orientation: .up, options: [:])
         let handler = VNImageRequestHandler(cvPixelBuffer: previous, orientation: .up, options: [:])
         do {
+            VisionCompute.prepare([request])
             try handler.perform([request])
         } catch {
             return .zero

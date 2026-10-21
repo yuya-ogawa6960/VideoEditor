@@ -666,9 +666,15 @@ enum PacingAnalyzer {
         var cut: Bool = false
     }
 
-    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
-    private static let faceDetector = CIDetector(ofType: CIDetectorTypeFace, context: nil,
-                                                 options: [CIDetectorAccuracy: CIDetectorAccuracyLow])
+    /// 顔・笑顔の検出(GPU 用と、裏で GPU を使えないとき用の CPU 版)
+    private static let gpuFaceDetector = CIDetector(ofType: CIDetectorTypeFace, context: FilterEngineContexts.gpu,
+                                                    options: [CIDetectorAccuracy: CIDetectorAccuracyLow])
+    private static let cpuFaceDetector = CIDetector(ofType: CIDetectorTypeFace, context: FilterEngineContexts.cpu,
+                                                    options: [CIDetectorAccuracy: CIDetectorAccuracyLow])
+    private static var faceDetector: CIDetector? {
+        let lifecycle = AppLifecycle.shared
+        return (lifecycle.isInBackground && !lifecycle.backgroundGPUAllowed) ? cpuFaceDetector : gpuFaceDetector
+    }
 
     private static func analyzeVideo(clip: Clip, progress: @escaping (Double) -> Void) async throws -> [VideoSecond] {
         if clip.isStill, let url = clip.stillImageURL, let image = CIImage(contentsOf: url) {
@@ -733,7 +739,7 @@ enum PacingAnalyzer {
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
             .transformed(by: CGAffineTransform(scaleX: 32 / e.width, y: 18 / e.height))
         var bytes = [UInt8](repeating: 0, count: 32 * 18 * 4)
-        ciContext.render(small, toBitmap: &bytes, rowBytes: 32 * 4,
+        FilterEngineContexts.current.render(small, toBitmap: &bytes, rowBytes: 32 * 4,
                          bounds: CGRect(x: small.extent.minX, y: small.extent.minY, width: 32, height: 18),
                          format: .RGBA8, colorSpace: nil)
         var luma = [UInt8](repeating: 0, count: 32 * 18)
@@ -753,6 +759,7 @@ enum PacingAnalyzer {
         let classifyRequest = VNClassifyImageRequest()
         if aesthetics { requests.append(aestheticRequest) }
         if classify { requests.append(classifyRequest) }
+        VisionCompute.prepare(requests)
         try? handler.perform(requests)
         if aesthetics, let observation = aestheticRequest.results?.first {
             // 書類・画面写真のような「記録用」の画は美しさに数えない

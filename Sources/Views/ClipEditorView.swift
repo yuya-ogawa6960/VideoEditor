@@ -131,7 +131,7 @@ struct ClipEditorView: View {
             }
 
             // フィルタ
-            Section("Lumetri プリセット") {
+            Section("カラープリセット") {
                 FilterPickerView(filter: clip.filter,
                                  sourceImage: current.thumbnail,
                                  onApplyToAll: {

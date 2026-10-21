@@ -1289,7 +1289,7 @@ struct ScopeSheetView: View {
                 .padding()
             }
             .background(Color.black)
-            .navigationTitle("Lumetri スコープ")
+            .navigationTitle("カラースコープ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

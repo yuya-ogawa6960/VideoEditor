@@ -34,6 +34,8 @@ export default {
       const url = new URL(request.url);
       const path = url.pathname;
       if (request.method === "GET" && path === "/") return json({ ok: true, service: "videomania-api" });
+      if (request.method === "GET" && path === "/privacy") return html(PRIVACY_HTML);
+      if (request.method === "GET" && path === "/support") return html(SUPPORT_HTML);
       if (request.method === "POST" && path === "/v1/auth/apple") return await signInWithApple(request, env);
       // AdMob のサーバー側検証(ログイン不要。署名で確かめる)
       if (request.method === "GET" && path === "/v1/ads/ssv") return await admobSSV(url, env);
@@ -43,11 +45,12 @@ export default {
       if (!user) return error(401, "ログインの期限が切れました。アプリの設定から、もう一度サインインしてください。", "unauthorized");
 
       if (request.method === "GET" && path === "/v1/me") return await me(user, env);
+      if (request.method === "DELETE" && path === "/v1/me") return await deleteAccount(user, env);
       if (request.method === "POST" && path === "/v1/points/daily") return await daily(user, env);
       if (request.method === "POST" && path === "/v1/audio/transcriptions") return await transcribe(request, user, env);
       if (request.method === "POST" && path === "/v1/chat/completions") return await chat(request, user, env);
       if (request.method === "POST" && path === "/v1/audio/speech") return await speech(request, user, env);
-      if (request.method === "POST" && path === "/v1/ads/claim") return await adClaim(user, env);
+      if (request.method === "POST" && path === "/v1/ads/claim") return await adClaim(request, user, env);
       return error(404, "見つかりません", "not_found");
     } catch (e) {
       return error(500, "サーバーでエラーが起きました: " + (e && e.message ? e.message : String(e)), "server_error");
@@ -253,18 +256,68 @@ async function grantAdReward(env, userID, transactionID, source) {
 }
 
 /** アプリが「最後まで見た」と伝える。テスト期間(ALLOW_CLIENT_AD_CLAIM=1)だけここで付与し、本番は SSV を待つ */
-async function adClaim(user, env) {
+async function adClaim(request, user, env) {
+  // TestFlight のテスト広告は SSV が来ないので、その場合だけアプリの申告で足す(1 日の上限あり)
+  const clientGrant = env.ALLOW_CLIENT_AD_CLAIM === "1" || request.headers.get("x-vm-test-build") === "1";
   let granted = false;
-  if (env.ALLOW_CLIENT_AD_CLAIM === "1") {
+  if (clientGrant) {
     granted = await grantAdReward(env, user.id, "client:" + crypto.randomUUID(), "client");
   }
   return json({
     points: await balance(env, user.id),
     granted,
-    pending: env.ALLOW_CLIENT_AD_CLAIM !== "1",
+    pending: !clientGrant,
     ...(await adState(env, user.id)),
   });
 }
+
+/** アカウントの削除(ポイント・台帳・広告の記録をすべて消す) */
+async function deleteAccount(user, env) {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM ad_rewards WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM ledger WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id),
+  ]);
+  return json({ deleted: true });
+}
+
+function html(body) {
+  return new Response(body, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+}
+
+const PAGE_STYLE = `<meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:-apple-system,system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;line-height:1.7;color:#222;background:#fff}h1{font-size:1.5em}h2{font-size:1.15em;margin-top:1.6em}@media (prefers-color-scheme: dark){body{color:#eee;background:#111}a{color:#8cf}}</style>`;
+
+const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania プライバシーポリシー</title>${PAGE_STYLE}</head><body>
+<h1>Video Mania プライバシーポリシー</h1>
+<p>最終更新日: 2026年10月21日</p>
+<h2>1. 動画・写真</h2>
+<p>編集する動画・写真・プロジェクトは、お使いの iPhone の中だけで処理・保存されます。開発者のサーバーに送られることはありません。</p>
+<h2>2. クラウド AI を使う場合</h2>
+<p>「クラウド AI」を選んだときだけ、文字起こしのための音声、字幕の整え・翻訳・台本作成のための文章、読み上げのための文章が OpenAI, L.L.C. に送られます(ポイントを使う場合は開発者のサーバーを経由し、内容は保存しません)。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
+<h2>3. アカウントとポイント</h2>
+<p>Apple でサインインすると、Apple が発行する利用者ごとの識別子と、ポイントの残高・増減の記録を開発者のサーバー(Cloudflare)に保存します。氏名やメールアドレスは受け取りません。アプリの「文字起こしの方式」画面の「アカウントを削除」から、いつでも削除できます。</p>
+<h2>4. 広告</h2>
+<p>アプリは Google AdMob の広告を表示します。AdMob は広告の配信・測定のために、端末の広告識別子(許可した場合)やおおよその位置などを利用することがあります。詳しくは <a href="https://policies.google.com/technologies/ads?hl=ja">Google のポリシー</a>をご覧ください。トラッキングは iPhone の設定でいつでも許可を取り消せます。</p>
+<h2>5. 第三者への提供</h2>
+<p>上記のほか、法令に基づく場合を除き、個人情報を第三者に提供しません。</p>
+<h2>6. お問い合わせ</h2>
+<p><a href="/support">サポートページ</a>をご覧ください。</p>
+<hr>
+<h1>Privacy Policy (English)</h1>
+<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI; with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. We do not share personal data with third parties except as required by law.</p>
+</body></html>`;
+
+const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania サポート</title>${PAGE_STYLE}</head><body>
+<h1>Video Mania サポート</h1>
+<h2>よくある質問</h2>
+<p><b>書き出しが途中で止まる</b><br>iPhone の空き容量を確認し、書き出し中はアプリを開いたままにするか、iOS 26 以降ではロック画面の表示を止めずにお待ちください。</p>
+<p><b>字幕が作れない</b><br>「設定」→「Video Mania」で「音声認識」を許可してください。BGM だけの動画では字幕は作られません。</p>
+<p><b>ポイントについて</b><br>はじめてのサインインで 100 ポイント、毎日 20 ポイント、広告を見て 1 日 5 回まで 10 ポイントずつもらえます。</p>
+<p><b>アカウントの削除</b><br>アプリの「文字起こしの方式」画面の「アカウントを削除」から行えます。</p>
+<h2>お問い合わせ</h2>
+<p>アプリ内の TestFlight / App Store のフィードバック、または App Store のアプリページの「デベロッパの Web サイト」からご連絡ください。</p>
+<p><a href="/privacy">プライバシーポリシー</a></p>
+</body></html>`;
 
 /** AdMob のサーバー側検証のコールバック。署名(ECDSA P-256 / SHA-256)を Google の公開鍵で確かめてから付与 */
 async function admobSSV(url, env) {

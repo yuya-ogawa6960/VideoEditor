@@ -1512,6 +1512,10 @@ enum CompositionPlaceholder {
             let time = CMTime(value: CMTimeValue(index), timescale: 10)
             if !adaptor.append(pixelBuffer, withPresentationTime: time) { break }
         }
+        guard writer.status == .writing else {
+            writer.cancelWriting()
+            return false
+        }
         input.markAsFinished()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             writer.finishWriting {

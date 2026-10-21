@@ -10,7 +10,7 @@ import SwiftUI
 struct EditorToolSearchEntry: Identifiable {
     let id: String
     let item: EditorToolItem
-    /// 見つけた場所(「Lumetri カラー › HSL セカンダリ」の左側)
+    /// 見つけた場所(「カラー補正 › HSL セカンダリ」の左側)
     let breadcrumb: String
     /// ツールバーでこの項目を表示するために開くグループ ID の並び
     let groupPath: [String]
@@ -51,16 +51,16 @@ enum EditorToolSearchIndex {
         String(localized: "タイムリマップ"): [String(localized: "速度カーブ"), String(localized: "なめらか変速"), String(localized: "スピードランプ"), "curve"],
         String(localized: "ボリューム"): [String(localized: "音量"), String(localized: "音の大きさ"), String(localized: "ミュート"), "volume"],
         String(localized: "オーディオエフェクト"): [String(localized: "音声効果"), String(localized: "雑音"), String(localized: "ノイズ"), String(localized: "イコライザー"), "EQ", String(localized: "ピッチ"), String(localized: "声"), "audio"],
-        String(localized: "Lumetri プリセット"): [String(localized: "フィルタ"), String(localized: "フィルター"), String(localized: "色味"), String(localized: "ルック"), "filter"],
-        String(localized: "Lumetri カラー"): [String(localized: "色調整"), String(localized: "色"), String(localized: "明るさ"), String(localized: "コントラスト"), String(localized: "彩度"), String(localized: "カラー"), "color"],
+        String(localized: "カラープリセット"): [String(localized: "フィルタ"), String(localized: "フィルター"), String(localized: "色味"), String(localized: "ルック"), "filter"],
+        String(localized: "カラー補正"): ["Lumetri", String(localized: "色調整"), String(localized: "色"), String(localized: "明るさ"), String(localized: "コントラスト"), String(localized: "彩度"), String(localized: "カラー"), "color"],
         String(localized: "HSL セカンダリ"): ["HSL", String(localized: "色ごと"), String(localized: "特定の色")],
         String(localized: "LUT を参照"): ["LUT", "cube", String(localized: "カラーLUT")],
-        String(localized: "Lumetri スコープ"): [String(localized: "スコープ"), String(localized: "波形"), String(localized: "ヒストグラム")],
+        String(localized: "カラースコープ"): [String(localized: "スコープ"), String(localized: "波形"), String(localized: "ヒストグラム")],
         String(localized: "カラーマッチ"): [String(localized: "色合わせ"), String(localized: "色をそろえる")],
         String(localized: "自動補正"): [String(localized: "オート"), String(localized: "自動"), "auto"],
         String(localized: "描画モード"): [String(localized: "ブレンド"), String(localized: "乗算"), String(localized: "スクリーン"), "blend"],
         String(localized: "フレーム保持"): [String(localized: "フリーズ"), String(localized: "静止画"), String(localized: "止める"), "freeze"],
-        String(localized: "ワープスタビライザー"): [String(localized: "手ぶれ補正"), String(localized: "ブレ"), String(localized: "安定"), "stabilize"],
+        String(localized: "スタビライザー"): ["warp", String(localized: "手ぶれ補正"), String(localized: "ブレ"), String(localized: "安定"), "stabilize"],
         String(localized: "モーション・クロップ"): [String(localized: "切り抜き"), String(localized: "回転"), String(localized: "トリミング"), String(localized: "クロップ"), String(localized: "反転"), "crop", "rotate"],
         String(localized: "フッテージを置き換え"): [String(localized: "置き換え"), String(localized: "差し替え"), "replace"],
         String(localized: "キャプション"): [String(localized: "字幕"), String(localized: "テロップ"), "subtitle", "caption"],

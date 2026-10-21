@@ -190,6 +190,20 @@ final class AccountService {
         if let n = json["adRewardPoints"] as? Int { adRewardPoints = n }
     }
 
+    /// アカウントを削除する(サーバーのポイント・履歴を消してからサインアウト)
+    @MainActor
+    func deleteAccount() async -> Bool {
+        lastError = nil
+        do {
+            _ = try await request("v1/me", method: "DELETE", body: nil, authorized: true)
+            signOut()
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
     /// リワード広告を最後まで見たあとに呼ぶ。テスト期間はサーバーがここでポイントを足し、
     /// 本番は AdMob のサーバー側検証で足されるので、少し待って残高を取り直す
     @MainActor
@@ -230,6 +244,10 @@ final class AccountService {
         }
         if authorized {
             request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
+        }
+        // TestFlight のテスト広告(サーバー側検証が来ない)を見分けるため
+        if AdsManager.usesTestAds {
+            request.setValue("1", forHTTPHeaderField: "x-vm-test-build")
         }
         let (data, response) = try await URLSession.shared.data(for: request)
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
