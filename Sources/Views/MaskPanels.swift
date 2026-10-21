@@ -50,6 +50,7 @@ final class EditorAnalysisRunner {
         let current = generation
         progress = ClipFXProgress(title: title, fraction: indeterminate ? nil : 0)
         beginBackgroundSupport(title: title)
+        Analytics.shared.track("analysis", ["name": title])
         // 解析は広告の間も続く
         Task { @MainActor in AdsManager.shared.showInterstitial(.analysisStart) }
 

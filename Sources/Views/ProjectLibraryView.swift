@@ -29,6 +29,7 @@ struct RootView: View {
             } else {
                 ProjectLibraryView(onOpen: { meta in
                     openProjectID = meta.id
+                    Analytics.shared.track("project_open")
                 })
                 .transition(.opacity)
             }
@@ -216,6 +217,7 @@ struct ProjectLibraryView: View {
     }
 
     private func createProject(mediaMode: ProjectMediaMode) {
+        Analytics.shared.track("project_create", ["media": String(describing: mediaMode)])
         let meta = library.create(mediaMode: mediaMode)
         onOpen(meta)
     }

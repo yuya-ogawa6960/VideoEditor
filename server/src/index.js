@@ -35,6 +35,8 @@ export default {
       const path = url.pathname;
       if (request.method === "GET" && path === "/") return json({ ok: true, service: "videomania-api" });
       if (request.method === "GET" && path === "/privacy") return html(PRIVACY_HTML);
+      if (request.method === "POST" && path === "/v1/events") return await ingestEvents(request, env);
+      if (request.method === "GET" && path === "/stats") return await stats(url, env);
       if (request.method === "GET" && path === "/support") return html(SUPPORT_HTML);
       if (request.method === "POST" && path === "/v1/auth/apple") return await signInWithApple(request, env);
       // AdMob のサーバー側検証(ログイン不要。署名で確かめる)
@@ -271,6 +273,105 @@ async function adClaim(request, user, env) {
   });
 }
 
+// ---------------------------------------------------------------------
+// 使い方の統計(匿名)
+// ---------------------------------------------------------------------
+
+const MAX_EVENTS_PER_POST = 100;
+const ALLOWED_EVENT_NAMES = new Set([
+  "app_open", "app_close", "project_create", "project_open", "panel", "sheet", "analysis",
+  "export_start", "export_done", "export_failed", "export_cancelled",
+]);
+
+async function ingestEvents(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body.install !== "string" || !Array.isArray(body.events)) return error(400, "形式が正しくありません", "bad_request");
+  const install = body.install.slice(0, 64);
+  if (!/^[0-9a-f-]{8,64}$/.test(install)) return error(400, "形式が正しくありません", "bad_request");
+  const events = body.events.slice(0, MAX_EVENTS_PER_POST);
+  const meta = {
+    app: String(body.app || "").slice(0, 32),
+    build: String(body.build || "").slice(0, 16),
+    os: String(body.os || "").slice(0, 32),
+    device: String(body.device || "").slice(0, 32),
+    locale: String(body.locale || "").slice(0, 16),
+  };
+  const now = nowISO();
+  const statements = [];
+  for (const e of events) {
+    if (!e || typeof e.name !== "string" || !ALLOWED_EVENT_NAMES.has(e.name)) continue;
+    const params = {};
+    if (e.params && typeof e.params === "object") {
+      for (const [k, v] of Object.entries(e.params).slice(0, 12)) {
+        params[String(k).slice(0, 32)] = String(v).slice(0, 80);
+      }
+    }
+    statements.push(
+      env.DB.prepare(
+        "INSERT INTO events (install_id, name, params, app_version, os_version, device, locale, client_time, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(install, e.name, JSON.stringify(params), meta.app + " (" + meta.build + ")", meta.os, meta.device, meta.locale,
+             String(e.t || "").slice(0, 32), now)
+    );
+  }
+  if (statements.length) await env.DB.batch(statements);
+  return json({ accepted: statements.length });
+}
+
+/** 集計ページ(?token=STATS_TOKEN)。GitHub の secret STATS_TOKEN を設定すると開ける */
+async function stats(url, env) {
+  const token = url.searchParams.get("token") || "";
+  if (!env.STATS_TOKEN || token !== env.STATS_TOKEN) return error(403, "token が必要です", "forbidden");
+  const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days") || 30)));
+  const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
+
+  const q = async (sql, ...binds) => (await env.DB.prepare(sql).bind(...binds).all()).results || [];
+  const daily = await q(
+    "SELECT substr(created_at, 1, 10) AS day, COUNT(DISTINCT install_id) AS installs, COUNT(*) AS events FROM events WHERE created_at >= ? GROUP BY day ORDER BY day DESC",
+    since
+  );
+  const totals = await q("SELECT COUNT(DISTINCT install_id) AS installs, COUNT(*) AS events FROM events WHERE created_at >= ?", since);
+  const names = await q(
+    "SELECT name, COUNT(*) AS n, COUNT(DISTINCT install_id) AS installs FROM events WHERE created_at >= ? GROUP BY name ORDER BY n DESC",
+    since
+  );
+  const panels = await q(
+    "SELECT json_extract(params, '$.name') AS name, COUNT(*) AS n, COUNT(DISTINCT install_id) AS installs FROM events WHERE created_at >= ? AND name IN ('panel','sheet','analysis') GROUP BY name ORDER BY n DESC LIMIT 60",
+    since
+  );
+  const exportsRows = await q(
+    "SELECT name, json_extract(params, '$.length') AS length, COUNT(*) AS n FROM events WHERE created_at >= ? AND name IN ('export_done','export_failed','export_cancelled') GROUP BY name, length ORDER BY name, n DESC",
+    since
+  );
+  const failed = await q(
+    "SELECT json_extract(params, '$.kind') AS kind, COUNT(*) AS n FROM events WHERE created_at >= ? AND name = 'export_failed' GROUP BY kind ORDER BY n DESC",
+    since
+  );
+  const versions = await q(
+    "SELECT app_version, os_version, COUNT(DISTINCT install_id) AS installs FROM events WHERE created_at >= ? GROUP BY app_version, os_version ORDER BY installs DESC LIMIT 20",
+    since
+  );
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const table = (rows, cols) =>
+    rows.length
+      ? "<table><tr>" + cols.map((c) => "<th>" + esc(c) + "</th>").join("") + "</tr>" +
+        rows.map((r) => "<tr>" + cols.map((c) => "<td>" + esc(r[c]) + "</td>").join("") + "</tr>").join("") + "</table>"
+      : "<p>(なし)</p>";
+  const t = totals[0] || { installs: 0, events: 0 };
+  const page = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania 利用状況</title>${PAGE_STYLE}
+<style>table{border-collapse:collapse;margin:8px 0 20px;font-size:14px}th,td{border:1px solid #8884;padding:4px 10px;text-align:left}th{background:#8882}</style></head><body>
+<h1>Video Mania 利用状況(直近 ${days} 日)</h1>
+<p>期間: <a href="?token=${esc(token)}&days=7">7 日</a> / <a href="?token=${esc(token)}&days=30">30 日</a> / <a href="?token=${esc(token)}&days=90">90 日</a></p>
+<p>利用端末 <b>${t.installs}</b> 台・出来事 <b>${t.events}</b> 件</p>
+<h2>日ごとの利用端末</h2>${table(daily, ["day", "installs", "events"])}
+<h2>出来事の種類</h2>${table(names, ["name", "n", "installs"])}
+<h2>よく使われる機能(パネル・画面・AI)</h2>${table(panels, ["name", "n", "installs"])}
+<h2>書き出し(長さ別)</h2>${table(exportsRows, ["name", "length", "n"])}
+<h2>書き出しの失敗の種類</h2>${table(failed, ["kind", "n"])}
+<h2>バージョン・OS</h2>${table(versions, ["app_version", "os_version", "installs"])}
+</body></html>`;
+  return html(page);
+}
+
 /** アカウントの削除(ポイント・台帳・広告の記録をすべて消す) */
 async function deleteAccount(user, env) {
   await env.DB.batch([
@@ -296,15 +397,17 @@ const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <p>「クラウド AI」を選んだときだけ、文字起こしのための音声、字幕の整え・翻訳・台本作成のための文章、読み上げのための文章が OpenAI, L.L.C. に送られます(ポイントを使う場合は開発者のサーバーを経由し、内容は保存しません)。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
 <h2>3. アカウントとポイント</h2>
 <p>Apple でサインインすると、Apple が発行する利用者ごとの識別子と、ポイントの残高・増減の記録を開発者のサーバー(Cloudflare)に保存します。氏名やメールアドレスは受け取りません。アプリの「文字起こしの方式」画面の「アカウントを削除」から、いつでも削除できます。</p>
-<h2>4. 広告</h2>
+<h2>4. 使い方の統計</h2>
+<p>どの機能がどれだけ使われているかを、端末ごとのランダムな ID(アプリを削除すると変わります)で開発者のサーバーに送り、改善に役立てます。動画・文章・氏名は送りません。アプリの「文字起こしの方式」画面の「プライバシー」でいつでもオフにできます。</p>
+<h2>5. 広告</h2>
 <p>アプリは Google AdMob の広告を表示します。AdMob は広告の配信・測定のために、端末の広告識別子(許可した場合)やおおよその位置などを利用することがあります。詳しくは <a href="https://policies.google.com/technologies/ads?hl=ja">Google のポリシー</a>をご覧ください。トラッキングは iPhone の設定でいつでも許可を取り消せます。</p>
-<h2>5. 第三者への提供</h2>
+<h2>6. 第三者への提供</h2>
 <p>上記のほか、法令に基づく場合を除き、個人情報を第三者に提供しません。</p>
-<h2>6. お問い合わせ</h2>
+<h2>7. お問い合わせ</h2>
 <p><a href="/support">サポートページ</a>をご覧ください。</p>
 <hr>
 <h1>Privacy Policy (English)</h1>
-<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI; with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. We do not share personal data with third parties except as required by law.</p>
+<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI; with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. Anonymous usage statistics (which features are used, keyed by a random per-install ID) are sent to our server to improve the app; you can turn this off in the app. We do not share personal data with third parties except as required by law.</p>
 </body></html>`;
 
 const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania サポート</title>${PAGE_STYLE}</head><body>

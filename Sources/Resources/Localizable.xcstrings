@@ -7522,6 +7522,29 @@
         }
       }
     },
+    "どの機能がどれだけ使われているかを、端末ごとのランダムな ID で送り、改善に役立てます。動画・文章・名前は送りません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which features are used, keyed by a random per-device ID, is sent to help improve the app. No videos, text or names are sent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se envía qué funciones se usan, con un ID aleatorio por dispositivo, para mejorar la app. No se envían videos, textos ni nombres."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quais recursos são usados, com um ID aleatório por aparelho, é enviado para melhorar o app. Vídeos, textos e nomes não são enviados."
+          }
+        }
+      }
+    },
     "なし": {
       "extractionState": "manual",
       "localizations": {
@@ -16124,6 +16147,29 @@
         }
       }
     },
+    "プライバシー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacidad"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacidade"
+          }
+        }
+      }
+    },
     "プリセット名": {
       "extractionState": "manual",
       "localizations": {
@@ -20145,6 +20191,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não é possível criar a pasta de trabalho (%@)"
+          }
+        }
+      }
+    },
+    "使い方の統計を送信(匿名)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send usage statistics (anonymous)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar estadísticas de uso (anónimas)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar estatísticas de uso (anônimas)"
           }
         }
       }

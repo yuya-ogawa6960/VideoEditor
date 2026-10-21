@@ -259,6 +259,9 @@ struct ContentView: View {
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
         }
+        .onChange(of: activeSheet) { _, sheet in
+            if let sheet { Analytics.shared.track("sheet", ["name": Self.analyticsName(of: sheet)]) }
+        }
         .confirmationDialog("このプロジェクトを空にしますか?",
                             isPresented: $showClearProjectConfirm,
                             titleVisibility: .visible) {
@@ -2326,6 +2329,14 @@ struct ContentView: View {
         // ✕「やめる」で戻す状態
         panelSnapshot = project.snapshot()
         activePanel = panel
+        Analytics.shared.track("panel", ["name": Self.analyticsName(of: panel)])
+    }
+
+    /// 統計用の名前(言語に依らない enum の名前だけ。中の ID などは落とす)
+    static func analyticsName(of value: Any) -> String {
+        let text = String(describing: value)
+        if let paren = text.firstIndex(of: "(") { return String(text[..<paren]) }
+        return text
     }
 
     private func addSubtitleAtPlayhead() {

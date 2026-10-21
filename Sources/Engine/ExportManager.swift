@@ -124,6 +124,7 @@ final class ExportManager {
     // MARK: - Public API
 
     func start(snapshot: ProjectSnapshot, saveToPhotos: Bool) {
+        Analytics.shared.track("export_start", Self.analyticsParams(snapshot, dual: false, saveToPhotos: saveToPhotos))
         exportOnMain { [weak self] in
             guard let self, !self.isRunning else { return }
             self.queuedJobs = []
@@ -136,6 +137,7 @@ final class ExportManager {
 
     /// 横 16:9 → 縦 9:16(ぼかし背景)の順に 2 本続けて書き出す
     func startDual(snapshot: ProjectSnapshot, saveToPhotos: Bool = false) {
+        Analytics.shared.track("export_start", Self.analyticsParams(snapshot, dual: true, saveToPhotos: saveToPhotos))
         exportOnMain { [weak self] in
             self?.startDualOnMain(snapshot: snapshot, saveToPhotos: saveToPhotos)
         }
@@ -607,8 +609,27 @@ final class ExportManager {
     private static let sdrFallbackNote = String(localized: "HDRで書き出せなかったためSDRで書き出しました")
 
     @MainActor
+    /// 統計に送る書き出しの条件(個人情報は含まない)
+    private static func analyticsParams(_ snapshot: ProjectSnapshot, dual: Bool, saveToPhotos: Bool) -> [String: String] {
+        let seconds = CompositionBuilder.totalDuration(for: snapshot)
+        return [
+            "length": Analytics.durationBucket(seconds),
+            "clips": String(min(snapshot.clips.count, 99)),
+            "aspect": String(describing: snapshot.canvas.aspect),
+            "dual": dual ? "1" : "0",
+            "photos": saveToPhotos ? "1" : "0",
+            "captions": snapshot.subtitles.isEmpty ? "0" : "1",
+            "look": String(describing: snapshot.documentary.look),
+            "transitions": String(min(snapshot.clips.filter { $0.transition.isActive }.count, 99)),
+        ]
+    }
+
     private func finishSucceeded(outputURL: URL, saved: Bool, photoError: Error?, fellBackToSDR: Bool = false,
                                  duration: Double, canvasDescription: String, audioOnly: Bool = false) {
+        Analytics.shared.track("export_done", ["length": Analytics.durationBucket(duration),
+                                               "saved": saved ? "1" : "0",
+                                               "sdr_fallback": fellBackToSDR ? "1" : "0",
+                                               "audio_only": audioOnly ? "1" : "0"])
         currentPipeline = nil
         currentAudioSession = nil
         lastOutputURL = outputURL
@@ -714,6 +735,8 @@ final class ExportManager {
 
     @MainActor
     private func finishCancelled(outputURL: URL?) {
+        Analytics.shared.track("export_cancelled", ["background_limit": expiredInBackground ? "1" : "0",
+                                                    "system_stop": continuedTaskExpired ? "1" : "0"])
         currentPipeline = nil
         currentAudioSession = nil
         queuedJobs = []
@@ -742,6 +765,9 @@ final class ExportManager {
 
     @MainActor
     private func finishFailed(_ message: String, outputURL: URL?) {
+        // 失敗の内容は固定の分類だけ送る(メッセージ本文は送らない)
+        let kind = message.contains("空き容量") ? "disk" : (message.contains("HDR") ? "hdr" : "other")
+        Analytics.shared.track("export_failed", ["kind": kind])
         currentPipeline = nil
         currentAudioSession = nil
         queuedJobs = []

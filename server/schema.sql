@@ -27,3 +27,20 @@ CREATE TABLE IF NOT EXISTS ad_rewards (
 );
 
 CREATE INDEX IF NOT EXISTS ad_rewards_user_day ON ad_rewards (user_id, day);
+
+-- 使い方の統計(匿名。install_id は端末ごとのランダムな ID で、users とは結びつけない)
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  install_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  params TEXT NOT NULL,           -- JSON
+  app_version TEXT,
+  os_version TEXT,
+  device TEXT,
+  locale TEXT,
+  client_time TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS events_created ON events (created_at);
+CREATE INDEX IF NOT EXISTS events_name_created ON events (name, created_at);
