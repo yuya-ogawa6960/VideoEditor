@@ -21897,6 +21897,29 @@
         }
       }
     },
+    "保存をキャンセル": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel saving"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar guardado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar salvamento"
+          }
+        }
+      }
+    },
     "保存・送る": {
       "extractionState": "manual",
       "localizations": {
@@ -26911,6 +26934,52 @@
         }
       }
     },
+    "回転 %lld°": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotation %lld°"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotación %lld°"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotação %lld°"
+          }
+        }
+      }
+    },
+    "回転: プレビューの枠の上にあるつまみを回すか、2 本指でひねります。0°・90° の近くでは吸い付きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotation: turn the knob above the frame on the preview, or twist with two fingers. It snaps near 0° and 90°."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotación: gira la perilla sobre el marco en la vista previa o gira con dos dedos. Se ajusta cerca de 0° y 90°."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotação: gire o botão acima do quadro na prévia ou gire com dois dedos. Ele encaixa perto de 0° e 90°."
+          }
+        }
+      }
+    },
     "囲んだ範囲が映像の外です。映像の上で対象を囲んでください。": {
       "extractionState": "manual",
       "localizations": {
@@ -27505,6 +27574,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tamanho (em relação à largura da tela)"
+          }
+        }
+      }
+    },
+    "大きさ: プレビューの枠の四隅にある ● をドラッグ(向かいの角は動きません)。位置: 枠の中をドラッグ。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size: drag the ● at the corners of the frame on the preview (the opposite corner stays put). Position: drag inside the frame."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño: arrastra los ● de las esquinas del marco en la vista previa (la esquina opuesta no se mueve). Posición: arrastra dentro del marco."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho: arraste os ● nos cantos do quadro na prévia (o canto oposto não se move). Posição: arraste dentro do quadro."
           }
         }
       }
@@ -32657,6 +32749,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Exportado e salvo em Fotos"
+          }
+        }
+      }
+    },
+    "書き出しています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporting"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportando"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportando"
           }
         }
       }

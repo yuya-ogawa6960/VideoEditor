@@ -158,6 +158,36 @@ struct ExportView: View {
     private let audioBitrates: [Int] = [128, 192, 256, 320]
 
     var body: some View {
+        ZStack {
+            mainContent
+            if exporter.isRunning {
+                // 書き出し中は、AI 処理と同じカード(作っている映像 + ロボット + 進み具合)を上に重ねる
+                exportingOverlay
+            }
+        }
+    }
+
+    private var exportingOverlay: some View {
+        let progress = min(max(exporter.progress, 0), 1)
+        let remaining = ExportTimeEstimator.shared.remainingText(isRunning: exporter.isRunning, progress: progress)
+        let detail = [remaining, exporter.statusText].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+            WorkingCardWithAd { inlineAd in
+                AIWorkingCard(title: String(localized: "書き出しています"),
+                              fraction: progress,
+                              task: .editing,
+                              detail: detail.isEmpty ? nil : detail,
+                              note: BackgroundWorkNote.export,
+                              noteIcon: BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle",
+                              inlineAd: inlineAd,
+                              onCancel: { exporter.cancel() })
+            }
+        }
+    }
+
+    private var mainContent: some View {
         NavigationStack {
             Form {
                 resultSection
@@ -605,7 +635,7 @@ struct ExportView: View {
         Form {
             if exporter.isRunning {
                 Section {
-                    runningView
+                    runningLine
                 }
             }
             packSection
@@ -631,7 +661,7 @@ struct ExportView: View {
     private var bottomBar: some View {
         VStack(spacing: 6) {
             if exporter.isRunning {
-                runningView
+                runningLine
             } else {
                 Button {
                     startExport()
@@ -693,45 +723,15 @@ struct ExportView: View {
         return ["mp4", "mov", "m4v"].contains(url.pathExtension.lowercased())
     }
 
-    private var runningView: some View {
+    /// 書き出し中の 1 行(カードの下に隠れる場所用)
+    private var runningLine: some View {
         let progress = min(max(exporter.progress, 0), 1)
-        let remaining = ExportTimeEstimator.shared.remainingText(isRunning: exporter.isRunning, progress: progress)
-        return VStack(alignment: .leading, spacing: 8) {
-            // いま作っている映像のコマと、切ってつなぐロボットたち
-            if let frame = peek.frame {
-                AIScanningFrame(image: frame)
-                    .frame(height: 120)
-                    .frame(maxWidth: .infinity)
-            }
-            RobotWorkshop(task: .editing, monitorFrame: peek.frame)
-                .frame(height: 84)
+        return HStack(spacing: 10) {
             ProgressView(value: progress)
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(verbatim: "\(Int((progress * 100).rounded()))%")
-                    .font(.headline.monospacedDigit())
-                VStack(alignment: .leading, spacing: 2) {
-                    if let remaining {
-                        Text(remaining)
-                            .font(.subheadline.monospacedDigit())
-                    }
-                    Text(exporter.statusText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer()
-                Button("止める", role: .destructive) {
-                    exporter.cancel()
-                }
-                .buttonStyle(.bordered)
-            }
-            Label(BackgroundWorkNote.export, systemImage: "lock.open")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            NativeAdCard()
+            Text(verbatim: "\(Int((progress * 100).rounded()))%")
+                .font(.subheadline.monospacedDigit())
         }
         .padding(.vertical, 4)
-        .onDisappear { AnalysisPeek.shared.clear() }
     }
 
     /// 書き出しの結果(完了・失敗・中止)。いちばん上に出す

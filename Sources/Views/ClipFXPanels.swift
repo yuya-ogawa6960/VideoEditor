@@ -37,8 +37,10 @@ struct ClipFXProgressOverlay: View {
         ZStack {
             Color.black.opacity(0.55)
                 .ignoresSafeArea()
-            // AI が見ているコマと、ロボットの作業のアニメーション(AIWorkingOverlay.swift)
-            AIWorkingCard(progress: progress, onCancel: onCancel)
+            // AI が見ているコマと、ロボットの作業のアニメーション(AIWorkingOverlay.swift)。上に空きがあればネイティブ広告
+            WorkingCardWithAd { inlineAd in
+                AIWorkingCard(progress: progress, inlineAd: inlineAd, onCancel: onCancel)
+            }
         }
     }
 }

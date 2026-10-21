@@ -184,3 +184,131 @@ private struct NativeAdRepresentable: UIViewRepresentable {
         view.nativeAd = ad
     }
 }
+
+// MARK: - 大きめのネイティブ広告(作業中のカードの上)
+
+/// 作業中のカードの上に出す大きめのネイティブ広告(メディア + アイコン + 見出し + ボタン)。幅 300・高さ 196。
+/// 広告が読み込めていないときは何も表示しない(場所も取らない)
+struct NativeAdPanel: View {
+    @State private var ad: NativeAd?
+
+    var body: some View {
+        Group {
+            if let ad {
+                NativeAdPanelRepresentable(ad: ad)
+                    .frame(width: 300, height: 196)
+            }
+        }
+        .onAppear {
+            guard ad == nil else { return }
+            NativeAdProvider.shared.request { received in
+                ad = received
+            }
+        }
+    }
+}
+
+private struct NativeAdPanelRepresentable: UIViewRepresentable {
+    let ad: NativeAd
+
+    func makeUIView(context: Context) -> NativeAdView {
+        let view = NativeAdView()
+        view.backgroundColor = UIColor(white: 0.1, alpha: 0.92)
+        view.layer.cornerRadius = 16
+        view.clipsToBounds = true
+
+        let media = MediaView()
+        media.contentMode = .scaleAspectFill
+        media.clipsToBounds = true
+        media.backgroundColor = UIColor(white: 0, alpha: 0.4)
+
+        let badge = UILabel()
+        badge.text = String(localized: "広告")
+        badge.font = .systemFont(ofSize: 9, weight: .bold)
+        badge.textColor = .black
+        badge.backgroundColor = UIColor(red: 1, green: 0.85, blue: 0.4, alpha: 1)
+        badge.textAlignment = .center
+        badge.layer.cornerRadius = 3
+        badge.clipsToBounds = true
+
+        let icon = UIImageView()
+        icon.contentMode = .scaleAspectFill
+        icon.layer.cornerRadius = 7
+        icon.clipsToBounds = true
+
+        let headline = UILabel()
+        headline.font = .systemFont(ofSize: 13, weight: .semibold)
+        headline.textColor = .white
+        headline.numberOfLines = 1
+
+        let body = UILabel()
+        body.font = .systemFont(ofSize: 11)
+        body.textColor = UIColor(white: 1, alpha: 0.7)
+        body.numberOfLines = 1
+
+        let action = UIButton(type: .system)
+        action.titleLabel?.font = .systemFont(ofSize: 12, weight: .bold)
+        action.setTitleColor(.white, for: .normal)
+        action.backgroundColor = UIColor(red: 0.12, green: 0.42, blue: 0.78, alpha: 1)
+        action.layer.cornerRadius = 12
+        action.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
+        // 押したときの処理は SDK が行う
+        action.isUserInteractionEnabled = false
+
+        for sub in [media, badge, icon, headline, body, action] as [UIView] {
+            sub.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(sub)
+        }
+        NSLayoutConstraint.activate([
+            media.topAnchor.constraint(equalTo: view.topAnchor),
+            media.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            media.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            media.heightAnchor.constraint(equalToConstant: 130),
+
+            badge.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            badge.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            badge.widthAnchor.constraint(equalToConstant: 28),
+            badge.heightAnchor.constraint(equalToConstant: 14),
+
+            icon.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
+            icon.topAnchor.constraint(equalTo: media.bottomAnchor, constant: 10),
+            icon.widthAnchor.constraint(equalToConstant: 32),
+            icon.heightAnchor.constraint(equalToConstant: 32),
+
+            headline.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
+            headline.topAnchor.constraint(equalTo: media.bottomAnchor, constant: 12),
+            headline.trailingAnchor.constraint(lessThanOrEqualTo: action.leadingAnchor, constant: -8),
+
+            body.leadingAnchor.constraint(equalTo: headline.leadingAnchor),
+            body.topAnchor.constraint(equalTo: headline.bottomAnchor, constant: 2),
+            body.trailingAnchor.constraint(lessThanOrEqualTo: action.leadingAnchor, constant: -8),
+
+            action.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
+            action.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
+        ])
+        action.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        view.mediaView = media
+        view.iconView = icon
+        view.headlineView = headline
+        view.bodyView = body
+        view.callToActionView = action
+        apply(ad, to: view)
+        return view
+    }
+
+    func updateUIView(_ view: NativeAdView, context: Context) {
+        if view.nativeAd !== ad { apply(ad, to: view) }
+    }
+
+    private func apply(_ ad: NativeAd, to view: NativeAdView) {
+        view.mediaView?.mediaContent = ad.mediaContent
+        (view.headlineView as? UILabel)?.text = ad.headline
+        (view.bodyView as? UILabel)?.text = ad.body ?? ad.advertiser
+        (view.iconView as? UIImageView)?.image = ad.icon?.image
+        view.iconView?.isHidden = ad.icon == nil
+        (view.callToActionView as? UIButton)?.setTitle(ad.callToAction, for: .normal)
+        view.callToActionView?.isHidden = ad.callToAction == nil
+        view.nativeAd = ad
+    }
+}

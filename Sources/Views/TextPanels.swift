@@ -1423,7 +1423,7 @@ struct EditorFormatKitPanel: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    EditorPillButton(title: showSaveForm ? String(localized: "保存をやめる") : String(localized: "今の範囲をフォーマットとして保存"),
+                    EditorPillButton(title: showSaveForm ? String(localized: "保存をキャンセル") : String(localized: "今の範囲をフォーマットとして保存"),
                                      systemImage: showSaveForm ? "xmark" : "square.and.arrow.down") {
                         showSaveForm.toggle()
                     }

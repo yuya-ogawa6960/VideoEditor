@@ -221,7 +221,7 @@ enum EditorPanel: Hashable {
         }
     }
 
-    /// ✕「やめる」(開いたときの状態に戻す)を出すか。
+    /// ✕「キャンセル」(開いたときの状態に戻す)を出すか。
     /// 選ぶとすぐ追加される・録音するなど、入口として使うパネルでは出さない
     var supportsCancel: Bool {
         switch self {
@@ -328,11 +328,11 @@ enum EditorTimeFormat {
 
 // MARK: - 共通部品
 
-/// パネルの外枠(✕「やめる」+タイトル+✓ボタン+中身)
+/// パネルの外枠(✕「キャンセル」+タイトル+✓ボタン+中身)
 struct EditorPanelContainer<Content: View>: View {
     let title: String
     let height: CGFloat
-    /// nil 以外なら左上に ✕「やめる」(開いたときの状態に戻して閉じる)を出す
+    /// nil 以外なら左上に ✕「キャンセル」(開いたときの状態に戻して閉じる)を出す
     var onCancel: (() -> Void)? = nil
     let onClose: () -> Void
     @ViewBuilder let content: () -> Content
@@ -348,7 +348,7 @@ struct EditorPanelContainer<Content: View>: View {
                         HStack(spacing: 4) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 14, weight: .bold))
-                            Text("やめる")
+                            Text("キャンセル")
                                 .font(.system(size: 12))
                         }
                         .foregroundStyle(Color.white.opacity(0.8))
@@ -357,7 +357,7 @@ struct EditorPanelContainer<Content: View>: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("やめる")
+                    .accessibilityLabel("キャンセル")
                 }
                 Text(title)
                     .font(.subheadline.weight(.semibold))

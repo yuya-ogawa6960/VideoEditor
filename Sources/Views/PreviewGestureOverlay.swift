@@ -118,6 +118,9 @@ struct PreviewGestureOverlay: View {
     @State private var dragRect: CGRect? = nil
     /// 選択中のオーバーレイの代わりの絵(ドラッグ中に半透明で出す)
     @State private var proxyImage: UIImage? = nil
+    // モザイクの四隅のハンドル・回転のつまみ(ドラッグの始まりの状態)
+    @State private var mosaicHandleStart: (center: NormalizedPoint, width: Double, height: Double)? = nil
+    @State private var mosaicKnobActive = false
     /// テキスト/オーバーレイのジェスチャーが続いている間 true(キャンセル時も自動で false に戻る)
     @GestureState private var gestureLive = false
     /// 「ドラッグで移動・2本指で拡大/回転」の案内を出し終えたか(初回だけ出す)
@@ -718,8 +721,14 @@ struct PreviewGestureOverlay: View {
     private func textFrame(_ binding: Binding<TextClip>, size: CGSize) -> some View {
         let clip = binding.wrappedValue
         let rect = Self.estimatedRect(for: clip, in: size)
+        let frameSize = CGSize(width: max(rect.width, 28), height: max(rect.height, 28))
         return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right") {
             textProxy(clip, size: size)
+        }
+        .overlay {
+            if clip.isMosaic {
+                mosaicHandles(binding, size: size, frame: frameSize)
+            }
         }
         .gesture(textGesture(binding, size: size).updating($gestureLive) { _, state, _ in
             state = true
@@ -747,6 +756,138 @@ struct PreviewGestureOverlay: View {
             if Task.isCancelled { return }
             proxyImage = image
         }
+    }
+
+    // MARK: - モザイクのハンドル(四隅で大きさ、上のつまみで回転)
+
+    private enum MosaicCorner: CaseIterable {
+        case topLeft, topRight, bottomLeft, bottomRight
+        var sx: CGFloat { self == .topLeft || self == .bottomLeft ? -1 : 1 }
+        var sy: CGFloat { self == .topLeft || self == .topRight ? -1 : 1 }
+    }
+
+    /// 枠の中に重ねる(枠と一緒に回転する)。四隅の●で幅・高さ、上のつまみで回転
+    private func mosaicHandles(_ binding: Binding<TextClip>, size: CGSize, frame: CGSize) -> some View {
+        let clip = binding.wrappedValue
+        let knobDistance: CGFloat = 30
+        return ZStack {
+            // 回転のつまみ(上辺の中央から線で伸びる)
+            VStack(spacing: 0) {
+                ZStack {
+                    Circle().fill(Color.white)
+                        .frame(width: 28, height: 28)
+                        .shadow(color: Color.black.opacity(0.5), radius: 2)
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.black)
+                }
+                Rectangle()
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: 1.5, height: knobDistance - 14)
+            }
+            .frame(width: 44, height: 44 + knobDistance, alignment: .top)
+            .contentShape(Rectangle())
+            .offset(y: -frame.height / 2 - knobDistance - 8)
+            .gesture(mosaicKnobGesture(binding, size: size, frame: frame, knobDistance: knobDistance + 8))
+
+            if mosaicKnobActive {
+                Text(verbatim: "\(Int(clip.rotation.rounded()))°")
+                    .font(.system(size: 13, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.black.opacity(0.7), in: Capsule())
+                    .rotationEffect(.degrees(-clip.rotation))
+                    .offset(y: -frame.height / 2 - knobDistance - 48)
+                    .allowsHitTesting(false)
+            }
+
+            // 四隅の●(ドラッグで幅・高さ。向かいの角は動かない)
+            ForEach(MosaicCorner.allCases, id: \.self) { corner in
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 18, height: 18)
+                    .overlay(Circle().stroke(Color.black.opacity(0.6), lineWidth: 1))
+                    .shadow(color: Color.black.opacity(0.5), radius: 2)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+                    .offset(x: corner.sx * frame.width / 2, y: corner.sy * frame.height / 2)
+                    .gesture(mosaicCornerGesture(binding, corner: corner, size: size))
+            }
+        }
+    }
+
+    private func mosaicCornerGesture(_ binding: Binding<TextClip>, corner: MosaicCorner, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                var clip = binding.wrappedValue
+                if mosaicHandleStart == nil {
+                    history.record(project)
+                    openInteraction()
+                    mosaicHandleStart = (clip.center,
+                                         clip.widthRatio * clip.scale,
+                                         (clip.mosaic?.heightRatio ?? 0.22) * clip.scale)
+                }
+                guard let start = mosaicHandleStart else { return }
+                // 指の動きを、モザイクの向きに合わせた軸(枠の縦横)へ直す
+                let r = clip.rotation * Double.pi / 180
+                let dx = value.translation.width
+                let dy = value.translation.height
+                let lx = dx * cos(r) + dy * sin(r)
+                let ly = -dx * sin(r) + dy * cos(r)
+                let w0 = CGFloat(start.width) * size.width
+                let h0 = CGFloat(start.height) * size.height
+                let minSide: CGFloat = 24
+                let w = max(minSide, w0 + corner.sx * lx)
+                let h = max(minSide, h0 + corner.sy * ly)
+                // 向かいの角を動かさない: 中心を枠の軸で (Δw/2, Δh/2) ずらし、画面の向きに戻す
+                let sx = corner.sx * (w - w0) / 2
+                let sy = corner.sy * (h - h0) / 2
+                let shiftX = sx * cos(r) - sy * sin(r)
+                let shiftY = sx * sin(r) + sy * cos(r)
+                let scale = max(clip.scale, 0.01)
+                clip.widthRatio = min(max(Double(w / max(size.width, 1)) / scale, 0.02), 3)
+                clip.mosaic?.heightRatio = min(max(Double(h / max(size.height, 1)) / scale, 0.02), 3)
+                clip.center = NormalizedPoint(x: start.center.x + Double(shiftX / max(size.width, 1)),
+                                              y: start.center.y + Double(shiftY / max(size.height, 1)))
+                binding.wrappedValue = clip
+            }
+            .onEnded { _ in
+                mosaicHandleStart = nil
+                closeInteraction()
+            }
+    }
+
+    private func mosaicKnobGesture(_ binding: Binding<TextClip>, size: CGSize, frame: CGSize,
+                                   knobDistance: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                var clip = binding.wrappedValue
+                if !mosaicKnobActive {
+                    history.record(project)
+                    openInteraction()
+                    mosaicKnobActive = true
+                    session.startRotation = clip.rotation
+                }
+                // つまみの最初の位置(中心からのベクトル、画面の向き)に指の動きを足して角度にする
+                let r0 = session.startRotation * Double.pi / 180
+                let length = frame.height / 2 + knobDistance
+                let knob = CGPoint(x: length * sin(r0), y: -length * cos(r0))
+                let v = CGPoint(x: knob.x + value.translation.width, y: knob.y + value.translation.height)
+                var degrees = atan2(Double(v.y), Double(v.x)) * 180 / Double.pi + 90
+                if degrees > 180 { degrees -= 360 }
+                if degrees < -180 { degrees += 360 }
+                // 0° / 90° / 180° の近くは吸い付く
+                for snap in [-180.0, -90.0, 0.0, 90.0, 180.0] where abs(degrees - snap) < 4 {
+                    degrees = snap == 180 ? -180 : snap
+                }
+                clip.rotation = degrees
+                binding.wrappedValue = clip
+            }
+            .onEnded { _ in
+                mosaicKnobActive = false
+                closeInteraction()
+            }
     }
 
     // MARK: - テキストのジェスチャー

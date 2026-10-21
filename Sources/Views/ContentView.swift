@@ -79,7 +79,7 @@ struct ContentView: View {
     @State private var toast: EditorToast?
     /// 1.5: ツールバーで開いているグループ(選択が変わると閉じる)
     @State private var toolbarGroupPath: [String] = []
-    /// 1.5: パネルを開いたときの状態(✕「やめる」で戻す)
+    /// 1.5: パネルを開いたときの状態(✕「キャンセル」で戻す)
     @State private var panelSnapshot: ProjectSnapshot?
     /// 1.5: タイムラインの「+」から開く PhotosPicker
     @State private var showMediaPicker = false
@@ -799,7 +799,7 @@ struct ContentView: View {
         }
     }
 
-    /// パネルの ✕「やめる」。開いたときの状態に戻して閉じる
+    /// パネルの ✕「キャンセル」。開いたときの状態に戻して閉じる
     private func cancelPanel(_ panel: EditorPanel) {
         if panel == .drawingCanvas {
             cancelDrawing()
@@ -2583,7 +2583,7 @@ struct ContentView: View {
     /// パネルを開く。開く直前の状態を 1 回だけ記録し、パネル内の変更を 1 回の「元に戻す」で戻せるようにする
     private func openPanel(_ panel: EditorPanel) {
         history.record(project)
-        // ✕「やめる」で戻す状態
+        // ✕「キャンセル」で戻す状態
         panelSnapshot = project.snapshot()
         activePanel = panel
         Analytics.shared.track("panel", ["name": Self.analyticsName(of: panel)])
@@ -2615,7 +2615,7 @@ struct ContentView: View {
         project.textClips.append(clip)
         project.sortTextClips()
         selection = .text(clip.id)
-        // 履歴は追加前に記録済みなので openPanel は使わない。✕「やめる」で追加前に戻る
+        // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻る
         panelSnapshot = before
         activePanel = .textStyle(clip.id)
         player.seek(to: start)
@@ -2708,7 +2708,7 @@ struct ContentView: View {
         project.markers.append(marker)
         project.sortMarkers()
         selection = .marker(marker.id)
-        // 履歴は追加前に記録済みなので openPanel は使わない。✕「やめる」で追加前に戻る
+        // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻る
         panelSnapshot = before
         activePanel = .markerName(marker.id)
     }
@@ -2830,7 +2830,7 @@ struct ContentView: View {
         isImporting = false
         if let lastAdded {
             selection = .overlay(lastAdded)
-            // 履歴は追加前に記録済みなので openPanel は使わない。✕「やめる」で追加前に戻せる
+            // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻せる
             panelSnapshot = before
             activePanel = .overlayPlacement(lastAdded)
         }
@@ -2996,7 +2996,7 @@ struct ContentView: View {
             let before = project.snapshot()
             history.record(project)
             project.clips[j].filter.adjustments = adjustments
-            // 結果を確認・微調整できるよう色調整パネルを開く(履歴は記録済み。✕「やめる」で補正前に戻る)
+            // 結果を確認・微調整できるよう色調整パネルを開く(履歴は記録済み。✕「キャンセル」で補正前に戻る)
             panelSnapshot = before
             activePanel = .colorAdjust(clipID)
             showToast(String(localized: "自動補正しました"), undo: true)

@@ -43,14 +43,26 @@ struct EditorMosaicPanel: View {
                             value: style.strength,
                             range: 0...1,
                             display: "\(Int((style.wrappedValue.strength * 100).rounded()))%")
-            EditorSliderRow(title: String(localized: "幅"),
-                            value: $clip.widthRatio,
-                            range: 0.05...1,
-                            display: "\(Int((clip.widthRatio * 100).rounded()))%")
-            EditorSliderRow(title: String(localized: "高さ"),
-                            value: style.heightRatio,
-                            range: 0.05...1,
-                            display: "\(Int((style.wrappedValue.heightRatio * 100).rounded()))%")
+            // 大きさはプレビューの四隅の●、回転は上のつまみ(ここでは微調整だけ)
+            Text("大きさ: プレビューの枠の四隅にある ● をドラッグ(向かいの角は動きません)。位置: 枠の中をドラッグ。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Text(String(localized: "回転 \(Int(clip.rotation.rounded()))°"))
+                    .font(.caption)
+                    .monospacedDigit()
+                Spacer()
+                EditorChip(title: "-15°", isSelected: false) { clip.rotation = Self.normalized(clip.rotation - 15) }
+                EditorChip(title: "-1°", isSelected: false) { clip.rotation = Self.normalized(clip.rotation - 1) }
+                EditorChip(title: "0°", isSelected: false) { clip.rotation = 0 }
+                EditorChip(title: "+1°", isSelected: false) { clip.rotation = Self.normalized(clip.rotation + 1) }
+                EditorChip(title: "+15°", isSelected: false) { clip.rotation = Self.normalized(clip.rotation + 15) }
+            }
+            Text("回転: プレビューの枠の上にあるつまみを回すか、2 本指でひねります。0°・90° の近くでは吸い付きます。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             Button("リセット") {
                 var reset = MosaicStyle()
@@ -63,6 +75,13 @@ struct EditorMosaicPanel: View {
             .font(.system(size: 14))
             .frame(minHeight: 44)
         }
+    }
+
+    private static func normalized(_ degrees: Double) -> Double {
+        var d = degrees.truncatingRemainder(dividingBy: 360)
+        if d > 180 { d -= 360 }
+        if d < -180 { d += 360 }
+        return d
     }
 }
 
