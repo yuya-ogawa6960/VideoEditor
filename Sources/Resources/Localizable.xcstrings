@@ -27739,6 +27739,29 @@
         }
       }
     },
+    "広告": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ad"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anuncio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anúncio"
+          }
+        }
+      }
+    },
     "広告を見て +%lld ポイント(今日あと %lld 回)": {
       "extractionState": "manual",
       "localizations": {

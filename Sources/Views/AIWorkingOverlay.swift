@@ -101,6 +101,7 @@ struct AIWorkingCard: View {
                 Text(progress.title)
                     .font(.callout)
             }
+            NativeAdCard()
             Label(BackgroundWorkNote.analysis,
                   systemImage: BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle")
                 .font(.caption2)

@@ -387,6 +387,7 @@ struct SubtitleEditorView: View {
             Label(BackgroundWorkNote.transcription, systemImage: "lock.open")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            NativeAdCard()
             Button("文字起こしを止める", role: .destructive) {
                 cancelTranscription()
             }

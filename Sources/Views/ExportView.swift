@@ -719,6 +719,7 @@ struct ExportView: View {
             Label(BackgroundWorkNote.export, systemImage: "lock.open")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            NativeAdCard()
         }
         .padding(.vertical, 4)
         .onDisappear { AnalysisPeek.shared.clear() }
@@ -732,6 +733,9 @@ struct ExportView: View {
             case .finished, .failed, .cancelled:
                 Section {
                     resultView
+                    if exporter.state == .finished {
+                        NativeAdCard()
+                    }
                 }
             default:
                 EmptyView()

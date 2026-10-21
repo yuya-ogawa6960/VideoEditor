@@ -8,6 +8,7 @@ import GoogleMobileAds
 // 広告(Google AdMob)
 //   - インタースティシャル(全画面): 書き出し開始・書き出し完了・AI の解析の開始と完了・プロジェクトを閉じたとき。
 //     出しすぎないよう、前の広告から minimumInterval 秒あける
+//   - ネイティブ: NativeAdCard(処理中の画面・AI 処理中のカード・書き出し完了画面)
 //   - リワード: 「広告を見て +ポイント」。見終わったら AccountService.claimAdReward() でサーバーに伝える
 //     (本番は AdMob のサーバー側検証(SSV)でサーバーが直接ポイントを足す。userIdentifier に利用者 ID を渡す)
 //   - TestFlight / デバッグでは Google のテスト用広告を出す(自分の本番広告を見たり押したりしないため)
@@ -24,7 +25,8 @@ final class AdsManager: NSObject {
 
     // 本番の広告ユニット(AdMob「Video Mania」)
     private static let liveInterstitialUnit = "ca-app-pub-5816286661245536/1383318055"
-    private static let liveRewardedUnit = "ca-app-pub-5816286661245536/8409172668"
+    /// 本番のリワード広告ユニット(AdMob で作ったら入れる。空のあいだ本番ではボタンを出さない)
+    private static let liveRewardedUnit = ""
     // Google のテスト用広告ユニット
     private static let testInterstitialUnit = "ca-app-pub-3940256099942544/4411468910"
     private static let testRewardedUnit = "ca-app-pub-3940256099942544/1712485313"
@@ -43,6 +45,9 @@ final class AdsManager: NSObject {
 
     private var interstitialUnit: String { Self.usesTestAds ? Self.testInterstitialUnit : Self.liveInterstitialUnit }
     private var rewardedUnit: String { Self.usesTestAds ? Self.testRewardedUnit : Self.liveRewardedUnit }
+
+    /// リワード広告(見てポイント)を使えるか
+    static var hasRewarded: Bool { usesTestAds || !liveRewardedUnit.isEmpty }
 
     private(set) var isStarted = false
     /// リワード広告の準備ができているか(ボタンの有効・無効に使う)
@@ -69,6 +74,7 @@ final class AdsManager: NSObject {
         }
         loadInterstitial()
         loadRewarded()
+        NativeAdProvider.shared.preload()
     }
 
     // MARK: インタースティシャル
@@ -98,6 +104,7 @@ final class AdsManager: NSObject {
 
     private func loadRewarded() {
         isRewardedReady = false
+        guard Self.hasRewarded else { return }
         RewardedAd.load(with: rewardedUnit, request: Request()) { [weak self] ad, _ in
             Task { @MainActor in
                 guard let self else { return }

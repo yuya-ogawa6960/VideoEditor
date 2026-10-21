@@ -33,7 +33,7 @@ struct AccountPointsSection: View {
                 .disabled(!account.dailyAvailable)
 
                 // 広告を見てポイント(リワード広告)
-                if account.adRewardLimit > 0 {
+                if account.adRewardLimit > 0, AdsManager.hasRewarded {
                     Button {
                         watchAd()
                     } label: {
