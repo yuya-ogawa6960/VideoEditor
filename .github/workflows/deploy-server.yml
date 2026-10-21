@@ -47,6 +47,12 @@ jobs:
           ACCOUNT=$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')
           OPENAI=$(printf '%s' "$OPENAI_API_KEY" | tr -d '[:space:]')
           echo "::add-mask::$TOKEN"
+          # アカウント ID はトークンから取り出せればそちらを使う(貼り付けた ID が途中で切れていても動くように)
+          FOUND=$(curl -s -H "Authorization: Bearer $TOKEN" "https://api.cloudflare.com/client/v4/accounts"             | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const r=JSON.parse(s).result||[];process.stdout.write(r.length?r[0].id:"")}catch(e){}})')
+          if [ -n "$FOUND" ]; then
+            if [ "$FOUND" != "$ACCOUNT" ]; then echo "登録されたアカウント ID と違うため、トークンから取り出した ID を使います(長さ: ${#ACCOUNT} → ${#FOUND})"; fi
+            ACCOUNT="$FOUND"
+          fi
           echo "::add-mask::$ACCOUNT"
           echo "::add-mask::$OPENAI"
           {
