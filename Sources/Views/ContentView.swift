@@ -840,7 +840,7 @@ struct ContentView: View {
         // ---- 第3弾: クリップ ----
         case .transition(let clipID):
             if let clip = project.clipBinding(id: clipID) {
-                EditorTransitionPanel(project: project, clip: clip)
+                EditorTransitionPanel(project: project, clip: clip, player: player)
             } else {
                 EditorMissingPanelContent()
             }

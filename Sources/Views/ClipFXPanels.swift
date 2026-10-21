@@ -100,6 +100,7 @@ private func clipFXPercent(_ value: Double) -> String {
 struct EditorTransitionPanel: View {
     let project: EditorProject
     @Binding var clip: Clip
+    var player: PlayerController? = nil
 
     @State private var showApplyAllConfirm = false
 
@@ -160,6 +161,11 @@ struct EditorTransitionPanel: View {
             }
         }
         .padding(.top, 6)
+        // 選んでいる間は、切り替わりの 2 秒前から 2 秒後までをプレビューで繰り返し再生する
+        .onAppear { updateLoop() }
+        .onChange(of: clip.transition) { _, _ in updateLoop() }
+        .onChange(of: player?.duration ?? 0) { _, _ in updateLoop() }
+        .onDisappear { player?.stopLoop() }
         .confirmationDialog("このトランジションをすべてのクリップに使いますか?",
                             isPresented: $showApplyAllConfirm,
                             titleVisibility: .visible) {
@@ -170,6 +176,30 @@ struct EditorTransitionPanel: View {
                 }
             }
             Button("キャンセル", role: .cancel) {}
+        }
+    }
+}
+
+extension EditorTransitionPanel {
+    /// 切り替わり(重なり)の 2 秒前〜2 秒後
+    private var loopRange: ClosedRange<Double>? {
+        guard !isLast else { return nil }
+        let snapshot = project.snapshot()
+        let layout = CompositionBuilder.timelineLayout(for: snapshot)
+        guard let i = layout.firstIndex(where: { $0.clipID == clip.id }), i + 1 < layout.count else { return nil }
+        let cutEnd = layout[i].end
+        let cutStart = layout[i + 1].start
+        let lower = max(0, min(cutStart, cutEnd) - 2)
+        let upper = max(cutStart, cutEnd) + 2
+        return lower...upper
+    }
+
+    fileprivate func updateLoop() {
+        guard let player else { return }
+        if let range = loopRange {
+            player.startLoop(range)
+        } else {
+            player.stopLoop()
         }
     }
 }

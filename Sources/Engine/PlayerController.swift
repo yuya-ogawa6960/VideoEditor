@@ -32,6 +32,8 @@ final class PlayerController {
     @ObservationIgnored private var interactionDepth: Int = 0
     /// 操作中に届いた最新のスナップショット(endInteraction で 1 回だけ反映する)
     @ObservationIgnored private var pendingSnapshot: ProjectSnapshot?
+    /// 区間の繰り返し再生(トランジション選択中など)。nil なら通常再生
+    @ObservationIgnored private var loopRange: ClosedRange<Double>?
 
     init() {
         player = AVPlayer()
@@ -152,7 +154,15 @@ final class PlayerController {
         player.replaceCurrentItem(with: item)
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
                                                              object: item, queue: .main) { [weak self] _ in
-            self?.isPlaying = false
+            guard let self else { return }
+            if let range = self.loopRange {
+                // 繰り返し区間が作品の終わりまで続くときは、終わりで頭に戻す
+                self.seek(to: range.lowerBound)
+                self.player.play()
+                self.isPlaying = true
+            } else {
+                self.isPlaying = false
+            }
         }
 
         let seconds = built.duration.seconds
@@ -200,6 +210,10 @@ final class PlayerController {
             }
         }
         let playing = player.currentItem != nil && player.timeControlStatus != .paused
+        if let range = loopRange, playing, pendingSeeks == 0, scrubTarget == nil,
+           currentTime >= range.upperBound || currentTime < range.lowerBound - 0.05 {
+            seek(to: range.lowerBound)
+        }
         if playing != isPlaying {
             isPlaying = playing
         }
@@ -228,6 +242,28 @@ final class PlayerController {
     func pause() {
         player.pause()
         isPlaying = false
+    }
+
+    /// 区間を繰り返し再生する(頭から再生を始める)
+    func startLoop(_ range: ClosedRange<Double>) {
+        let lower = clampedTime(range.lowerBound)
+        let upper = max(lower + 0.2, clampedTime(range.upperBound))
+        let newRange = lower...upper
+        let changed = loopRange != newRange
+        loopRange = newRange
+        guard player.currentItem != nil else { return }
+        if changed || !isPlaying || currentTime < lower || currentTime > upper {
+            seek(to: lower)
+        }
+        player.play()
+        isPlaying = true
+    }
+
+    /// 繰り返し再生をやめて一時停止する
+    func stopLoop() {
+        guard loopRange != nil else { return }
+        loopRange = nil
+        pause()
     }
 
     func togglePlay() {
