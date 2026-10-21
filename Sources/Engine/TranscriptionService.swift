@@ -346,6 +346,8 @@ private final class WhisperRunState: @unchecked Sendable {
 final class TranscriptionService {
     private(set) var isRunning: Bool = false
     private(set) var progress: Double = 0
+    /// Whisper のモデルを準備(ダウンロード・読み込み)している間は true。進み具合は % ではなく「準備中」として見せる
+    private(set) var isPreparingModel: Bool = false
     private(set) var statusText: String = ""
 
     /// SFSpeech 経路の 1チャンクの最大長(秒)
@@ -567,6 +569,7 @@ final class TranscriptionService {
         var whisperRun: WhisperRunState? = nil
         if engine == .whisper {
             await updateUI(status: String(localized: "Whisperモデルを確認中…"))
+            await MainActor.run { self.isPreparingModel = true }
             let prepareSequence = StatusSequence()
             let preparePhase = PhaseFlag()
             defer { preparePhase.end() }
@@ -574,11 +577,14 @@ final class TranscriptionService {
                 guard let self else { return }
                 let seq = prepareSequence.next()
                 Task {
-                    await self.applyRunningStatus(status, progress: fraction, prefix: "",
+                    // 準備の進み具合は状態文(「ダウンロード中 45%」など)で見せ、全体の % には入れない
+                    // (入れると、読み込みの間ずっと「100%」のまま止まって見えた)
+                    await self.applyRunningStatus(status, progress: nil, prefix: "",
                                                   isCurrent: { preparePhase.isActive && prepareSequence.claim(seq) })
                 }
             }
             preparePhase.end()
+            await MainActor.run { self.isPreparingModel = false }
             try checkCancelled()
             whisperRun = WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
             await updateUI(progress: 0, status: TranscriptionService.whisperStatusPrefix + "…")
@@ -1236,7 +1242,10 @@ final class TranscriptionService {
     private func updateUI(running: Bool? = nil, progress: Double? = nil, status: String? = nil) async {
         let handle = continuedHandle
         await MainActor.run {
-            if let running { self.isRunning = running }
+            if let running {
+                self.isRunning = running
+                if !running { self.isPreparingModel = false }
+            }
             if let progress { self.progress = min(max(progress, 0), 1) }
             if let status {
                 if running == nil, self.isRunning, TranscriptionService.isInterruptionStatus(self.statusText) {

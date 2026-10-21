@@ -255,7 +255,7 @@ struct SubtitleEditorView: View {
         .overlay {
             if isTranscribing {
                 TranscriptionWorkingOverlay(project: project,
-                                            fraction: transcriber.progress,
+                                            fraction: transcriber.isPreparingModel ? nil : transcriber.progress,
                                             status: isCancellingTranscription
                                                 ? String(localized: "キャンセルしています…")
                                                 : (transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText),

@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreML
 import UIKit
 #if canImport(WhisperKit)
 import WhisperKit
@@ -17,7 +18,8 @@ import WhisperKit
 //   ピースを短くしないのは意図的: VAD 分割と単語時刻は WhisperKit がピース内で行うので、ピースの境界は少ない方が
 //   文の途中で切れにくく、ピースごとの準備(配列化・VAD)の無駄も少ない。ピースが長くて進捗が止まって見えないよう、
 //   ピース内の進み具合を WhisperKit の Progress と処理速度から見積もって約 0.25 秒ごとに返す
-// - モデルの読み込み(初回は CoreML の Neural Engine 向け特殊化で数分)の間は経過時間を状態文で返す
+// - モデルは GPU で動かす(Neural Engine だと初回の特殊化に iPhone で数分〜10 分かかり、アプリの更新のたびにやり直しに
+//   なることもあった。GPU なら読み込みは数秒〜数十秒)。読み込みの間は経過時間を状態文で返す
 // - 読み込みには 2 回目以降も時間がかかるので、使い終わってもすぐには解放せず keepLoadedSeconds 置いておく
 //   (作り直すときに待たない)。字幕の画面を開いたら先に読み込んでおく(preload)。
 //   メモリが足りないとき・バックグラウンドに入ったときは、使っていなければすぐ解放する
@@ -335,12 +337,9 @@ final class WhisperTranscriber {
         }
         try Task.checkCancellation()
 
-        // 読み込み(CoreML の Neural Engine 向け特殊化を含む)は初回に数分かかり、その間は進捗が取れない。
-        // 止まっていると思われないよう、20 秒を過ぎたら経過時間を 5 秒ごとに添えて知らせる。
+        // 読み込みの間は進捗が取れない。止まっていると思われないよう、20 秒を過ぎたら経過時間を 5 秒ごとに添えて知らせる。
         // 先読み(preload)が読み込み中なら、それが終わるのを待つ間もこの表示にする
-        let loadingText = Self.hasLoadedBefore(model)
-            ? String(localized: "Whisperモデルを読み込み中…")
-            : String(localized: "Whisperモデルを準備中(初回のみ数分かかります)…")
+        let loadingText = String(localized: "Whisperモデルを読み込み中…")
         progress(1, loadingText)
         let loadStart = Date()
         let ticker = Task {
@@ -373,6 +372,10 @@ final class WhisperTranscriber {
         config.prewarm = false
         config.load = true
         config.download = false
+        // GPU で動かす(既定の Neural Engine は初回の特殊化に iPhone で数分〜10 分かかる)
+        config.computeOptions = ModelComputeOptions(melCompute: .cpuAndGPU,
+                                                    audioEncoderCompute: .cpuAndGPU,
+                                                    textDecoderCompute: .cpuAndGPU)
 
         // CoreML の読み込みは途中で止められない。キャンセルされたら待つのをやめてすぐ戻り(画面はすぐ閉じる)、
         // 読み込みは裏で最後まで続けて次回に使う(使われなければ keepLoadedSeconds 後に解放)
@@ -744,11 +747,6 @@ final class WhisperTranscriber {
             lock.unlock()
             try await Task.sleep(nanoseconds: 200_000_000)
         }
-    }
-
-    /// このモデルを一度でも読み込めたか(2 回目以降は「初回のみ数分」と出さない)
-    private static func hasLoadedBefore(_ model: String) -> Bool {
-        UserDefaults.standard.bool(forKey: loadedOnceKey(model))
     }
 
     private static func loadedOnceKey(_ model: String) -> String {

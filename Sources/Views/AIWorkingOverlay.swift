@@ -353,7 +353,8 @@ struct RobotWorkshop: View {
 /// 上には、いま読み取っている位置のコマを元素材から取り出して見せる(進み具合から作品の時刻を求め、1 秒以上動いたら取り直す)
 struct TranscriptionWorkingOverlay: View {
     let project: EditorProject
-    let fraction: Double
+    /// nil のときは % を出さない(モデルの準備中など)
+    let fraction: Double?
     let status: String
     /// nil のときはキャンセルボタンを出さない(キャンセルを押して止まるのを待っている間)
     let onCancel: (() -> Void)?
@@ -377,14 +378,14 @@ struct TranscriptionWorkingOverlay: View {
                               onCancel: onCancel)
             }
         }
-        .task(id: Int((min(max(fraction, 0), 1) * 100).rounded())) {
+        .task(id: Int((min(max(fraction ?? 0, 0), 1) * 100).rounded())) {
             await reload()
         }
     }
 
     private func reload() async {
         let total = CompositionBuilder.totalDuration(for: project.snapshot())
-        let time = min(max(fraction, 0), 1) * total
+        let time = min(max(fraction ?? 0, 0), 1) * total
         guard frame == nil || abs(time - lastTime) >= 1 else { return }
         guard let location = project.locate(timelineTime: time), location.index < project.clips.count else { return }
         let clip = project.clips[location.index]
