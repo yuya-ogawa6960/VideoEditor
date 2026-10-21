@@ -177,7 +177,6 @@ struct ExportView: View {
             WorkingCardWithAd { inlineAd in
                 AIWorkingCard(title: String(localized: "書き出しています"),
                               fraction: progress,
-                              task: .editing,
                               detail: detail.isEmpty ? nil : detail,
                               note: BackgroundWorkNote.export,
                               noteIcon: BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle",
