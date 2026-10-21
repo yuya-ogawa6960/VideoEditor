@@ -266,7 +266,7 @@ private struct CornerBrackets: Shape {
     }
 }
 
-// MARK: - ロボット
+// MARK: - ロボット(Gemini で作った粘土の画像パーツを組み合わせて動かす)
 
 /// 動きをなめらかにする小さな関数(急に始まったり止まったり、パッと切り替わったりしないように)
 private enum RobotMotion {
@@ -377,6 +377,7 @@ private struct CarrierRobot: View {
         pose.tilt = stride * 3 * moving
         pose.step = t * 1.3
         pose.moving = moving
+        pose.happy = moving < 0.05 && p > 0.4 && p < 0.56
         pose.bob = CGFloat(sin(t * 1.6)) * 1.2
         pose.blink = RobotMotion.blink(t)
         pose.antenna = CGFloat(sin(t * 1.3)) * 1.5
@@ -416,7 +417,6 @@ private struct EditorRobot: View {
         case .editing: pose.tool = ([.scissors, .tape, .brush] as [RobotToolKind])[step]
         }
         pose.toolPresence = presence
-        pose.open = (sin(t * 5) + 1) / 2
         pose.look = 1.5
         pose.bob = CGFloat(sin((t + 0.7) * 1.6 * tempo)) * 1.2
         pose.blink = RobotMotion.blink((t + 0.7) * tempo)
@@ -505,6 +505,7 @@ private struct DirectorRobot: View {
             pose.rightArm = 80 + sway * 4
         }
         pose.shout = shout
+        pose.happy = shout > 0.5
         pose.look = 1.5
         pose.bob = CGFloat(sin((t + 1.4) * 1.6 * tempo)) * 1.2
         pose.blink = RobotMotion.blink((t + 1.4) * tempo)
@@ -513,9 +514,33 @@ private struct DirectorRobot: View {
     }
 }
 
-/// ロボットの道具
+/// ロボットの道具(Gemini で作った粘土の画像パーツ)
 private enum RobotToolKind {
     case magnifier, scissors, tape, brush, megaphone, pencil
+
+    var image: String {
+        switch self {
+        case .magnifier: return "robot_magnifier"
+        case .scissors: return "robot_scissors"
+        case .tape: return "robot_tape"
+        case .brush: return "robot_brush"
+        case .megaphone: return "robot_megaphone"
+        case .pencil: return "robot_pencil"
+        }
+    }
+
+    /// 画像の大きさ(ロボット座標)、手に入る点(画像の中の割合)、画像の中で道具が向いている向き(度。0 = 右、90 = 下)。
+    /// 持つときは「手に入る点」を手の中心に合わせ、向きが腕の向きと同じになるように回す
+    var spec: (size: CGSize, grip: UnitPoint, direction: Double) {
+        switch self {
+        case .scissors: return (CGSize(width: 23, height: 24.5), UnitPoint(x: 0.74, y: 0.80), -125)
+        case .magnifier: return (CGSize(width: 17, height: 23), UnitPoint(x: 0.80, y: 0.86), -125)
+        case .megaphone: return (CGSize(width: 24, height: 23.5), UnitPoint(x: 0.74, y: 0.86), -150)
+        case .brush: return (CGSize(width: 17, height: 22), UnitPoint(x: 0.22, y: 0.78), -52)
+        case .pencil: return (CGSize(width: 15.5, height: 21), UnitPoint(x: 0.62, y: 0.40), 130)
+        case .tape: return (CGSize(width: 22, height: 15), UnitPoint(x: 0.45, y: 0.55), 0)
+        }
+    }
 }
 
 /// ロボットの姿勢(1 コマ分の描画パラメータ)
@@ -524,6 +549,8 @@ private struct RobotPose {
     var bob: CGFloat = 0
     /// まばたき(0 = 開く、1 = 閉じる)
     var blink: Double = 0
+    /// にっこり顔にする(フィルムを渡すとき、「!」のときなど)
+    var happy = false
     /// 目線の横ずれ(右を見ると +)
     var look: CGFloat = 0
     /// アンテナの先の横揺れ
@@ -535,8 +562,6 @@ private struct RobotPose {
     var tool: RobotToolKind? = nil
     /// 道具の見え方(0...1)。持ち替える間は薄く小さく、腕も下ろす
     var toolPresence: Double = 1
-    /// はさみの開き(0...1)
-    var open: Double = 0.5
     /// メガホンの音(0...1)
     var shout: Double = 0
     /// 胸の前にフィルムを持っている度合い(0...1)
@@ -551,225 +576,123 @@ private struct RobotPose {
     var headphones = false
 }
 
-/// かわいいロボット。72 × 92 の座標で描く(道具は右へはみ出すので、既定の幅は 100)
+/// 画像パーツの大きさと位置(72 × 92 のロボット座標。ブラウザの試作 robot_rig.html と同じ数字)
+private enum RobotRig {
+    static let faceSize = CGSize(width: 50, height: 44)
+    static let faceCenter = CGPoint(x: 36, y: 30)
+    static let antennaSize = CGSize(width: 14, height: 17)
+    /// アンテナの根元(頭の上の右寄り)。ここを軸に揺れる
+    static let antennaFoot = CGPoint(x: 44, y: 12)
+    static let antennaTilt = 18.0
+    static let torsoSize = CGSize(width: 34, height: 35)
+    static let torsoCenter = CGPoint(x: 36, y: 64)
+    static let legSize = CGSize(width: 14, height: 15.5)
+    static let legY: CGFloat = 84
+    static let legLeftX: CGFloat = 28.5
+    static let legRightX: CGFloat = 43.5
+    /// 腕の画像は「肩が上・手が下」。肩(画像の上端中央)を軸に回す
+    static let armSize = CGSize(width: 11, height: 22.5)
+    static let armY: CGFloat = 52
+    static let armLeftX: CGFloat = 21
+    static let armRightX: CGFloat = 51
+    static let armPivot = UnitPoint(x: 0.5, y: 0.03)
+    /// 手(青い球)の中心の、画像の縦方向の位置(割合)
+    static let armHandY: CGFloat = 0.747
+    static let filmSize = CGSize(width: 32, height: 21)
+    static let filmCenter = CGPoint(x: 36, y: 66)
+    static let headphonesSize = CGSize(width: 56, height: 46)
+    static let headphonesCenter = CGPoint(x: 36, y: 28)
+}
+
+/// 粘土のロボット(画像パーツを組み合わせて動かす)。72 × 92 の座標で組む(道具は右へはみ出すので、既定の幅は 100)
 private struct Robot: View {
     let pose: RobotPose
     var scale: CGFloat = 1
     var width: CGFloat = 100
 
     var body: some View {
-        Canvas { context, _ in
-            context.scaleBy(x: scale, y: scale)
-            RobotPainter.draw(pose, in: context)
-        }
-        .frame(width: width * scale, height: 92 * scale)
-    }
-}
-
-/// ロボットを 1 コマ描く(Canvas)。頭 = 白い丸角 + 黒いバイザーに光る目、体 = ブランドのグラデーション、胸にハート
-private enum RobotPainter {
-    static let green = Color(red: 0.24, green: 0.79, blue: 0.49)
-    static let blue = Color(red: 0.18, green: 0.55, blue: 0.91)
-    static let cyan = Color(red: 0.62, green: 0.91, blue: 1.0)
-    static let navy = Color(red: 0.12, green: 0.14, blue: 0.20)
-    static let gray = Color(red: 0.79, green: 0.81, blue: 0.85)
-    static let hand = Color(red: 0.93, green: 0.94, blue: 0.96)
-    static let dark = Color(red: 0.23, green: 0.25, blue: 0.29)
-    static let steel = Color(red: 0.56, green: 0.58, blue: 0.64)
-    static let light = Color(red: 0.90, green: 0.91, blue: 0.94)
-    static let blush = Color(red: 1, green: 0.47, blue: 0.63).opacity(0.55)
-    static let phones = Color(red: 0.17, green: 0.18, blue: 0.23)
-
-    static func draw(_ pose: RobotPose, in c: GraphicsContext) {
         let hb = pose.bob
         let bb = pose.bob / 2
-        // 足(歩くときは交互に上がる)
-        var stepL: CGFloat = 0
-        var stepR: CGFloat = 0
-        if let step = pose.step {
-            let s = sin(step * 2 * Double.pi)
-            stepL = CGFloat(max(0, s) * 3 * pose.moving)
-            stepR = CGFloat(max(0, -s) * 3 * pose.moving)
-        }
-        rrect(c, 22, 78 - stepL, 12, 6, 3, dark)
-        rrect(c, 38, 78 - stepR, 12, 6, 3, dark)
-        // アンテナ
-        let ax = 36 + pose.antenna
-        var stem = Path()
-        stem.move(to: CGPoint(x: 36, y: 12 + hb))
-        stem.addLine(to: CGPoint(x: ax, y: 4 + hb))
-        c.stroke(stem, with: .color(Color.white.opacity(0.85)), lineWidth: 2)
-        circle(c, ax, 3 + hb, 6, fill: Color(red: 1, green: 0.63, blue: 0.24).opacity(0.28))
-        circle(c, ax, 3 + hb, 3.6, fill: Color(red: 1, green: 0.64, blue: 0.24))
-        // 首・体・胸のハート
-        rrect(c, 33, 46 + bb, 6, 6, 1.5, Color(red: 0.72, green: 0.75, blue: 0.79))
-        c.fill(Path(roundedRect: CGRect(x: 18, y: 50 + bb, width: 36, height: 26), cornerRadius: 11),
-               with: .linearGradient(Gradient(colors: [green, blue]),
-                                     startPoint: CGPoint(x: 0, y: 50 + bb),
-                                     endPoint: CGPoint(x: 0, y: 76 + bb)))
-        heart(c, 36, 61 + bb, Color.white.opacity(0.92))
-        // 腕と手
-        let hl = limb(c, 19, 56 + bb, length: 14, width: 6, angle: pose.leftArm, color: gray)
-        circle(c, hl.x, hl.y, 4.2, fill: hand)
-        let hr = limb(c, 53, 56 + bb, length: 14, width: 6, angle: pose.rightArm, color: gray)
-        circle(c, hr.x, hr.y, 4.2, fill: hand)
-        // 胸の前のフィルム
-        if pose.holdFilm > 0.01 {
-            var k = c
-            k.opacity = pose.holdFilm
-            film(k, 19, 58 + bb, 34, 13, tilt: pose.tilt)
-        }
-        // 右手の道具(手の位置を原点に、腕の向きへ回す)
-        if let kind = pose.tool, pose.toolPresence > 0.01 {
-            var k = c
-            k.translateBy(x: hr.x, y: hr.y)
-            k.rotate(by: .degrees(pose.rightArm))
-            tool(k, kind, presence: pose.toolPresence, open: pose.open, shout: pose.shout)
-        }
-        // 頭(白い丸角)とバイザー
-        rrect(c, 12, 10 + hb, 48, 36, 14, Color(red: 0.96, green: 0.96, blue: 0.97))
-        ellipse(c, 30, 16 + hb, 10, 3, Color.white.opacity(0.5))
-        rrect(c, 19, 16 + hb, 34, 23, 10, navy)
-        // 光る目(まばたきで細くなる)とハイライト
-        let ry = CGFloat(6 * (1 - 0.9 * pose.blink))
-        let look = pose.look
-        for ex in [28.5, 43.5] as [CGFloat] {
-            ellipse(c, ex + look, 27.5 + hb, 4.6 + 2.5, ry + 2.5, cyan.opacity(0.28))
-            ellipse(c, ex + look, 27.5 + hb, 4.6, ry, cyan)
-        }
-        if pose.blink < 0.5 {
-            circle(c, 26.8 + look, 25.2 + hb, 1.5, fill: Color.white.opacity(0.95))
-            circle(c, 41.8 + look, 25.2 + hb, 1.5, fill: Color.white.opacity(0.95))
-        }
-        // 笑った口
-        arc(c, 36 + look * 0.5, 33 + hb, 3.4, from: 20, to: 160, color: cyan, lineWidth: 1.8)
-        // ほっぺ
-        circle(c, 16.5, 37.5 + hb, 2.4, fill: blush)
-        circle(c, 55.5, 37.5 + hb, 2.4, fill: blush)
-        // ヘッドホン
-        if pose.headphones {
-            arc(c, 36, 28 + hb, 26, from: 200, to: 340, color: phones, lineWidth: 3)
-            rrect(c, 7, 21 + hb, 9, 14, 3.5, phones)
-            rrect(c, 56, 21 + hb, 9, 14, 3.5, phones)
-            circle(c, 11.5, 28 + hb, 2.4, stroke: cyan, lineWidth: 1.4)
-            circle(c, 60.5, 28 + hb, 2.4, stroke: cyan, lineWidth: 1.4)
-        }
-    }
-
-    /// 道具。原点 = 手、+x = 腕の向き
-    private static func tool(_ c: GraphicsContext, _ kind: RobotToolKind, presence: Double, open: Double, shout: Double) {
-        var k = c
-        k.opacity = presence
-        let s = CGFloat(0.7 + 0.3 * presence)
-        k.scaleBy(x: s, y: s)
-        switch kind {
-        case .magnifier:
-            limb(k, 0, 0, length: 9, width: 4, angle: 0, color: steel)
-            circle(k, 16, 0, 7, fill: Color(red: 0.67, green: 0.88, blue: 1).opacity(0.35), stroke: .white, lineWidth: 2.5)
-            circle(k, 13.5, -2.5, 1.6, fill: Color.white.opacity(0.85))
-        case .scissors:
-            let a = 6 + 12 * open
-            circle(k, 2.5, -3.5, 2.8, stroke: light, lineWidth: 1.8)
-            circle(k, 2.5, 3.5, 2.8, stroke: light, lineWidth: 1.8)
-            limb(k, 6, 0, length: 12, width: 3.4, angle: -a, color: light)
-            limb(k, 6, 0, length: 12, width: 3.4, angle: a, color: light)
-            circle(k, 6, 0, 1.6, fill: Color(red: 0.36, green: 0.38, blue: 0.44))
-        case .tape:
-            rrect(k, 2, -4, 14, 8, 2.5, Color(red: 0.96, green: 0.85, blue: 0.56))
-            rrect(k, 2, -1.5, 14, 3, 1, Color(red: 0.91, green: 0.72, blue: 0.29))
-        case .brush:
-            limb(k, 0, 0, length: 12, width: 4, angle: 0, color: Color(red: 0.85, green: 0.63, blue: 0.40))
-            rrect(k, 12, -2.6, 3, 5.2, 0.8, Color(red: 0.76, green: 0.78, blue: 0.82))
-            rrect(k, 15, -3, 8, 6, 2, Color(red: 0.96, green: 0.96, blue: 0.96))
-            rrect(k, 20, -3, 3, 6, 1.5, Color(red: 1, green: 0.42, blue: 0.60))
-        case .megaphone:
-            rrect(k, 0, -1.6, 5, 3.2, 1, steel)
-            polygon(k, [CGPoint(x: 5, y: -2.6), CGPoint(x: 17, y: -7.5), CGPoint(x: 17, y: 7.5), CGPoint(x: 5, y: 2.6)],
-                    Color(red: 1, green: 0.44, blue: 0.38))
-            rrect(k, 16.5, -8, 2.5, 16, 1.2, Color(red: 1, green: 0.85, blue: 0.83))
-            if shout > 0.01 {
-                for r in [5.0, 9.0] {
-                    arc(k, 19, 0, r, from: -50, to: 50, color: Color.white.opacity(0.8 * shout), lineWidth: 1.4)
-                }
+        let steps = Self.steps(pose)
+        let hand = Self.hand(x: RobotRig.armRightX, y: RobotRig.armY + bb, angle: pose.rightArm)
+        ZStack {
+            // アンテナ(根元を軸にゆっくり揺れる)
+            part("robot_antenna", RobotRig.antennaSize)
+                .rotationEffect(.degrees(RobotRig.antennaTilt + Double(pose.antenna) * 4), anchor: UnitPoint(x: 0.5, y: 1))
+                .position(x: RobotRig.antennaFoot.x, y: RobotRig.antennaFoot.y + hb - RobotRig.antennaSize.height / 2)
+            // 脚(歩くときは交互に上がる)
+            part("robot_leg", RobotRig.legSize)
+                .position(x: RobotRig.legLeftX, y: RobotRig.legY - steps.left)
+            part("robot_leg", RobotRig.legSize)
+                .scaleEffect(x: -1, y: 1)
+                .position(x: RobotRig.legRightX, y: RobotRig.legY - steps.right)
+            // 胴
+            part("robot_torso", RobotRig.torsoSize)
+                .position(x: RobotRig.torsoCenter.x, y: RobotRig.torsoCenter.y + bb)
+            // 胸の前のフィルム
+            if pose.holdFilm > 0.01 {
+                part("robot_film", RobotRig.filmSize)
+                    .rotationEffect(.degrees(pose.tilt))
+                    .opacity(pose.holdFilm)
+                    .position(x: RobotRig.filmCenter.x, y: RobotRig.filmCenter.y + bb)
             }
-        case .pencil:
-            rrect(k, -2, -2.2, 3, 4.4, 1, Color(red: 1, green: 0.56, blue: 0.69))
-            rrect(k, 1, -2.2, 11, 4.4, 0.5, Color(red: 0.96, green: 0.77, blue: 0.26))
-            polygon(k, [CGPoint(x: 12, y: -2.2), CGPoint(x: 17, y: 0), CGPoint(x: 12, y: 2.2)], Color(red: 0.91, green: 0.79, blue: 0.63))
-            polygon(k, [CGPoint(x: 15.2, y: -0.8), CGPoint(x: 17, y: 0), CGPoint(x: 15.2, y: 0.8)], dark)
+            // 腕(肩を軸に回す)
+            arm("robot_arm_a", x: RobotRig.armLeftX, y: RobotRig.armY + bb, angle: pose.leftArm, mirrored: false)
+            arm("robot_arm_b", x: RobotRig.armRightX, y: RobotRig.armY + bb, angle: pose.rightArm, mirrored: true)
+            // 右手の道具(手に入る点を手の中心に合わせ、腕の向きへ回す)
+            if let kind = pose.tool, pose.toolPresence > 0.01 {
+                let spec = kind.spec
+                let k = CGFloat(0.7 + 0.3 * pose.toolPresence)
+                let size = CGSize(width: spec.size.width * k, height: spec.size.height * k)
+                part(kind.image, size)
+                    .rotationEffect(.degrees(pose.rightArm - spec.direction), anchor: spec.grip)
+                    .opacity(pose.toolPresence)
+                    .position(x: hand.x + (0.5 - spec.grip.x) * size.width,
+                              y: hand.y + (0.5 - spec.grip.y) * size.height)
+            }
+            // 顔(まばたき・にっこり)
+            part(faceImage, RobotRig.faceSize)
+                .position(x: RobotRig.faceCenter.x + pose.look * 0.3, y: RobotRig.faceCenter.y + hb)
+            if pose.headphones {
+                part("robot_headphones", RobotRig.headphonesSize)
+                    .position(x: RobotRig.headphonesCenter.x, y: RobotRig.headphonesCenter.y + hb)
+            }
         }
+        .frame(width: width, height: 92)
+        .scaleEffect(scale, anchor: .topLeading)
+        .frame(width: width * scale, height: 92 * scale)
     }
 
-    /// 運んでいるフィルム(ブランド色のコマと送り穴)
-    private static func film(_ c: GraphicsContext, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, tilt: Double) {
-        var k = c
-        k.translateBy(x: x + w / 2, y: y + h / 2)
-        k.rotate(by: .degrees(tilt))
-        k.translateBy(x: -w / 2, y: -h / 2)
-        rrect(k, 0, 0, w, h, 2, Color(red: 0.16, green: 0.18, blue: 0.22))
-        k.fill(Path(roundedRect: CGRect(x: 2, y: 3, width: w - 4, height: h - 6), cornerRadius: 1),
-               with: .linearGradient(Gradient(colors: [green, blue]), startPoint: .zero, endPoint: CGPoint(x: w, y: 0)))
-        let hole = Color(red: 0.60, green: 0.63, blue: 0.68)
-        var i: CGFloat = 3
-        while i < w - 2 {
-            rrect(k, i, 0.8, 2.4, 1.6, 0.5, hole)
-            rrect(k, i, h - 2.4, 2.4, 1.6, 0.5, hole)
-            i += 5
-        }
+    private var faceImage: String {
+        if pose.happy { return "robot_face_happy" }
+        return pose.blink > 0.5 ? "robot_face_closed" : "robot_face_open"
     }
 
-    // MARK: 描く部品
-
-    private static func rrect(_ c: GraphicsContext, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat, _ r: CGFloat, _ color: Color) {
-        c.fill(Path(roundedRect: CGRect(x: x, y: y, width: w, height: h), cornerRadius: r), with: .color(color))
+    private func part(_ name: String, _ size: CGSize) -> some View {
+        Image(name)
+            .resizable()
+            .frame(width: size.width, height: size.height)
     }
 
-    private static func circle(_ c: GraphicsContext, _ x: CGFloat, _ y: CGFloat, _ r: CGFloat,
-                               fill: Color? = nil, stroke: Color? = nil, lineWidth: CGFloat = 1) {
-        let path = Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r))
-        if let fill { c.fill(path, with: .color(fill)) }
-        if let stroke { c.stroke(path, with: .color(stroke), lineWidth: lineWidth) }
+    private func arm(_ name: String, x: CGFloat, y: CGFloat, angle: Double, mirrored: Bool) -> some View {
+        part(name, RobotRig.armSize)
+            .scaleEffect(x: mirrored ? -1 : 1, y: 1)
+            .rotationEffect(.degrees(angle - 90), anchor: RobotRig.armPivot)
+            .position(x: x, y: y + (0.5 - RobotRig.armPivot.y) * RobotRig.armSize.height)
     }
 
-    private static func ellipse(_ c: GraphicsContext, _ x: CGFloat, _ y: CGFloat, _ rx: CGFloat, _ ry: CGFloat, _ color: Color) {
-        let ry = max(0.2, ry)
-        c.fill(Path(ellipseIn: CGRect(x: x - rx, y: y - ry, width: 2 * rx, height: 2 * ry)), with: .color(color))
-    }
-
-    /// (x, y) から角度 angle(度。0 = 右、90 = 下)へ長さ length のカプセル。先端の位置を返す
-    @discardableResult
-    private static func limb(_ c: GraphicsContext, _ x: CGFloat, _ y: CGFloat, length: CGFloat, width w: CGFloat,
-                             angle: Double, color: Color) -> CGPoint {
-        var k = c
-        k.translateBy(x: x, y: y)
-        k.rotate(by: .degrees(angle))
-        rrect(k, -w / 2, -w / 2, length + w, w, w / 2, color)
+    /// 肩 (x, y) から角度 angle の腕の、手の中心
+    private static func hand(x: CGFloat, y: CGFloat, angle: Double) -> CGPoint {
+        let length = RobotRig.armSize.height * (RobotRig.armHandY - RobotRig.armPivot.y)
         let r = angle * Double.pi / 180
         return CGPoint(x: x + length * CGFloat(cos(r)), y: y + length * CGFloat(sin(r)))
     }
 
-    private static func polygon(_ c: GraphicsContext, _ points: [CGPoint], _ color: Color) {
-        guard let first = points.first else { return }
-        var p = Path()
-        p.move(to: first)
-        for pt in points.dropFirst() { p.addLine(to: pt) }
-        p.closeSubpath()
-        c.fill(p, with: .color(color))
-    }
-
-    private static func arc(_ c: GraphicsContext, _ x: CGFloat, _ y: CGFloat, _ r: CGFloat, from: Double, to: Double,
-                            color: Color, lineWidth: CGFloat) {
-        var p = Path()
-        p.addArc(center: CGPoint(x: x, y: y), radius: r, startAngle: .degrees(from), endAngle: .degrees(to), clockwise: false)
-        c.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-    }
-
-    private static func heart(_ c: GraphicsContext, _ x: CGFloat, _ y: CGFloat, _ color: Color) {
-        var p = Path()
-        p.move(to: CGPoint(x: x, y: y + 3.6))
-        p.addCurve(to: CGPoint(x: x, y: y - 2), control1: CGPoint(x: x - 5, y: y - 0.5), control2: CGPoint(x: x - 3.6, y: y - 4.6))
-        p.addCurve(to: CGPoint(x: x, y: y + 3.6), control1: CGPoint(x: x + 3.6, y: y - 4.6), control2: CGPoint(x: x + 5, y: y - 0.5))
-        c.fill(p, with: .color(color))
+    /// 歩くときの脚の上がり(左・右)
+    private static func steps(_ pose: RobotPose) -> (left: CGFloat, right: CGFloat) {
+        guard let step = pose.step else { return (0, 0) }
+        let s = sin(step * 2 * Double.pi)
+        return (CGFloat(max(0, s) * 3 * pose.moving), CGFloat(max(0, -s) * 3 * pose.moving))
     }
 }
 
