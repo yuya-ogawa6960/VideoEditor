@@ -139,7 +139,7 @@ struct PolygonOutlineShape: Shape {
 /// (メルボルンのトラムの側面のような模様)。色は左のオレンジから右のピンクへ
 struct FacetedBrandBackground: View {
     /// 放射の中心(正規化座標、左から右)
-    private static let hubs: [CGPoint] = [CGPoint(x: 0.22, y: 0.58), CGPoint(x: 0.5, y: 0.35), CGPoint(x: 0.78, y: 0.62)]
+    private static let hubs: [CGPoint] = [CGPoint(x: 0.22, y: 0.76), CGPoint(x: 0.5, y: 0.22), CGPoint(x: 0.78, y: 0.8)]
     /// ガラスごとの明るさ(明暗を交互に)
     private static let shades: [Double] = [1.18, 0.82, 1.06, 0.9, 1.22, 0.78, 1.0, 0.88, 1.14, 0.8, 1.1, 0.86, 1.2, 0.84, 1.04, 0.92]
 
