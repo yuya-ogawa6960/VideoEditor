@@ -672,12 +672,44 @@ struct TimelineView: View {
                     if i + 1 >= shiftIndex { startB += shift }
                 }
                 let cx = originX + CGFloat((endA + startB) / 2) * pps
-                if cx.isFinite, cx > -margin, cx < width + margin {
-                    transitions.append(TimelineTransitionItem(id: clip.id, centerX: cx, type: clip.transition.type))
+                let x0 = originX + CGFloat(min(endA, startB)) * pps
+                let x1 = originX + CGFloat(max(endA, startB)) * pps
+                if cx.isFinite, x0.isFinite, x1.isFinite, x1 > -margin, x0 < width + margin {
+                    transitions.append(TimelineTransitionItem(id: clip.id, centerX: cx, startX: x0, endX: x1,
+                                                              seconds: max(0, endA - startB),
+                                                              type: clip.transition.type))
                 }
             }
 
-            guard let span = TimelineMetrics.visibleSpan(x: screenX, width: w, viewWidth: width) else { continue }
+            // トランジションで重なっている部分は、重なりの中央を切れ目として描く(前後のクリップが重ならない)
+            var drawX = screenX
+            var drawEnd = screenX + w
+            if !lifted, reorderClipID == nil {
+                if i > 0, i - 1 < ranges.count {
+                    var prevEnd = ranges[i - 1].end
+                    var myStart = range.start
+                    if let shiftIndex {
+                        if i - 1 >= shiftIndex { prevEnd += shift }
+                        if i >= shiftIndex { myStart += shift }
+                    }
+                    if prevEnd > myStart {
+                        drawX = max(drawX, originX + CGFloat((prevEnd + myStart) / 2) * pps + gap / 2)
+                    }
+                }
+                if i + 1 < clips.count, i + 1 < ranges.count {
+                    var myEnd = range.end
+                    var nextStart = ranges[i + 1].start
+                    if let shiftIndex {
+                        if i >= shiftIndex { myEnd += shift }
+                        if i + 1 >= shiftIndex { nextStart += shift }
+                    }
+                    if myEnd > nextStart {
+                        drawEnd = min(drawEnd, originX + CGFloat((myEnd + nextStart) / 2) * pps - gap / 2)
+                    }
+                }
+            }
+            guard drawEnd - drawX >= 1,
+                  let span = TimelineMetrics.visibleSpan(x: drawX, width: drawEnd - drawX, viewWidth: width) else { continue }
             result.append(TimelineClipItem(id: clip.id, clip: clip, screenX: screenX, width: w,
                                            visibleX: span.x, visibleWidth: span.width, isLifted: lifted))
         }
@@ -771,6 +803,12 @@ struct TimelineView: View {
             }
 
             ForEach(transitions) { item in
+                let bandW = max(4, item.endX - item.startX)
+                TimelineTransitionRange(seconds: item.seconds, isSelected: item.id == selectedClipID)
+                    .frame(width: bandW, height: h)
+                    .offset(x: item.centerX - bandW / 2)
+                    .allowsHitTesting(false)
+                    .zIndex(14)
                 TimelineTransitionBadge(type: item.type, isSelected: item.id == selectedClipID)
                     .frame(width: badge, height: badge)
                     .offset(x: item.centerX - badge / 2, y: (h - badge) / 2)

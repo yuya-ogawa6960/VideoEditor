@@ -404,6 +404,10 @@ struct TimelineClipItem: Identifiable {
 struct TimelineTransitionItem: Identifiable {
     let id: UUID
     let centerX: CGFloat
+    /// 重なり(トランジションがかかっている範囲)の始まりと終わり
+    let startX: CGFloat
+    let endX: CGFloat
+    let seconds: Double
     let type: TransitionType
 }
 
@@ -748,10 +752,9 @@ struct TimelineClipView: View {
         .frame(width: visibleWidth, height: height, alignment: .topLeading)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         .overlay {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .stroke(Color.white, lineWidth: 2)
-            }
+            // 切れ目が分かるよう、すべてのクリップに細い縁をつける(選択中は太い白)
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .stroke(isSelected ? Color.white : Color.white.opacity(0.35), lineWidth: isSelected ? 2 : 1)
         }
         .contentShape(Rectangle())
         .scaleEffect(isLifted ? 1.06 : 1)
@@ -812,6 +815,51 @@ struct TimelineTransitionBadge: View {
         .shadow(color: Color.black.opacity(0.5), radius: 2, x: 0, y: 1)
         .contentShape(Circle())
         .accessibilityLabel("トランジション: \(type.displayName)")
+    }
+}
+
+// MARK: - トランジションがかかっている範囲の帯
+
+struct TimelineTransitionRange: View {
+    let seconds: Double
+    let isSelected: Bool
+
+    var body: some View {
+        let tint = isSelected ? Color.accentColor : Color.white
+        GeometryReader { geo in
+            ZStack(alignment: .bottom) {
+                // 斜線の帯(前のクリップと次のクリップが混ざる区間)
+                Canvas { context, size in
+                    let step: CGFloat = 6
+                    var path = Path()
+                    var x: CGFloat = -size.height
+                    while x < size.width {
+                        path.move(to: CGPoint(x: x, y: size.height))
+                        path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                        x += step
+                    }
+                    context.stroke(path, with: .color(tint.opacity(0.35)), lineWidth: 1.5)
+                }
+                .background(tint.opacity(0.18))
+                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(tint.opacity(0.9), lineWidth: 1.5)
+                }
+
+                // 長さ(帯が広いときだけ)
+                if geo.size.width >= 34 {
+                    Text(String(format: "%.1f秒", seconds))
+                        .font(.system(size: 9, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color.black.opacity(0.65), in: Capsule())
+                        .padding(.bottom, 3)
+                }
+            }
+        }
     }
 }
 

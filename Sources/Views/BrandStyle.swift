@@ -191,14 +191,6 @@ struct FacetedBrandBackground: View {
                 let cx = Double((face[0].x + face[1].x + face[2].x) / 3 / max(size.width, 1))
                 context.fill(path, with: .color(Self.color(x: cx, light: Self.shades[index % Self.shades.count])))
             }
-            // 鉛の線(白い細線)と中心の点
-            for face in faces {
-                context.stroke(Self.triangle(face), with: .color(Color(red: 1, green: 0.95, blue: 0.9).opacity(0.85)), lineWidth: 0.9)
-            }
-            for hub in hubs {
-                context.fill(Path(ellipseIn: CGRect(x: hub.x - 1.6, y: hub.y - 1.6, width: 3.2, height: 3.2)),
-                             with: .color(.white))
-            }
         }
         .clipShape(PolygonOutlineShape())
     }
