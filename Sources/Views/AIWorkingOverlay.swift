@@ -82,6 +82,8 @@ struct AIWorkingCard: View {
     /// 上に出すコマ(nil なら解析中に AI が見ているコマ)と、その上の札の文
     let peekImage: CGImage?
     let peekLabel: String?
+    /// 真ん中で動くロボット(作業の種類ごと)
+    let robot: RobotAnimation
     let onCancel: (() -> Void)?
 
     @State private var peek = AnalysisPeek.shared
@@ -97,13 +99,15 @@ struct AIWorkingCard: View {
         self.inlineAd = inlineAd
         peekImage = nil
         peekLabel = nil
+        robot = .workshop
         self.onCancel = onCancel
     }
 
     /// 書き出し・字幕の自動作成など、タイトルと進み具合を直接渡す
     init(title: String, fraction: Double?, detail: String? = nil,
          note: String, noteIcon: String, inlineAd: Bool = true,
-         peekImage: CGImage? = nil, peekLabel: String? = nil, onCancel: (() -> Void)?) {
+         peekImage: CGImage? = nil, peekLabel: String? = nil,
+         robot: RobotAnimation = .workshop, onCancel: (() -> Void)?) {
         self.title = title
         self.fraction = fraction
         self.detail = detail
@@ -112,6 +116,7 @@ struct AIWorkingCard: View {
         self.inlineAd = inlineAd
         self.peekImage = peekImage
         self.peekLabel = peekLabel
+        self.robot = robot
         self.onCancel = onCancel
     }
 
@@ -121,7 +126,7 @@ struct AIWorkingCard: View {
                 AIScanningFrame(image: frame, label: peekLabel ?? String(localized: "AI が見ています"))
                     .frame(height: 150)
             }
-            RobotWorkshop()
+            RobotWorkshop(clip: robot)
 
             if let fraction {
                 let clamped = min(max(fraction, 0), 1)
@@ -288,27 +293,39 @@ private struct CornerBrackets: Shape {
 
 // MARK: - ロボット(コマ画像のくり返し再生)
 
-/// ロボットのアニメーションのコマ(ChatGPT で作ったもの)。
-/// 720 × 218 の背景透明 PNG を 1 秒 12 コマで 60 枚(5 秒でくり返し)。
-/// 左 = フィルムを運ぶ係 / 中 = はさみで切る係 / 右 = 虫めがねで確かめる係。
-/// コマは Resources/RobotAnimation/robot_anim_000.png …。メモリを使わないよう、いま見せる 1 枚だけ読み込む
-enum RobotAnimation {
-    static let fps = 12.0
-    static let frameCount = 60
-    static let size = CGSize(width: 720, height: 218)
+/// ロボットのアニメーション(ChatGPT で作った背景透明 PNG の連番)。
+/// メモリを使わないよう、いま見せる 1 枚だけをファイルから読み込む。
+/// - workshop: 720 × 218 を 1 秒 12 コマで 60 枚(5 秒でくり返し)。Resources/RobotAnimation/robot_anim_000.png …
+///   左 = フィルムを運ぶ係 / 中 = はさみで切る係 / 右 = 虫めがねで確かめる係。解析・AI 処理・書き出し中に出す
+/// - subtitles: 514 × 330 を 1 秒 12 コマで 72 枚(6 秒でくり返し)。Resources/RobotSubtitleAnimation/robot_sub_000.png …
+///   ヘッドフォンで聞く → 両手で打ち込む → 聞き直す → 打ち込む → にっこりうなずく。字幕の自動作成中に出す
+struct RobotAnimation: Sendable {
+    /// コマのファイル名の頭(<prefix>_000.png … と <prefix>_poster.png)
+    let prefix: String
+    let frameCount: Int
+    let fps: Double
+    /// コマの大きさ(縦横比に使う)
+    let size: CGSize
+    /// カードの中での高さ(nil なら幅いっぱいに縦横比どおり。決めたときはその高さに収める)
+    let height: CGFloat?
+
+    static let workshop = RobotAnimation(prefix: "robot_anim", frameCount: 60, fps: 12,
+                                         size: CGSize(width: 720, height: 218), height: nil)
+    static let subtitles = RobotAnimation(prefix: "robot_sub", frameCount: 72, fps: 12,
+                                          size: CGSize(width: 514, height: 330), height: 130)
 
     /// その時刻に見せるコマの番号
-    static func frameIndex(at date: Date) -> Int {
+    func frameIndex(at date: Date) -> Int {
         let n = Int(floor(date.timeIntervalSinceReferenceDate * fps)) % frameCount
         return n < 0 ? n + frameCount : n
     }
 
-    static func image(_ index: Int) -> UIImage? {
-        load(String(format: "robot_anim_%03d", index))
+    func image(_ index: Int) -> UIImage? {
+        Self.load(prefix + String(format: "_%03d", index))
     }
 
     /// 動きを減らす設定のときに見せる 1 枚
-    static var poster: UIImage? { load("robot_anim_poster") }
+    var poster: UIImage? { Self.load(prefix + "_poster") }
 
     private static func load(_ name: String) -> UIImage? {
         // UIImage(named:) はキャッシュに残るので、ファイルから直接読む
@@ -317,21 +334,25 @@ enum RobotAnimation {
     }
 }
 
-/// 作業中のロボットたち(幅いっぱいに、縦横比 720:218 で表示)
+/// 作業中のロボット(コマの縦横比のまま幅いっぱいに。高さが決まっていればその高さに収める)
 struct RobotWorkshop: View {
+    var clip: RobotAnimation = .workshop
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             if reduceMotion {
-                frame(RobotAnimation.poster)
+                frame(clip.poster)
             } else {
-                SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / RobotAnimation.fps)) { context in
-                    frame(RobotAnimation.image(RobotAnimation.frameIndex(at: context.date)))
+                SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / clip.fps)) { context in
+                    frame(clip.image(clip.frameIndex(at: context.date)))
                 }
             }
         }
-        .aspectRatio(RobotAnimation.size, contentMode: .fit)
+        .aspectRatio(clip.size, contentMode: .fit)
+        // 高さを決めておく(上限だけだと、高さを決めずに測られたときに絵がはみ出す)
+        .frame(height: clip.height)
         .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
     }
@@ -375,6 +396,7 @@ struct TranscriptionWorkingOverlay: View {
                               inlineAd: inlineAd,
                               peekImage: frame,
                               peekLabel: String(localized: "AI が聞いています"),
+                              robot: .subtitles,
                               onCancel: onCancel)
             }
         }

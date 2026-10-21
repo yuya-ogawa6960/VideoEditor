@@ -18,6 +18,10 @@ enum AppGroup {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
     }
 
+    /// この版に App Group(= 共有の拡張機能)が入っているか。
+    /// App Group を Apple Developer に登録するまでは拡張機能を外して作るので、そのあいだは「共有から送れます」の案内を出さない
+    static var isAvailable: Bool { containerURL != nil }
+
     /// 共有から受け取ったファイルの置き場所(containerURL/Inbox。なければ作る)
     static var inboxURL: URL? {
         guard let container = containerURL else { return nil }

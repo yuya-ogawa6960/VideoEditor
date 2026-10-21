@@ -339,7 +339,9 @@ struct ContentView: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("ほかのアプリの「共有」から Video Mania を選んで送ることもできます。")
+            if AppGroup.isAvailable {
+                Text("ほかのアプリの「共有」から Video Mania を選んで送ることもできます。")
+            }
         }
         // 「ファイル」から選ぶ画面は、下のパネル(LUT・フォントの読み込み)の .fileImporter と入れ子にならないよう、
         // 本体とは別の枝(背景)に付ける

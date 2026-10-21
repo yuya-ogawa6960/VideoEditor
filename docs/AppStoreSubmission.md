@@ -74,14 +74,21 @@ Apple でサインインすると、自分の API キーがなくてもポイン
 ## 「共有」から受け取る拡張機能の設定(Apple Developer、最初に 1 回)
 
 「共有」→「Video Mania」で受け取る拡張機能(ShareExtension)は、アプリと共有フォルダ(App Group)を使います。
-ビルドの書き出し(クラウド署名)が「App Groups の入ったプロビジョニングプロファイルが必要」などで失敗したら、
-[Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) で次の 3 つを設定してから、もう一度 push(またはワークフローを再実行)してください。
+App Group と拡張機能の App ID が Apple Developer に無いと、書き出し(クラウド署名)が
+`Authentication failed` / `No profiles for 'com.yuyaogawa6960.videomania.share' were found` で止まります(1.12.43 で発生)。
+そのため、GitHub のリポジトリ変数 `SHARE_EXTENSION` が `on` でないあいだは、CI が project.yml の
+`# >>> share-extension` 〜 `# <<< share-extension` のあいだ(拡張機能・App Group の権限)を消して作ります。
+その版ではアプリ内の「共有から送れます」の案内も出しません(`AppGroup.isAvailable`)。
+
+入れるときは [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list) で次の 3 つを設定します。
 
 1. Identifiers →「+」→ **App Groups** → `group.com.yuyaogawa6960.videomania` を登録する
 2. App ID `com.yuyaogawa6960.videomania` を開き、**App Groups** をオン →「Configure」で上のグループにチェック → Save(Sign in with Apple はオンのまま)
 3. Identifiers →「+」→ **App IDs** → App → Bundle ID `com.yuyaogawa6960.videomania.share` で登録し、**App Groups** をオンにして同じグループにチェック
 
-プロファイルは書き出しのときに自動で作り直されます(App Store Connect API キーの役割が Admin でないと、3 を先に手で登録する必要があります)。
+そのあと GitHub の Settings → Secrets and variables → Actions → **Variables** で `SHARE_EXTENSION` を `on` にして、
+もう一度 push(またはワークフローを再実行)します。プロファイルは書き出しのときに自動で作り直されます。
+それでも `Authentication failed` が出るときは、App Store Connect API キーの役割を Admin にしてください。
 
 ## Google フォトから直接取り込む機能
 

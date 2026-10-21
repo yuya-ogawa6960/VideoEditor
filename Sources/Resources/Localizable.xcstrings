@@ -4095,6 +4095,29 @@
         }
       }
     },
+    "Google フォトで写真・動画を選び、「共有」→「ファイルに保存」してから、Video Mania の追加で「ファイル(Google ドライブなど)」を選ぶ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select photos or videos in Google Photos, tap Share > Save to Files, then choose \"Files (Google Drive, etc.)\" when adding in Video Mania"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige fotos o videos en Google Fotos, toca Compartir > Guardar en Archivos y luego elige «Archivos (Google Drive, etc.)» al añadir en Video Mania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha fotos ou vídeos no Google Fotos, toque em Compartilhar > Salvar em Arquivos e depois escolha \"Arquivos (Google Drive etc.)\" ao adicionar no Video Mania"
+          }
+        }
+      }
+    },
     "Google フォトで写真・動画を選び、「共有」から「Video Mania」を選ぶ": {
       "extractionState": "manual",
       "localizations": {

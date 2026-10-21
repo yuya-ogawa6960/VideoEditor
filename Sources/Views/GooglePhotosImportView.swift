@@ -125,8 +125,13 @@ struct GooglePhotosImportView: View {
             Text("今は次の方法で、Google フォトの写真・動画を追加できます。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            stepRow(number: 1, text: String(localized: "Google フォトで写真・動画を選び、「共有」から「Video Mania」を選ぶ"))
-            stepRow(number: 2, text: String(localized: "または「共有」→「ファイルに保存」してから、Video Mania の追加で「ファイル(Google ドライブなど)」を選ぶ"))
+            if AppGroup.isAvailable {
+                stepRow(number: 1, text: String(localized: "Google フォトで写真・動画を選び、「共有」から「Video Mania」を選ぶ"))
+                stepRow(number: 2, text: String(localized: "または「共有」→「ファイルに保存」してから、Video Mania の追加で「ファイル(Google ドライブなど)」を選ぶ"))
+            } else {
+                // 共有の拡張機能が入っていない版では、「ファイルに保存」を通す方法だけを案内する
+                stepRow(number: 1, text: String(localized: "Google フォトで写真・動画を選び、「共有」→「ファイルに保存」してから、Video Mania の追加で「ファイル(Google ドライブなど)」を選ぶ"))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

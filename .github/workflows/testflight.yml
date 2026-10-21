@@ -50,6 +50,19 @@ jobs:
           if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST/Contents/Developer"; fi
           xcodebuild -version
 
+      # 共有の拡張機能は、App Group と拡張機能の App ID を Apple Developer に登録してから入れる(docs/AppStoreSubmission.md)。
+      # 未登録のまま入れると書き出しが「No profiles … were found」で止まるので、
+      # リポジトリ変数 SHARE_EXTENSION が on でないあいだは project.yml の印のあいだ(拡張機能と App Group)を消して作る
+      - name: Leave out the Share Extension (until SHARE_EXTENSION is on)
+        if: steps.check.outputs.ready == 'true' && vars.SHARE_EXTENSION != 'on'
+        run: |
+          sed -i '' -e '/# >>> share-extension/,/# <<< share-extension/d' project.yml
+          if grep -nE "ShareExtension|application-groups|share-extension" project.yml; then
+            echo "::error::the Share Extension was not fully removed from project.yml"
+            exit 1
+          fi
+          echo "Share Extension left out of this build (set the repository variable SHARE_EXTENSION to on to include it)"
+
       - name: Generate Xcode project
         if: steps.check.outputs.ready == 'true'
         run: |
