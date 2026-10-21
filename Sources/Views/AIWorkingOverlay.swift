@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CoreImage
 import CoreVideo
 import Observation
@@ -17,13 +18,33 @@ final class AnalysisPeek {
 
     @ObservationIgnored private let lock = NSLock()
     @ObservationIgnored private var lastPost: CFAbsoluteTime = 0
-    @ObservationIgnored private let context = CIContext(options: [.cacheIntermediates: false])
+    /// 小さな見本を作るだけなので CPU で描く(書き出しの GPU と取り合わない・裏でも GPU を使わない)
+    @ObservationIgnored private let context = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: true])
+    /// アプリが前面にあるか(裏に回っている間は見本を作らない)
+    @ObservationIgnored private var isForeground = true
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.setForeground(false)
+        })
+        observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: nil) { [weak self] _ in
+            self?.setForeground(true)
+        })
+    }
+
+    private func setForeground(_ value: Bool) {
+        lock.lock()
+        isForeground = value
+        lock.unlock()
+    }
 
     /// 解析中のコマを渡す(間引いて縮小し、メインスレッドで表示に反映)
     func post(_ buffer: CVPixelBuffer) {
         let now = CFAbsoluteTimeGetCurrent()
         lock.lock()
-        guard now - lastPost > 0.33 else {
+        guard isForeground, now - lastPost > 0.33 else {
             lock.unlock()
             return
         }

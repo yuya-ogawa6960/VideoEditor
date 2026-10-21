@@ -69,6 +69,15 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
     private var shownSubtitle: String?
     private var lastSubtitleTime: CFAbsoluteTime = 0
     private var expireHandler: (@MainActor () -> Void)?
+    /// 進み具合が止まって見えないよう、少しずつ進める見張り(仕上げ中など、進捗が動かない間)
+    private var heartbeat: DispatchSourceTimer?
+    private var lastPushTime: CFAbsoluteTime = 0
+    /// いまシステムに見せている進み具合(単位数)
+    private var shownUnits: Int64 = 0
+    /// 通常の進捗はここまで(残りは見張りが少しずつ進める分)
+    private static let normalCap: Int64 = 980
+    /// 進捗がこの秒数動かなければ、見張りが 1 単位進める
+    private static let heartbeatInterval: Double = 2.0
 
     fileprivate init(kind: ContinuedProcessingKind, identifier: String, title: String, subtitle: String) {
         self.kind = kind
@@ -150,6 +159,8 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
         }
         finished = true
         finishedSuccess = success
+        let timer = heartbeat
+        heartbeat = nil
         let currentTask = task
         let wasLaunched = launched
         task = nil
@@ -159,6 +170,7 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
         }
         lock.unlock()
 
+        timer?.cancel()
         ContinuedProcessing.removeActive(identifier, success: success, launched: wasLaunched)
         #if compiler(>=6.2)
         if #available(iOS 26.0, *), let continued = currentTask as? BGContinuedProcessingTask {
@@ -191,13 +203,67 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
     private func push(fraction value: Double, subtitle text: String?, to task: AnyObject) {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *), let continued = task as? BGContinuedProcessingTask {
+            let wanted = min(Self.normalCap, Int64((value * Double(Self.unitCount)).rounded()))
+            lock.lock()
+            // 後ろに戻さない(見張りが進めた分より小さいときはそのまま)
+            let units = max(shownUnits, wanted)
+            let changed = units != shownUnits
+            shownUnits = units
+            if changed { lastPushTime = CFAbsoluteTimeGetCurrent() }
+            lock.unlock()
             continued.progress.totalUnitCount = Self.unitCount
-            continued.progress.completedUnitCount = Int64((value * Double(Self.unitCount)).rounded())
+            continued.progress.completedUnitCount = units
             if let text {
                 continued.updateTitle(title, subtitle: text)
             }
         }
         #endif
+    }
+
+    /// 進捗が heartbeatInterval 秒動かなければ 1 単位だけ進める(最後の仕上げ・写真への保存などで
+    /// 進捗が止まって見えると、システムがタスクを打ち切ってしまうため)
+    private func startHeartbeat() {
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + Self.heartbeatInterval, repeating: Self.heartbeatInterval)
+        timer.setEventHandler { [weak self] in
+            self?.beat()
+        }
+        lock.lock()
+        heartbeat?.cancel()
+        heartbeat = timer
+        lastPushTime = CFAbsoluteTimeGetCurrent()
+        lock.unlock()
+        timer.resume()
+    }
+
+    private func beat() {
+        let now = CFAbsoluteTimeGetCurrent()
+        lock.lock()
+        guard !finished, !expired, let currentTask = task,
+              now - lastPushTime >= Self.heartbeatInterval, shownUnits < Self.unitCount - 1 else {
+            lock.unlock()
+            return
+        }
+        shownUnits += 1
+        lastPushTime = now
+        let units = shownUnits
+        lock.unlock()
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *), let continued = currentTask as? BGContinuedProcessingTask {
+            continued.progress.completedUnitCount = units
+        }
+        #else
+        _ = currentTask
+        _ = units
+        #endif
+    }
+
+    private func stopHeartbeat() {
+        lock.lock()
+        let timer = heartbeat
+        heartbeat = nil
+        lock.unlock()
+        timer?.cancel()
     }
 
     /// 期限切れ(システム / ユーザーの停止)。expirationHandler から任意スレッドで呼ばれる
@@ -208,6 +274,8 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
             return
         }
         expired = true
+        heartbeat?.cancel()
+        heartbeat = nil
         if holdsGPU {
             // GPU の許可はここで失われる。以降の合成は CPU に戻す
             holdsGPU = false
@@ -270,6 +338,7 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
         lock.unlock()
 
         push(fraction: value, subtitle: text, to: continued)
+        startHeartbeat()
     }
     #endif
 }
