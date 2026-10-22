@@ -1768,6 +1768,10 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "自動補正"), systemImage: "wand.and.rays", id: "clip-ai-enhance") {
             autoEnhance(clipID)
         })
+        // 画質補正(ノイズ除去・シャープ・超解像など)も AI の中に置く
+        items.append(EditorToolItem(String(localized: "画質補正"), systemImage: "sparkles.tv", id: "clip-ai-quality") {
+            openPanel(.enhance(clipID))
+        })
         if !isStill {
             items.append(EditorToolItem(String(localized: "オートリフレーム"), systemImage: "person.crop.rectangle", id: "clip-ai-reframe") {
                 openPanel(.autoReframe(clipID))
@@ -1896,9 +1900,6 @@ struct ContentView: View {
                                     enabled: canSlip,
                                     disabledReason: String(localized: "元の動画をすべて使っているので、ずらせません")) {
             openPanel(.slip(clipID))
-        })
-        items.append(EditorToolItem(String(localized: "画質補正"), systemImage: "sparkles.tv") {
-            openPanel(.enhance(clipID))
         })
         if !isStill {
             items.append(EditorToolItem(String(localized: "マルチカメラ"), systemImage: "camera.on.rectangle") {
