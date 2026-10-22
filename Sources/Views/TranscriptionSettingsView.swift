@@ -36,6 +36,7 @@ struct TranscriptionSettingsView: View {
     @State private var diagnosticBundleID: String = ""
     @State private var diagnosticContinued: String = ""
     @State private var diagnosticUploads: String = ""
+    @State private var diagnosticAds: String = ""
     @State private var showsDiagnostics: Bool = false
 
     init() {}
@@ -281,6 +282,7 @@ struct TranscriptionSettingsView: View {
                 diagnosticRow(title: String(localized: "実行時のバンドル ID"), value: diagnosticBundleID, monospaced: true)
                 diagnosticRow(title: String(localized: "ロック中の継続"), value: diagnosticContinued, monospaced: false)
                 diagnosticRow(title: String(localized: "バックグラウンド送信(クラウドAI)"), value: diagnosticUploads, monospaced: false)
+                diagnosticRow(title: String(localized: "広告の状態"), value: diagnosticAds, monospaced: true)
                 Button {
                     refreshDiagnostics()
                 } label: {
@@ -310,6 +312,7 @@ struct TranscriptionSettingsView: View {
         diagnosticBundleID = ContinuedProcessing.runtimeBundleIdentifier
         diagnosticContinued = ContinuedProcessing.lastDiagnostic
         diagnosticUploads = CloudBackgroundUploader.shared.diagnosticSummary()
+        diagnosticAds = AdsManager.shared.diagnosticSummary()
     }
 
     // MARK: - 操作

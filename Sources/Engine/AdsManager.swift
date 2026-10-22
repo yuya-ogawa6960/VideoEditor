@@ -80,6 +80,50 @@ final class AdsManager: NSObject {
     /// 読み込み直しの予定がすでにあるか(前面に戻ったときの読み込みなどが失敗しても、予定を重ねないため)
     @ObservationIgnored private var isInterstitialRetryScheduled = false
     @ObservationIgnored private var isRewardedRetryScheduled = false
+    /// サポート用の情報に出す、最後の読み込みの結果
+    @ObservationIgnored private var interstitialStatus = AdsManager.notLoadedText
+    @ObservationIgnored private var rewardedStatus = AdsManager.notLoadedText
+    @ObservationIgnored private var startStatus = String(localized: "未完了")
+
+    /// 「まだ読み込んでいない」(サポート用の情報で共通)
+    nonisolated static let notLoadedText = String(localized: "まだ読み込んでいない")
+
+    /// 読み込みの結果の文(サポート用の情報で共通)
+    nonisolated static func loadResultText(success: Bool, error: String?) -> String {
+        success ? String(localized: "読み込み成功") : String(localized: "読み込み失敗: ") + (error ?? String(localized: "広告がありません"))
+    }
+
+    /// サポート用の情報(広告がどこで止まっているかを見るため)
+    func diagnosticSummary() -> String {
+        let consent = ConsentInformation.shared
+        let yes = String(localized: "はい")
+        let no = String(localized: "いいえ")
+        let att: String
+        switch ATTrackingManager.trackingAuthorizationStatus {
+        case .notDetermined: att = String(localized: "未確認")
+        case .restricted: att = String(localized: "制限あり")
+        case .denied: att = String(localized: "許可しない")
+        case .authorized: att = String(localized: "許可")
+        @unknown default: att = String(localized: "不明")
+        }
+        let ready = String(localized: "準備済み")
+        return [
+            String(localized: "広告の準備: ") + (isStarted ? String(localized: "完了") : startStatus),
+            String(localized: "テスト広告: ") + (Self.usesTestAds ? yes : no),
+            String(localized: "広告の同意: ") + (consent.canRequestAds ? String(localized: "読み込める") : String(localized: "読み込めない"))
+                + " (\(consent.consentStatus.rawValue))",
+            String(localized: "トラッキング: ") + att,
+            String(localized: "全画面広告: ") + (interstitial != nil ? ready : interstitialStatus),
+            String(localized: "リワード広告: ") + (rewarded != nil ? ready : rewardedStatus),
+            String(localized: "ネイティブ広告: ") + NativeAdProvider.shared.diagnostic,
+            String(localized: "バナー広告: ") + (BannerAds.isAvailable ? BannerAds.lastStatus : String(localized: "本番用の広告ユニットなし")),
+        ].joined(separator: "\n")
+    }
+
+    /// バナー広告などに渡す、いま前面にある画面
+    static func presentingViewController() -> UIViewController? {
+        topViewController()
+    }
 
     /// 起動後、画面が出てから呼ぶ(トラッキングの許可を聞いてから SDK を始める)。
     /// 同意情報が取れず SDK を始められなかったときは、次に前面に来たとき(appDidBecomeActive)にやり直す
@@ -97,7 +141,10 @@ final class AdsManager: NSObject {
         }
         privacyOptionsRequired = ConsentInformation.shared.privacyOptionsRequirementStatus == .required
         // 広告を出せない(同意情報を取れなかった・同意がまだ)ときは、ここでやめて前面に戻ったときにやり直す
-        guard ConsentInformation.shared.canRequestAds else { return }
+        guard ConsentInformation.shared.canRequestAds else {
+            startStatus = String(localized: "同意待ち")
+            return
+        }
         // 2) トラッキングの確認
         if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
             // 確認はアプリが .active(前面で操作できる状態)のときしか出ないので、そうなるまで待つ
@@ -168,10 +215,12 @@ final class AdsManager: NSObject {
     private func loadInterstitial() {
         guard isStarted, interstitial == nil, !isLoadingInterstitial else { return }
         isLoadingInterstitial = true
-        InterstitialAd.load(with: interstitialUnit, request: Request()) { [weak self] ad, _ in
+        InterstitialAd.load(with: interstitialUnit, request: Request()) { [weak self] ad, error in
+            let message = error?.localizedDescription
             Task { @MainActor in
                 guard let self else { return }
                 self.isLoadingInterstitial = false
+                self.interstitialStatus = AdsManager.loadResultText(success: ad != nil, error: message)
                 self.interstitial = ad
                 ad?.fullScreenContentDelegate = self
                 if ad != nil {
@@ -210,10 +259,12 @@ final class AdsManager: NSObject {
         guard isStarted, Self.hasRewarded, rewarded == nil, !isLoadingRewarded else { return }
         isRewardedReady = false
         isLoadingRewarded = true
-        RewardedAd.load(with: rewardedUnit, request: Request()) { [weak self] ad, _ in
+        RewardedAd.load(with: rewardedUnit, request: Request()) { [weak self] ad, error in
+            let message = error?.localizedDescription
             Task { @MainActor in
                 guard let self else { return }
                 self.isLoadingRewarded = false
+                self.rewardedStatus = AdsManager.loadResultText(success: ad != nil, error: message)
                 self.rewarded = ad
                 ad?.fullScreenContentDelegate = self
                 self.isRewardedReady = ad != nil

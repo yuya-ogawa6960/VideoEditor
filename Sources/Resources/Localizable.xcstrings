@@ -7016,6 +7016,29 @@
         }
       }
     },
+    "いいえ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não"
+          }
+        }
+      }
+    },
     "いい天気": {
       "extractionState": "manual",
       "localizations": {
@@ -9316,6 +9339,29 @@
         }
       }
     },
+    "はい": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sí"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sim"
+          }
+        }
+      }
+    },
     "はじまり": {
       "extractionState": "manual",
       "localizations": {
@@ -9795,6 +9841,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ainda não medido"
+          }
+        }
+      }
+    },
+    "まだ読み込んでいない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not loaded yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no se ha cargado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não carregado"
           }
         }
       }
@@ -15963,6 +16032,29 @@
         }
       }
     },
+    "テスト広告: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test ads: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anuncios de prueba: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anúncios de teste: "
+          }
+        }
+      }
+    },
     "テスト配信中のため、テスト用の広告が出ます。": {
       "extractionState": "manual",
       "localizations": {
@@ -16327,6 +16419,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rastreamento"
+          }
+        }
+      }
+    },
+    "トラッキング: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracking: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimiento: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rastreamento: "
           }
         }
       }
@@ -16722,6 +16837,29 @@
         }
       }
     },
+    "ネイティブ広告: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native ad: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anuncio nativo: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anúncio nativo: "
+          }
+        }
+      }
+    },
     "ネオン": {
       "extractionState": "manual",
       "localizations": {
@@ -17017,6 +17155,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não é possível alocar um buffer"
+          }
+        }
+      }
+    },
+    "バナー広告: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Banner ad: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anuncio de banner: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anúncio de banner: "
           }
         }
       }
@@ -20559,6 +20720,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "reverter"
+          }
+        }
+      }
+    },
+    "リワード広告: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rewarded ad: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anuncio con recompensa: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anúncio premiado: "
           }
         }
       }
@@ -24542,6 +24726,29 @@
         }
       }
     },
+    "全画面広告: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-screen ad: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anuncio a pantalla completa: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anúncio em tela cheia: "
+          }
+        }
+      }
+    },
     "全部使う": {
       "extractionState": "manual",
       "localizations": {
@@ -26313,6 +26520,29 @@
         }
       }
     },
+    "制限あり": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restricted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restringido"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restrito"
+          }
+        }
+      }
+    },
     "削除": {
       "extractionState": "manual",
       "localizations": {
@@ -28061,6 +28291,29 @@
         }
       }
     },
+    "受け取った数 ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Received "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recibidos "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recebidos "
+          }
+        }
+      }
+    },
     "受け取りました": {
       "extractionState": "manual",
       "localizations": {
@@ -28701,6 +28954,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Adicione vídeos da mesma cena gravados com outras câmeras em “Adicionar ângulo” e troque entre eles com os botões enquanto reproduz."
+          }
+        }
+      }
+    },
+    "同意待ち": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for consent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando consentimiento"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando consentimento"
           }
         }
       }
@@ -31902,6 +32178,52 @@
         }
       }
     },
+    "広告がありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No ad available"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay anuncios"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum anúncio disponível"
+          }
+        }
+      }
+    },
+    "広告の同意: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ad consent: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consentimiento de anuncios: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consentimento de anúncios: "
+          }
+        }
+      }
+    },
     "広告の同意を変更": {
       "extractionState": "manual",
       "localizations": {
@@ -31921,6 +32243,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alterar consentimento de anúncios"
+          }
+        }
+      }
+    },
+    "広告の準備: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ad setup: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración de anuncios: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuração de anúncios: "
+          }
+        }
+      }
+    },
+    "広告の状態": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ad status"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado de los anuncios"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status dos anúncios"
           }
         }
       }
@@ -32243,6 +32611,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cor da sombra"
+          }
+        }
+      }
+    },
+    "待っている画面 ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting screens "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pantallas en espera "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telas aguardando "
           }
         }
       }
@@ -36042,6 +36433,52 @@
         }
       }
     },
+    "未完了": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not finished"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin terminar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não concluído"
+          }
+        }
+      }
+    },
+    "未確認": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not asked"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin preguntar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não perguntado"
+          }
+        }
+      }
+    },
     "未設定": {
       "extractionState": "manual",
       "localizations": {
@@ -36107,6 +36544,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Adicionar ao final"
+          }
+        }
+      }
+    },
+    "本番用の広告ユニットなし": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No live ad unit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin bloque de anuncios de producción"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem bloco de anúncios de produção"
           }
         }
       }
@@ -37004,6 +37464,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Preparando…"
+          }
+        }
+      }
+    },
+    "準備済み": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronto"
           }
         }
       }
@@ -42919,6 +43402,52 @@
         }
       }
     },
+    "許可": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitido"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitido"
+          }
+        }
+      }
+    },
+    "許可しない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not allowed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No permitido"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não permitido"
+          }
+        }
+      }
+    },
     "訳文": {
       "extractionState": "manual",
       "localizations": {
@@ -43885,6 +44414,29 @@
         }
       }
     },
+    "読み込み中": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregando"
+          }
+        }
+      }
+    },
     "読み込み中…": {
       "extractionState": "manual",
       "localizations": {
@@ -43931,6 +44483,29 @@
         }
       }
     },
+    "読み込み失敗: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to load: "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error al cargar: "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao carregar: "
+          }
+        }
+      }
+    },
     "読み込み完了": {
       "extractionState": "manual",
       "localizations": {
@@ -43954,6 +44529,29 @@
         }
       }
     },
+    "読み込み成功": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loaded"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregado"
+          }
+        }
+      }
+    },
     "読み込む": {
       "extractionState": "manual",
       "localizations": {
@@ -43973,6 +44571,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Carregar"
+          }
+        }
+      }
+    },
+    "読み込めない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cannot load ads"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no se pueden cargar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "não pode carregar"
+          }
+        }
+      }
+    },
+    "読み込める": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "can load ads"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "se pueden cargar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pode carregar"
           }
         }
       }

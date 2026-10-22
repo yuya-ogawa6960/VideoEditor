@@ -204,7 +204,11 @@ struct ExportView: View {
                 historySection
             }
             .safeAreaInset(edge: .bottom) {
-                bottomBar
+                VStack(spacing: 0) {
+                    bottomBar
+                    // 書き出しボタンの下にバナー広告(読み込めるまでは場所を取らない。BannerAdView.swift)
+                    BannerAdSlot()
+                }
             }
             .navigationTitle("書き出し")
             .navigationBarTitleDisplayMode(.inline)

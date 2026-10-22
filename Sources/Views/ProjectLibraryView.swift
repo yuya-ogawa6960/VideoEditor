@@ -146,6 +146,10 @@ struct ProjectLibraryView: View {
             }
             .background(Color.black.ignoresSafeArea())
             .navigationTitle("プロジェクト")
+            // 画面の下にバナー広告(読み込めるまでは場所を取らない。BannerAdView.swift)
+            .safeAreaInset(edge: .bottom) {
+                BannerAdSlot()
+            }
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

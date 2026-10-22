@@ -24,6 +24,18 @@ final class NativeAdProvider: NSObject {
     private var failures = 0
     /// 読み込み直しの予定がすでにあるか(カードが出るたびの読み込みが失敗しても、予定を重ねないため)
     private var isRetryScheduled = false
+    /// サポート用の情報に出す、最後の読み込みの結果
+    private(set) var lastStatus = AdsManager.notLoadedText
+    private(set) var receivedCount = 0
+
+    /// サポート用の情報(1 行)
+    var diagnostic: String {
+        var parts = [lastStatus, String(localized: "受け取った数 ") + "\(receivedCount)"]
+        if ready != nil { parts.append(String(localized: "準備済み")) }
+        if !waiting.isEmpty { parts.append(String(localized: "待っている画面 ") + "\(waiting.count)") }
+        if loader != nil { parts.append(String(localized: "読み込み中")) }
+        return parts.joined(separator: "・")
+    }
 
     /// 広告を 1 件もらう(なければ読み込みが終わったときに渡す)
     func request(_ handler: @escaping (NativeAd) -> Void) {
@@ -52,6 +64,8 @@ final class NativeAdProvider: NSObject {
     fileprivate func received(_ ad: NativeAd) {
         loader = nil
         failures = 0
+        receivedCount += 1
+        lastStatus = AdsManager.loadResultText(success: true, error: nil)
         if !waiting.isEmpty {
             let handler = waiting.removeFirst()
             handler(ad)
@@ -61,8 +75,9 @@ final class NativeAdProvider: NSObject {
         }
     }
 
-    fileprivate func failed() {
+    fileprivate func failed(_ message: String) {
         loader = nil
+        lastStatus = AdsManager.loadResultText(success: false, error: message)
         // 電波が弱いときなど。間をあけて読み込み直す(待っているカードがあればそこに渡す。予定がすでにあれば重ねない)
         failures += 1
         guard !isRetryScheduled else { return }
@@ -82,7 +97,8 @@ extension NativeAdProvider: NativeAdLoaderDelegate {
     }
 
     nonisolated func adLoader(_ adLoader: AdLoader, didFailToReceiveAdWithError error: Error) {
-        Task { @MainActor in self.failed() }
+        let message = error.localizedDescription
+        Task { @MainActor in self.failed(message) }
     }
 }
 
@@ -91,11 +107,14 @@ struct NativeAdCard: View {
     @State private var ad: NativeAd?
 
     var body: some View {
-        Group {
+        // 広告が届くまでも大きさ 0 の部品を置いておく(中身が空だと .onAppear が呼ばれず、広告を頼みに行かなかった)
+        ZStack {
             if let ad {
                 NativeAdRepresentable(ad: ad)
                     .frame(height: 72)
                     .frame(maxWidth: .infinity)
+            } else {
+                Color.clear.frame(width: 0, height: 0)
             }
         }
         .onAppear {
@@ -208,10 +227,13 @@ struct NativeAdPanel: View {
     @State private var ad: NativeAd?
 
     var body: some View {
-        Group {
+        // NativeAdCard と同じく、広告が届くまでも大きさ 0 の部品を置いて .onAppear を呼ばせる
+        ZStack {
             if let ad {
                 NativeAdPanelRepresentable(ad: ad)
                     .frame(width: 300, height: 196)
+            } else {
+                Color.clear.frame(width: 0, height: 0)
             }
         }
         .onAppear {
