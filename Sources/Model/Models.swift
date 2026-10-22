@@ -565,12 +565,15 @@ final class EditorProject {
 
     // MARK: タイムライン計算
 
-    /// 各クリップの出力タイムライン上の開始時刻
+    /// 各クリップの出力タイムライン上の開始時刻(トランジションの重なりを反映。CompositionBuilder.timelineLayout と同じ)。
+    /// 以前は長さを足すだけで重なりを引いていなかったので、トランジションのたびに後ろのクリップの位置が遅れていた
     func clipStartTimes() -> [Double] {
+        let layout = CompositionBuilder.timelineLayout(for: snapshot())
         var result: [Double] = []
+        result.reserveCapacity(clips.count)
         var t = 0.0
-        for clip in clips {
-            result.append(t)
+        for (i, clip) in clips.enumerated() {
+            result.append(i < layout.count ? layout[i].start : t)
             t += clip.outputDuration
         }
         return result
@@ -859,5 +862,29 @@ extension Clip {
             return endTime
         }
         return startTime + min(max(offset, 0), outputDuration) * speed
+    }
+
+    /// 元素材上の時刻 → クリップ先頭からの出力秒(sourceTime(atOutputOffset:) の逆。速度・速度カーブを考慮)
+    func outputOffset(atSourceTime source: Double) -> Double {
+        let trimmed = trimmedDuration
+        guard trimmed > 0 else { return 0 }
+        let local = min(max(source - startTime, 0), trimmed)
+        if speedCurve.enabled {
+            let n = 256
+            let step = trimmed / Double(n)
+            var total = 0.0
+            for i in 0..<n {
+                let segmentStart = Double(i) * step
+                let p = (Double(i) + 0.5) / Double(n)
+                let d = step / max(speedCurve.speed(at: p), 0.01)
+                if local <= segmentStart + step {
+                    let fraction = step > 0 ? (local - segmentStart) / step : 0
+                    return total + min(max(fraction, 0), 1) * d
+                }
+                total += d
+            }
+            return total
+        }
+        return local / max(speed, 0.01)
     }
 }

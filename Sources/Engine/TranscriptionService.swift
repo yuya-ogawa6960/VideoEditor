@@ -800,9 +800,12 @@ final class TranscriptionService {
     /// プロジェクトの全クリップの出力タイムライン上の配置(クリップ ID → ClipJob。chunks は使わない)
     private static func clipPlacements(for snapshot: ProjectSnapshot) -> [UUID: ClipJob] {
         var result: [UUID: ClipJob] = [:]
+        // 開始位置はトランジションの重なりを引いた、再生・書き出しと同じ配置
+        let layout = CompositionBuilder.timelineLayout(for: snapshot)
         var timelineStart = 0.0
-        for clip in snapshot.clips {
-            result[clip.id] = ClipJob(clip: clip, clipTimelineStart: timelineStart, chunks: [])
+        for (i, clip) in snapshot.clips.enumerated() {
+            let start = i < layout.count ? layout[i].start : timelineStart
+            result[clip.id] = ClipJob(clip: clip, clipTimelineStart: start, chunks: [])
             timelineStart += clip.outputDuration
         }
         return result
@@ -963,9 +966,13 @@ final class TranscriptionService {
 
     private static func makeJobs(for snapshot: ProjectSnapshot) -> [ClipJob] {
         var jobs: [ClipJob] = []
+        // 各クリップの開始位置は、再生・書き出しと同じ配置(トランジションの重なりを引いたもの)を使う。
+        // 以前は長さを足すだけだったので、トランジションのたびに字幕が重なりの分だけ遅れ、
+        // カットしてクリップが多いほど後半の字幕がどんどん遅れていた(1.12.47 まで)
+        let layout = CompositionBuilder.timelineLayout(for: snapshot)
         var timelineStart = 0.0
-        for clip in snapshot.clips {
-            let clipStart = timelineStart
+        for (index, clip) in snapshot.clips.enumerated() {
+            let clipStart = index < layout.count ? layout[index].start : timelineStart
             timelineStart += clip.outputDuration
             guard clip.hasAudio, !clip.isMuted, clip.trimmedDuration >= 0.3 else { continue }
             var chunks: [SourceRange] = []
@@ -983,13 +990,11 @@ final class TranscriptionService {
         return jobs
     }
 
-    /// 元素材上の秒 → 出力タイムライン上の秒(トリミング・速度を反映)
+    /// 元素材上の秒 → 出力タイムライン上の秒(トリミング・速度・速度カーブを反映)
     private static func mapToTimeline(_ tokens: [TimedToken], job: ClipJob) -> [TimedToken] {
         let clip = job.clip
-        let speed = max(clip.speed, 0.01)
         func convert(_ source: Double) -> Double {
-            let clamped = min(max(source, clip.startTime), clip.endTime)
-            return job.clipTimelineStart + (clamped - clip.startTime) / speed
+            job.clipTimelineStart + clip.outputOffset(atSourceTime: source)
         }
         return tokens.map { token in
             TimedToken(text: token.text, start: convert(token.start), end: convert(token.end))
