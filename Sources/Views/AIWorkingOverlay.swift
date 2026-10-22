@@ -110,7 +110,7 @@ struct AIWorkingCard: View {
         self.inlineAd = inlineAd
         peekImage = nil
         peekLabel = nil
-        robot = .workshop
+        robot = progress.robot
         secondaryAction = nil
         self.onCancel = onCancel
     }
@@ -341,7 +341,10 @@ private struct CornerBrackets: Shape {
 ///   左 = フィルムを運ぶ係 / 中 = はさみで切る係 / 右 = 虫めがねで確かめる係。解析・AI 処理・書き出し中に出す
 /// - subtitles: 514 × 330 を 1 秒 12 コマで 72 枚(6 秒でくり返し)。Resources/RobotSubtitleAnimation/robot_sub_000.png …
 ///   ヘッドフォンで聞く → 両手で打ち込む → 聞き直す → 打ち込む → にっこりうなずく。字幕の自動作成中に出す
-struct RobotAnimation: Sendable {
+/// - modelDownload: 554 × 326 を 60 枚(5 秒)。ポストに届いた手紙を受け取って抱える。Whisper のモデルのダウンロード中
+/// - modelLoading: 158 × 255 を 60 枚(5 秒)。マニュアルを両手で支えて読み、うなずく。Whisper のモデルの読み込み中
+/// - consensus: 652 × 249 を 288 枚(24 秒)。3 体が ◯・△・✕ の札を一斉に上げて判定する。中だるみ・編集チェック中
+struct RobotAnimation: Sendable, Equatable {
     /// コマのファイル名の頭(<prefix>_000.png … と <prefix>_poster.png)
     let prefix: String
     let frameCount: Int
@@ -355,6 +358,12 @@ struct RobotAnimation: Sendable {
                                          size: CGSize(width: 720, height: 218), height: nil)
     static let subtitles = RobotAnimation(prefix: "robot_sub", frameCount: 72, fps: 12,
                                           size: CGSize(width: 514, height: 330), height: 130)
+    static let modelDownload = RobotAnimation(prefix: "robot_mail", frameCount: 60, fps: 12,
+                                              size: CGSize(width: 554, height: 326), height: 150)
+    static let modelLoading = RobotAnimation(prefix: "robot_load", frameCount: 60, fps: 12,
+                                             size: CGSize(width: 158, height: 255), height: 130)
+    static let consensus = RobotAnimation(prefix: "robot_judge", frameCount: 288, fps: 12,
+                                          size: CGSize(width: 652, height: 249), height: nil)
 
     /// その時刻に見せるコマの番号
     func frameIndex(at date: Date) -> Int {
@@ -423,6 +432,8 @@ struct TranscriptionWorkingOverlay: View {
     let onCancel: (() -> Void)?
     /// Whisper の準備が長いとき、この回だけ Apple 音声認識で作る(nil ならボタンを出さない)
     var onSwitchToApple: (() -> Void)? = nil
+    /// 真ん中のロボット(字幕を打つ係。モデルのダウンロード中・読み込み中はそれぞれ別のロボット)
+    var robot: RobotAnimation = .subtitles
 
     @State private var frame: CGImage?
     @State private var lastTime: Double = -10
@@ -440,7 +451,7 @@ struct TranscriptionWorkingOverlay: View {
                               inlineAd: inlineAd,
                               peekImage: frame,
                               peekLabel: String(localized: "AI が聞いています"),
-                              robot: .subtitles,
+                              robot: robot,
                               secondaryAction: onSwitchToApple.map { action in
                                   WorkingCardAction(title: String(localized: "Apple 音声認識で今すぐ作る"),
                                                     systemImage: "bolt.fill",

@@ -261,7 +261,10 @@ struct SubtitleEditorView: View {
                                                 : (transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText),
                                             onCancel: isCancellingTranscription ? nil : { cancelTranscription() },
                                             onSwitchToApple: transcriber.canSwitchToApple && !isCancellingTranscription
-                                                ? { transcriber.switchToAppleSpeech() } : nil)
+                                                ? { transcriber.switchToAppleSpeech() } : nil,
+                                            robot: transcriber.isPreparingModel
+                                                ? (transcriber.isDownloadingModel ? .modelDownload : .modelLoading)
+                                                : .subtitles)
             }
         }
         .onChange(of: isTranscribing) { _, running in

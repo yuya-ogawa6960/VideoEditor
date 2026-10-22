@@ -2113,7 +2113,7 @@ struct ContentView: View {
     private func runPacingCheck() {
         player.pause()
         let snapshot = project.snapshot()
-        analysis.run(title: String(localized: "動画をチェックしています")) { report in
+        analysis.run(title: String(localized: "動画をチェックしています"), robot: .consensus) { report in
             let sensitivity = PacingSensitivity(rawValue: UserDefaults.standard.string(forKey: "pacing.sensitivity") ?? "") ?? .normal
             let useAI: Bool = UserDefaults.standard.bool(forKey: "pacing.useAI")
             let platform = TargetPlatform(rawValue: UserDefaults.standard.string(forKey: "pacing.platform") ?? "") ?? .youtube

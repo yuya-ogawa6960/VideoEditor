@@ -367,6 +367,8 @@ final class TranscriptionService {
     private(set) var progress: Double = 0
     /// Whisper のモデルを準備(ダウンロード・読み込み)している間は true。進み具合は % ではなく「準備中」として見せる
     private(set) var isPreparingModel: Bool = false
+    /// モデルの準備のうち、ダウンロードしている間は true(読み込みに入ったら false)。カードのロボットを替えるのに使う
+    private(set) var isDownloadingModel: Bool = false
     /// Whisper の準備が switchOfferDelay を過ぎたら true。画面に「Apple 音声認識で今すぐ作る」を出す
     private(set) var canSwitchToApple: Bool = false
     private(set) var statusText: String = ""
@@ -609,7 +611,11 @@ final class TranscriptionService {
         var switchedToApple = false
         if requestedEngine == .whisper {
             await updateUI(status: String(localized: "Whisperモデルを確認中…"))
-            await MainActor.run { self.isPreparingModel = true }
+            let needsDownload = !WhisperTranscriber.shared.isModelDownloaded(settings.whisperModel)
+            await MainActor.run {
+                self.isPreparingModel = true
+                self.isDownloadingModel = needsDownload
+            }
             let prepareSequence = StatusSequence()
             let preparePhase = PhaseFlag()
             defer { preparePhase.end() }
@@ -626,6 +632,7 @@ final class TranscriptionService {
             preparePhase.end()
             await MainActor.run {
                 self.isPreparingModel = false
+                self.isDownloadingModel = false
                 self.canSwitchToApple = false
             }
             try checkCancelled()
@@ -1269,7 +1276,10 @@ final class TranscriptionService {
         let loadClock = LoadClock()
         let task = Task<Void, Error> {
             try await WhisperTranscriber.shared.prepare(model: model,
-                                                        onLoadStart: { loadClock.start() },
+                                                        onLoadStart: { [weak self] in
+                                                            loadClock.start()
+                                                            Task { @MainActor in self?.isDownloadingModel = false }
+                                                        },
                                                         progress: progress)
         }
         lock.lock()
@@ -1373,6 +1383,7 @@ final class TranscriptionService {
                 self.isRunning = running
                 if !running {
                     self.isPreparingModel = false
+                    self.isDownloadingModel = false
                     self.canSwitchToApple = false
                 }
             }

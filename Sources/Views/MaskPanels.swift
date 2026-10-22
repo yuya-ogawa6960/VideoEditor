@@ -60,13 +60,14 @@ final class EditorAnalysisRunner {
     /// CancellationError は黙って終わり、それ以外のエラーは onError に渡す。
     func run(title: String,
              indeterminate: Bool = false,
+             robot: RobotAnimation = .workshop,
              body: @escaping @MainActor (_ report: @escaping (Double) -> Void) async throws -> Void,
              onError: @escaping @MainActor (Error) -> Void) {
         task?.cancel()
         finishBackgroundSupport(success: false)
         generation += 1
         let current = generation
-        progress = ClipFXProgress(title: title, fraction: indeterminate ? nil : 0)
+        progress = ClipFXProgress(title: title, fraction: indeterminate ? nil : 0, robot: robot)
         beginBackgroundSupport(title: title)
         Analytics.shared.track("analysis", ["name": title])
         // 解析は広告の間も続く

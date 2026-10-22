@@ -26,6 +26,8 @@ struct ClipFXProgress: Equatable {
     var title: String
     /// 0...1。nil なら不定(くるくる)
     var fraction: Double?
+    /// カードの真ん中で動くロボット(既定は作業中の 3 体。中だるみチェックは判定する 3 体)
+    var robot: RobotAnimation = .workshop
 }
 
 /// 画面全体を覆う進捗表示(キャンセルつき)
