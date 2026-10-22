@@ -756,6 +756,8 @@ struct ExportView: View {
         switch exporter.state {
         case .finished:
             VStack(alignment: .leading, spacing: 10) {
+                // リールを掲げて紙吹雪でバンザイ(1 回だけ再生して最後の姿勢で止まる)
+                RobotWorkshop(clip: .exportComplete)
                 Label(exporter.savedToPhotos ? String(localized: "書き出して、写真アプリに保存しました")
                       : (lastOutputIsVideo ? String(localized: "書き出しが終わりました") : String(localized: "音声の書き出しが終わりました")),
                       systemImage: "checkmark.circle.fill")

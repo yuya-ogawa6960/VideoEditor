@@ -135,6 +135,8 @@ struct SubtitleEditorView: View {
 
     /// キャンセルを押してから、実際に止まるまでの間
     @State private var isCancellingTranscription = false
+    /// 字幕の自動作成が終わったときに少しのあいだ出す完了の表示(作った字幕の件数)
+    @State private var captionDoneCount: Int?
 
     private var isTranslating: Bool {
         translationRequest != nil || aiTranslationTask != nil
@@ -265,6 +267,29 @@ struct SubtitleEditorView: View {
                                             robot: transcriber.isPreparingModel
                                                 ? (transcriber.isDownloadingModel ? .modelDownload : .modelLoading)
                                                 : .subtitles)
+            }
+        }
+        // 字幕ができたときの完了の表示(ロボットがサムズアップ。タップか 3 秒で消える)
+        .overlay {
+            if let count = captionDoneCount {
+                ZStack {
+                    Color.black.opacity(0.45)
+                        .ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        RobotWorkshop(clip: .subtitlesComplete)
+                        Text("字幕ができました")
+                            .font(.headline)
+                        Text(String(localized: "\(count) 件の字幕を作りました"))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(24)
+                    .frame(width: 280)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { captionDoneCount = nil }
+                .transition(.opacity)
             }
         }
         .onChange(of: isTranscribing) { _, running in
@@ -429,6 +454,17 @@ struct SubtitleEditorView: View {
         UIApplication.shared.open(url)
     }
 
+    /// 字幕の自動作成が終わったことを少しのあいだ見せる(3 秒で自動で消える)
+    private func showCaptionDone(count: Int) {
+        withAnimation(.easeOut(duration: 0.25)) { captionDoneCount = count }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if captionDoneCount == count {
+                withAnimation(.easeIn(duration: 0.25)) { captionDoneCount = nil }
+            }
+        }
+    }
+
     private func startTranscription() {
         guard transcriptionTask == nil else { return }
         let snapshot = project.snapshot()
@@ -465,6 +501,8 @@ struct SubtitleEditorView: View {
                 if cues.isEmpty {
                     showAlert(title: String(localized: "声が見つかりませんでした"),
                               message: String(localized: "話している言語が合っているか確かめて、もう一度お試しください。BGMだけの動画では字幕は作られません。"))
+                } else {
+                    showCaptionDone(count: cues.count)
                 }
             } catch is CancellationError {
                 transcriptionTask = nil

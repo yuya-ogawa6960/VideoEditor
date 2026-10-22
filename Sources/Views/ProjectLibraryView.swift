@@ -330,9 +330,8 @@ struct ProjectLibraryView: View {
 
     private var emptyHint: some View {
         VStack(spacing: 12) {
-            Image(systemName: "film.stack")
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
+            // カメラの横で手を振って誘うロボット(AIWorkingOverlay.swift)
+            RobotWorkshop(clip: .emptyProjects)
             Text("まだプロジェクトがありません")
                 .font(.headline)
                 .foregroundStyle(.white)

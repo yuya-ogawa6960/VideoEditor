@@ -344,6 +344,10 @@ private struct CornerBrackets: Shape {
 /// - modelDownload: 554 × 326 を 60 枚(5 秒)。ポストに届いた手紙を受け取って抱える。Whisper のモデルのダウンロード中
 /// - modelLoading: 158 × 255 を 60 枚(5 秒)。マニュアルを両手で支えて読み、うなずく。Whisper のモデルの読み込み中
 /// - consensus: 652 × 249 を 288 枚(24 秒)。3 体が ◯・△・✕ の札を一斉に上げて判定する。中だるみ・編集チェック中
+/// - importing: 274 × 335 を 60 枚(5 秒)。雲から落ちてくるフィルムを受け止めて缶にしまう。動画の取り込み中
+/// - emptyProjects: 292 × 254 を 48 枚(4 秒)。カメラの横で手を振って誘う。プロジェクト一覧が空のとき
+/// - exportComplete: 344 × 318 を 30 枚(2.5 秒、1 回だけ)。リールを掲げて紙吹雪でバンザイ。書き出し完了
+/// - subtitlesComplete: 235 × 254 を 24 枚(2 秒、1 回だけ)。字幕の吹き出しを掲げてサムズアップ。字幕の自動作成が完了
 struct RobotAnimation: Sendable, Equatable {
     /// コマのファイル名の頭(<prefix>_000.png … と <prefix>_poster.png)
     let prefix: String
@@ -353,6 +357,8 @@ struct RobotAnimation: Sendable, Equatable {
     let size: CGSize
     /// カードの中での高さ(nil なら幅いっぱいに縦横比どおり。決めたときはその高さに収める)
     let height: CGFloat?
+    /// くり返すか。false なら 1 回だけ再生して最後のコマ(= poster)で止まる
+    var loops: Bool = true
 
     static let workshop = RobotAnimation(prefix: "robot_anim", frameCount: 60, fps: 12,
                                          size: CGSize(width: 720, height: 218), height: nil)
@@ -364,6 +370,14 @@ struct RobotAnimation: Sendable, Equatable {
                                              size: CGSize(width: 158, height: 255), height: 130)
     static let consensus = RobotAnimation(prefix: "robot_judge", frameCount: 288, fps: 12,
                                           size: CGSize(width: 652, height: 249), height: nil)
+    static let importing = RobotAnimation(prefix: "robot_import", frameCount: 60, fps: 12,
+                                          size: CGSize(width: 274, height: 335), height: 150)
+    static let emptyProjects = RobotAnimation(prefix: "robot_empty", frameCount: 48, fps: 12,
+                                              size: CGSize(width: 292, height: 254), height: 170)
+    static let exportComplete = RobotAnimation(prefix: "robot_export_done", frameCount: 30, fps: 12,
+                                               size: CGSize(width: 344, height: 318), height: 160, loops: false)
+    static let subtitlesComplete = RobotAnimation(prefix: "robot_sub_done", frameCount: 24, fps: 12,
+                                                  size: CGSize(width: 235, height: 254), height: 150, loops: false)
 
     /// その時刻に見せるコマの番号
     func frameIndex(at date: Date) -> Int {
@@ -390,22 +404,41 @@ struct RobotWorkshop: View {
     var clip: RobotAnimation = .workshop
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 1 回だけ再生するアニメーションの再生開始時刻と、再生し終えたか
+    @State private var startedAt: Date?
+    @State private var finished = false
 
     var body: some View {
-        Group {
-            if reduceMotion {
+        // Group だと .task が中の枝ごとに付き、最後のコマに切り替わるたびに再生がやり直されるので ZStack で包む
+        ZStack {
+            // 1 回だけのものは、再生し終えたら最後のコマ(poster と同じ)で止める
+            if reduceMotion || finished {
                 frame(clip.poster)
             } else {
                 SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / clip.fps)) { context in
-                    frame(clip.image(clip.frameIndex(at: context.date)))
+                    frame(clip.image(frameIndex(at: context.date)))
                 }
             }
+        }
+        .task(id: clip.prefix) {
+            guard !clip.loops else { return }
+            startedAt = Date()
+            finished = false
+            let seconds = Double(clip.frameCount) / max(clip.fps, 1)
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            if !Task.isCancelled { finished = true }
         }
         .aspectRatio(clip.size, contentMode: .fit)
         // 高さを決めておく(上限だけだと、高さを決めずに測られたときに絵がはみ出す)
         .frame(height: clip.height)
         .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
+    }
+
+    private func frameIndex(at date: Date) -> Int {
+        if clip.loops { return clip.frameIndex(at: date) }
+        let start = startedAt ?? date
+        return min(max(Int(date.timeIntervalSince(start) * clip.fps), 0), clip.frameCount - 1)
     }
 
     @ViewBuilder

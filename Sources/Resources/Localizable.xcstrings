@@ -576,6 +576,29 @@
         }
       }
     },
+    "%lld 件の字幕を作りました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created %lld captions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se crearon %lld subtítulos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld legendas criadas"
+          }
+        }
+      }
+    },
     "%lld 件の字幕を翻訳しました。「スタイル」の「表示」を「訳文」か「両方」にすると映像に出ます。": {
       "extractionState": "manual",
       "localizations": {
@@ -30058,6 +30081,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Criar uma estrutura (capítulos) a partir das legendas"
+          }
+        }
+      }
+    },
+    "字幕ができました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captions are ready"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los subtítulos están listos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As legendas estão prontas"
           }
         }
       }

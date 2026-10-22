@@ -2680,10 +2680,9 @@ struct ContentView: View {
             Color.black.opacity(0.5)
                 .ignoresSafeArea()
             VStack(spacing: 12) {
+                // 雲から落ちてくるフィルムを受け止めるロボット(AIWorkingOverlay.swift)
+                RobotWorkshop(clip: .importing)
                 if downloading || preparing {
-                    ProgressView()
-                        .controlSize(.large)
-                        .tint(.white)
                     Group {
                         if downloading {
                             Text("クラウドからダウンロードしています…(大きな動画は数分かかります)")
