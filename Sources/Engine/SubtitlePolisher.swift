@@ -610,7 +610,10 @@ enum SubtitlePolisher {
             }
 
             let joined = pieces.joined(separator: language == .japanese ? "" : " ")
-            guard isPlausible(original: original, candidate: joined) else {
+            // 前後の字幕の本文(AI が字幕をまとめて番号がずれると、隣の字幕の文がこの字幕に入ってくる)
+            let previous = index > 0 ? cues[index - 1].text : ""
+            let next = index + 1 < cues.count ? cues[index + 1].text : ""
+            guard isPlausible(original: original, candidate: joined, previous: previous, next: next) else {
                 result.append(cue)
                 continue
             }
@@ -635,21 +638,55 @@ enum SubtitlePolisher {
         return trimmed
     }
 
-    /// 元の本文から大きく逸脱していないか(長さ比・文字の重なり)
-    private static func isPlausible(original: String, candidate: String) -> Bool {
-        let a = original.count
-        let b = candidate.count
-        guard b > 0, b <= 240 else { return false }
-        if a >= 6 {
-            let ratio = Double(b) / Double(max(1, a))
-            if ratio > 2.2 || ratio < 0.35 { return false }
-            let originalSet = Set(original.lowercased().filter { !$0.isWhitespace && !$0.isPunctuation })
-            let candidateChars = candidate.lowercased().filter { !$0.isWhitespace && !$0.isPunctuation }
-            guard !candidateChars.isEmpty else { return false }
-            let overlap = candidateChars.filter { originalSet.contains($0) }.count
-            if Double(overlap) / Double(candidateChars.count) < 0.4 { return false }
+    /// AI の直した文を、この字幕に使ってよいか。
+    /// AI(特に端末内の小さいモデル)が字幕をまとめて番号を振り直すと、後ろの字幕の文が 1 つずつ前の字幕に入り、
+    /// 字幕が声よりどんどん先に出るようになる(1.12.46 まで)。次のどれかなら使わず、元の文(時刻どおり)のままにする:
+    /// - 元の文より大きく長い(内容の追加や、隣の字幕を取り込んだ)/ 大きく短い
+    /// - 元の文と似ていない(文字の 2 つ組の重なりで比べる)
+    /// - 元の文より、前後の字幕の文のほうに似ている(番号がずれている)
+    static func isPlausible(original: String, candidate: String, previous: String = "", next: String = "") -> Bool {
+        let a = normalizedForComparison(original).count
+        let b = normalizedForComparison(candidate).count
+        guard b > 0, candidate.count <= 240 else { return false }
+        // 校正は句読点を足し、フィラーを削るだけなので、元より大きく長くはならない
+        if b > max(Int((Double(a) * 1.5).rounded(.up)) + 2, a + 4) { return false }
+        if a >= 6, Double(b) < Double(a) * 0.35 { return false }
+        let own = similarity(original, candidate)
+        if a >= 4, own < 0.35 { return false }
+        for neighbor in [previous, next] where normalizedForComparison(neighbor).count >= 2 {
+            if similarity(neighbor, candidate) > own + 0.05 { return false }
         }
         return true
+    }
+
+    /// 比べるための形(小文字にして、空白・句読点・記号を除く)
+    private static func normalizedForComparison(_ text: String) -> [Character] {
+        Array(text.lowercased().filter { !$0.isWhitespace && !$0.isPunctuation && !$0.isSymbol })
+    }
+
+    /// 2 つの文の似ている度合い(0...1)。文字の 2 つ組(バイグラム)の Dice 係数。1 文字しかないときは文字の重なり
+    static func similarity(_ lhs: String, _ rhs: String) -> Double {
+        let x = normalizedForComparison(lhs)
+        let y = normalizedForComparison(rhs)
+        guard !x.isEmpty, !y.isEmpty else { return 0 }
+        if x.count < 2 || y.count < 2 {
+            let common = Set(x).intersection(Set(y)).count
+            return Double(common) / Double(max(Set(x).count, Set(y).count))
+        }
+        func bigrams(_ chars: [Character]) -> [String: Int] {
+            var counts: [String: Int] = [:]
+            for i in 0..<(chars.count - 1) {
+                counts[String(chars[i]) + String(chars[i + 1]), default: 0] += 1
+            }
+            return counts
+        }
+        let bx = bigrams(x)
+        let by = bigrams(y)
+        var common = 0
+        for (gram, count) in bx {
+            common += min(count, by[gram] ?? 0)
+        }
+        return 2 * Double(common) / Double((x.count - 1) + (y.count - 1))
     }
 
     private static func retexted(_ cue: SubtitleCue, newText: String, language: TranscriptionLanguage) -> SubtitleCue {
