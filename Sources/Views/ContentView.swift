@@ -1688,7 +1688,8 @@ struct ContentView: View {
 
     // MARK: クリップ
 
-    // クリップを選んだとき: スプリット → 削除 を固定し、あとはよく使う順。
+    // クリップを選んだとき(ユーザー指定の順): スプリット → リップル削除 → ビデオトランジション → AI → オーディオ
+    // → ボリューム → 置き換え。速度・カラー・モーションなど、ほかはすべて「その他」の中。
     // 同じ種類の機能はどの部品でも同じグループ名(カラー / モーション / オーディオ)
     private func clipItems(_ clipID: UUID) -> [EditorToolItem] {
         let clip = project.clips.first(where: { $0.id == clipID })
@@ -1704,6 +1705,25 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "リップル削除"), systemImage: "trash", destructive: true) {
             deleteClip(clipID)
         })
+        items.append(EditorToolItem(String(localized: "ビデオトランジション"), systemImage: "arrow.left.arrow.right.square") {
+            openPanel(.transition(clipID))
+        })
+        items.append(EditorToolItem.group("AI", systemImage: "wand.and.stars", id: "group-clip-ai",
+                                          items: clipAIItems(clipID, isStill: isStill, hasAudio: hasAudio)))
+        if !isStill {
+            items.append(EditorToolItem.group(String(localized: "オーディオ"), systemImage: "waveform", id: "group-clip-audio",
+                                              items: clipAudioItems(clipID, hasAudio: hasAudio)))
+            items.append(EditorToolItem(String(localized: "ボリューム"), systemImage: "speaker.wave.2",
+                                        enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
+                openPanel(.volume(clipID))
+            })
+        }
+        items.append(EditorToolItem.replaceMedia(String(localized: "フッテージを置き換え"), systemImage: "arrow.triangle.2.circlepath",
+                                                 enabled: !(isImporting || busy),
+                                                 disabledReason: Self.busyReason))
+
+        // ここから下は「その他」の中
+        var more: [EditorToolItem] = []
         if !isStill {
             var speedItems: [EditorToolItem] = []
             speedItems.append(EditorToolItem(String(localized: "速度・デュレーション"), systemImage: "speedometer") {
@@ -1723,28 +1743,16 @@ struct ContentView: View {
                                              enabled: !busy, disabledReason: Self.busyReason) {
                 freezeFrame(clipID)
             })
-            items.append(EditorToolItem.group(String(localized: "速度"), systemImage: "speedometer", id: "group-speed",
-                                              items: speedItems))
-            items.append(EditorToolItem(String(localized: "ボリューム"), systemImage: "speaker.wave.2",
-                                        enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
-                openPanel(.volume(clipID))
-            })
+            more.append(EditorToolItem.group(String(localized: "速度"), systemImage: "speedometer", id: "group-speed",
+                                             items: speedItems))
         }
-        items.append(EditorToolItem.group("AI", systemImage: "wand.and.stars", id: "group-clip-ai",
-                                          items: clipAIItems(clipID, isStill: isStill, hasAudio: hasAudio)))
-        items.append(EditorToolItem(String(localized: "ビデオトランジション"), systemImage: "arrow.left.arrow.right.square") {
-            openPanel(.transition(clipID))
-        })
-        items.append(EditorToolItem.group(String(localized: "カラー"), systemImage: "circle.lefthalf.filled", id: "group-color",
-                                          items: colorGroupItems(clipID)))
-        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "move.3d", id: "group-motion",
-                                          items: clipMotionItems(clipID, isStill: isStill)))
-        if !isStill {
-            items.append(EditorToolItem.group(String(localized: "オーディオ"), systemImage: "waveform", id: "group-clip-audio",
-                                              items: clipAudioItems(clipID, hasAudio: hasAudio)))
-        }
-        items.append(EditorToolItem.more(clipMoreItems(clipID, clip: clip, isStill: isStill,
-                                                       hasAudio: hasAudio, busy: busy)))
+        more.append(EditorToolItem.group(String(localized: "カラー"), systemImage: "circle.lefthalf.filled", id: "group-color",
+                                         items: colorGroupItems(clipID)))
+        more.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "move.3d", id: "group-motion",
+                                         items: clipMotionItems(clipID, isStill: isStill)))
+        more.append(contentsOf: clipMoreItems(clipID, clip: clip, isStill: isStill,
+                                              hasAudio: hasAudio, busy: busy))
+        items.append(EditorToolItem.more(more))
         return items
     }
 
@@ -1889,10 +1897,6 @@ struct ContentView: View {
                                     disabledReason: String(localized: "元の動画をすべて使っているので、ずらせません")) {
             openPanel(.slip(clipID))
         })
-        let replaceBlocked = isImporting || busy
-        items.append(EditorToolItem.replaceMedia(String(localized: "フッテージを置き換え"), systemImage: "arrow.triangle.2.circlepath",
-                                                 enabled: !replaceBlocked,
-                                                 disabledReason: Self.busyReason))
         items.append(EditorToolItem(String(localized: "画質補正"), systemImage: "sparkles.tv") {
             openPanel(.enhance(clipID))
         })
