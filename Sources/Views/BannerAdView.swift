@@ -10,8 +10,8 @@ import GoogleMobileAds
 // =====================================================================
 
 enum BannerAds {
-    /// 本番用のバナーの広告ユニット ID(AdMob で「バナー」の広告ユニットを作ったら入れる。空なら本番では出さない)
-    static let liveUnit = ""
+    /// 本番用のバナーの広告ユニット ID(AdMob の「バナー」。空なら本番では出さない)
+    static let liveUnit = "ca-app-pub-5816286661245536/2012576270"
     /// Google のテスト用アダプティブバナー
     static let testUnit = "ca-app-pub-3940256099942544/2435281174"
 
