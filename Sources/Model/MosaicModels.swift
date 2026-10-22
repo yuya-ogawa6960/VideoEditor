@@ -75,6 +75,32 @@ extension TextClip {
         return (CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h), r)
     }
 
+    /// 回転したモザイクの範囲が画面(size)からはみ出さないように直す。
+    /// 大きすぎるときは縦横比のまま縮め(scale)、はみ出した分は内側へ寄せる(center)。モザイク以外は何もしない
+    mutating func keepMosaicInside(_ size: CGSize) {
+        guard let mosaic, size.width > 1, size.height > 1 else { return }
+        let canvasWidth = Double(size.width)
+        let canvasHeight = Double(size.height)
+        let angle = rotation.isFinite ? rotation * Double.pi / 180 : 0
+        let cosine = abs(cos(angle))
+        let sine = abs(sin(angle))
+        let factor = max(scale, 0.01)
+        let width = max(0.02, widthRatio) * canvasWidth * factor
+        let height = max(0.02, mosaic.heightRatio) * canvasHeight * factor
+        var boundsWidth = width * cosine + height * sine
+        var boundsHeight = width * sine + height * cosine
+        let shrink = min(1, canvasWidth / max(boundsWidth, 0.000_001), canvasHeight / max(boundsHeight, 0.000_001))
+        if shrink < 1 {
+            scale = factor * shrink
+            boundsWidth *= shrink
+            boundsHeight *= shrink
+        }
+        let halfX = min(0.5, boundsWidth / 2 / canvasWidth)
+        let halfY = min(0.5, boundsHeight / 2 / canvasHeight)
+        center = NormalizedPoint(x: min(max(center.x, halfX), 1 - halfX),
+                                 y: min(max(center.y, halfY), 1 - halfY))
+    }
+
     /// 新しいモザイク(画面中央、表示 3 秒)
     static func newMosaic(start: Double, duration: Double = 3) -> TextClip {
         var clip = TextClip(text: String(localized: "モザイク"), start: start)

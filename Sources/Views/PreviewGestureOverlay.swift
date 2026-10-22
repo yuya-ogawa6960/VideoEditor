@@ -730,6 +730,15 @@ struct PreviewGestureOverlay: View {
                 mosaicHandles(binding, size: size, frame: frameSize)
             }
         }
+        // パネルの「±15°」などで回したときも、映像からはみ出さないようにする
+        .onChange(of: clip.rotation) { _, _ in
+            guard binding.wrappedValue.isMosaic else { return }
+            var fitted = binding.wrappedValue
+            fitted.keepMosaicInside(size)
+            if fitted.scale != binding.wrappedValue.scale || fitted.center != binding.wrappedValue.center {
+                binding.wrappedValue = fitted
+            }
+        }
         .gesture(textGesture(binding, size: size).updating($gestureLive) { _, state, _ in
             state = true
         })
@@ -850,6 +859,8 @@ struct PreviewGestureOverlay: View {
                 clip.mosaic?.heightRatio = min(max(Double(h / max(size.height, 1)) / scale, 0.02), 3)
                 clip.center = NormalizedPoint(x: start.center.x + Double(shiftX / max(size.width, 1)),
                                               y: start.center.y + Double(shiftY / max(size.height, 1)))
+                // 回転した枠が映像からはみ出さないようにする
+                clip.keepMosaicInside(size)
                 binding.wrappedValue = clip
             }
             .onEnded { _ in
@@ -882,6 +893,8 @@ struct PreviewGestureOverlay: View {
                     degrees = snap == 180 ? -180 : snap
                 }
                 clip.rotation = degrees
+                // 回すと外接する範囲が広がるので、映像からはみ出す分は縮めて内側へ寄せる
+                clip.keepMosaicInside(size)
                 binding.wrappedValue = clip
             }
             .onEnded { _ in
@@ -932,6 +945,8 @@ struct PreviewGestureOverlay: View {
         if rotation > 180 { rotation -= 360 }
         if rotation < -180 { rotation += 360 }
         clip.rotation = rotation
+        // モザイクは、回転した枠が映像からはみ出さないようにする(テキストはそのまま)
+        if clip.isMosaic { clip.keepMosaicInside(size) }
         binding.wrappedValue = clip
     }
 
