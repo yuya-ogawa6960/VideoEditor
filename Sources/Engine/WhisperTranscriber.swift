@@ -18,8 +18,8 @@ import WhisperKit
 //   ピースを短くしないのは意図的: VAD 分割と単語時刻は WhisperKit がピース内で行うので、ピースの境界は少ない方が
 //   文の途中で切れにくく、ピースごとの準備(配列化・VAD)の無駄も少ない。ピースが長くて進捗が止まって見えないよう、
 //   ピース内の進み具合を WhisperKit の Progress と処理速度から見積もって約 0.25 秒ごとに返す
-// - モデルは GPU で動かす(Neural Engine だと初回の特殊化に iPhone で数分〜10 分かかり、アプリの更新のたびにやり直しに
-//   なることもあった。GPU なら読み込みは数秒〜数十秒)。読み込みの間は経過時間を状態文で返す
+// - モデルは WhisperKit の既定(Neural Engine)で動かす。初回だけ Neural Engine 向けの変換に 1〜数分かかるので、
+//   読み込みの間は経過時間を状態文で返す(長いときは、画面からその回だけ Apple 音声認識に切り替えられる)
 // - 読み込みには 2 回目以降も時間がかかるので、使い終わってもすぐには解放せず keepLoadedSeconds 置いておく
 //   (作り直すときに待たない)。字幕の画面を開いたら先に読み込んでおく(preload)。
 //   メモリが足りないとき・バックグラウンドに入ったときは、使っていなければすぐ解放する
@@ -158,13 +158,19 @@ final class WhisperTranscriber {
     #if canImport(WhisperKit)
     /// 読み込みが終わった(キャンセルされた後に終わった場合も)。次の準備のために覚えておき、印を外す
     private func finishLoading(_ kit: WhisperKit, model: String, startedAt: Date) {
+        let duration = Date().timeIntervalSince(startedAt)
         lock.lock()
         whisperKit = kit
         loadedModel = model
-        lastLoadDuration = Date().timeIntervalSince(startedAt)
+        lastLoadDuration = duration
         preparing = false
         let idle = activeUses == 0
         lock.unlock()
+        // 読み込みにかかった時間(区分だけ。初回かどうかも)を匿名で記録して、端末での実際の時間をつかむ
+        let first = !UserDefaults.standard.bool(forKey: Self.loadedOnceKey(model))
+        Analytics.shared.track("whisper_load", ["model": model,
+                                                "time": Analytics.durationBucket(duration),
+                                                "first": first ? "1" : "0"])
         UserDefaults.standard.set(true, forKey: Self.loadedOnceKey(model))
         // 誰も使わなければ、しばらくして解放する(すぐ文字起こしが始まれば beginUse が取り消す)
         if idle { scheduleUnload() }
@@ -325,8 +331,10 @@ final class WhisperTranscriber {
         #endif
     }
 
-    /// モデルをダウンロード(必要なら)して読み込む。progress は (0...1, 状態文)
-    func prepare(model: String, progress: @escaping (Double, String) -> Void) async throws {
+    /// モデルをダウンロード(必要なら)して読み込む。progress は (0...1, 状態文)。
+    /// onLoadStart はダウンロードが済んで読み込みを待ち始めたときに 1 回呼ぶ(ここからは待つのをやめても読み込みは裏で続く)
+    func prepare(model: String, onLoadStart: (() -> Void)? = nil,
+                 progress: @escaping (Double, String) -> Void) async throws {
         #if canImport(WhisperKit)
         if isModelReady, loadedModelName == model { return }
         Self.removeObsoleteModels()
@@ -341,6 +349,7 @@ final class WhisperTranscriber {
         // 先読み(preload)が読み込み中なら、それが終わるのを待つ間もこの表示にする
         let loadingText = String(localized: "Whisperモデルを読み込み中…")
         progress(1, loadingText)
+        onLoadStart?()
         let loadStart = Date()
         let ticker = Task {
             try? await Task.sleep(nanoseconds: 20_000_000_000)
@@ -372,10 +381,8 @@ final class WhisperTranscriber {
         config.prewarm = false
         config.load = true
         config.download = false
-        // GPU で動かす(既定の Neural Engine は初回の特殊化に iPhone で数分〜10 分かかる)
-        config.computeOptions = ModelComputeOptions(melCompute: .cpuAndGPU,
-                                                    audioEncoderCompute: .cpuAndGPU,
-                                                    textDecoderCompute: .cpuAndGPU)
+        // 計算する場所は WhisperKit の既定(Neural Engine)のまま。これらのモデルは Neural Engine 向けに作られていて、
+        // GPU で動かすと読み込みが 10 分を超えた(1.12.42〜1.12.45。WhisperKit 作者も GPU は強く非推奨としている)
 
         // CoreML の読み込みは途中で止められない。キャンセルされたら待つのをやめてすぐ戻り(画面はすぐ閉じる)、
         // 読み込みは裏で最後まで続けて次回に使う(使われなければ keepLoadedSeconds 後に解放)

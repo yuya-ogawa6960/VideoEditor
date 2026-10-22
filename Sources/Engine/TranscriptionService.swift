@@ -222,6 +222,25 @@ private final class PhaseFlag: @unchecked Sendable {
     }
 }
 
+/// Whisper の読み込みが始まった時刻(どのスレッドからでも読める)
+private final class LoadClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedAt: Date?
+
+    func start() {
+        lock.lock()
+        if startedAt == nil { startedAt = Date() }
+        lock.unlock()
+    }
+
+    /// 読み込みが始まってからの秒数(まだなら nil)
+    var elapsed: TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        return startedAt.map { Date().timeIntervalSince($0) }
+    }
+}
+
 private final class StatusSequence: @unchecked Sendable {
     private let lock = NSLock()
     private var issued = 0
@@ -348,7 +367,12 @@ final class TranscriptionService {
     private(set) var progress: Double = 0
     /// Whisper のモデルを準備(ダウンロード・読み込み)している間は true。進み具合は % ではなく「準備中」として見せる
     private(set) var isPreparingModel: Bool = false
+    /// Whisper の準備が switchOfferDelay を過ぎたら true。画面に「Apple 音声認識で今すぐ作る」を出す
+    private(set) var canSwitchToApple: Bool = false
     private(set) var statusText: String = ""
+
+    /// Whisper の準備がこれより長くかかったら、Apple 音声認識への切り替えを出す
+    private static let switchOfferDelay: UInt64 = 60_000_000_000
 
     /// SFSpeech 経路の 1チャンクの最大長(秒)
     private static let chunkLength: Double = 50
@@ -368,6 +392,9 @@ final class TranscriptionService {
     @ObservationIgnored private var cancelRequested = false
     @ObservationIgnored private var currentTask: SFSpeechRecognitionTask?
     @ObservationIgnored private var runningWork: Task<[SubtitleCue], Error>?
+    /// この回の Whisper の準備(switchToAppleSpeech で待つのをやめるために持つ。lock で保護)
+    @ObservationIgnored private var whisperPrepareTask: Task<Void, Error>?
+    @ObservationIgnored private var switchToAppleRequested = false
     /// 「一時停止中」「ロック中も…」を表示する直前の状態表示(再開したら戻す)。メインアクターからだけ触る
     @ObservationIgnored private var statusBeforePause: String?
     /// 実行中の継続処理(lock で保護)
@@ -482,6 +509,17 @@ final class TranscriptionService {
         work?.cancel()
     }
 
+    /// Whisper の準備を待たずに、この回だけ Apple 音声認識で作る。モデルの読み込みは裏で続け、次回に使う。
+    /// 画面のボタンから(メインスレッドで)呼ぶ。2 度押しされないよう、ボタンはすぐ消す
+    func switchToAppleSpeech() {
+        canSwitchToApple = false
+        lock.lock()
+        let task = whisperPrepareTask
+        if task != nil { switchToAppleRequested = true }
+        lock.unlock()
+        task?.cancel()
+    }
+
     /// 前回(アプリの終了などで)取り込めなかったクラウド文字起こしのジョブから、出力タイムライン秒の字幕を作り直す。
     /// - まだ送信中のジョブなら残りを待つ(キャンセルしても待つのをやめるだけで、ジョブの送信は続く)。
     /// - 時刻は今のプロジェクト(snapshot)のクリップ配置・トリミング・速度で出力タイムラインに直す。
@@ -536,10 +574,10 @@ final class TranscriptionService {
                                       pauseReporter: BackgroundPauseReporter,
                                       whisperReporter: BackgroundPauseReporter) async throws -> [SubtitleCue] {
         let settings = AppSettings.shared
-        let engine = settings.transcriptionEngine
+        let requestedEngine = settings.transcriptionEngine
 
         // エンジンごとの前提条件
-        switch engine {
+        switch requestedEngine {
         case .apple:
             if SFSpeechRecognizer.authorizationStatus() != .authorized {
                 let granted = await requestAuthorization()
@@ -567,13 +605,15 @@ final class TranscriptionService {
         // 投げっぱなしの Task は順不同・遅れて届くことがあるので、番号が新しく、まだ準備の段階のときだけ書き換える
         // (文の書き出しでは見分けない。訳文では「Whisperモデル」で始まらないため)
         var whisperRun: WhisperRunState? = nil
-        if engine == .whisper {
+        // 準備が長くて「Apple 音声認識で今すぐ作る」が押されたら、この回だけ Apple 音声認識で作る
+        var switchedToApple = false
+        if requestedEngine == .whisper {
             await updateUI(status: String(localized: "Whisperモデルを確認中…"))
             await MainActor.run { self.isPreparingModel = true }
             let prepareSequence = StatusSequence()
             let preparePhase = PhaseFlag()
             defer { preparePhase.end() }
-            try await WhisperTranscriber.shared.prepare(model: settings.whisperModel) { [weak self] fraction, status in
+            switchedToApple = try await prepareWhisperOrSwitch(model: settings.whisperModel) { [weak self] _, status in
                 guard let self else { return }
                 let seq = prepareSequence.next()
                 Task {
@@ -584,11 +624,24 @@ final class TranscriptionService {
                 }
             }
             preparePhase.end()
-            await MainActor.run { self.isPreparingModel = false }
+            await MainActor.run {
+                self.isPreparingModel = false
+                self.canSwitchToApple = false
+            }
             try checkCancelled()
-            whisperRun = WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
-            await updateUI(progress: 0, status: TranscriptionService.whisperStatusPrefix + "…")
+            if switchedToApple {
+                if SFSpeechRecognizer.authorizationStatus() != .authorized {
+                    let granted = await Self.requestSpeechAuthorization()
+                    guard granted else { throw TranscriptionError.notAuthorized }
+                }
+                try checkCancelled()
+                await updateUI(progress: 0, status: String(localized: "Apple 音声認識で字幕を作っています…"))
+            } else {
+                whisperRun = WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
+                await updateUI(progress: 0, status: TranscriptionService.whisperStatusPrefix + "…")
+            }
         }
+        let engine: TranscriptionEngine = switchedToApple ? .apple : requestedEngine
         // 使い終わってもすぐには解放しない(すぐ作り直すときに読み込み直さないよう、しばらく置いてから解放する)
         if engine == .whisper { WhisperTranscriber.shared.beginUse() }
         defer {
@@ -1203,6 +1256,75 @@ final class TranscriptionService {
 
     // MARK: - 状態管理
 
+    /// Whisper のモデルを準備する。待っている間に switchToAppleSpeech が呼ばれたら、待つのをやめて true を返す
+    /// (読み込みは WhisperTranscriber が裏で最後まで続け、次回に使う)。switchOfferDelay を過ぎたら切り替えのボタンを出す
+    private func prepareWhisperOrSwitch(model: String,
+                                        progress: @escaping (Double, String) -> Void) async throws -> Bool {
+        // 数え始めるのは読み込みに入ってから(ダウンロード中に待つのをやめると、ダウンロードが捨てられるため)
+        let loadClock = LoadClock()
+        let task = Task<Void, Error> {
+            try await WhisperTranscriber.shared.prepare(model: model,
+                                                        onLoadStart: { loadClock.start() },
+                                                        progress: progress)
+        }
+        lock.lock()
+        switchToAppleRequested = false
+        whisperPrepareTask = task
+        lock.unlock()
+        let offer = Task { [weak self] in
+            let delay = Double(Self.switchOfferDelay) / 1_000_000_000
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if let elapsed = loadClock.elapsed, elapsed >= delay { break }
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                // 準備が終わった直後に遅れて届いたときは出さない(終わった側が先に cancel している)
+                guard !Task.isCancelled else { return }
+                self?.canSwitchToApple = true
+            }
+        }
+        defer {
+            offer.cancel()
+            lock.lock()
+            whisperPrepareTask = nil
+            lock.unlock()
+        }
+        do {
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            return false
+        } catch {
+            lock.lock()
+            let switching = switchToAppleRequested && !cancelRequested
+            lock.unlock()
+            if switching && !Task.isCancelled {
+                Analytics.shared.track("whisper_switch_apple")
+                return true
+            }
+            throw error
+        }
+    }
+
+    /// iOS の音声認識の許可を求める(設定のエンジンに関係なく。Whisper から切り替えたとき用)
+    private static func requestSpeechAuthorization() async -> Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return true
+        case .denied, .restricted:
+            return false
+        default:
+            return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                SFSpeechRecognizer.requestAuthorization { newStatus in
+                    continuation.resume(returning: newStatus == .authorized)
+                }
+            }
+        }
+    }
+
     private var isCancelRequested: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -1244,7 +1366,10 @@ final class TranscriptionService {
         await MainActor.run {
             if let running {
                 self.isRunning = running
-                if !running { self.isPreparingModel = false }
+                if !running {
+                    self.isPreparingModel = false
+                    self.canSwitchToApple = false
+                }
             }
             if let progress { self.progress = min(max(progress, 0), 1) }
             if let status {

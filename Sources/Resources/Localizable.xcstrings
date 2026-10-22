@@ -3106,6 +3106,52 @@
         }
       }
     },
+    "Apple 音声認識で今すぐ作る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Apple Speech now"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar el reconocimiento de Apple ahora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar o reconhecimento da Apple agora"
+          }
+        }
+      }
+    },
+    "Apple 音声認識で字幕を作っています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating captions with Apple Speech…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creando subtítulos con el reconocimiento de Apple…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criando legendas com o reconhecimento da Apple…"
+          }
+        }
+      }
+    },
     "B 前回": {
       "extractionState": "manual",
       "localizations": {
@@ -5241,6 +5287,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vlog e viagem"
+          }
+        }
+      }
+    },
+    "Whisper の準備は裏で続け、次から使います。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisper keeps preparing in the background and will be used next time."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisper se sigue preparando en segundo plano y se usará la próxima vez."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Whisper continua se preparando em segundo plano e será usado na próxima vez."
           }
         }
       }

@@ -68,6 +68,15 @@ final class AnalysisPeek {
     }
 }
 
+/// 作業カードの「キャンセル」の上に出す、もう 1 つのボタン(字幕の「Apple 音声認識で今すぐ作る」など)
+struct WorkingCardAction {
+    let title: String
+    let systemImage: String
+    /// ボタンの下に出す小さな補足(nil なら出さない)
+    let footnote: String?
+    let action: () -> Void
+}
+
 /// 作業中のカード(AI が見ている映像 + ロボット + 進み具合)。解析・AI 処理・書き出しで共通
 struct AIWorkingCard: View {
     let title: String
@@ -84,6 +93,8 @@ struct AIWorkingCard: View {
     let peekLabel: String?
     /// 真ん中で動くロボット(作業の種類ごと)
     let robot: RobotAnimation
+    /// キャンセルの上に出すもう 1 つのボタン(nil なら出さない)
+    let secondaryAction: WorkingCardAction?
     let onCancel: (() -> Void)?
 
     @State private var peek = AnalysisPeek.shared
@@ -100,6 +111,7 @@ struct AIWorkingCard: View {
         peekImage = nil
         peekLabel = nil
         robot = .workshop
+        secondaryAction = nil
         self.onCancel = onCancel
     }
 
@@ -107,7 +119,8 @@ struct AIWorkingCard: View {
     init(title: String, fraction: Double?, detail: String? = nil,
          note: String, noteIcon: String, inlineAd: Bool = true,
          peekImage: CGImage? = nil, peekLabel: String? = nil,
-         robot: RobotAnimation = .workshop, onCancel: (() -> Void)?) {
+         robot: RobotAnimation = .workshop, secondaryAction: WorkingCardAction? = nil,
+         onCancel: (() -> Void)?) {
         self.title = title
         self.fraction = fraction
         self.detail = detail
@@ -117,6 +130,7 @@ struct AIWorkingCard: View {
         self.peekImage = peekImage
         self.peekLabel = peekLabel
         self.robot = robot
+        self.secondaryAction = secondaryAction
         self.onCancel = onCancel
     }
 
@@ -165,6 +179,33 @@ struct AIWorkingCard: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
+            if let secondaryAction {
+                VStack(spacing: 6) {
+                    Button {
+                        EditorHaptics.tap()
+                        secondaryAction.action()
+                    } label: {
+                        Label(secondaryAction.title, systemImage: secondaryAction.systemImage)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(BrandStyle.gradient, in: Capsule())
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    if let footnote = secondaryAction.footnote {
+                        Text(footnote)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
             if let onCancel {
                 Button {
                     EditorHaptics.tap()
@@ -185,6 +226,7 @@ struct AIWorkingCard: View {
         .padding(20)
         .frame(width: 300)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .animation(reduceMotion ? nil : .spring(duration: 0.45), value: secondaryAction != nil)
         .onDisappear { AnalysisPeek.shared.clear() }
     }
 }
@@ -379,6 +421,8 @@ struct TranscriptionWorkingOverlay: View {
     let status: String
     /// nil のときはキャンセルボタンを出さない(キャンセルを押して止まるのを待っている間)
     let onCancel: (() -> Void)?
+    /// Whisper の準備が長いとき、この回だけ Apple 音声認識で作る(nil ならボタンを出さない)
+    var onSwitchToApple: (() -> Void)? = nil
 
     @State private var frame: CGImage?
     @State private var lastTime: Double = -10
@@ -397,6 +441,12 @@ struct TranscriptionWorkingOverlay: View {
                               peekImage: frame,
                               peekLabel: String(localized: "AI が聞いています"),
                               robot: .subtitles,
+                              secondaryAction: onSwitchToApple.map { action in
+                                  WorkingCardAction(title: String(localized: "Apple 音声認識で今すぐ作る"),
+                                                    systemImage: "bolt.fill",
+                                                    footnote: String(localized: "Whisper の準備は裏で続け、次から使います。"),
+                                                    action: action)
+                              },
                               onCancel: onCancel)
             }
         }

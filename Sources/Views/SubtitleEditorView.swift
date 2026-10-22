@@ -259,7 +259,9 @@ struct SubtitleEditorView: View {
                                             status: isCancellingTranscription
                                                 ? String(localized: "キャンセルしています…")
                                                 : (transcriber.statusText.isEmpty ? String(localized: "準備中…") : transcriber.statusText),
-                                            onCancel: isCancellingTranscription ? nil : { cancelTranscription() })
+                                            onCancel: isCancellingTranscription ? nil : { cancelTranscription() },
+                                            onSwitchToApple: transcriber.canSwitchToApple && !isCancellingTranscription
+                                                ? { transcriber.switchToAppleSpeech() } : nil)
             }
         }
         .onChange(of: isTranscribing) { _, running in
@@ -463,6 +465,12 @@ struct SubtitleEditorView: View {
                 }
             } catch is CancellationError {
                 transcriptionTask = nil
+            } catch TranscriptionError.notAuthorized {
+                // Whisper の準備中に Apple 音声認識へ切り替えたあと、音声認識の許可が無かったとき
+                transcriptionTask = nil
+                showAlert(title: String(localized: "音声認識を許可してください"),
+                          message: String(localized: "「設定を開く」→「音声認識」をオンにしてから、もう一度「自動で字幕を作る」を押してください。"),
+                          offersSettings: true)
             } catch {
                 let cancelled = Task.isCancelled
                 transcriptionTask = nil

@@ -161,9 +161,10 @@ struct WhisperModelOption: Identifiable, Hashable {
                            displayName: "small",
                            sizeHint: String(localized: "約500MB"),
                            detail: String(localized: "速さと精度のバランス型")),
-        // iPhone 向けに軽くした版(argmaxinc/whisperkit-coreml の対応表で iPhone 向けとされているもの)。
-        // 以前の約 1.6GB の版は Mac 向けで、iPhone では準備(Neural Engine 向けの変換)に 8 分以上かかることがあった
-        WhisperModelOption(id: "openai_whisper-large-v3-v20240930_turbo_632MB",
+        // OpenAI の large-v3 turbo(2024-09-30 版)を iPhone 向けに軽くした版。
+        // Argmax の「_turbo」付き(632MB)は初回の準備(Neural Engine 向けの変換)が iPhone で数分〜10 分以上かかったので、
+        // 準備の速い「_turbo」なしの版にした(WhisperKit 作者の案内。認識の速さはほぼ同じ)
+        WhisperModelOption(id: "openai_whisper-large-v3-v20240930_626MB",
                            displayName: "large-v3 turbo",
                            sizeHint: String(localized: "約630MB"),
                            detail: String(localized: "最高精度。iPhone 15 Pro 以降を推奨(メモリを多く使う)")),
@@ -227,10 +228,12 @@ enum KeychainStore {
 final class AppSettings {
     static let shared = AppSettings()
 
-    static let defaultWhisperModel = "openai_whisper-large-v3-v20240930_turbo_632MB"
-    /// 以前のモデル名 → いまのモデル名(iPhone では準備に時間がかかりすぎる Mac 向けの版から切り替える)
+    static let defaultWhisperModel = "openai_whisper-large-v3-v20240930_626MB"
+    /// 以前のモデル名 → いまのモデル名(iPhone では準備に時間がかかりすぎる版から切り替える。
+    /// 古いほうのフォルダは WhisperTranscriber.removeObsoleteModels が消す)
     static let replacedWhisperModels: [String: String] = [
-        "openai_whisper-large-v3-v20240930_turbo": "openai_whisper-large-v3-v20240930_turbo_632MB",
+        "openai_whisper-large-v3-v20240930_turbo": "openai_whisper-large-v3-v20240930_626MB",
+        "openai_whisper-large-v3-v20240930_turbo_632MB": "openai_whisper-large-v3-v20240930_626MB",
     ]
 
     private enum Keys {

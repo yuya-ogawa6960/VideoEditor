@@ -281,6 +281,8 @@ const MAX_EVENTS_PER_POST = 100;
 const ALLOWED_EVENT_NAMES = new Set([
   "app_open", "app_close", "project_create", "project_open", "panel", "sheet", "analysis",
   "export_start", "export_done", "export_failed", "export_cancelled",
+  // 字幕の自動作成: Whisper モデルの読み込み時間(区分)と、待ちきれずに Apple 音声認識へ切り替えた回
+  "whisper_load", "whisper_switch_apple",
 ]);
 
 async function ingestEvents(request, env) {
