@@ -8,12 +8,17 @@ import CoreGraphics
 // =====================================================================
 
 enum MosaicRenderer {
-    /// 時刻 time に表示中のモザイクを frame にかける
+    /// 時刻 time に表示中のモザイクを frame にかける。
+    /// 1 つのモザイクは下の映像を 2 回使う(ぼかす元と、背景)。そのまま重ねると、モザイクが 1 つ増えるごとに
+    /// それより前の描画(映像の読み込み・色・オーバーレイ)が倍々にやり直され、数個で書き出しが止まったように
+    /// 遅くなっていた。各段を「中間結果」にして 1 回だけ描き、効果もモザイクの範囲の周りだけで計算する
     static func apply(_ clips: [TextClip], to frame: CIImage, time: Double, canvasSize: CGSize) -> CIImage {
         guard canvasSize.width >= 2, canvasSize.height >= 2 else { return frame }
-        var result = frame
-        for clip in clips where clip.isMosaic && clip.contains(timelineTime: time) {
-            result = applyOne(clip, to: result, time: time, canvasSize: canvasSize)
+        let active = clips.filter { $0.isMosaic && $0.contains(timelineTime: time) }
+        guard !active.isEmpty else { return frame }
+        var result = frame.insertingIntermediate(cache: false)
+        for clip in active {
+            result = applyOne(clip, to: result, time: time, canvasSize: canvasSize).insertingIntermediate(cache: false)
         }
         return result
     }
@@ -32,17 +37,28 @@ enum MosaicRenderer {
 
         let shortSide: CGFloat = min(canvasSize.width, canvasSize.height)
         let strength: CGFloat = CGFloat(GeometryMath.clamp(style.strength, 0, 1))
-        let source = frame.clampedToExtent()
+        let block: CGFloat = max(4, shortSide * (0.012 + 0.05 * strength))
+        let radius: CGFloat = max(2, shortSide * (0.01 + 0.045 * strength))
+
+        // 回転後の範囲を囲む四角(ここだけを描き換える)と、効果の計算に使う少し広い範囲
+        let angle = placement.rotation.isFinite ? CGFloat(placement.rotation * Double.pi / 180) : 0
+        let boundsWidth = abs(rect.width * cos(angle)) + abs(rect.height * sin(angle))
+        let boundsHeight = abs(rect.width * sin(angle)) + abs(rect.height * cos(angle))
+        let area = CGRect(x: rect.midX - boundsWidth / 2, y: rect.midY - boundsHeight / 2,
+                          width: boundsWidth, height: boundsHeight).intersection(canvas)
+        guard !area.isNull, area.width >= 1, area.height >= 1 else { return frame }
+        let margin: CGFloat = (style.kind == .blur) ? radius * 3 : block * 2
+        let region = area.insetBy(dx: -margin, dy: -margin).intersection(canvas)
+
+        let source = frame.cropped(to: region).clampedToExtent()
         let effect: CIImage
         switch style.kind {
         case .pixelate:
-            let block: CGFloat = max(4, shortSide * (0.012 + 0.05 * strength))
             effect = source.applyingFilter("CIPixellate", parameters: [
                 kCIInputCenterKey: CIVector(x: rect.minX, y: rect.minY),
                 kCIInputScaleKey: block
             ])
         case .blur:
-            let radius: CGFloat = max(2, shortSide * (0.01 + 0.045 * strength))
             effect = source.applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
         }
 
@@ -69,11 +85,12 @@ enum MosaicRenderer {
             transform = transform.concatenating(CGAffineTransform(rotationAngle: CGFloat(-rotation * Double.pi / 180)))
         }
         transform = transform.concatenating(CGAffineTransform(translationX: rect.midX, y: rect.midY))
-        let black = CIImage(color: CIColor.black).cropped(to: canvas)
-        let mask = shape.transformed(by: transform).composited(over: black).cropped(to: canvas)
-        return effect.cropped(to: canvas).applyingFilter("CIBlendWithMask", parameters: [
-            kCIInputBackgroundImageKey: frame,
+        let black = CIImage(color: CIColor.black).cropped(to: area)
+        let mask = shape.transformed(by: transform).composited(over: black).cropped(to: area)
+        let patch = effect.cropped(to: area).applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: frame.cropped(to: area),
             kCIInputMaskImageKey: mask
-        ])
+        ]).cropped(to: area)
+        return patch.composited(over: frame)
     }
 }
