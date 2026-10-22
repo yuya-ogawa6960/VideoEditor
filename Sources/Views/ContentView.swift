@@ -1156,6 +1156,18 @@ struct ContentView: View {
             } else {
                 EditorMissingPanelContent()
             }
+        case .overlayTransition(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayTransitionPanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlayOpacity(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayOpacityPanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
 
         // ---- ナレーション ----
         case .narrationVolume(let narrationID):
@@ -1932,6 +1944,12 @@ struct ContentView: View {
             project.removeOverlay(id: overlayID)
             showToast(String(localized: "削除しました"), undo: true)
         })
+        items.append(EditorToolItem(String(localized: "ビデオトランジション"), systemImage: "arrow.left.arrow.right.square") {
+            openPanel(.overlayTransition(overlayID))
+        })
+        items.append(EditorToolItem(String(localized: "不透明度"), systemImage: "circle.lefthalf.filled.righthalf.striped.horizontal") {
+            openPanel(.overlayOpacity(overlayID))
+        })
         var motion: [EditorToolItem] = []
         motion.append(EditorToolItem(String(localized: "キーフレーム"), systemImage: "diamond") {
             openPanel(.overlayKeyframes(overlayID))
@@ -1959,20 +1977,19 @@ struct ContentView: View {
             openPanel(.overlayBlend(overlayID))
         })
         items.append(EditorToolItem.group(String(localized: "カラー"), systemImage: "circle.lefthalf.filled", id: "group-color", items: color))
-        var more: [EditorToolItem] = []
-        more.append(EditorToolItem(String(localized: "複製"), systemImage: "plus.square.on.square") {
-            duplicateOverlay(overlayID)
-            showToast(String(localized: "複製しました"), undo: true)
-        })
+        // 「その他」は中身が少ないのでやめて、直接並べる
         if !isImage {
-            more.append(EditorToolItem(String(localized: "ボリューム"), systemImage: "speaker.wave.2") {
+            items.append(EditorToolItem(String(localized: "ボリューム"), systemImage: "speaker.wave.2") {
                 openPanel(.overlayVolume(overlayID))
             })
-            more.append(EditorToolItem(String(localized: "速度・デュレーション"), systemImage: "speedometer") {
+            items.append(EditorToolItem(String(localized: "速度・デュレーション"), systemImage: "speedometer") {
                 openPanel(.overlaySpeed(overlayID))
             })
         }
-        items.append(EditorToolItem.more(more))
+        items.append(EditorToolItem(String(localized: "複製"), systemImage: "plus.square.on.square") {
+            duplicateOverlay(overlayID)
+            showToast(String(localized: "複製しました"), undo: true)
+        })
         return items
     }
 
@@ -2586,7 +2603,8 @@ struct ContentView: View {
                     }
             }
         case .subtitles:
-            SubtitleEditorView(project: project, player: player)
+            // クリップを選んで開いたときは、そのクリップだけ字幕を作れる
+            SubtitleEditorView(project: project, player: player, focusClipID: selection?.clipID)
         case .audio:
             AudioSettingsView(project: project)
         case .export:

@@ -59,6 +59,51 @@ enum TranscriptionLanguage: String, CaseIterable, Identifiable {
     }
 }
 
+/// 自動字幕の言語の選び方(話している言語と、訳を付けるか)。クリップごとにも選べる
+enum CaptionLanguage: String, CaseIterable, Identifiable {
+    case japanese
+    case english
+    /// 英語で文字起こしして、日本語の訳も並べて出す
+    case englishWithJapanese
+    /// 日本語で文字起こしして、英語の訳も並べて出す
+    case japaneseWithEnglish
+
+    var id: String { rawValue }
+
+    init(_ language: TranscriptionLanguage) {
+        switch language {
+        case .japanese: self = .japanese
+        case .english: self = .english
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .japanese: return String(localized: "日本語")
+        case .english: return String(localized: "英語")
+        case .englishWithJapanese: return String(localized: "英語＋日本語訳")
+        case .japaneseWithEnglish: return String(localized: "日本語＋英語訳")
+        }
+    }
+
+    /// 話している言語(文字起こしに使う)
+    var spoken: TranscriptionLanguage {
+        switch self {
+        case .japanese, .japaneseWithEnglish: return .japanese
+        case .english, .englishWithJapanese: return .english
+        }
+    }
+
+    /// 訳を付けるときの向き(true = 英語へ、false = 日本語へ。訳を付けないなら nil)
+    var translatesToEnglish: Bool? {
+        switch self {
+        case .japanese, .english: return nil
+        case .englishWithJapanese: return false
+        case .japaneseWithEnglish: return true
+        }
+    }
+}
+
 enum TranscriptionError: LocalizedError {
     case notAuthorized
     case recognizerUnavailable(String)
@@ -433,7 +478,13 @@ final class TranscriptionService {
 
     /// 出力タイムライン秒の字幕を返す(トリミング・速度・クリップ順を反映、ミュートクリップは除外)
     /// - Parameter removeFillers: 「あのー」「えーと」「um」などのフィラーや吃音を字幕から除く(既定 true)
+    /// - Parameters:
+    ///   - language: 言語を選んでいないクリップの、話している言語
+    ///   - defaultCaption: 言語を選んでいないクリップの言語の選び方(訳を付けるか。nil なら language のまま訳なし)
+    ///   - clipIDs: このクリップだけ字幕を作る(nil なら全部)
     func transcribe(snapshot: ProjectSnapshot, language: TranscriptionLanguage,
+                    defaultCaption: CaptionLanguage? = nil,
+                    clipIDs: Set<UUID>? = nil,
                     removeFillers: Bool = true) async throws -> [SubtitleCue] {
         lock.lock()
         if busy {
@@ -476,7 +527,9 @@ final class TranscriptionService {
         await updateUI(running: true, progress: 0, status: String(localized: "準備中…"))
 
         let work = Task<[SubtitleCue], Error> {
-            try await self.performTranscription(snapshot: snapshot, language: language, removeFillers: removeFillers,
+            try await self.performTranscription(snapshot: snapshot, language: language,
+                                                defaultCaption: defaultCaption ?? CaptionLanguage(language),
+                                                clipIDs: clipIDs, removeFillers: removeFillers,
                                                 pauseReporter: reporter, whisperReporter: whisperReporter)
         }
         lock.lock()
@@ -573,6 +626,8 @@ final class TranscriptionService {
 
     private func performTranscription(snapshot: ProjectSnapshot,
                                       language: TranscriptionLanguage,
+                                      defaultCaption: CaptionLanguage,
+                                      clipIDs: Set<UUID>?,
                                       removeFillers: Bool,
                                       pauseReporter: BackgroundPauseReporter,
                                       whisperReporter: BackgroundPauseReporter) async throws -> [SubtitleCue] {
@@ -592,9 +647,12 @@ final class TranscriptionService {
             guard settings.isCloudConfigured else { throw CloudTranscriptionError.missingAPIKey }
         }
 
-        // クリップごとのジョブ
-        let jobs = Self.makeJobs(for: snapshot)
+        // クリップごとのジョブ(範囲を選んだときは、そのクリップだけ)
+        let jobs = Self.makeJobs(for: snapshot).filter { clipIDs == nil || clipIDs!.contains($0.clip.id) }
         guard !jobs.isEmpty else { throw TranscriptionError.noAudioClips }
+        // クリップごとの言語(選んでいなければ全体の選び方)
+        func caption(of job: ClipJob) -> CaptionLanguage { job.clip.captionLanguage ?? defaultCaption }
+        let spokenLanguages = Set(jobs.map { caption(of: $0).spoken })
         let totalUnits = max(1, jobs.reduce(0) { $0 + $1.chunks.count })
         var doneUnits = 0
 
@@ -656,16 +714,18 @@ final class TranscriptionService {
             if engine == .whisper { WhisperTranscriber.shared.endUse() }
         }
 
-        // 従来の認識器は必要になったときだけ作る
-        var legacyRecognizer: SFSpeechRecognizer?
+        // 従来の認識器は必要になったときだけ作る(言語ごと)
+        var legacyRecognizers: [TranscriptionLanguage: SFSpeechRecognizer] = [:]
 
-        var cues: [SubtitleCue] = []
+        // 言語の選び方ごとの字幕(AI 仕上げ・訳は言語ごとに行う)
+        var cuesByCaption: [CaptionLanguage: [SubtitleCue]] = [:]
 
         // クラウド: 全クリップの音声を先に切り出し、背景 URLSession にまとめて預ける(ロック中・アプリが止められた後も
         // 送信が続く)。作業フォルダを作れないなど使えないとき(nil)は、クリップごとの従来の経路
         var cloudTokens: [[TimedToken]]? = nil
-        if engine == .cloud {
-            cloudTokens = try await recognizeAllClipsWithCloud(jobs: jobs, language: language, apiKey: settings.cloudCredential,
+        // まとめて送るのは、全クリップが同じ言語のときだけ(言語が混ざるときはクリップごとに送る)
+        if engine == .cloud, spokenLanguages.count == 1, let batchLanguage = spokenLanguages.first {
+            cloudTokens = try await recognizeAllClipsWithCloud(jobs: jobs, language: batchLanguage, apiKey: settings.cloudCredential,
                                                                quality: settings.cloudQuality,
                                                                pauseReporter: pauseReporter)
             try checkCancelled()
@@ -673,6 +733,8 @@ final class TranscriptionService {
 
         for (jobIndex, job) in jobs.enumerated() {
             try checkCancelled()
+            let jobCaption = caption(of: job)
+            let jobLanguage = jobCaption.spoken
 
             // 元素材上の秒で揃えたトークン列
             var sourceTokens: [TimedToken]? = nil
@@ -681,33 +743,37 @@ final class TranscriptionService {
             case .apple:
                 #if compiler(>=6.2)
                 if #available(iOS 26.0, *) {
-                    sourceTokens = try await recognizeClipWithAnalyzer(job: job, language: language, tempDir: tempDir,
+                    sourceTokens = try await recognizeClipWithAnalyzer(job: job, language: jobLanguage, tempDir: tempDir,
                                                                        doneUnits: doneUnits, totalUnits: totalUnits)
                 }
                 #endif
 
                 if sourceTokens == nil {
-                    if legacyRecognizer == nil {
-                        guard let recognizer = SFSpeechRecognizer(locale: language.locale), recognizer.isAvailable else {
-                            throw TranscriptionError.recognizerUnavailable(language.displayName)
+                    let recognizer: SFSpeechRecognizer
+                    if let existing = legacyRecognizers[jobLanguage] {
+                        recognizer = existing
+                    } else {
+                        guard let created = SFSpeechRecognizer(locale: jobLanguage.locale), created.isAvailable else {
+                            throw TranscriptionError.recognizerUnavailable(jobLanguage.displayName)
                         }
-                        legacyRecognizer = recognizer
+                        legacyRecognizers[jobLanguage] = created
+                        recognizer = created
                     }
-                    sourceTokens = try await recognizeClipWithSFSpeech(job: job, recognizer: legacyRecognizer!, tempDir: tempDir,
+                    sourceTokens = try await recognizeClipWithSFSpeech(job: job, recognizer: recognizer, tempDir: tempDir,
                                                                        doneUnits: doneUnits, totalUnits: totalUnits)
                 }
             case .whisper:
                 // Whisper は継続処理中でもバックグラウンドでは推論しない(フォアグラウンドに戻るまで待つ)
                 let run = whisperRun ?? WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
                 whisperRun = run
-                sourceTokens = try await recognizeClipWithWhisper(job: job, clipIndex: jobIndex, language: language,
+                sourceTokens = try await recognizeClipWithWhisper(job: job, clipIndex: jobIndex, language: jobLanguage,
                                                                   run: run, pauseReporter: whisperReporter)
                 run.finishClip(clipIndex: jobIndex)
             case .cloud:
                 if let cloudTokens {
                     sourceTokens = jobIndex < cloudTokens.count ? cloudTokens[jobIndex] : []
                 } else {
-                    sourceTokens = try await recognizeClipWithCloud(job: job, language: language, apiKey: settings.cloudCredential,
+                    sourceTokens = try await recognizeClipWithCloud(job: job, language: jobLanguage, apiKey: settings.cloudCredential,
                                                                     quality: settings.cloudQuality,
                                                                     clipIndex: jobIndex, clipCount: jobs.count,
                                                                     doneUnits: doneUnits, totalUnits: totalUnits,
@@ -719,9 +785,9 @@ final class TranscriptionService {
 
             // 元素材時刻 → 出力タイムライン時刻 に変換してから文単位に区切る
             let timelineTokens = Self.mapToTimeline(sourceTokens ?? [], job: job)
-            var segmenter = SubtitleSegmenter(language: language, removeFillers: removeFillers)
+            var segmenter = SubtitleSegmenter(language: jobLanguage, removeFillers: removeFillers)
             segmenter.hardEnd = job.clipTimelineEnd
-            cues.append(contentsOf: segmenter.segment(timelineTokens))
+            cuesByCaption[jobCaption, default: []].append(contentsOf: segmenter.segment(timelineTokens))
 
             // まとめて送った経路は、送信の進捗ですでに 1 まで進めている。
             // Whisper は音声の長さの比で進めている(ピースの完了通知で反映済み)
@@ -730,11 +796,30 @@ final class TranscriptionService {
             }
         }
 
-        let result = Self.finalize(cues)
-
-        // AI 仕上げ(句読点・フィラー・分割)。失敗しても result はそのまま返る。
-        // 継続処理が動いている間は pauseReporter.allowsBackgroundWork が true なので、ロック中でも待たずに進む
-        return try await polishIfEnabled(result, language: language, settings: settings, pauseReporter: pauseReporter)
+        // 言語ごとに AI 仕上げ(句読点・フィラー・分割)。失敗しても字幕はそのまま。
+        // 継続処理が動いている間は pauseReporter.allowsBackgroundWork が true なので、ロック中でも待たずに進む。
+        // 「＋訳」を選んだクリップは訳を付け、原文と訳を 2 行で出す(全体の表示モードに関係なく)
+        var all: [SubtitleCue] = []
+        for choice in CaptionLanguage.allCases {
+            guard let group = cuesByCaption[choice], !group.isEmpty else { continue }
+            var polished = try await polishIfEnabled(Self.finalize(group), language: choice.spoken,
+                                                     settings: settings, pauseReporter: pauseReporter)
+            if let toEnglish = choice.translatesToEnglish {
+                try checkCancelled()
+                await updateUI(progress: 1, status: String(localized: "字幕に訳を付けています…"))
+                // 訳を付けられたときだけ 2 行にする(AI が使えない端末では原文だけ)
+                if let translated = await SubtitlePolisher.translate(polished, from: choice.spoken, toEnglish: toEnglish,
+                                                                     settings: settings) {
+                    polished = translated
+                    for i in polished.indices {
+                        polished[i].bilingual = true
+                    }
+                }
+                try checkCancelled()
+            }
+            all.append(contentsOf: polished)
+        }
+        return Self.finalize(all)
     }
 
     /// AI 仕上げが有効なら仕上げて並べ直す(失敗した部分は入力のまま)

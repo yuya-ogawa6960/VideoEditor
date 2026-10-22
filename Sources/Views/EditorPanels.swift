@@ -77,6 +77,8 @@ enum EditorPanel: Hashable {
     // ---- 第3弾: オーバーレイ ----
     case overlayKeyframes(UUID)
     case overlayBlend(UUID)
+    case overlayTransition(UUID)
+    case overlayOpacity(UUID)
 
     // ---- 第3弾: ナレーション ----
     case narrationEffects(UUID)
@@ -167,6 +169,8 @@ enum EditorPanel: Hashable {
         case .sticker: return String(localized: "ステッカー")
         case .overlayKeyframes: return String(localized: "キーフレーム")
         case .overlayBlend: return String(localized: "描画モード")
+        case .overlayTransition: return String(localized: "ビデオトランジション")
+        case .overlayOpacity: return String(localized: "不透明度")
         case .narrationEffects: return String(localized: "オーディオエフェクト")
         case .drawingCanvas: return String(localized: "手書き")
         case .drawingStyle: return String(localized: "色・太さ")
@@ -200,7 +204,7 @@ enum EditorPanel: Hashable {
         case .textEdit(let id):
             return .subtitle(id)
         case .overlayPlacement(let id), .overlayKenBurns(let id), .overlayVolume(let id),
-             .overlaySpeed(let id), .overlayFilter(let id), .overlayKeyframes(let id), .overlayBlend(let id),
+             .overlaySpeed(let id), .overlayFilter(let id), .overlayKeyframes(let id), .overlayBlend(let id), .overlayTransition(let id), .overlayOpacity(let id),
              .overlayMask(let id), .overlayParallax(let id), .overlayTracking(let id):
             return .overlay(id)
         case .narrationVolume(let id), .narrationEffects(let id):
@@ -231,7 +235,7 @@ enum EditorPanel: Hashable {
              .titleCard, .lowerThird, .jlCut, .colorAdjust, .overlayPlacement, .overlayKenBurns,
              .overlayVolume, .overlaySpeed, .overlayFilter, .narrationVolume, .transition, .clipAnimation,
              .geometry, .speedCurve, .audioEffects, .beatDetect, .hsl, .lut, .colorMatch, .textStyle,
-             .textAnimation, .textPlacement, .textKeyframes, .overlayKeyframes, .overlayBlend,
+             .textAnimation, .textPlacement, .textKeyframes, .overlayKeyframes, .overlayBlend, .overlayTransition, .overlayOpacity,
              .narrationEffects, .drawingCanvas, .drawingStyle, .drawingTiming, .markerName, .markerKind,
              .captionTemplate, .watermark, .mask, .autoReframe, .stabilize, .enhance, .parallax,
              .overlayMask, .overlayParallax, .textTracking, .overlayTracking, .mosaic, .slip:
@@ -253,12 +257,12 @@ enum EditorPanel: Hashable {
         case .pacing: return 340
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
              .overlayKeyframes, .watermark, .textToSpeech, .sticker, .captionTemplate,
-             .autoReframe, .enhance: return 320
+             .autoReframe, .enhance, .overlayTransition: return 320
         case .transition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
              .narrationEffects, .drawingStyle, .drawingCanvas,
              .stabilize, .parallax, .overlayParallax, .textTracking, .overlayTracking: return 280
         case .speed, .volume, .textEdit, .subtitleStyle, .aspect, .bgmVolume, .overlayVolume,
-             .overlaySpeed, .narrationVolume, .overlayBlend, .drawingTiming, .markerName, .markerKind:
+             .overlaySpeed, .narrationVolume, .overlayBlend, .overlayOpacity, .drawingTiming, .markerName, .markerKind:
             return 220
         }
     }
@@ -280,7 +284,7 @@ enum EditorPanel: Hashable {
         case .bgmVolume:
             return selection == .bgm
         case .overlayPlacement(let id), .overlayKenBurns(let id), .overlayVolume(let id),
-             .overlaySpeed(let id), .overlayFilter(let id), .overlayKeyframes(let id), .overlayBlend(let id),
+             .overlaySpeed(let id), .overlayFilter(let id), .overlayKeyframes(let id), .overlayBlend(let id), .overlayTransition(let id), .overlayOpacity(let id),
              .overlayMask(let id), .overlayParallax(let id), .overlayTracking(let id):
             return selection == .overlay(id)
         case .narrationVolume(let id), .narrationEffects(let id):

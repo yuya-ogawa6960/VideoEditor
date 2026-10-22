@@ -921,6 +921,29 @@
         }
       }
     },
+    "%lld 本のクリップは、そのクリップで選んだ言語で作ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld clips use the language chosen for that clip."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld clips usan el idioma elegido para cada clip."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld clipes usam o idioma escolhido para cada clipe."
+          }
+        }
+      }
+    },
     "%lld 本のクリップを削除しました": {
       "extractionState": "manual",
       "localizations": {
@@ -6073,6 +6096,29 @@
         }
       }
     },
+    "※ 素材が短いため、実際には最大 %@ になります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "* The media is short, so the actual maximum is %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "* El material es corto, así que el máximo real es %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "* A mídia é curta, então o máximo real é %@"
+          }
+        }
+      }
+    },
     "。AI仕上げ: ": {
       "extractionState": "manual",
       "localizations": {
@@ -10719,6 +10765,52 @@
         }
       }
     },
+    "アウト(消えるとき)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Out (when it disappears)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salida (al desaparecer)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saída (ao desaparecer)"
+          }
+        }
+      }
+    },
+    "アウトもインと同じにする": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the same for Out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar lo mismo en la salida"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar o mesmo na saída"
+          }
+        }
+      }
+    },
     "アカウントとポイント": {
       "extractionState": "manual",
       "localizations": {
@@ -11244,6 +11336,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "entrada"
+          }
+        }
+      }
+    },
+    "イン(出てくるとき)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In (when it appears)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada (al aparecer)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada (ao aparecer)"
           }
         }
       }
@@ -22012,6 +22127,29 @@
         }
       }
     },
+    "不透明度": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidad"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opacidade"
+          }
+        }
+      }
+    },
     "両方": {
       "extractionState": "manual",
       "localizations": {
@@ -24571,19 +24709,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Whole"
+            "value": "Whole video"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "General"
+            "value": "Todo el video"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geral"
+            "value": "Vídeo inteiro"
           }
         }
       }
@@ -30499,6 +30637,29 @@
         }
       }
     },
+    "字幕に訳を付けています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adding translations to captions…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadiendo traducciones a los subtítulos…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionando traduções às legendas…"
+          }
+        }
+      }
+    },
     "字幕のスタイル": {
       "extractionState": "manual",
       "localizations": {
@@ -30725,6 +30886,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Criar legendas"
+          }
+        }
+      }
+    },
+    "字幕を作る範囲": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caption range"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rango de subtítulos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intervalo das legendas"
           }
         }
       }
@@ -31829,6 +32013,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Girar 90° à esquerda"
+          }
+        }
+      }
+    },
+    "左へ動かすほど透けて、下の映像が見えます。いちばん右で下の映像を隠します。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slide left to make it more see-through and show the video below. All the way right hides the video below."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desliza a la izquierda para hacerlo más transparente y ver el video de abajo. Del todo a la derecha lo oculta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslize para a esquerda para deixá-lo mais transparente e ver o vídeo abaixo. Totalmente à direita esconde o vídeo abaixo."
           }
         }
       }
@@ -34221,6 +34428,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Traduzir para japonês"
+          }
+        }
+      }
+    },
+    "日本語＋英語訳": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Japanese + English translation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Japonés + traducción al inglés"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Japonês + tradução em inglês"
           }
         }
       }
@@ -42298,6 +42528,29 @@
         }
       }
     },
+    "英語＋日本語訳": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "English + Japanese translation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inglés + traducción al japonés"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inglês + tradução em japonês"
+          }
+        }
+      }
+    },
     "落ち着いた": {
       "extractionState": "manual",
       "localizations": {
@@ -46300,6 +46553,29 @@
         }
       }
     },
+    "選んだクリップの範囲の字幕だけを作り直します。言語はこのクリップに覚えておき、全体で作るときもこの言語で作ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the captions within the selected clip are remade. This clip remembers the language and uses it when you make captions for the whole video too."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se rehacen los subtítulos del clip seleccionado. Este clip recuerda el idioma y lo usa también al crear subtítulos para todo el video."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas as legendas do clipe selecionado são refeitas. Este clipe lembra o idioma e o usa também ao criar legendas para o vídeo inteiro."
+          }
+        }
+      }
+    },
     "選んだ写真・動画をダウンロードできませんでした。もう一度お試しください。": {
       "extractionState": "manual",
       "localizations": {
@@ -46503,6 +46779,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sobreposição"
+          }
+        }
+      }
+    },
+    "重ねた素材が出てくるとき(イン)と消えるとき(アウト)の、下の映像との切り替わり方です。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the overlay switches with the video below when it appears (In) and disappears (Out)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo cambia la superposición con el video de abajo al aparecer (entrada) y al desaparecer (salida)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como a sobreposição alterna com o vídeo abaixo ao aparecer (entrada) e ao desaparecer (saída)."
           }
         }
       }

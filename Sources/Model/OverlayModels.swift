@@ -163,6 +163,10 @@ struct OverlayClip: Identifiable, Equatable {
     var mask: MaskSettings = MaskSettings()
     /// 写真の 3D ズーム(奥行き情報がある場合)
     var parallax: DepthParallax = DepthParallax()
+    /// 出てくるとき・消えるときのビデオトランジション(下の映像とのあいだの切り替わり。
+    /// 使っている間は、その側のフェードイン/アウトは使わない)
+    var transitionIn = ClipTransition()
+    var transitionOut = ClipTransition()
 
     init(id: UUID = UUID(),
          url: URL,
@@ -217,11 +221,14 @@ struct OverlayClip: Identifiable, Equatable {
         let local = time - start
         guard local >= 0, local <= duration else { return 0 }
         var factor = 1.0
-        if fadeIn > 0, local < fadeIn {
-            factor = min(factor, local / fadeIn)
+        // トランジションを使う側はフェードしない(トランジションで出入りする)
+        let fadeInSeconds = transitionIn.isActive ? 0 : fadeIn
+        let fadeOutSeconds = transitionOut.isActive ? 0 : fadeOut
+        if fadeInSeconds > 0, local < fadeInSeconds {
+            factor = min(factor, local / fadeInSeconds)
         }
-        if fadeOut > 0, duration - local < fadeOut {
-            factor = min(factor, (duration - local) / fadeOut)
+        if fadeOutSeconds > 0, duration - local < fadeOutSeconds {
+            factor = min(factor, (duration - local) / fadeOutSeconds)
         }
         return max(0, min(1, factor)) * max(0, min(1, opacity))
     }
@@ -266,6 +273,8 @@ struct OverlayClip: Identifiable, Equatable {
             && lhs.mask == rhs.mask
             && lhs.parallax == rhs.parallax
             && lhs.fadeOut == rhs.fadeOut
+            && lhs.transitionIn == rhs.transitionIn
+            && lhs.transitionOut == rhs.transitionOut
     }
 }
 

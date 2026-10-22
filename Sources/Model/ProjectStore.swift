@@ -1419,6 +1419,8 @@ private struct StoredClip: Codable {
     var stabilization: StoredStabilization?
     var enhance: StoredEnhance?
     var parallax: StoredParallax?
+    /// 自動字幕の言語(後から追加したので省略可能)
+    var captionLanguage: String?
 
     init(_ c: Clip) {
         id = c.id
@@ -1456,6 +1458,7 @@ private struct StoredClip: Codable {
         stabilization = StoredStabilization(c.stabilization)
         enhance = StoredEnhance(c.enhance)
         parallax = StoredParallax(c.parallax)
+        captionLanguage = c.captionLanguage?.rawValue
     }
 
     /// 写真ライブラリの動画("photos:<id>")を参照している動画クリップか
@@ -1528,6 +1531,7 @@ private struct StoredClip: Codable {
         clip.stabilization = stabilization?.value ?? StabilizationTrack()
         clip.enhance = enhance?.value ?? ClipEnhancements()
         clip.parallax = parallax?.value ?? DepthParallax()
+        clip.captionLanguage = captionLanguage.flatMap { CaptionLanguage(rawValue: $0) }
         return clip
     }
 }
@@ -1546,6 +1550,8 @@ private struct StoredCue: Codable {
     var translatedText: String?
     /// 単語ごとの時刻(第3弾。省略可能)
     var words: [StoredWord]?
+    /// 原文と訳を 2 行で出す(後から追加したので省略可能)
+    var bilingual: Bool?
 
     init(_ c: SubtitleCue) {
         id = c.id
@@ -1553,12 +1559,14 @@ private struct StoredCue: Codable {
         end = c.end
         text = c.text
         translatedText = c.translatedText
+        bilingual = c.bilingual ? true : nil
         words = c.words.isEmpty ? nil : c.words.map { StoredWord(text: $0.text, start: $0.start, end: $0.end) }
     }
 
     var value: SubtitleCue {
         var cue = SubtitleCue(id: id, start: start, end: end, text: text, translatedText: translatedText)
         cue.words = (words ?? []).map { SubtitleWord(text: $0.text, start: $0.start, end: $0.end) }
+        cue.bilingual = bilingual ?? false
         return cue
     }
 }
@@ -1596,6 +1604,11 @@ private struct StoredOverlay: Codable {
     var parallax: StoredParallax?
     /// 回転(後から追加したので省略可能)
     var rotation: Double?
+    /// 出てくるとき・消えるときのトランジション(後から追加したので省略可能)
+    var transitionInType: String?
+    var transitionInDuration: Double?
+    var transitionOutType: String?
+    var transitionOutDuration: Double?
 
     init(_ o: OverlayClip) {
         id = o.id
@@ -1626,6 +1639,10 @@ private struct StoredOverlay: Codable {
         mask = StoredMask(o.mask)
         parallax = StoredParallax(o.parallax)
         rotation = o.rotation
+        transitionInType = o.transitionIn.type.rawValue
+        transitionInDuration = o.transitionIn.duration
+        transitionOutType = o.transitionOut.type.rawValue
+        transitionOutDuration = o.transitionOut.duration
     }
 
     /// 素材ファイルが消えていれば nil
@@ -1651,6 +1668,10 @@ private struct StoredOverlay: Codable {
         o.mask = mask?.value ?? MaskSettings()
         o.parallax = parallax?.value ?? DepthParallax()
         o.rotation = rotation ?? 0
+        o.transitionIn = ClipTransition(type: TransitionType(rawValue: transitionInType ?? "") ?? .none,
+                                        duration: transitionInDuration ?? 0.5)
+        o.transitionOut = ClipTransition(type: TransitionType(rawValue: transitionOutType ?? "") ?? .none,
+                                         duration: transitionOutDuration ?? 0.5)
         return o
     }
 }

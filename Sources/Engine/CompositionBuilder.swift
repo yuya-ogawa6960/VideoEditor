@@ -540,16 +540,18 @@ enum CompositionBuilder {
             scaling: snapshot.canvas.scaling,
             subtitles: subtitles,
             subtitleStyle: snapshot.subtitleStyle,
-            textClips: snapshot.textClips
-                .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
-                .sorted { $0.start < $1.start },
+            // テキストはトラック(段)の順に重ねる(V の番号が小さい段から。上の段ほど上に重なる)
+            textClips: Self.sortedByLane(snapshot.textClips
+                .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds },
+                lanes: TimelineMetrics.textLanes(snapshot.textClips)),
             drawings: snapshot.drawings
                 .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
                 .sorted { $0.start < $1.start },
             watermark: snapshot.watermark,
             documentary: documentaryInfo,
             postsFrames: purpose == .export,
-            mediaOverlays: overlayInfos,
+            // オーバーレイもトラック(段)の順に重ねる(V2 → V3 …)
+            mediaOverlays: Self.sortedOverlaysByLane(overlayInfos, lanes: TimelineMetrics.overlayLanes(snapshot.overlays)),
             totalDuration: totalSeconds)
 
         var instructions: [VideoCompositorInstruction] = specs.map {
@@ -1045,6 +1047,28 @@ enum CompositionBuilder {
             result.append(VideoCompositorOverlay(overlay: overlay, trackID: track.trackID, preferredTransform: transform))
         }
         return result
+    }
+
+    // MARK: - トラック(段)の順
+
+    /// テキストを段の小さい順(同じ段なら開始の早い順)に並べる
+    static func sortedByLane(_ clips: [TextClip], lanes: [UUID: Int]) -> [TextClip] {
+        clips.sorted { a, b in
+            let laneA = lanes[a.id] ?? 0
+            let laneB = lanes[b.id] ?? 0
+            if laneA != laneB { return laneA < laneB }
+            return a.start < b.start
+        }
+    }
+
+    /// オーバーレイを段の小さい順(同じ段なら元の並び順)に並べる
+    static func sortedOverlaysByLane(_ overlays: [VideoCompositorOverlay], lanes: [UUID: Int]) -> [VideoCompositorOverlay] {
+        overlays.enumerated().sorted { a, b in
+            let laneA = lanes[a.element.id] ?? 0
+            let laneB = lanes[b.element.id] ?? 0
+            if laneA != laneB { return laneA < laneB }
+            return a.offset < b.offset
+        }.map { $0.element }
     }
 
     // MARK: - ナレーション

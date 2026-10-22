@@ -90,11 +90,18 @@ fileprivate enum SubtitleStylePreset: String, CaseIterable, Identifiable {
 struct SubtitleEditorView: View {
     @Bindable var project: EditorProject
     let player: PlayerController
+    /// 選択中のクリップ(クリップのメニューの「キャプションを作成」から開いたとき)。そのクリップだけ字幕を作れる
+    var focusClipID: UUID? = nil
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var transcriber = TranscriptionService()
-    @State private var selectedLanguage: TranscriptionLanguage = .japanese
+    /// 話している言語(訳を付けるかも含む)
+    @State private var captionChoice: CaptionLanguage = .japanese
+    /// 字幕を作る範囲(全体 / 選んだクリップだけ)
+    @State private var captionScope: CaptionScope = .all
+    /// 「全体」のときに選んでいた言語(「選んだクリップだけ」から戻ったときに戻す)
+    @State private var wholeCaptionChoice: CaptionLanguage = .japanese
     @State private var replaceExisting: Bool = true
     @State private var transcriptionTask: Task<Void, Never>?
     /// 前回(アプリが終了するなどして)取り込めなかったクラウド文字起こし(CloudBackgroundUploader.pendingJobs)
@@ -360,14 +367,36 @@ struct SubtitleEditorView: View {
                 autoCaptionIntro
             }
 
-            Picker("話している言語", selection: $selectedLanguage) {
-                ForEach(TranscriptionLanguage.allCases) { lang in
-                    Text(lang.displayName).tag(lang)
+            // クリップを選んで開いたときは、そのクリップだけ作ることもできる
+            if focusClip != nil {
+                Picker("字幕を作る範囲", selection: $captionScope) {
+                    Text("全体").tag(CaptionScope.all)
+                    Text("選んだクリップだけ").tag(CaptionScope.clip)
+                }
+                .pickerStyle(.segmented)
+                .disabled(isTranscribing)
+            }
+
+            Picker("話している言語", selection: $captionChoice) {
+                ForEach(CaptionLanguage.allCases) { choice in
+                    Text(choice.displayName).tag(choice)
                 }
             }
             .disabled(isTranscribing)
 
-            if !isFirstTime {
+            if captionScope == .clip, focusClip != nil {
+                Text("選んだクリップの範囲の字幕だけを作り直します。言語はこのクリップに覚えておき、全体で作るときもこの言語で作ります。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if clipsWithOwnLanguage > 0 {
+                Text(String(localized: "\(clipsWithOwnLanguage) 本のクリップは、そのクリップで選んだ言語で作ります。"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !isFirstTime && !(captionScope == .clip && focusClip != nil) {
                 Picker("今ある字幕", selection: $replaceExisting) {
                     Text("置き換える").tag(true)
                     Text("後ろに追加").tag(false)
@@ -394,6 +423,43 @@ struct SubtitleEditorView: View {
             Text(isFirstTime ? String(localized: "自動で字幕を作る") : String(localized: "自動で作り直す"))
         } footer: {
             Text(transcriptionFooterText)
+        }
+        .onAppear { applyFocusClipDefaults() }
+        .onChange(of: captionScope) { oldScope, scope in
+            if scope == .clip {
+                // 「選んだクリップだけ」にしたら、そのクリップで前に選んだ言語にする
+                if oldScope == .all { wholeCaptionChoice = captionChoice }
+                if let saved = focusClip?.captionLanguage {
+                    captionChoice = saved
+                }
+            } else {
+                // 「全体」に戻したら、全体で選んでいた言語に戻す(クリップの言語がほかのクリップに広がらないように)
+                captionChoice = wholeCaptionChoice
+            }
+        }
+    }
+
+    /// 話している言語(訳を付けるかは除く)
+    private var selectedLanguage: TranscriptionLanguage { captionChoice.spoken }
+
+    /// 選択中のクリップ(まだプロジェクトにあれば)
+    private var focusClip: Clip? {
+        guard let focusClipID else { return nil }
+        return project.clips.first { $0.id == focusClipID }
+    }
+
+    /// 自分の言語を選んであるクリップの数
+    private var clipsWithOwnLanguage: Int {
+        project.clips.filter { $0.captionLanguage != nil }.count
+    }
+
+    /// クリップを選んで開いたときは「選んだクリップだけ」にし、そのクリップの言語にする
+    private func applyFocusClipDefaults() {
+        guard let clip = focusClip else { return }
+        wholeCaptionChoice = captionChoice
+        captionScope = .clip
+        if let saved = clip.captionLanguage {
+            captionChoice = saved
         }
     }
 
@@ -467,8 +533,14 @@ struct SubtitleEditorView: View {
 
     private func startTranscription() {
         guard transcriptionTask == nil else { return }
+        // 「選んだクリップだけ」のときは、そのクリップに言語を覚えておく(全体で作り直すときもその言語になる)
+        let onlyClipID: UUID? = (captionScope == .clip) ? focusClip?.id : nil
+        if let onlyClipID, let index = project.index(of: onlyClipID) {
+            project.clips[index].captionLanguage = captionChoice
+        }
         let snapshot = project.snapshot()
         let language = selectedLanguage
+        let defaultCaption = captionChoice
         let replace = replaceExisting
         transcriptionTask = Task { @MainActor in
             let authorized = await transcriber.requestAuthorization()
@@ -484,14 +556,20 @@ struct SubtitleEditorView: View {
                 return
             }
             do {
-                let transcribed = try await transcriber.transcribe(snapshot: snapshot, language: language)
+                let transcribed = try await transcriber.transcribe(snapshot: snapshot, language: language,
+                                                                   defaultCaption: defaultCaption,
+                                                                   clipIDs: onlyClipID.map { [$0] })
                 // カラオケ風テンプレート用に、単語タイミングが無い字幕へ文字数比例のタイミングを付ける
                 let cues = SubtitleWordTiming.fillingMissing(transcribed)
                 if Task.isCancelled {
                     transcriptionTask = nil
                     return
                 }
-                if replace {
+                if let onlyClipID, let range = project.outputRange(ofClip: onlyClipID) {
+                    // そのクリップの範囲にあった字幕だけを入れ替える(ほかのクリップの字幕はそのまま)
+                    project.subtitles.removeAll { $0.start < range.end - 0.01 && $0.end > range.start + 0.01 }
+                    project.subtitles.append(contentsOf: cues)
+                } else if replace {
                     project.subtitles = cues
                 } else {
                     project.subtitles.append(contentsOf: cues)
@@ -1483,4 +1561,12 @@ enum SubtitleFontCatalog {
             }
         }
     }
+}
+
+/// 自動字幕を作る範囲
+enum CaptionScope: Hashable {
+    /// プロジェクト全体
+    case all
+    /// 選んだクリップだけ
+    case clip
 }

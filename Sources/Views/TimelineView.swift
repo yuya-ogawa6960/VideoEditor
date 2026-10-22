@@ -44,12 +44,13 @@ struct TimelineView: View {
 
     /// 映像トラックの上端の y(タイムラインのローカル座標。縦スクロールしていないとき)
     static func videoTrackTop(for project: EditorProject) -> CGFloat {
-        var y: CGFloat = TimelineMetrics.topPadding + TimelineMetrics.rulerHeight + TimelineMetrics.trackSpacing
-        if !project.overlays.isEmpty {
-            let lanes = TimelineMetrics.overlayLaneCount(project.overlays)
-            y += TimelineMetrics.stackedHeight(TimelineMetrics.overlayHeight, lanes: lanes) + TimelineMetrics.trackSpacing
+        let top: CGFloat = TimelineMetrics.topPadding + TimelineMetrics.rulerHeight + TimelineMetrics.trackSpacing
+        // V1 より上の行(テキスト・手書き・オーバーレイ)の分だけ下がる
+        let placement = rowPlacements(visibleTracks(for: project)).first { row in
+            if case .video = row.kind { return true }
+            return false
         }
-        return y
+        return top + (placement?.y ?? 0)
     }
 
     private static func visibleTracks(for project: EditorProject) -> [TimelineTrackKind] {
@@ -570,7 +571,8 @@ struct TimelineView: View {
         return ZStack(alignment: .topLeading) {
             ForEach(items) { item in
                 let isSel = item.id == selectedID
-                let laneY: CGFloat = CGFloat(item.depth) * laneStep
+                // 段 0(V2)をいちばん下にして、上の段ほど番号が大きい(V1 の上へ積み重ねる)
+                let laneY: CGFloat = CGFloat(laneCount - 1 - item.depth) * laneStep
                 TimelineOverlayBar(overlay: item.overlay,
                                    labelX: item.labelX,
                                    visibleWidth: item.visibleWidth,
@@ -585,7 +587,7 @@ struct TimelineView: View {
             }
 
             if let sel = selectedItem {
-                let inset: CGFloat = CGFloat(sel.depth) * laneStep
+                let inset: CGFloat = CGFloat(laneCount - 1 - sel.depth) * laneStep
                 let barH = h
                 if !sel.overlay.keyframes.isEmpty {
                     TimelineKeyframeDiamonds(times: sel.overlay.keyframes.map { $0.time },
@@ -720,6 +722,7 @@ struct TimelineView: View {
                             ranges: [TimelineClipRange], total: Double) -> some View {
         let h = TimelineMetrics.videoHeight
         let lane = TimelineMetrics.splitAudioLaneHeight
+        let waveLane = TimelineMetrics.audioWaveLaneHeight
         let badge = TimelineMetrics.transitionBadgeSize
         let layout = clipItems(width: width, originX: originX, pps: pps, ranges: ranges)
         let items = layout.items
@@ -795,10 +798,16 @@ struct TimelineView: View {
                     .zIndex(item.isLifted ? 10 : (item.id == selectedClipID ? 1 : 0))
             }
 
+            // V1 の下: クリップの音の大きさの波形
+            TimelineClipAudioLane(items: items, pointsPerSecond: pps, height: waveLane)
+                .frame(width: width, height: waveLane)
+                .offset(y: h)
+                .zIndex(4)
+
             if !splitBars.isEmpty {
                 TimelineSplitAudioLane(bars: splitBars)
                     .frame(width: width, height: lane)
-                    .offset(y: h)
+                    .offset(y: h + waveLane)
                     .zIndex(5)
             }
 
@@ -826,7 +835,7 @@ struct TimelineView: View {
                                trailing: clipTrimGesture(clipID: sel.id, leading: false))
             }
         }
-        .frame(width: width, height: h + lane, alignment: .topLeading)
+        .frame(width: width, height: h + waveLane + lane, alignment: .topLeading)
     }
 
     // MARK: - テキスト・ステッカートラック
@@ -857,12 +866,13 @@ struct TimelineView: View {
         let laneCount: Int = (lanes.values.max() ?? 0) + 1
         let trackHeight: CGFloat = TimelineMetrics.textTrackHeight(lanes: laneCount)
         let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
-        let selectedY: CGFloat = CGFloat(selectedID.flatMap { lanes[$0] } ?? 0) * laneStep
+        // 段 0 をいちばん下にして、上の段ほど番号が大きい(V1 の上へ積み重ねる)
+        let selectedY: CGFloat = CGFloat(laneCount - 1 - (selectedID.flatMap { lanes[$0] } ?? 0)) * laneStep
 
         return ZStack(alignment: .topLeading) {
             ForEach(items) { item in
                 let isSel = item.id == selectedID
-                let laneY: CGFloat = CGFloat(lanes[item.id] ?? 0) * laneStep
+                let laneY: CGFloat = CGFloat(laneCount - 1 - (lanes[item.id] ?? 0)) * laneStep
                 TimelineTextBar(textClip: item.textClip,
                                 labelX: item.labelX,
                                 visibleWidth: item.visibleWidth,

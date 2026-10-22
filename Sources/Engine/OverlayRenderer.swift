@@ -18,7 +18,8 @@ enum OverlayRenderer {
 
     // MARK: - 公開 API
 
-    /// frame(キャンバス全面、左下原点)の上に、時刻 time に表示中のオーバーレイを開始時刻順に重ねる
+    /// frame(キャンバス全面、左下原点)の上に、時刻 time に表示中のオーバーレイを並び順に重ねる
+    /// (並び順はトラックの順。V2 → V3 … と上のトラックほど後に重ねる。CompositionBuilder で並べ替え済み)
     static func draw(_ overlays: [VideoCompositorOverlay],
                      over frame: CIImage,
                      time: Double,
@@ -43,7 +44,24 @@ enum OverlayRenderer {
             guard let source else { continue }
 
             if let rendered = Self.image(for: overlay, source: source, time: time, fade: fade, canvasSize: canvasSize) {
-                out = composite(rendered, over: out, blendMode: overlay.blendMode, canvas: canvas)
+                let withOverlay = composite(rendered, over: out, blendMode: overlay.blendMode, canvas: canvas)
+                // 出てくるとき・消えるときは、下の映像とのあいだをクリップと同じトランジションで切り替える。
+                // 切り替えるのはオーバーレイのある範囲だけ(小さなワイプでも、まわりの映像は動かさない)
+                if let transition = overlay.transitionState(at: time) {
+                    let blended = transition.isIn
+                        ? TransitionRenderer.blend(outgoing: out, incoming: withOverlay, type: transition.type,
+                                                   progress: transition.progress, canvasSize: canvasSize)
+                        : TransitionRenderer.blend(outgoing: withOverlay, incoming: out, type: transition.type,
+                                                   progress: transition.progress, canvasSize: canvasSize)
+                    let region = rendered.extent.intersection(canvas)
+                    if region.isNull || region.width < 1 || region.height < 1 {
+                        out = withOverlay
+                    } else {
+                        out = blended.cropped(to: region).composited(over: out).cropped(to: canvas)
+                    }
+                } else {
+                    out = withOverlay
+                }
             }
         }
         return out.cropped(to: canvas)

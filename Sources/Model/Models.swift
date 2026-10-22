@@ -189,6 +189,8 @@ struct Clip: Identifiable, Equatable {
     var enhance: ClipEnhancements
     /// 静止画クリップの 3D ズーム(奥行き情報がある写真のみ)
     var parallax: DepthParallax
+    /// 自動字幕の言語(このクリップだけ英語・訳付きなど。nil なら字幕を作るときに選んだ言語)
+    var captionLanguage: CaptionLanguage? = nil
 
     init(id: UUID = UUID(), url: URL, duration: Double, naturalSize: CGSize,
          preferredTransform: CGAffineTransform, hasAudio: Bool, thumbnail: UIImage?, name: String) {
@@ -261,6 +263,7 @@ struct Clip: Identifiable, Equatable {
 
     static func == (lhs: Clip, rhs: Clip) -> Bool {
         lhs.id == rhs.id
+            && lhs.captionLanguage == rhs.captionLanguage
             && lhs.startTime == rhs.startTime
             && lhs.endTime == rhs.endTime
             && lhs.speed == rhs.speed
@@ -355,6 +358,8 @@ struct SubtitleCue: Identifiable, Equatable {
     var translatedText: String? = nil
     /// 単語ごとの時刻(カラオケ風字幕用)。空なら不明
     var words: [SubtitleWord] = []
+    /// 原文と訳を 2 行で出す(「英語＋日本語訳」などで作った字幕。全体の表示モードより優先)
+    var bilingual: Bool = false
 
     var duration: Double { max(0, end - start) }
 
@@ -362,6 +367,9 @@ struct SubtitleCue: Identifiable, Equatable {
     func displayLines(mode: SubtitleDisplayMode) -> [String] {
         let original = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let translated = (translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if bilingual, !original.isEmpty, !translated.isEmpty {
+            return [original, translated]
+        }
         switch mode {
         case .original:
             return original.isEmpty ? [] : [original]

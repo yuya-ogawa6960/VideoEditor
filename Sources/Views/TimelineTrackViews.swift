@@ -17,6 +17,8 @@ enum TimelineMetrics {
     static let videoHeight: CGFloat = 58
     /// 映像クリップの直下に出す J カット / L カットの音声バー用レーン
     static let splitAudioLaneHeight: CGFloat = 4
+    /// V1 の下に出す、クリップの音の大きさの波形の段
+    static let audioWaveLaneHeight: CGFloat = 26
     /// テキスト・ステッカートラック
     static let textHeight: CGFloat = 26
     /// 手書きトラック
@@ -27,7 +29,7 @@ enum TimelineMetrics {
     static let narrationHeight: CGFloat = 30
     /// 全トラックを並べたときの高さ
     /// (目盛り + 重ね合わせ + 映像 + テキスト + 手書き + 字幕 + BGM + ナレーション = 8 トラック、すき間 7 つ)
-    static let totalHeight: CGFloat = topPadding + rulerHeight + overlayHeight + videoHeight + splitAudioLaneHeight
+    static let totalHeight: CGFloat = topPadding + rulerHeight + overlayHeight + videoHeight + audioWaveLaneHeight + splitAudioLaneHeight
         + textHeight + drawingHeight + subtitleHeight + audioHeight + narrationHeight
         + trackSpacing * 7 + bottomPadding
 
@@ -70,16 +72,18 @@ enum TimelineMetrics {
     static let snapGuideColor = Color.yellow
 
     /// 映像トラック(J/L カットのレーン込み)の高さ
-    static var videoRowHeight: CGFloat { videoHeight + splitAudioLaneHeight }
+    static var videoRowHeight: CGFloat { videoHeight + audioWaveLaneHeight + splitAudioLaneHeight }
 
     /// 表示するトラック行(中身のあるトラックだけ + 映像 + 追加行)
     static func visibleTracks(overlayLanes: Int, textLanes: Int, hasDrawings: Bool,
                               hasSubtitles: Bool, hasBGM: Bool, narrationLanes: Int) -> [TimelineTrackKind] {
         var rows: [TimelineTrackKind] = []
-        if overlayLanes > 0 { rows.append(.overlay(lanes: overlayLanes)) }
-        rows.append(.video)
+        // 映像のトラックは業務用ソフトと同じく V1 の上へ積み重ねる(上の行ほど上に重なって映る):
+        // テキスト・ステッカー(いちばん上)→ 手書き → オーバーレイ → V1
         if textLanes > 0 { rows.append(.text(lanes: textLanes)) }
         if hasDrawings { rows.append(.drawing) }
+        if overlayLanes > 0 { rows.append(.overlay(lanes: overlayLanes)) }
+        rows.append(.video)
         if hasSubtitles { rows.append(.subtitle) }
         if hasBGM { rows.append(.audio) }
         if narrationLanes > 0 { rows.append(.narration(lanes: narrationLanes)) }
@@ -234,9 +238,11 @@ enum TimelineMetrics {
             }
         }
         result["video"] = ["V1"]
-        // 描画の重なり順(オーバーレイ → 手書き → テキスト)に合わせて番号を振る
+        // 描画の重なり順(オーバーレイ → 手書き → テキスト)に合わせて番号を振る。
+        // 段は下(V1 に近い方)から番号が増え、名前の並びは上の段から(段 0 がいちばん下)
         if overlayLanes > 0 {
-            result["overlay"] = (0..<overlayLanes).map { "V\(nextV + $0)" }
+            let base = nextV
+            result["overlay"] = (0..<overlayLanes).map { "V\(base + overlayLanes - 1 - $0)" }
             nextV += overlayLanes
         }
         if hasDrawing {
@@ -244,7 +250,8 @@ enum TimelineMetrics {
             nextV += 1
         }
         if textLanes > 0 {
-            result["text"] = (0..<textLanes).map { "V\(nextV + $0)" }
+            let base = nextV
+            result["text"] = (0..<textLanes).map { "V\(base + textLanes - 1 - $0)" }
             nextV += textLanes
         }
         result["subtitle"] = ["ST1"]
@@ -528,6 +535,8 @@ struct TimelineWaveformStrip: View {
     var loops: Bool = false
     /// true なら上下対称、false なら下から立ち上がる
     var centered: Bool = false
+    /// 波形の高さに掛ける倍率(クリップの音量。1 = そのまま)
+    var gain: Float = 1
 
     @State private var waveform: AudioWaveform? = nil
     @State private var loadedPath: String = ""
@@ -541,6 +550,7 @@ struct TimelineWaveformStrip: View {
         let looping = loops
         let symmetric = centered
         let fill = color
+        let scale = max(0, gain)
 
         Canvas { context, size in
             guard let wf = current, size.width >= 2, size.height >= 1, end > start else { return }
@@ -552,7 +562,7 @@ struct TimelineWaveformStrip: View {
             let barWidth = max(1, step - 1)
             var shape = Path()
             for (i, p) in peaks.enumerated() {
-                let v = CGFloat(min(max(p, 0), 1))
+                let v = CGFloat(min(max(p * scale, 0), 1))
                 let x = CGFloat(i) * step
                 let h = max(1, v * size.height)
                 let y = symmetric ? (size.height - h) / 2 : size.height - h
@@ -684,11 +694,6 @@ struct TimelineClipView: View {
         let tileSpan = Double(tileW / pps) * speed
         let badgeX = TimelineMetrics.stickyLabelX(trueX: screenX, visibleX: visibleX,
                                                    visibleWidth: visibleWidth, labelWidth: 60)
-        let showsWaveform = clip.hasAudio && !clip.isMuted && !isStill && visibleWidth >= 6
-        // 見えている範囲に対応する元素材上の秒
-        let waveStart = clip.startTime + Double(localLeft / pps) * speed
-        let waveEnd = min(clip.endTime, clip.startTime + Double((localLeft + visibleWidth) / pps) * speed)
-        let waveHeight = (height * 0.3).rounded(.down)
         let showsBadges = visibleWidth > 28
         let hasSpeedCurve = clip.speedCurve.enabled
         let hasGeometry = !clip.geometry.isIdentity
@@ -710,14 +715,6 @@ struct TimelineClipView: View {
                     .offset(x: CGFloat(j) * tileW - startPts - localLeft)
             }
 
-            if showsWaveform {
-                TimelineWaveformStrip(url: clip.url,
-                                      sourceStart: waveStart,
-                                      sourceEnd: waveEnd,
-                                      color: TimelineMetrics.clipWaveformColor)
-                    .frame(width: visibleWidth, height: waveHeight)
-                    .offset(y: height - waveHeight)
-            }
 
             if showsBadges {
                 HStack(spacing: 3) {
@@ -887,14 +884,23 @@ struct TimelineSplitAudioLane: View {
 // MARK: - トリムハンドル
 
 struct TimelineTrimHandle: View {
+    /// 部品の左端のつまみか(外側 = 左だけ角を丸める)
+    var leading: Bool = true
+
     var body: some View {
+        let radius: CGFloat = 6
         ZStack {
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
+            UnevenRoundedRectangle(topLeadingRadius: leading ? radius : 0,
+                                   bottomLeadingRadius: leading ? radius : 0,
+                                   bottomTrailingRadius: leading ? 0 : radius,
+                                   topTrailingRadius: leading ? 0 : radius,
+                                   style: .continuous)
                 .fill(Color.white)
-            Capsule()
-                .fill(Color.black.opacity(0.55))
-                .frame(width: 2.5, height: 12)
+            Image(systemName: leading ? "chevron.compact.left" : "chevron.compact.right")
+                .font(.system(size: 13, weight: .heavy))
+                .foregroundStyle(Color.black.opacity(0.6))
         }
+        .shadow(color: Color.black.opacity(0.35), radius: 1.5)
         .contentShape(Rectangle())
     }
 }
@@ -906,7 +912,7 @@ struct TimelineTrimHandleHitArea: View {
 
     var body: some View {
         let visual = TimelineMetrics.handleVisualWidth
-        TimelineTrimHandle()
+        TimelineTrimHandle(leading: leading)
             .frame(width: visual)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: leading ? .trailing : .leading)
             .contentShape(Rectangle())
@@ -927,12 +933,15 @@ struct TimelineSelectionFrame: View {
         let bar = TimelineMetrics.selectionBarThickness
         let showsBadge = visibleWidth >= 34 && height >= 16
         ZStack(alignment: .topLeading) {
+            // 上下の帯(左右のつまみと同じ白で、すき間なくつなぐ)
             Rectangle()
                 .fill(Color.white)
                 .frame(width: max(0, visibleWidth), height: bar)
+                .shadow(color: Color.black.opacity(0.35), radius: 1)
             Rectangle()
                 .fill(Color.white)
                 .frame(width: max(0, visibleWidth), height: bar)
+                .shadow(color: Color.black.opacity(0.35), radius: 1)
                 .offset(y: max(0, height - bar))
             if showsBadge {
                 Text(TimelineFormat.duration(duration))
@@ -1604,5 +1613,50 @@ struct TimelinePacingStrip: View {
                 context.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(Self.color(for: segment.level)))
             }
         }
+    }
+}
+
+// MARK: - V1 の下の音声の波形
+
+/// V1(メイン映像)の下に、クリップごとの音の大きさを波形で出す段。
+/// 音量(ゲイン)を反映し、消音・音声なしのクリップは平らな線にする
+struct TimelineClipAudioLane: View {
+    let items: [TimelineClipItem]
+    let pointsPerSecond: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        let pps = max(pointsPerSecond, 0.0001)
+        ZStack(alignment: .topLeading) {
+            ForEach(items) { item in
+                let clip = item.clip
+                let speed = TimelineClipView.effectiveSpeed(of: clip)
+                let localLeft = item.visibleX - item.screenX
+                let waveStart = clip.startTime + Double(localLeft / pps) * speed
+                let waveEnd = min(clip.endTime, clip.startTime + Double((localLeft + item.visibleWidth) / pps) * speed)
+                let hasSound = clip.hasAudio && !clip.isMuted && !clip.isStill
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(TimelineMetrics.audioColor.opacity(hasSound ? 0.22 : 0.08))
+                    if hasSound && item.visibleWidth >= 4 && waveEnd > waveStart {
+                        TimelineWaveformStrip(url: clip.url,
+                                              sourceStart: waveStart,
+                                              sourceEnd: waveEnd,
+                                              color: TimelineMetrics.splitAudioColor,
+                                              centered: true,
+                                              gain: clip.audio.gain)
+                            .padding(.vertical, 2)
+                    } else {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.25))
+                            .frame(height: 1)
+                    }
+                }
+                .frame(width: max(0, item.visibleWidth - 1), height: height)
+                .offset(x: item.visibleX)
+            }
+        }
+        .frame(height: height, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
 }

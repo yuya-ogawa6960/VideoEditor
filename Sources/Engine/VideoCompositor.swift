@@ -73,6 +73,9 @@ struct VideoCompositorOverlay {
     let mask: MaskSettings
     /// 写真の 3D ズーム(奥行き)。有効なら Ken Burns の代わりに使う
     let parallax: DepthParallax
+    /// 出てくるとき・消えるときのビデオトランジション
+    let transitionIn: ClipTransition
+    let transitionOut: ClipTransition
 
     init(overlay: OverlayClip, trackID: CMPersistentTrackID?, preferredTransform: CGAffineTransform? = nil) {
         self.id = overlay.id
@@ -92,8 +95,11 @@ struct VideoCompositorOverlay {
         self.cornerRadius = min(max(overlay.cornerRadius, 0), 0.5)
         self.kenBurns = overlay.kenBurns
         self.filter = overlay.filter
-        self.fadeIn = max(0, overlay.fadeIn)
-        self.fadeOut = max(0, overlay.fadeOut)
+        // トランジションを使う側はフェードしない(トランジションで出入りする)
+        self.fadeIn = overlay.transitionIn.isActive ? 0 : max(0, overlay.fadeIn)
+        self.fadeOut = overlay.transitionOut.isActive ? 0 : max(0, overlay.fadeOut)
+        self.transitionIn = overlay.transitionIn
+        self.transitionOut = overlay.transitionOut
         self.keyframes = overlay.keyframes
         self.blendMode = overlay.blendMode
         self.mask = overlay.mask
@@ -101,6 +107,29 @@ struct VideoCompositorOverlay {
     }
 
     var end: Double { start + duration }
+
+    /// time がイン・アウトのトランジションの最中なら、その種類と進み具合(0...1)と、イン側かを返す。
+    /// 長さはオーバーレイの半分まで
+    func transitionState(at time: Double) -> (type: TransitionType, progress: Double, isIn: Bool)? {
+        guard duration > 0 else { return nil }
+        let local = time - start
+        guard local >= 0, local <= duration else { return nil }
+        let half = duration / 2
+        if transitionIn.isActive {
+            let length = min(transitionIn.duration, half)
+            if length > 0.01, local < length {
+                return (transitionIn.type, local / length, true)
+            }
+        }
+        if transitionOut.isActive {
+            let length = min(transitionOut.duration, half)
+            let remaining = duration - local
+            if length > 0.01, remaining < length {
+                return (transitionOut.type, 1 - remaining / length, false)
+            }
+        }
+        return nil
+    }
 
     /// 動画を描くために必要なソーストラックか(写真は不要)
     var needsSourceFrame: Bool { !isImage && trackID != nil }

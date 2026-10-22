@@ -1796,3 +1796,38 @@ struct EditorCaptionTemplatePanel: View {
         .padding(.top, 6)
     }
 }
+
+// MARK: - オーバーレイの不透明度
+
+/// 重ねた素材(オーバーレイ)の不透明度(どれくらい透けるか)
+struct EditorOverlayOpacityPanel: View {
+    @Binding var overlay: OverlayClip
+
+    private let presets: [Double] = [0.25, 0.5, 0.75, 1]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            EditorItemHeaderRow(systemImage: overlay.isImage ? "photo" : "film",
+                                name: overlay.name, start: overlay.start, end: overlay.end)
+
+            EditorSliderRow(title: String(localized: "不透明度"),
+                            value: $overlay.opacity,
+                            range: 0...1,
+                            display: textPanelPercent(overlay.opacity))
+
+            HStack(spacing: 8) {
+                ForEach(presets, id: \.self) { value in
+                    EditorChip(title: "\(Int((value * 100).rounded()))%", isSelected: abs(overlay.opacity - value) < 0.005) {
+                        overlay.opacity = value
+                    }
+                }
+            }
+
+            Text(String(localized: "左へ動かすほど透けて、下の映像が見えます。いちばん右で下の映像を隠します。"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 6)
+    }
+}

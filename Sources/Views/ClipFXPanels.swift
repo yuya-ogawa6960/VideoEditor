@@ -1474,3 +1474,66 @@ struct ScopeSheetView: View {
         isLoading = false
     }
 }
+
+// MARK: - オーバーレイのビデオトランジション
+
+/// 重ねた素材(オーバーレイ)が出てくるとき・消えるときのトランジション。クリップと同じ種類から選ぶ
+struct EditorOverlayTransitionPanel: View {
+    @Binding var overlay: OverlayClip
+
+    /// オーバーレイの長さの半分まで(最大 2 秒。描画の transitionState と同じ上限)
+    private var maxDuration: Double { min(2, overlay.duration / 2) }
+
+    /// 使っている側(イン・アウト)のうち、長いほうの長さ
+    private var longestActiveDuration: Double {
+        [overlay.transitionIn, overlay.transitionOut].filter { $0.isActive }.map { $0.duration }.max() ?? 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            EditorItemHeaderRow(systemImage: overlay.isImage ? "photo" : "film",
+                                name: overlay.name, start: overlay.start, end: overlay.end)
+            Text("重ねた素材が出てくるとき(イン)と消えるとき(アウト)の、下の映像との切り替わり方です。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            transitionSection(title: String(localized: "イン(出てくるとき)"), transition: $overlay.transitionIn)
+            transitionSection(title: String(localized: "アウト(消えるとき)"), transition: $overlay.transitionOut)
+
+            if longestActiveDuration > maxDuration + 0.001 {
+                Text("※ 素材が短いため、実際には最大 \(clipFXSeconds(maxDuration)) になります")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
+                    overlay.transitionIn = ClipTransition()
+                    overlay.transitionOut = ClipTransition()
+                }
+                Spacer()
+                EditorChip(title: String(localized: "アウトもインと同じにする"), isSelected: false) {
+                    overlay.transitionOut = overlay.transitionIn
+                }
+                .disabled(!overlay.transitionIn.isActive)
+                .opacity(overlay.transitionIn.isActive ? 1 : 0.4)
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    private func transitionSection(title: String, transition: Binding<ClipTransition>) -> some View {
+        let isNone = transition.wrappedValue.type == .none
+        return VStack(alignment: .leading, spacing: 6) {
+            EditorSectionTitle(title: title)
+            TransitionTypePicker(selection: transition.type)
+            EditorSliderRow(title: String(localized: "長さ"),
+                            value: transition.duration,
+                            range: 0.2...2.0,
+                            display: clipFXSeconds(transition.wrappedValue.duration))
+                .disabled(isNone)
+                .opacity(isNone ? 0.4 : 1)
+        }
+    }
+}
