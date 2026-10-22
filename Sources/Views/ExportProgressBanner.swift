@@ -126,23 +126,23 @@ enum BackgroundWorkNote {
 
     static var export: String {
         if canContinueInBackground {
-            return String(localized: "ホームに戻ったり画面をロックしても、書き出しは続きます。")
+            return String(localized: "ホームに戻ったり画面をロックしても、\n書き出しは続きます。")
         }
-        return String(localized: "書き出しが終わるまで、このアプリを開いたままにしてください(ホームに戻ると約30秒で止まります)。画面は自動でロックされません。")
+        return String(localized: "書き出しが終わるまで、\nこのアプリを開いたままにしてください。\nホームに戻ると約30秒で止まります。\n画面は自動でロックされません。")
     }
 
     static var transcription: String {
         if canContinueInBackground {
-            return String(localized: "ホームに戻ったり画面をロックしても、文字起こしは続きます。")
+            return String(localized: "ホームに戻ったり画面をロックしても、\n文字起こしは続きます。")
         }
-        return String(localized: "終わるまで、この画面を開いたままにしてください(ホームに戻ると約30秒で一時停止します)。画面は自動でロックされません。")
+        return String(localized: "終わるまで、この画面を\n開いたままにしてください。\nホームに戻ると約30秒で一時停止します。\n画面は自動でロックされません。")
     }
 
     /// 見どころ探し・おまかせ編集などの解析(EditorAnalysisRunner)
     static var analysis: String {
         if canContinueInBackground {
-            return String(localized: "ホームに戻ったり画面をロックしても、この処理は続きます。")
+            return String(localized: "ホームに戻ったり画面をロックしても、\nこの処理は続きます。")
         }
-        return String(localized: "終わるまで、このアプリを開いたままにしてください(ホームに戻ると約30秒で止まります)。画面は自動でロックされません。")
+        return String(localized: "終わるまで、このアプリを\n開いたままにしてください。\nホームに戻ると約30秒で止まります。\n画面は自動でロックされません。")
     }
 }

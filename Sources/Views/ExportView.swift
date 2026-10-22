@@ -170,7 +170,8 @@ struct ExportView: View {
     private var exportingOverlay: some View {
         let progress = min(max(exporter.progress, 0), 1)
         let remaining = ExportTimeEstimator.shared.remainingText(isRunning: exporter.isRunning, progress: progress)
-        let detail = [remaining, exporter.statusText].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        // 残り時間と状態は行を分ける(幅まかせの改行で途中から次の行に落ちないように)
+        let detail = [remaining, exporter.statusText].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         return ZStack {
             Color.black.opacity(0.55)
                 .ignoresSafeArea()

@@ -318,8 +318,9 @@ private final class WhisperRunState: @unchecked Sendable {
         let doneInClip = p.map { $0.fraction * $0.totalAudioSeconds } ?? 0
         let overall = totalAudio > 0 ? min(max((finishedAudio + doneInClip) / totalAudio, 0), 1) : 0
 
+        // 全体の % はカードの見出し(「字幕を作っています 34%」)に出るので、ここには入れない
         var text = TranscriptionService.whisperStatusPrefix
-            + " \(pieceNumber)/\(totalPieces) ・ 約\(Int(overall * 100))%"
+            + " \(pieceNumber)/\(totalPieces)"
 
         // 残り時間(完了したピースが 1 つ以上あるときだけ)
         let processed = finishedAudio + (p?.processedAudioSeconds ?? 0)

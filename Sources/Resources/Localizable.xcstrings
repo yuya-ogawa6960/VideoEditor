@@ -19229,6 +19229,75 @@
         }
       }
     },
+    "ホームに戻ったり画面をロックしても、\nこの処理は続きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This keeps running even if you go to the Home Screen or lock the screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este proceso continúa aunque vayas a la pantalla de inicio o bloquees la pantalla."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este processo continua mesmo se você for para a tela inicial ou bloquear a tela."
+          }
+        }
+      }
+    },
+    "ホームに戻ったり画面をロックしても、\n文字起こしは続きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription continues even if you go to the Home Screen or lock the screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La transcripción continúa aunque vayas a la pantalla de inicio o bloquees la pantalla."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A transcrição continua mesmo se você for para a tela inicial ou bloquear a tela."
+          }
+        }
+      }
+    },
+    "ホームに戻ったり画面をロックしても、\n書き出しは続きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The export continues even if you go to the Home Screen or lock the screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La exportación continúa aunque vayas a la pantalla de inicio o bloquees la pantalla."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A exportação continua mesmo se você for para a tela inicial ou bloquear a tela."
+          }
+        }
+      }
+    },
     "ホームに戻ったり画面をロックしても、この処理は続きます。": {
       "extractionState": "manual",
       "localizations": {
@@ -34524,6 +34593,29 @@
         }
       }
     },
+    "書き出しが終わるまで、\nこのアプリを開いたままにしてください。\nホームに戻ると約30秒で止まります。\n画面は自動でロックされません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep this app open until the export finishes.\\nIt stops about 30 s after you go to the Home Screen.\\nThe screen will not lock automatically."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén esta app abierta hasta que termine la exportación.\\nSe detiene unos 30 s después de ir a la pantalla de inicio.\\nLa pantalla no se bloqueará automáticamente."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenha este app aberto até a exportação terminar.\\nEla para cerca de 30 s depois de ir para a tela inicial.\\nA tela não será bloqueada automaticamente."
+          }
+        }
+      }
+    },
     "書き出しが終わるまで、このアプリを開いたままにしてください(ホームに戻ると約30秒で止まります)。画面は自動でロックされません。": {
       "extractionState": "manual",
       "localizations": {
@@ -39446,6 +39538,29 @@
         }
       }
     },
+    "終わるまで、このアプリを\n開いたままにしてください。\nホームに戻ると約30秒で止まります。\n画面は自動でロックされません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep this app open until it finishes.\\nIt stops about 30 s after you go to the Home Screen.\\nThe screen will not lock automatically."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén esta app abierta hasta que termine.\\nSe detiene unos 30 s después de ir a la pantalla de inicio.\\nLa pantalla no se bloqueará automáticamente."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenha este app aberto até terminar.\\nEle para cerca de 30 s depois de ir para a tela inicial.\\nA tela não será bloqueada automaticamente."
+          }
+        }
+      }
+    },
     "終わるまで、このアプリを開いたままにしてください(ホームに戻ると約30秒で止まります)。画面は自動でロックされません。": {
       "extractionState": "manual",
       "localizations": {
@@ -39465,6 +39580,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mantenha este app aberto até terminar (ele para cerca de 30 s depois de ir para a tela inicial). A tela não será bloqueada automaticamente."
+          }
+        }
+      }
+    },
+    "終わるまで、この画面を\n開いたままにしてください。\nホームに戻ると約30秒で一時停止します。\n画面は自動でロックされません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep this screen open until it finishes.\\nIt pauses about 30 s after you go to the Home Screen.\\nThe screen will not lock automatically."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén esta pantalla abierta hasta que termine.\\nSe pausa unos 30 s después de ir a la pantalla de inicio.\\nLa pantalla no se bloqueará automáticamente."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenha esta tela aberta até terminar.\\nPausa cerca de 30 s depois de ir para a tela inicial.\\nA tela não será bloqueada automaticamente."
           }
         }
       }

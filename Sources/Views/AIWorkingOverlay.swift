@@ -164,12 +164,13 @@ struct AIWorkingCard: View {
                     .font(.callout)
             }
             if let detail {
-                Text(detail)
+                Text(detail.replacingOccurrences(of: " ・ ", with: "\n"))
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if inlineAd {
                 NativeAdCard()
