@@ -1472,8 +1472,12 @@ final class ExportPipeline {
                     return
                 }
                 guard let sample = output.copyNextSampleBuffer() else {
-                    // 読み終わり(completed)なら入力を閉じる。失敗・キャンセルなら閉じずに終了
-                    finish(markFinished: reader.status == .completed)
+                    // このトラックを読み終えたら入力を閉じる。失敗・キャンセルなら閉じずに終了。
+                    // reader.status は全トラックを読み終えるまで .reading のままなので、「.completed のときだけ閉じる」
+                    // だと、音声が映像より先に終わる(最後に無音のエンドスクリーンの余白がある等)と音声の入力が閉じられず、
+                    // writer が音声を待ち続けて映像も受け取らなくなり、書き出しが途中(音声が終わる位置)で止まっていた
+                    let status = reader.status
+                    finish(markFinished: status != .failed && status != .cancelled)
                     return
                 }
                 let time = CMSampleBufferGetPresentationTimeStamp(sample)
