@@ -585,6 +585,9 @@ struct ContentView: View {
                 Text("書き出し")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(.white)
+                    // 幅の狭い画面(iPhone Duo を開いたたて持ちなど)でも 2 行に折り返さない
+                    .lineLimit(1)
+                    .fixedSize()
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
                     .background(FacetedBrandBackground())
