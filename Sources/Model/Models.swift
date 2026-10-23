@@ -687,7 +687,13 @@ final class EditorProject {
 
     func duplicateClip(id: UUID) {
         guard let i = index(of: id) else { return }
+        // 後ろの部品(オーバーレイ・字幕・オーディオなど)も、複製したぶん後ろへずらす
+        let edge = outputRange(ofClip: id)?.end
+        let before = layoutDuration
         clips.insert(clips[i].duplicated(), at: i + 1)
+        if let edge {
+            insertTimelineGap(at: edge, length: layoutDuration - before)
+        }
     }
 
     /// 元素材上の時刻 sourceTime で前後に分割

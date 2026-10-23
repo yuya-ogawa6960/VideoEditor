@@ -153,6 +153,76 @@ extension EditorProject {
         }
     }
 
+    /// 出力タイムラインの time に length 秒を差し込んだ(クリップを途中に追加した)とき、
+    /// time 以降に始まる部品を同じだけ後ろへずらす(元の動画と同じ場所に付いたままにする)。
+    /// time をまたいでいる部品(前から続いている BGM など)は途切れさせないよう、そのままにする
+    func insertTimelineGap(at time: Double, length: Double) {
+        guard length > 0.001 else { return }
+        let edge = time - 0.001
+
+        subtitles = subtitles.map { cue in
+            guard cue.start >= edge else { return cue }
+            var result = cue
+            result.start += length
+            result.end += length
+            result.words = cue.words.map { word in
+                var w = word
+                w.start += length
+                w.end += length
+                return w
+            }
+            return result
+        }
+        titleCards = titleCards.map { item in
+            guard item.start >= edge else { return item }
+            var result = item
+            result.start += length
+            return result
+        }
+        lowerThirds = lowerThirds.map { item in
+            guard item.start >= edge else { return item }
+            var result = item
+            result.start += length
+            return result
+        }
+        // キーフレームは部品の先頭からの秒なので、start だけずらせばよい
+        textClips = textClips.map { item in
+            guard item.start >= edge else { return item }
+            var result = item
+            result.start += length
+            return result
+        }
+        drawings = drawings.map { item in
+            guard item.start >= edge else { return item }
+            var result = item
+            result.start += length
+            return result
+        }
+        markers = markers.map { marker in
+            guard marker.time >= edge else { return marker }
+            var result = marker
+            result.time += length
+            return result
+        }
+        overlays = overlays.map { item in
+            guard item.start >= edge else { return item }
+            var result = item
+            result.start += length
+            return result
+        }
+        narration = narration.map { item in
+            guard item.start >= edge else { return item }
+            var result = item
+            result.start += length
+            return result
+        }
+    }
+
+    /// 出力タイムライン全体の長さ(トランジションの重なりを考慮)
+    var layoutDuration: Double {
+        CompositionBuilder.timelineLayout(for: snapshot()).map(\.end).max() ?? totalDuration
+    }
+
     /// タイムライン上の部品をすべて消す(クリップが無くなったとき)
     func clearTimelineItems() {
         subtitles = []

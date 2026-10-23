@@ -3205,6 +3205,7 @@ struct ContentView: View {
         }
         let clip = project.clips[location.index]
         let sourceTime = min(max(location.sourceTime, clip.startTime), clip.endTime)
+        let freezeTime = player.currentTime
         player.pause()
         mediaToolTask?.cancel()
         mediaToolTask = Task { @MainActor in
@@ -3230,13 +3231,23 @@ struct ContentView: View {
                 guard let i = project.index(of: clipID) else { return }
                 history.record(project)
                 let minimum = 0.2
+                // 静止画を入れた位置より後ろの部品も、静止画の長さだけ後ろへずらす
+                let range = project.outputRange(ofClip: clipID)
+                let durationBefore = project.layoutDuration
+                let rippleTime: Double?
                 if sourceTime > clip.startTime + minimum, sourceTime < clip.endTime - minimum,
                    project.splitClip(id: clipID, atSourceTime: sourceTime) {
                     project.clips.insert(still, at: i + 1)
+                    rippleTime = freezeTime
                 } else if sourceTime <= clip.startTime + minimum {
                     project.clips.insert(still, at: i)
+                    rippleTime = range?.start
                 } else {
                     project.clips.insert(still, at: i + 1)
+                    rippleTime = range?.end
+                }
+                if let rippleTime {
+                    project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
                 }
                 selection = .clip(still.id)
                 showToast(String(localized: "静止画にしました"), undo: true)
@@ -3847,6 +3858,11 @@ struct ContentView: View {
             insertAt = location.index + 1
         }
         importAppendsAtEnd = false
+        // 差し込む位置より後ろの部品(オーバーレイ・字幕・オーディオなど)も、差し込んだ長さだけ後ろへずらす
+        let rippleTime: Double? = insertAt.flatMap { i in
+            i < project.clips.count ? project.outputRange(ofClip: project.clips[i].id)?.start : nil
+        }
+        let durationBefore = project.layoutDuration
         var firstAddedID: UUID? = nil
         for item in items {
             // キャンセルされたら、追加済みの分は残してやめる
@@ -3886,6 +3902,9 @@ struct ContentView: View {
                 failures.append(error.localizedDescription)
             }
             importDone += 1
+        }
+        if added > 0, let rippleTime {
+            project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
         }
         let cancelled = Task.isCancelled
         isImporting = false
@@ -3970,6 +3989,11 @@ struct ContentView: View {
             insertAt = location.index + 1
         }
         importAppendsAtEnd = false
+        // 差し込む位置より後ろの部品(オーバーレイ・字幕・オーディオなど)も、差し込んだ長さだけ後ろへずらす
+        let rippleTime: Double? = insertAt.flatMap { i in
+            i < project.clips.count ? project.outputRange(ofClip: project.clips[i].id)?.start : nil
+        }
+        let durationBefore = project.layoutDuration
         var firstAddedID: UUID? = nil
         // 取り込みを終えた(または読み込めなかった)ファイルの数。先頭からこの数だけが済んでいる
         var processed = 0
@@ -4048,6 +4072,9 @@ struct ContentView: View {
             }
             importDone += 1
             processed += 1
+        }
+        if added > 0, let rippleTime {
+            project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
         }
         let cancelled = Task.isCancelled
         // キャンセルで取り込まなかった共有のファイルは IncomingMediaCenter に返す。
