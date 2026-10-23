@@ -390,9 +390,6 @@ struct EditorTextStylePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: text.isSticker ? "face.smiling" : "textformat",
-                                name: text.isSticker ? String(localized: "ステッカー") : String(localized: "テキスト"),
-                                start: text.start, end: text.end)
 
             EditorTextFieldRow(title: text.isSticker ? String(localized: "絵文字") : String(localized: "テキスト"),
                                placeholder: String(localized: "テキストを入力"),
@@ -402,7 +399,6 @@ struct EditorTextStylePanel: View {
             if !text.isSticker {
                 VStack(alignment: .leading, spacing: 6) {
                     EditorSectionTitle(title: String(localized: "デザイン"))
-                    TextPanelHint(text: String(localized: "選ぶと、色・縁取り・影などがまとめて変わります。"))
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(TextTemplate.allCases) { template in
@@ -439,7 +435,7 @@ struct EditorTextStylePanel: View {
                 EditorColorRow(title: String(localized: "文字色"), color: EditorColorHex.binding($text.style.colorHex))
 
                 // 縁取り
-                Toggle("縁取り(文字のふち)", isOn: strokeEnabled)
+                Toggle("縁取り", isOn: strokeEnabled)
                     .font(.subheadline)
                     .tint(.accentColor)
                 if text.style.strokeColorHex != nil {
@@ -546,7 +542,6 @@ struct EditorTextAnimationPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextPanelHint(text: String(localized: "アニメーション: 文字が出てくるとき・消えるときの動きを選びます。"))
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: String(localized: "出てくるとき"))
@@ -637,11 +632,11 @@ struct EditorTextPlacementPanel: View {
                 }
             }
 
-            EditorSliderRow(title: String(localized: "横の位置(左 ← → 右)"),
+            EditorSliderRow(title: String(localized: "横位置"),
                             value: $text.center.x,
                             range: 0...1,
                             display: textPanelPercent(text.center.x))
-            EditorSliderRow(title: String(localized: "縦の位置(上 ← → 下)"),
+            EditorSliderRow(title: String(localized: "縦位置"),
                             value: $text.center.y,
                             range: 0...1,
                             display: textPanelPercent(text.center.y))
@@ -654,12 +649,12 @@ struct EditorTextPlacementPanel: View {
                             range: -180...180,
                             display: String(format: "%.0f°", text.rotation))
             if !text.isSticker {
-                EditorSliderRow(title: String(localized: "1行の幅(これより長いと折り返す)"),
+                EditorSliderRow(title: String(localized: "折り返し幅"),
                                 value: $text.widthRatio,
                                 range: 0.2...1,
                                 display: textPanelPercent(text.widthRatio))
             }
-            EditorSliderRow(title: String(localized: "濃さ(透けにくさ)"),
+            EditorSliderRow(title: String(localized: "不透明度"),
                             value: $text.opacity,
                             range: 0...1,
                             display: textPanelPercent(text.opacity))
@@ -706,44 +701,82 @@ struct EditorKeyframePanel: View {
         return keyframes.first(where: { $0.id == selectedID })
     }
 
+    /// 再生位置にあるキーフレーム(0.05 秒以内)
+    private var keyframeAtPlayhead: Keyframe? {
+        keyframes.first { abs($0.time - playheadRelative) < 0.05 }
+    }
+
+    private var previousKeyframe: Keyframe? {
+        sorted.last { $0.time < playheadRelative - 0.05 }
+    }
+
+    private var nextKeyframe: Keyframe? {
+        sorted.first { $0.time > playheadRelative + 0.05 }
+    }
+
     var body: some View {
+        let atPlayhead = keyframeAtPlayhead
         VStack(alignment: .leading, spacing: 14) {
-            TextPanelHint(text: String(localized: "キーフレーム: 時間ごとに位置や大きさを記録すると、その間をなめらかに動きます。"))
-
-            Text("再生位置 \(MediaTimeText.precise(player.currentTime))(先頭から \(String(format: "%.2f", playheadRelative)) 秒)")
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 10) {
-                EditorPillButton(title: String(localized: "ここに動きのポイントを追加"), systemImage: "plus.diamond", prominent: true) {
-                    addAtPlayhead()
+            // 前へ / 追加・削除 / 次へ(業務用ソフトと同じ並び)
+            HStack(spacing: 6) {
+                navigationButton(systemImage: "chevron.left", target: previousKeyframe,
+                                 label: String(localized: "前のキーフレーム"))
+                Button {
+                    EditorHaptics.tap()
+                    if let atPlayhead {
+                        keyframes.removeAll { $0.id == atPlayhead.id }
+                        if selectedID == atPlayhead.id { selectedID = nil }
+                    } else {
+                        addAtPlayhead()
+                    }
+                } label: {
+                    Image(systemName: atPlayhead == nil ? "plus.diamond" : "diamond.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(atPlayhead == nil ? Color.white : BrandStyle.coral)
+                        .frame(width: 52, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(atPlayhead == nil ? String(localized: "キーフレームを追加") : String(localized: "キーフレームを削除"))
+                navigationButton(systemImage: "chevron.right", target: nextKeyframe,
+                                 label: String(localized: "次のキーフレーム"))
+                Text(verbatim: String(format: "%.2fs", playheadRelative))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
                 Spacer()
-                EditorChip(title: String(localized: "すべて削除"), isSelected: false) {
-                    keyframes.removeAll()
-                    selectedID = nil
+                if !keyframes.isEmpty {
+                    Button(role: .destructive) {
+                        EditorHaptics.tap()
+                        keyframes.removeAll()
+                        selectedID = nil
+                    } label: {
+                        Text("すべて削除")
+                            .font(.caption)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.red.opacity(0.85))
                 }
-                .disabled(keyframes.isEmpty)
-                .opacity(keyframes.isEmpty ? 0.4 : 1)
             }
 
             if sorted.isEmpty {
-                Text("動きのポイントはまだありません。再生位置を動かし、位置や大きさを変えてから「ここに動きのポイントを追加」を押すと、その時刻の位置・大きさ・回転・濃さが記録されます。")
+                Text("キーフレームなし")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(spacing: 6) {
-                    ForEach(sorted) { keyframe in
-                        row(keyframe)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(sorted) { keyframe in
+                            chip(keyframe)
+                        }
                     }
                 }
             }
 
             if let selected {
                 VStack(alignment: .leading, spacing: 6) {
-                    EditorSectionTitle(title: "次のポイントまでの動き方(\(String(format: "%.2f", selected.time)) 秒から)")
+                    EditorSectionTitle(title: String(localized: "イージング"))
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(KeyframeEasing.allCases) { easing in
@@ -759,56 +792,47 @@ struct EditorKeyframePanel: View {
         .padding(.top, 6)
     }
 
-    private func row(_ keyframe: Keyframe) -> some View {
-        let isSelected = keyframe.id == selectedID
-        return HStack(spacing: 8) {
-            Button {
-                EditorHaptics.tap()
-                selectedID = keyframe.id
-                player.seek(to: start + keyframe.time)
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "diamond.fill")
-                        .font(.caption2)
-                    Text(String(format: "%.2f 秒", keyframe.time))
-                        .font(.caption)
-                        .monospacedDigit()
-                    Text(summary(keyframe))
-                        .font(.caption2)
-                        .lineLimit(1)
-                        .opacity(0.8)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(isSelected ? Color.black : Color.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(isSelected ? Color.white : Color.white.opacity(0.08),
-                            in: RoundedRectangle(cornerRadius: 8))
+    private func navigationButton(systemImage: String, target: Keyframe?, label: String) -> some View {
+        Button {
+            guard let target else { return }
+            EditorHaptics.tap()
+            selectedID = target.id
+            player.seek(to: start + target.time)
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 36, height: 44)
                 .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                EditorHaptics.tap()
-                keyframes.removeAll { $0.id == keyframe.id }
-                if selectedID == keyframe.id { selectedID = nil }
-            } label: {
-                Image(systemName: "trash")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .frame(width: 32, height: 32)
-                    .background(Color.red.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("動きのポイントを削除")
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(target == nil ? Color.white.opacity(0.25) : Color.white)
+        .disabled(target == nil)
+        .accessibilityLabel(label)
     }
 
-    private func summary(_ k: Keyframe) -> String {
-        String(format: "位置 %.2f,%.2f  大きさ %.2fx  回転 %.0f°  濃さ %d%%",
-               k.center.x, k.center.y, k.scale, k.rotation, Int((k.opacity * 100).rounded()))
+    /// キーフレームの時刻のチップ(押すとその時刻へ移動して選ぶ)
+    private func chip(_ keyframe: Keyframe) -> some View {
+        let isSelected = keyframe.id == selectedID
+        return Button {
+            EditorHaptics.tap()
+            selectedID = keyframe.id
+            player.seek(to: start + keyframe.time)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "diamond.fill")
+                    .font(.system(size: 9))
+                Text(verbatim: String(format: "%.2fs", keyframe.time))
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+            .foregroundStyle(isSelected ? Color.black : Color.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(isSelected ? Color.white : Color.white.opacity(0.1), in: Capsule())
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func addAtPlayhead() {
@@ -841,22 +865,16 @@ struct EditorOverlayBlendPanel: View {
 
     private let modes: [(title: String, filter: String?)] = [
         (String(localized: "通常"), nil),
-        (String(localized: "暗く重ねる(乗算)"), "CIMultiplyBlendMode"),
-        (String(localized: "明るく重ねる(スクリーン)"), "CIScreenBlendMode"),
-        (String(localized: "くっきり重ねる"), "CIOverlayBlendMode"),
-        (String(localized: "やわらかく重ねる"), "CISoftLightBlendMode"),
-        (String(localized: "明るい方を残す"), "CILightenBlendMode")
+        (String(localized: "乗算"), "CIMultiplyBlendMode"),
+        (String(localized: "スクリーン"), "CIScreenBlendMode"),
+        (String(localized: "オーバーレイ"), "CIOverlayBlendMode"),
+        (String(localized: "ソフトライト"), "CISoftLightBlendMode"),
+        (String(localized: "比較(明)"), "CILightenBlendMode")
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: overlay.isImage ? "photo" : "film",
-                                name: overlay.name, start: overlay.start, end: overlay.end)
 
-            Text("ブレンド: 下の映像との混ぜ方です。光や煙の素材は「明るく重ねる」、黒い線の素材は「暗く重ねる」がおすすめです。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -868,7 +886,7 @@ struct EditorOverlayBlendPanel: View {
                 }
             }
 
-            EditorSliderRow(title: String(localized: "濃さ(透けにくさ)"),
+            EditorSliderRow(title: String(localized: "不透明度"),
                             value: $overlay.opacity,
                             range: 0...1,
                             display: textPanelPercent(overlay.opacity))
@@ -1008,15 +1026,13 @@ struct EditorDrawingStylePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: "pencil.tip", name: String(localized: "手書き(\(drawing.strokes.count) 本)"),
-                                start: drawing.start, end: drawing.end)
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSectionTitle(title: String(localized: "色(すべての線)"))
+                EditorSectionTitle(title: String(localized: "色"))
                 DrawingColorChips(colorHex: colorBinding)
             }
 
-            EditorSliderRow(title: String(localized: "太さ(すべての線)"),
+            EditorSliderRow(title: String(localized: "太さ"),
                             value: widthBinding,
                             range: 0.003...0.04,
                             display: String(format: "%.1f", widthBinding.wrappedValue * 1000))
@@ -1047,8 +1063,6 @@ struct EditorDrawingTimingPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: "pencil.tip", name: String(localized: "手書き"),
-                                start: drawing.start, end: drawing.end)
 
             EditorSliderRow(title: String(localized: "表示時間"),
                             value: $drawing.duration,
@@ -1058,7 +1072,6 @@ struct EditorDrawingTimingPanel: View {
                             value: $drawing.revealDuration,
                             range: 0...3,
                             display: textPanelSeconds(drawing.revealDuration))
-            TextPanelHint(text: String(localized: "0 秒にすると、線がいきなり全部表示されます。"))
 
             HStack {
                 EditorPillButton(title: String(localized: "再生位置に移動"), systemImage: "arrow.right.to.line") {
@@ -1193,11 +1206,10 @@ struct EditorWatermarkPanel: View {
                     .font(.subheadline)
             }
             .tint(.accentColor)
-            TextPanelHint(text: String(localized: "動画の隅に、名前やロゴをずっと表示します。"))
 
             // 自分用に保存したロゴ(最大 5 件)。タップで使う、長押しで消す
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: String(localized: "保存したロゴ(自分用・最大 5 件)"))
+                EditorSectionTitle(title: String(localized: "保存したロゴ"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(presetStore.presets) { preset in
@@ -1230,7 +1242,7 @@ struct EditorWatermarkPanel: View {
             }
 
             Group {
-                EditorTextFieldRow(title: String(localized: "文字(画像がないときに使います)"),
+                EditorTextFieldRow(title: String(localized: "テキスト"),
                                    placeholder: String(localized: "例: @channel_name"),
                                    text: $project.watermark.text)
 
@@ -1288,11 +1300,11 @@ struct EditorWatermarkPanel: View {
                     }
                 }
 
-                EditorSliderRow(title: String(localized: "濃さ(透けにくさ)"),
+                EditorSliderRow(title: String(localized: "不透明度"),
                                 value: $project.watermark.opacity,
                                 range: 0.05...1,
                                 display: textPanelPercent(project.watermark.opacity))
-                EditorSliderRow(title: String(localized: "大きさ(画面幅に対して)"),
+                EditorSliderRow(title: String(localized: "サイズ"),
                                 value: $project.watermark.sizeRatio,
                                 range: 0.05...1,
                                 display: textPanelPercent(project.watermark.sizeRatio))
@@ -1578,7 +1590,6 @@ struct EditorTextToSpeechPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextPanelHint(text: String(localized: "AI読み上げ: 入力した文章を声にして、再生位置にナレーションとして追加します。"))
 
             EditorTextFieldRow(title: String(localized: "読み上げる文章"), placeholder: String(localized: "ここに入力"), text: $text, multiline: true)
 
@@ -1778,7 +1789,6 @@ struct EditorCaptionTemplatePanel: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: String(localized: "字幕デザイン(全字幕共通)"))
-                TextPanelHint(text: String(localized: "話している言葉に合わせて、文字の色や動きが変わるデザインです。"))
                 CaptionTemplatePicker(selection: $project.subtitleStyle.template)
             }
 
@@ -1799,35 +1809,20 @@ struct EditorCaptionTemplatePanel: View {
 
 // MARK: - オーバーレイの不透明度
 
-/// 重ねた素材(オーバーレイ)の不透明度(どれくらい透けるか)
+/// 重ねた素材(オーバーレイ)の不透明度。スライダーと数字だけ(タイトルに名前が出るので、説明や見出しは重ねない)
 struct EditorOverlayOpacityPanel: View {
     @Binding var overlay: OverlayClip
 
-    private let presets: [Double] = [0.25, 0.5, 0.75, 1]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: overlay.isImage ? "photo" : "film",
-                                name: overlay.name, start: overlay.start, end: overlay.end)
-
-            EditorSliderRow(title: String(localized: "不透明度"),
-                            value: $overlay.opacity,
-                            range: 0...1,
-                            display: textPanelPercent(overlay.opacity))
-
-            HStack(spacing: 8) {
-                ForEach(presets, id: \.self) { value in
-                    EditorChip(title: "\(Int((value * 100).rounded()))%", isSelected: abs(overlay.opacity - value) < 0.005) {
-                        overlay.opacity = value
-                    }
-                }
-            }
-
-            Text(String(localized: "左へ動かすほど透けて、下の映像が見えます。いちばん右で下の映像を隠します。"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 16) {
+            Slider(value: $overlay.opacity, in: 0...1)
+                .tint(.white)
+            Text(verbatim: "\(Int((overlay.opacity * 100).rounded()))")
+                .font(.system(size: 20, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .frame(minWidth: 44, alignment: .trailing)
         }
-        .padding(.top, 6)
+        .padding(.top, 20)
     }
 }

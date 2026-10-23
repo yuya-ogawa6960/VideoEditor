@@ -185,12 +185,10 @@ struct EditorOverlayPlacementPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            OverlayHeaderRow(overlay: overlay)
 
             // プリセット
             VStack(alignment: .leading, spacing: 6) {
                 OverlaySectionTitle(title: String(localized: "よく使う配置"))
-                OverlayHint(text: String(localized: "Bロールは画面全体に、ワイプは隅に小さく重ねます。"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(OverlayPreset.allCases) { preset in
@@ -221,7 +219,7 @@ struct EditorOverlayPlacementPanel: View {
             }
 
             // サイズ
-            EditorSliderRow(title: String(localized: "サイズ(幅)"),
+            EditorSliderRow(title: String(localized: "サイズ"),
                             value: sizeBinding,
                             range: 0.2...1,
                             display: overlayPercentText(overlay.frame.width))
@@ -238,10 +236,9 @@ struct EditorOverlayPlacementPanel: View {
                     }
                     Spacer()
                 }
-                OverlayHint(text: String(localized: "埋める: 枠いっぱいに広げて端を切る / 収める: 全体が見えるように縮める"))
             }
 
-            EditorSliderRow(title: String(localized: "濃さ(透けにくさ)"),
+            EditorSliderRow(title: String(localized: "不透明度"),
                             value: $overlay.opacity,
                             range: 0...1,
                             display: overlayPercentText(overlay.opacity))
@@ -251,12 +248,12 @@ struct EditorOverlayPlacementPanel: View {
                             range: 0...0.5,
                             display: overlayPercentText(overlay.cornerRadius))
 
-            EditorSliderRow(title: String(localized: "ふわっと出す(フェードイン)"),
+            EditorSliderRow(title: String(localized: "フェードイン"),
                             value: $overlay.fadeIn,
                             range: 0...2,
                             display: overlaySecondsText(overlay.fadeIn))
 
-            EditorSliderRow(title: String(localized: "ふわっと消す(フェードアウト)"),
+            EditorSliderRow(title: String(localized: "フェードアウト"),
                             value: $overlay.fadeOut,
                             range: 0...2,
                             display: overlaySecondsText(overlay.fadeOut))
@@ -347,14 +344,12 @@ struct EditorOverlayKenBurnsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            OverlayHeaderRow(overlay: overlay)
 
             Toggle(isOn: $overlay.kenBurns.enabled) {
                 Label("Ken Burns", systemImage: "arrow.up.left.and.arrow.down.right")
                     .font(.subheadline)
             }
             .tint(.accentColor)
-            OverlayHint(text: String(localized: "写真や映像をゆっくり拡大・移動させて、動きのある見た目にします。"))
 
             VStack(alignment: .leading, spacing: 6) {
                 OverlaySectionTitle(title: String(localized: "動き"))
@@ -413,7 +408,6 @@ struct EditorOverlayVolumePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            OverlayHeaderRow(overlay: overlay)
 
             if overlay.isImage {
                 Text("写真には音声がありません")
@@ -438,9 +432,6 @@ struct EditorOverlayVolumePanel: View {
                     Spacer()
                 }
 
-                Text("重ねた映像はふつう音を消して、下のメイン映像の音を聞かせます。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.top, 6)
@@ -484,7 +475,6 @@ struct EditorOverlaySpeedPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            OverlayHeaderRow(overlay: overlay)
 
             if overlay.isImage {
                 Text("写真の表示時間はタイムラインで端をドラッグして変えられます")

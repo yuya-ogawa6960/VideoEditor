@@ -20,7 +20,8 @@ concurrency:
 
 jobs:
   testflight:
-    runs-on: macos-15-intel
+    # iPhone Duo の大きな画面いっぱいに使うには iOS 27.1 SDK(Xcode 27.1)で作る必要がある
+    runs-on: xcode-27
     env:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}

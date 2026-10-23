@@ -34,6 +34,8 @@ struct BannerAdSlot: View {
                 BannerAdRepresentable(width: geo.size.width, started: started) { loadedHeight in
                     height = loadedHeight
                 }
+                // 広告の大きさは作るときの幅で決まるので、幅が変わったら(iPhone Duo の開閉など)作り直す
+                .id(Int(geo.size.width.rounded()))
             }
             .frame(height: height)
             .frame(maxWidth: .infinity)

@@ -800,7 +800,7 @@ struct TimelineView: View {
 
             // V1 の下: クリップの音の大きさの波形
             TimelineClipAudioLane(items: items, pointsPerSecond: pps, height: waveLane)
-                .frame(width: width, height: waveLane)
+                .frame(width: width, height: waveLane, alignment: .topLeading)
                 .offset(y: h)
                 .zIndex(4)
 

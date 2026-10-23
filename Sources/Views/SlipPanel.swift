@@ -33,7 +33,6 @@ struct EditorSlipPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ClipFXHint(text: String(localized: "スリップ: クリップの長さは変えずに、元の動画のどの部分を使うかをずらします。帯をドラッグするか、ボタンで細かく動かせます。"))
 
             // 始まりと終わりのコマ
             HStack(spacing: 10) {

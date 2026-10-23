@@ -29,13 +29,17 @@ final class PlayerController {
     @ObservationIgnored private var scrubTarget: Double?
     /// 追いかけシークが実行中か(実行中は新しいシークを出さず、完了時に目標が動いていれば出し直す)
     @ObservationIgnored private var scrubSeekInFlight: Bool = false
-    /// 止まっている状態でドラッグしている間、シークのたびにその位置の音を短く鳴らす(スクラブ再生)。
-    /// 鳴らしている間は true(isPlaying を「再生中」に切り替えない)
+    /// スクラブ再生: 止まっている状態で指を動かしている間は再生を流し続け、その位置の音を聞かせる。
+    /// 流している間は true(isPlaying を「再生中」に切り替えない)
     @ObservationIgnored private var scrubAudioActive: Bool = false
-    /// スクラブの音を止める予定
+    /// 指が止まったかを見る予定(止まっていたら音を止める)
     @ObservationIgnored private var scrubAudioStop: DispatchWorkItem?
-    /// スクラブの音を 1 回に鳴らす長さ(秒)
-    private static let scrubBurstSeconds: Double = 0.12
+    /// 最後に指が動いた時刻(systemUptime)
+    @ObservationIgnored private var lastScrubMoveAt: TimeInterval = 0
+    /// 指がこれだけ止まったら音を止める(秒)
+    private static let scrubIdleSeconds: Double = 0.2
+    /// 音を流している間は、再生位置と指の位置のずれがこれ以内ならシークしない(シークのたびに音が途切れるため)
+    private static let scrubAudioDriftTolerance: Double = 0.3
     /// beginInteraction / endInteraction の入れ子の深さ。0 より大きい間は合成を作り直さない
     @ObservationIgnored private var interactionDepth: Int = 0
     /// 操作中に届いた最新のスナップショット(endInteraction で 1 回だけ反映する)
@@ -190,6 +194,11 @@ final class PlayerController {
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
                                                              object: item, queue: .main) { [weak self] _ in
             guard let self else { return }
+            // スクラブの音が終わりまで届いただけなら、再生にはしない(指の位置に戻す)
+            if self.scrubAudioActive {
+                self.stopScrubAudio()
+                return
+            }
             if let range = self.loopRange {
                 // 繰り返し区間が作品の終わりまで続くときは、終わりで頭に戻す
                 self.seek(to: range.lowerBound)
@@ -426,9 +435,56 @@ final class PlayerController {
         currentTime = target
         scrubTarget = target
         guard player.currentItem != nil else { return }
-        if !scrubSeekInFlight {
-            performChaseSeek(to: target)
+        noteScrubMovement()
+        guard !scrubSeekInFlight else { return }
+        // 音を流している間は、少しのずれならシークしない(そのまま流れる音が聞こえる。大きく離れたときだけ追いかける)
+        if scrubAudioActive, !needsScrubSeek(to: target) { return }
+        performChaseSeek(to: target)
+    }
+
+    /// 音を流している間に、指の位置まで追いかけるシークが要るか
+    private func needsScrubSeek(to target: Double) -> Bool {
+        let playing = player.currentTime().seconds
+        guard playing.isFinite else { return true }
+        return abs(playing - target) >= Self.scrubAudioDriftTolerance
+    }
+
+    /// 指が動いた。止まっている状態なら再生を流し始め(スクラブ再生)、指が止まったら止める予定を入れる
+    private func noteScrubMovement() {
+        guard !isPlaying else { return }
+        lastScrubMoveAt = ProcessInfo.processInfo.systemUptime
+        if !scrubAudioActive {
+            // マナーモードでも音が出るカテゴリで鳴らす。準備を待たずにすぐ鳴らし始める
+            AudioSessionSetup.ensurePlayback()
+            scrubAudioActive = true
+            player.playImmediately(atRate: 1)
         }
+        scheduleScrubIdleCheck()
+    }
+
+    /// 指が scrubIdleSeconds 止まっていたら音を止める(動いていれば見直しを続ける)
+    private func scheduleScrubIdleCheck() {
+        guard scrubAudioStop == nil else { return }
+        let check = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.scrubAudioStop = nil
+            guard self.scrubAudioActive else { return }
+            let idle = ProcessInfo.processInfo.systemUptime - self.lastScrubMoveAt
+            if idle >= Self.scrubIdleSeconds {
+                self.scrubAudioActive = false
+                if !self.isPlaying {
+                    self.player.pause()
+                }
+                // 流している間に進んだ分を、指の位置に戻す
+                if let target = self.scrubTarget, !self.scrubSeekInFlight {
+                    self.performChaseSeek(to: target)
+                }
+            } else {
+                self.scheduleScrubIdleCheck()
+            }
+        }
+        scrubAudioStop = check
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: check)
     }
 
     /// ドラッグの終了。最終位置へ正確にシークする
@@ -436,21 +492,6 @@ final class PlayerController {
         scrubTarget = nil
         stopScrubAudio()
         seek(to: seconds)
-    }
-
-    /// シークした位置の音を短く鳴らす(止まっている状態でドラッグしている間だけ)
-    private func playScrubAudio() {
-        guard !isPlaying, scrubTarget != nil, player.currentItem != nil else { return }
-        // マナーモードでも音が出るカテゴリで鳴らす
-        AudioSessionSetup.ensurePlayback()
-        scrubAudioActive = true
-        player.play()
-        scrubAudioStop?.cancel()
-        let stop = DispatchWorkItem { [weak self] in
-            self?.stopScrubAudio()
-        }
-        scrubAudioStop = stop
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrubBurstSeconds, execute: stop)
     }
 
     /// スクラブの音を止める(再生中でなければ一時停止に戻す)
@@ -481,10 +522,13 @@ final class PlayerController {
                 guard let self else { return }
                 self.pendingSeeks = max(0, self.pendingSeeks - 1)
                 self.scrubSeekInFlight = false
-                // 着いた位置の音を短く鳴らす(指を動かしている間は、シークのたびに鳴らし直す)
-                self.playScrubAudio()
                 guard let next = self.scrubTarget, self.player.currentItem != nil else { return }
-                if abs(next - target) > 0.0005 {
+                // 音を流している間は、大きくずれたときだけ追いかける(細かいシークを続けると音が途切れて聞こえない)
+                if self.scrubAudioActive {
+                    if self.needsScrubSeek(to: next) {
+                        self.performChaseSeek(to: next)
+                    }
+                } else if abs(next - target) > 0.0005 {
                     self.performChaseSeek(to: next)
                 }
             }

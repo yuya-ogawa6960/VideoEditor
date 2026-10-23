@@ -12,12 +12,12 @@ concurrency:
 
 jobs:
   build:
-    # Apple Silicon ランナー(macos-latest)は混雑で 15 分待っても取得できないことが続いたため、
-    # 空いている Intel ランナーだけでビルドする(3〜4 分で完了)。iPhone 向けの arm64 バイナリは Intel 上でも作れる。
+    # iPhone Duo に対応するため iOS 27.1 SDK(Xcode 27.1)で作る。Xcode 27 のイメージは Apple Silicon だけ
+    # (以前は Apple Silicon ランナーが混雑して取れないことが続き、Intel ランナーで作っていた)。
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15-intel]
+        os: [xcode-27]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout

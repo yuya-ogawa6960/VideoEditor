@@ -652,7 +652,6 @@ final class TranscriptionService {
         guard !jobs.isEmpty else { throw TranscriptionError.noAudioClips }
         // クリップごとの言語(選んでいなければ全体の選び方)
         func caption(of job: ClipJob) -> CaptionLanguage { job.clip.captionLanguage ?? defaultCaption }
-        let spokenLanguages = Set(jobs.map { caption(of: $0).spoken })
         let totalUnits = max(1, jobs.reduce(0) { $0 + $1.chunks.count })
         var doneUnits = 0
 
@@ -668,7 +667,21 @@ final class TranscriptionService {
         var whisperRun: WhisperRunState? = nil
         // 準備が長くて「Apple 音声認識で今すぐ作る」が押されたら、この回だけ Apple 音声認識で作る
         var switchedToApple = false
-        if requestedEngine == .whisper {
+        // 前回の文字起こしの結果(素材・範囲・方式・モデル・言語が同じなら、音声を送り直さずに使う)
+        func cacheKey(_ job: ClipJob, engine: TranscriptionEngine) -> String {
+            let variant: String
+            switch engine {
+            case .apple: variant = "apple"
+            case .whisper: variant = settings.whisperModel
+            case .cloud: variant = settings.cloudQuality.rawValue
+            }
+            return TranscriptCache.key(engine: engine.rawValue, variant: variant,
+                                       language: caption(of: job).spoken, clip: job.clip)
+        }
+        let allCachedForRequest = jobs.allSatisfy {
+            TranscriptCache.shared.tokens(for: cacheKey($0, engine: requestedEngine)) != nil
+        }
+        if requestedEngine == .whisper, !allCachedForRequest {
             await updateUI(status: String(localized: "Whisperモデルを確認中…"))
             let needsDownload = !WhisperTranscriber.shared.isModelDownloaded(settings.whisperModel)
             await MainActor.run {
@@ -708,10 +721,13 @@ final class TranscriptionService {
             }
         }
         let engine: TranscriptionEngine = switchedToApple ? .apple : requestedEngine
+        let cachedTokens: [[TimedToken]?] = jobs.map { TranscriptCache.shared.tokens(for: cacheKey($0, engine: engine)) }
+        let pendingIndices = jobs.indices.filter { cachedTokens[$0] == nil }
+        let usesWhisper = engine == .whisper && !pendingIndices.isEmpty
         // 使い終わってもすぐには解放しない(すぐ作り直すときに読み込み直さないよう、しばらく置いてから解放する)
-        if engine == .whisper { WhisperTranscriber.shared.beginUse() }
+        if usesWhisper { WhisperTranscriber.shared.beginUse() }
         defer {
-            if engine == .whisper { WhisperTranscriber.shared.endUse() }
+            if usesWhisper { WhisperTranscriber.shared.endUse() }
         }
 
         // 従来の認識器は必要になったときだけ作る(言語ごと)
@@ -722,12 +738,21 @@ final class TranscriptionService {
 
         // クラウド: 全クリップの音声を先に切り出し、背景 URLSession にまとめて預ける(ロック中・アプリが止められた後も
         // 送信が続く)。作業フォルダを作れないなど使えないとき(nil)は、クリップごとの従来の経路
-        var cloudTokens: [[TimedToken]]? = nil
-        // まとめて送るのは、全クリップが同じ言語のときだけ(言語が混ざるときはクリップごとに送る)
-        if engine == .cloud, spokenLanguages.count == 1, let batchLanguage = spokenLanguages.first {
-            cloudTokens = try await recognizeAllClipsWithCloud(jobs: jobs, language: batchLanguage, apiKey: settings.cloudCredential,
-                                                               quality: settings.cloudQuality,
-                                                               pauseReporter: pauseReporter)
+        var cloudTokens: [Int: [TimedToken]]? = nil
+        // まとめて送るのは、送るクリップがすべて同じ言語のときだけ(言語が混ざるときはクリップごとに送る)
+        let pendingLanguages = Set(pendingIndices.map { caption(of: jobs[$0]).spoken })
+        if engine == .cloud, pendingLanguages.count == 1, let batchLanguage = pendingLanguages.first {
+            let pendingJobs = pendingIndices.map { jobs[$0] }
+            if let batch = try await recognizeAllClipsWithCloud(jobs: pendingJobs, language: batchLanguage,
+                                                                apiKey: settings.cloudCredential,
+                                                                quality: settings.cloudQuality,
+                                                                pauseReporter: pauseReporter) {
+                var byJob: [Int: [TimedToken]] = [:]
+                for (offset, jobIndex) in pendingIndices.enumerated() {
+                    byJob[jobIndex] = offset < batch.count ? batch[offset] : []
+                }
+                cloudTokens = byJob
+            }
             try checkCancelled()
         }
 
@@ -739,46 +764,53 @@ final class TranscriptionService {
             // 元素材上の秒で揃えたトークン列
             var sourceTokens: [TimedToken]? = nil
 
-            switch engine {
-            case .apple:
-                #if compiler(>=6.2)
-                if #available(iOS 26.0, *) {
-                    sourceTokens = try await recognizeClipWithAnalyzer(job: job, language: jobLanguage, tempDir: tempDir,
-                                                                       doneUnits: doneUnits, totalUnits: totalUnits)
-                }
-                #endif
-
-                if sourceTokens == nil {
-                    let recognizer: SFSpeechRecognizer
-                    if let existing = legacyRecognizers[jobLanguage] {
-                        recognizer = existing
-                    } else {
-                        guard let created = SFSpeechRecognizer(locale: jobLanguage.locale), created.isAvailable else {
-                            throw TranscriptionError.recognizerUnavailable(jobLanguage.displayName)
-                        }
-                        legacyRecognizers[jobLanguage] = created
-                        recognizer = created
+            if let cached = cachedTokens[jobIndex] {
+                sourceTokens = cached
+                // Whisper の進み具合(音声の長さの比)も、このクリップぶん進める
+                whisperRun?.finishClip(clipIndex: jobIndex)
+            } else {
+                switch engine {
+                case .apple:
+                    #if compiler(>=6.2)
+                    if #available(iOS 26.0, *) {
+                        sourceTokens = try await recognizeClipWithAnalyzer(job: job, language: jobLanguage, tempDir: tempDir,
+                                                                           doneUnits: doneUnits, totalUnits: totalUnits)
                     }
-                    sourceTokens = try await recognizeClipWithSFSpeech(job: job, recognizer: recognizer, tempDir: tempDir,
-                                                                       doneUnits: doneUnits, totalUnits: totalUnits)
+                    #endif
+
+                    if sourceTokens == nil {
+                        let recognizer: SFSpeechRecognizer
+                        if let existing = legacyRecognizers[jobLanguage] {
+                            recognizer = existing
+                        } else {
+                            guard let created = SFSpeechRecognizer(locale: jobLanguage.locale), created.isAvailable else {
+                                throw TranscriptionError.recognizerUnavailable(jobLanguage.displayName)
+                            }
+                            legacyRecognizers[jobLanguage] = created
+                            recognizer = created
+                        }
+                        sourceTokens = try await recognizeClipWithSFSpeech(job: job, recognizer: recognizer, tempDir: tempDir,
+                                                                           doneUnits: doneUnits, totalUnits: totalUnits)
+                    }
+                case .whisper:
+                    // Whisper は継続処理中でもバックグラウンドでは推論しない(フォアグラウンドに戻るまで待つ)
+                    let run = whisperRun ?? WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
+                    whisperRun = run
+                    sourceTokens = try await recognizeClipWithWhisper(job: job, clipIndex: jobIndex, language: jobLanguage,
+                                                                      run: run, pauseReporter: whisperReporter)
+                    run.finishClip(clipIndex: jobIndex)
+                case .cloud:
+                    if let cloudTokens {
+                        sourceTokens = cloudTokens[jobIndex] ?? []
+                    } else {
+                        sourceTokens = try await recognizeClipWithCloud(job: job, language: jobLanguage, apiKey: settings.cloudCredential,
+                                                                        quality: settings.cloudQuality,
+                                                                        clipIndex: jobIndex, clipCount: jobs.count,
+                                                                        doneUnits: doneUnits, totalUnits: totalUnits,
+                                                                        pauseReporter: pauseReporter)
+                    }
                 }
-            case .whisper:
-                // Whisper は継続処理中でもバックグラウンドでは推論しない(フォアグラウンドに戻るまで待つ)
-                let run = whisperRun ?? WhisperRunState(clipSeconds: jobs.map { $0.clip.trimmedDuration })
-                whisperRun = run
-                sourceTokens = try await recognizeClipWithWhisper(job: job, clipIndex: jobIndex, language: jobLanguage,
-                                                                  run: run, pauseReporter: whisperReporter)
-                run.finishClip(clipIndex: jobIndex)
-            case .cloud:
-                if let cloudTokens {
-                    sourceTokens = jobIndex < cloudTokens.count ? cloudTokens[jobIndex] : []
-                } else {
-                    sourceTokens = try await recognizeClipWithCloud(job: job, language: jobLanguage, apiKey: settings.cloudCredential,
-                                                                    quality: settings.cloudQuality,
-                                                                    clipIndex: jobIndex, clipCount: jobs.count,
-                                                                    doneUnits: doneUnits, totalUnits: totalUnits,
-                                                                    pauseReporter: pauseReporter)
-                }
+                TranscriptCache.shared.store(sourceTokens ?? [], for: cacheKey(job, engine: engine))
             }
             doneUnits += job.chunks.count
             try checkCancelled()
@@ -791,7 +823,7 @@ final class TranscriptionService {
 
             // まとめて送った経路は、送信の進捗ですでに 1 まで進めている。
             // Whisper は音声の長さの比で進めている(ピースの完了通知で反映済み)
-            if cloudTokens == nil, engine != .whisper {
+            if cloudTokens == nil, engine != .whisper || whisperRun == nil || cachedTokens[jobIndex] != nil {
                 await updateUI(progress: Double(doneUnits) / Double(totalUnits), status: nil)
             }
         }

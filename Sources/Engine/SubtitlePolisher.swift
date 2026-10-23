@@ -38,7 +38,7 @@ enum SubtitlePolisher {
     static var cloudEndpoint: URL { CloudAIGateway.chatURL }
 
     /// 1 回のリクエストに入れる字幕数
-    static let cloudBatchSize = 40
+    static let cloudBatchSize = 80
     /// 端末内モデルはコンテキストが小さいので少なめ
     static let onDeviceBatchSize = 16
     /// クラウドで同時に送るバッチ数の上限(端末内モデルは 1 本ずつ)
@@ -120,9 +120,8 @@ enum SubtitlePolisher {
         case .cloud:
             return settings.isCloudConfigured ? .cloud : .none
         case .auto:
-            if isOnDeviceAvailable { return .onDevice }
-            if settings.isCloudConfigured { return .cloud }
-            return .none
+            // 自動ではクラウドに頼らない(利用料をかけるのは「クラウド」を選んだときだけ)
+            return isOnDeviceAvailable ? .onDevice : .none
         }
     }
 

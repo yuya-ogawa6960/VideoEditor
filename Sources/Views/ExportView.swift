@@ -444,7 +444,7 @@ struct ExportView: View {
                     Text(s.displayName).tag(s)
                 }
             }
-            Picker("細かさ(解像度)", selection: $project.canvas.resolution) {
+            Picker("解像度", selection: $project.canvas.resolution) {
                 ForEach(ResolutionCap.allCases) { r in
                     Text(r.displayName).tag(r)
                 }
@@ -504,7 +504,7 @@ struct ExportView: View {
 
     private var advancedSection: some View {
         Section {
-            Picker("保存形式(コーデック)", selection: $project.canvas.codec) {
+            Picker("コーデック", selection: $project.canvas.codec) {
                 ForEach(ExportCodec.allCases) { codec in
                     Text(codec.displayName).tag(codec)
                 }
@@ -554,7 +554,7 @@ struct ExportView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("なめらかさ(1秒のコマ数)")
+                Text("フレームレート")
                 Picker("なめらかさ", selection: $project.canvas.frameRate) {
                     ForEach(frameRates, id: \.self) { fps in
                         Text("\(fps)").tag(fps)

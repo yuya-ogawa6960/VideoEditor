@@ -39,6 +39,9 @@ struct TranscriptionSettingsView: View {
     @State private var diagnosticAds: String = ""
     @State private var showsDiagnostics: Bool = false
 
+    // 前回の文字起こし結果
+    @State private var cachedTranscriptCount: Int = 0
+
     init() {}
 
     var body: some View {
@@ -51,6 +54,7 @@ struct TranscriptionSettingsView: View {
             AdPrivacySection()
             cloudSection
             polishSection
+            transcriptCacheSection
             diagnosticsSection
         }
         .navigationTitle("文字起こしの方式")
@@ -58,6 +62,7 @@ struct TranscriptionSettingsView: View {
         .onAppear {
             refreshModelState()
             refreshDiagnostics()
+            cachedTranscriptCount = TranscriptCache.shared.storedCount
         }
         .alert(alertTitle, isPresented: alertBinding) {
             Button("OK", role: .cancel) {}
@@ -76,6 +81,28 @@ struct TranscriptionSettingsView: View {
     private var alertBinding: Binding<Bool> {
         Binding(get: { alertMessage != nil },
                 set: { if !$0 { alertMessage = nil } })
+    }
+
+    // MARK: - 前回の文字起こし結果
+
+    private var transcriptCacheSection: some View {
+        Section {
+            Button(role: .destructive) {
+                TranscriptCache.shared.removeAll()
+                cachedTranscriptCount = 0
+            } label: {
+                HStack {
+                    Text("前回の文字起こし結果を消す")
+                    Spacer()
+                    Text(verbatim: "\(cachedTranscriptCount)")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            .disabled(cachedTranscriptCount == 0)
+        } footer: {
+            Text("同じクリップは前回の結果を使い、音声を送り直しません。")
+        }
     }
 
     // MARK: - エンジン

@@ -757,7 +757,7 @@ struct SubtitleEditorView: View {
                 Button {
                     startAITranslation()
                 } label: {
-                    Label(selectedLanguage == .english ? String(localized: "AIで日本語に翻訳(文脈を見て自然に)") : String(localized: "AIで翻訳(文脈を見て自然に)"),
+                    Label(selectedLanguage == .english ? String(localized: "AIで日本語に翻訳") : String(localized: "AI翻訳"),
                           systemImage: "sparkles")
                 }
                 .disabled(project.subtitles.isEmpty || isTranscribing)

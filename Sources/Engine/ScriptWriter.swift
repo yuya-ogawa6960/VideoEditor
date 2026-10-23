@@ -52,12 +52,9 @@ enum ScriptWriter {
         case .cloud:
             if cloud { return .cloud }
             return onDevice ? .onDevice : .none
-        case .onDevice:
-            if onDevice { return .onDevice }
-            return cloud ? .cloud : .none
-        case .auto, .none:
-            if onDevice { return .onDevice }
-            return cloud ? .cloud : .none
+        case .onDevice, .auto, .none:
+            // クラウドを使うのは「クラウド」を選んだときだけ
+            return onDevice ? .onDevice : .none
         }
     }
 

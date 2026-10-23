@@ -2669,6 +2669,29 @@
         }
       }
     },
+    "AIで日本語に翻訳": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI translate to Japanese"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traducir al japonés con IA"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduzir para japonês com IA"
+          }
+        }
+      }
+    },
     "AIで日本語に翻訳(文脈を見て自然に)": {
       "extractionState": "manual",
       "localizations": {
@@ -2803,6 +2826,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "edição com IA"
+          }
+        }
+      }
+    },
+    "AI翻訳": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Translate"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traducción con IA"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tradução com IA"
           }
         }
       }
@@ -4781,6 +4827,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Um corte J adianta o áudio em relação à imagem; um corte L mantém o áudio depois que a imagem muda. A conversa e o ambiente fluem com naturalidade."
+          }
+        }
+      }
+    },
+    "LUT がありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No LUTs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay LUT"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma LUT"
           }
         }
       }
@@ -11363,6 +11432,29 @@
         }
       }
     },
+    "インと同じ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same as In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual que la entrada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual à entrada"
+          }
+        }
+      }
+    },
     "インスタント": {
       "extractionState": "manual",
       "localizations": {
@@ -11474,6 +11566,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "importar"
+          }
+        }
+      }
+    },
+    "イージング": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Easing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suavizado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suavização"
           }
         }
       }
@@ -12739,6 +12854,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "Quadros-chave: registre posição e tamanho em momentos diferentes e ele se move suavemente entre eles."
+          }
+        }
+      }
+    },
+    "キーフレームなし": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No keyframes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin fotogramas clave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem quadros-chave"
+          }
+        }
+      }
+    },
+    "キーフレームを削除": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Keyframe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar fotograma clave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir quadro-chave"
+          }
+        }
+      }
+    },
+    "キーフレームを追加": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Keyframe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir fotograma clave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar quadro-chave"
           }
         }
       }
@@ -15135,6 +15319,29 @@
         }
       }
     },
+    "スリップ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslizar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslizar"
+          }
+        }
+      }
+    },
     "スリップ: クリップの長さは変えずに、元の動画のどの部分を使うかをずらします。帯をドラッグするか、ボタンで細かく動かせます。": {
       "extractionState": "manual",
       "localizations": {
@@ -15384,6 +15591,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Falas"
+          }
+        }
+      }
+    },
+    "ソフトライト": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soft Light"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luz suave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luz suave"
           }
         }
       }
@@ -16419,6 +16649,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "dissolve"
+          }
+        }
+      }
+    },
+    "ディテール強調": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enhance Detail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Realzar detalle"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Realçar detalhes"
           }
         }
       }
@@ -18447,6 +18700,52 @@
         }
       }
     },
+    "フェードアウト": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fade Out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundido de salida"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fade out"
+          }
+        }
+      }
+    },
+    "フェードイン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fade In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundido de entrada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fade in"
+          }
+        }
+      }
+    },
     "フォント": {
       "extractionState": "manual",
       "localizations": {
@@ -19064,6 +19363,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Arraste o quadro pontilhado na prévia para mover, aperte para redimensionar e gire com dois dedos."
+          }
+        }
+      }
+    },
+    "プレビューは重くなることがあります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview may be slow"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La vista previa puede ir lenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A prévia pode ficar lenta"
           }
         }
       }
@@ -22403,6 +22725,29 @@
         }
       }
     },
+    "中音": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mid"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medios"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Médios"
+          }
+        }
+      }
+    },
     "丸い帯でハイライト": {
       "extractionState": "manual",
       "localizations": {
@@ -23185,6 +23530,29 @@
         }
       }
     },
+    "低音": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bass"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graves"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graves"
+          }
+        }
+      }
+    },
     "余白を作れませんでした: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -23848,6 +24216,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ajustes de saída salvos"
+          }
+        }
+      }
+    },
+    "保存したロゴ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Logos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logotipos guardados"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logotipos salvos"
           }
         }
       }
@@ -24699,6 +25090,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aplicar a todos os clipes"
+          }
+        }
+      }
+    },
+    "全クリップの音量": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Clips Volume"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volumen de todos los clips"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume de todos os clipes"
           }
         }
       }
@@ -26750,6 +27164,29 @@
         }
       }
     },
+    "前のキーフレーム": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Keyframe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotograma clave anterior"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quadro-chave anterior"
+          }
+        }
+      }
+    },
     "前へ": {
       "extractionState": "manual",
       "localizations": {
@@ -26953,6 +27390,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Importando o resultado da transcrição anterior…"
+          }
+        }
+      }
+    },
+    "前回の文字起こし結果を消す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Previous Transcripts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar transcripciones anteriores"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpar transcrições anteriores"
           }
         }
       }
@@ -29073,6 +29533,29 @@
         }
       }
     },
+    "同じクリップは前回の結果を使い、音声を送り直しません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unchanged clips reuse their previous transcript instead of sending audio again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los clips sin cambios reutilizan su transcripción anterior en lugar de volver a enviar el audio."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipes sem alterações reutilizam a transcrição anterior em vez de enviar o áudio novamente."
+          }
+        }
+      }
+    },
     "同じ場面を別のカメラで撮った動画を「アングルを追加」で入れると、再生しながらボタンで切り替えられます。": {
       "extractionState": "manual",
       "localizations": {
@@ -29391,6 +29874,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rotação: gire o botão acima do quadro na prévia ou gire com dois dedos. Ele encaixa perto de 0° e 90°."
+          }
+        }
+      }
+    },
+    "回転・反転": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotate & Flip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Girar y voltear"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Girar e espelhar"
           }
         }
       }
@@ -33006,6 +33512,29 @@
         }
       }
     },
+    "感度": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sensitivity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sensibilidad"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sensibilidade"
+          }
+        }
+      }
+    },
     "感度(高いほど多く見つける)": {
       "extractionState": "manual",
       "localizations": {
@@ -33305,6 +33834,29 @@
         }
       }
     },
+    "折り返し幅": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrap Width"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho de ajuste"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura de quebra"
+          }
+        }
+      }
+    },
     "抽出した音声": {
       "extractionState": "manual",
       "localizations": {
@@ -33324,6 +33876,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Áudio extraído"
+          }
+        }
+      }
+    },
+    "拡大": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar"
           }
         }
       }
@@ -36456,6 +37031,29 @@
         }
       }
     },
+    "最後のクリップには設定できません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available on the last clip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No disponible en el último clip"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponível no último clipe"
+          }
+        }
+      }
+    },
     "最後の線を消す": {
       "extractionState": "manual",
       "localizations": {
@@ -37054,6 +37652,29 @@
         }
       }
     },
+    "横位置": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontal"
+          }
+        }
+      }
+    },
     "横向きの全画面で見る": {
       "extractionState": "manual",
       "localizations": {
@@ -37211,6 +37832,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Será baixado de novo na próxima vez que o Whisper transcrever."
+          }
+        }
+      }
+    },
+    "次のキーフレーム": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Keyframe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siguiente fotograma clave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próximo quadro-chave"
           }
         }
       }
@@ -37399,6 +38043,29 @@
         }
       }
     },
+    "比率が「元のまま」のため無効です": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off while the aspect ratio is Original"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado con la proporción Original"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado com a proporção Original"
+          }
+        }
+      }
+    },
     "比較": {
       "extractionState": "manual",
       "localizations": {
@@ -37418,6 +38085,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "comparar"
+          }
+        }
+      }
+    },
+    "比較(明)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lighten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aclarar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clarear"
           }
         }
       }
@@ -39584,6 +40274,29 @@
         }
       }
     },
+    "端末内 AI が使えるときだけ使います。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses on-device AI only when it's available."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa la IA del dispositivo solo cuando está disponible."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa a IA do dispositivo somente quando disponível."
+          }
+        }
+      }
+    },
     "端末内 AI が使えればそれを、なければ API キーがあるときだけクラウドを使います。": {
       "extractionState": "manual",
       "localizations": {
@@ -40757,6 +41470,29 @@
         }
       }
     },
+    "縁取り": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contorno"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contorno"
+          }
+        }
+      }
+    },
     "縁取り(文字のふち)": {
       "extractionState": "manual",
       "localizations": {
@@ -40891,6 +41627,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Posição vertical (cima ← → baixo)"
+          }
+        }
+      }
+    },
+    "縦位置": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertical"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertical"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertical"
           }
         }
       }
@@ -42390,6 +43149,29 @@
         }
       }
     },
+    "色温度": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temperature"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temperatura"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temperatura"
+          }
+        }
+      }
+    },
     "色温度(− 青い / + 暖かい)": {
       "extractionState": "manual",
       "localizations": {
@@ -42409,6 +43191,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Temperatura (− frio / + quente)"
+          }
+        }
+      }
+    },
+    "色相": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hue"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tono"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matiz"
           }
         }
       }
@@ -43421,6 +44226,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Clipes que não puderam ser analisados:\n"
+          }
+        }
+      }
+    },
+    "解析にはクリップと同じくらいの時間がかかります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analysis takes about as long as the clip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El análisis tarda aproximadamente lo mismo que el clip"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A análise leva cerca do mesmo tempo que o clipe"
           }
         }
       }
@@ -46342,6 +47170,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Usar curva de velocidade"
+          }
+        }
+      }
+    },
+    "速度グラフ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speed Graph"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gráfico de velocidad"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gráfico de velocidade"
           }
         }
       }
@@ -49884,6 +50735,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alta precisão (principalmente pontuação e kanji em japonês)"
+          }
+        }
+      }
+    },
+    "高音": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Treble"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agudos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agudos"
           }
         }
       }

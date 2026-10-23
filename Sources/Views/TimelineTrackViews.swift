@@ -1656,7 +1656,9 @@ struct TimelineClipAudioLane: View {
                 .offset(x: item.visibleX)
             }
         }
-        .frame(height: height, alignment: .topLeading)
+        // 左端を基準にする(中央寄せだと、中身の幅の分だけ波形全体が横にずれていた)。
+        // 映像のクリップ(TimelineView.videoTrack)と同じく、x はタイムラインの左端からの位置
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
         .allowsHitTesting(false)
     }
 }

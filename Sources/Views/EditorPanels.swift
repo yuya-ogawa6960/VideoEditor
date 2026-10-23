@@ -152,7 +152,7 @@ enum EditorPanel: Hashable {
         case .overlayFilter: return String(localized: "カラープリセット")
         case .narrationVolume: return String(localized: "ボリューム")
         case .narrationRecord: return String(localized: "ボイスオーバー録音")
-        case .slip: return String(localized: "使う部分を調整(スリップ)")
+        case .slip: return String(localized: "スリップ")
         case .transition: return String(localized: "ビデオトランジション")
         case .clipAnimation: return String(localized: "アニメーション")
         case .geometry: return String(localized: "モーション・クロップ")
@@ -255,14 +255,15 @@ enum EditorPanel: Hashable {
         case .slip: return 330
         case .mosaic: return 300
         case .pacing: return 340
+        case .overlayOpacity: return 170
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
              .overlayKeyframes, .watermark, .textToSpeech, .sticker, .captionTemplate,
-             .autoReframe, .enhance, .overlayTransition: return 320
-        case .transition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
+             .autoReframe, .enhance: return 320
+        case .transition, .overlayTransition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
              .narrationEffects, .drawingStyle, .drawingCanvas,
              .stabilize, .parallax, .overlayParallax, .textTracking, .overlayTracking: return 280
         case .speed, .volume, .textEdit, .subtitleStyle, .aspect, .bgmVolume, .overlayVolume,
-             .overlaySpeed, .narrationVolume, .overlayBlend, .overlayOpacity, .drawingTiming, .markerName, .markerKind:
+             .overlaySpeed, .narrationVolume, .overlayBlend, .drawingTiming, .markerName, .markerKind:
             return 220
         }
     }
@@ -640,7 +641,7 @@ struct EditorVolumePanel: View {
                     .foregroundStyle(.secondary)
             }
 
-            EditorSliderRow(title: String(localized: "元の音声の音量(全クリップ共通)"),
+            EditorSliderRow(title: String(localized: "全クリップの音量"),
                             value: $project.audio.originalVolume,
                             range: 0...1,
                             display: "\(Int((project.audio.originalVolume * 100).rounded()))%")
@@ -680,13 +681,9 @@ struct EditorJLCutPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Jカットは音声を映像より先に出し、Lカットは映像が切り替わった後も音声を残すつなぎ方です。会話や街の音が自然につながります。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: String(localized: "音を先に出す(J)"),
+                EditorSliderRow(title: String(localized: "Jカット"),
                                 value: $clip.audio.audioLeadIn,
                                 range: 0...3,
                                 display: seconds(clip.audio.audioLeadIn))
@@ -698,7 +695,7 @@ struct EditorJLCutPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: String(localized: "音を後に残す(L)"),
+                EditorSliderRow(title: String(localized: "Lカット"),
                                 value: $clip.audio.audioTailOut,
                                 range: 0...3,
                                 display: seconds(clip.audio.audioTailOut))
@@ -763,7 +760,7 @@ struct EditorColorAdjustPanel: View {
                             value: $clip.filter.adjustments.saturation,
                             range: 0...2,
                             display: String(format: "%.2f", clip.filter.adjustments.saturation))
-            EditorSliderRow(title: String(localized: "色温度(− 青い / + 暖かい)"),
+            EditorSliderRow(title: String(localized: "色温度"),
                             value: $clip.filter.adjustments.temperature,
                             range: -1...1,
                             display: String(format: "%+.2f", clip.filter.adjustments.temperature))

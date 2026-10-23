@@ -29,16 +29,17 @@ struct VideoEditorApp: App {
         WindowGroup {
             RootView()
                 .preferredColorScheme(.dark)
+                .modifier(OrientationRefresher())
         }
     }
 }
 
 /// UIKit のアプリデリゲート(SwiftUI の App から @UIApplicationDelegateAdaptor で使う)
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    /// 画面の向き(ふだんはたて固定。全画面プレビューのときだけ横)
+    /// 画面の向き(ふだんはたて固定。全画面プレビューのときだけ横。iPhone Duo を開いたときは固定しない)
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        OrientationController.mask
+        OrientationController.supportedMask
     }
 
     /// 背景 URLSession の転送が終わり、アプリが(終了していても)バックグラウンドで起こされたとき。

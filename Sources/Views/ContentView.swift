@@ -1908,7 +1908,7 @@ struct ContentView: View {
             if project.moveClips(ids: [clipID], by: 1) { showToast(String(localized: "後ろへ移動しました"), undo: true) }
         })
         let canSlip = !isStill && (clip.map { $0.duration - ($0.endTime - $0.startTime) > 0.05 } ?? false)
-        items.append(EditorToolItem(String(localized: "使う部分を調整(スリップ)"), systemImage: "arrow.left.and.right.square",
+        items.append(EditorToolItem(String(localized: "スリップ"), systemImage: "arrow.left.and.right.square",
                                     enabled: canSlip,
                                     disabledReason: String(localized: "元の動画をすべて使っているので、ずらせません")) {
             openPanel(.slip(clipID))
@@ -4302,7 +4302,7 @@ struct EditorTransportRow: View {
             // iPhone を横にしたら全画面で見る。
             // シート・アラート・写真の選択などを出している間は開かない(全画面を重ねて出せず、横向きのまま戻れなくなるため)
             let device = UIDevice.current.orientation
-            if device.isLandscape, !isFullScreen, player.duration > 0, !Self.isPresentingSomething {
+            if device.isLandscape, !isFullScreen, !OrientationController.isLargeWindow, player.duration > 0, !Self.isPresentingSomething {
                 openFullScreen(OrientationController.landscapeMask(for: device))
             }
         }

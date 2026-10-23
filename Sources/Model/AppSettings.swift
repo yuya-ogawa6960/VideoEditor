@@ -135,7 +135,7 @@ enum PolishEngine: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .auto: return String(localized: "端末内 AI が使えればそれを、なければ API キーがあるときだけクラウドを使います。")
+        case .auto: return String(localized: "端末内 AI が使えるときだけ使います。")
         case .onDevice: return String(localized: "iOS 26 以降で Apple Intelligence が有効な端末でのみ動作します。通信不要・無料。")
         case .cloud: return String(localized: "OpenAI(gpt-4o-mini)で仕上げます。字幕テキストを送信し、わずかな利用料がかかります。")
         case .none: return String(localized: "音声認識の結果をそのまま使います。")

@@ -215,10 +215,6 @@ struct EditorMaskControls: View {
             }
 
             if mask.isActive {
-                Text(note)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
 
                 Group {
                     if !isBand {
@@ -243,9 +239,6 @@ struct EditorMaskControls: View {
                                     value: featherBinding,
                                     range: 0...0.3,
                                     display: maskPanelPercent(mask.feather))
-                    Text("大きいほど、形のふちがやわらかく溶け込みます。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     EditorSliderRow(title: String(localized: "回転"),
                                     value: rotationBinding,
                                     range: -180...180,
@@ -259,15 +252,15 @@ struct EditorMaskControls: View {
                 }
 
                 Group {
-                    EditorSliderRow(title: String(localized: "横の位置(左 ← → 右)"),
+                    EditorSliderRow(title: String(localized: "横位置"),
                                     value: centerXBinding,
                                     range: 0...1,
                                     display: maskPanelPercent(mask.center.x))
-                    EditorSliderRow(title: String(localized: "縦の位置(上 ← → 下)"),
+                    EditorSliderRow(title: String(localized: "縦位置"),
                                     value: centerYBinding,
                                     range: 0...1,
                                     display: maskPanelPercent(mask.center.y))
-                    Toggle("反転(形の外側を見せる)", isOn: invertedBinding)
+                    Toggle("反転", isOn: invertedBinding)
                         .font(.subheadline)
                         .tint(.accentColor)
                 }
@@ -287,10 +280,6 @@ struct EditorMaskControls: View {
                     }
                 }
             } else {
-                Text("マスク: 形を選ぶと、その形の中だけが映り、外側は黒(重ねた素材では透明)になります。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -307,10 +296,6 @@ struct EditorClipMaskPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: clip.isStill ? "photo" : "film",
-                                name: clip.name,
-                                start: clip.startTime,
-                                end: clip.endTime)
             EditorMaskControls(mask: maskBinding,
                                note: String(localized: "プレビューの点線の形をドラッグで移動、ピンチで大きさ、2 本指で回転できます。形の外側は黒になります。"))
         }
@@ -329,10 +314,6 @@ struct EditorOverlayMaskPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: overlay.isImage ? "photo" : "film",
-                                name: overlay.name,
-                                start: overlay.start,
-                                end: overlay.end)
             EditorMaskControls(mask: maskBinding,
                                note: String(localized: "位置と大きさは、重ねた素材の枠の中で決まります。プレビューの点線の形をドラッグで移動、ピンチで大きさ、2 本指で回転できます。形の外側は透明になり、下の映像が見えます。"))
         }
@@ -366,7 +347,7 @@ struct EditorAutoReframePanel: View {
     private var canvasNote: String {
         let canvas = project.canvas
         if canvas.aspect == .original {
-            return String(localized: "いまの比率は「元のまま」なので効果はありません。「比率」で 9:16(縦)や 1:1(正方形)にすると、人物が中央に来るように自動で切り出します。")
+            return String(localized: "比率が「元のまま」のため無効です")
         }
         if canvas.scaling == .fill {
             return String(localized: "比率 \(canvas.aspect.displayName)・埋める: 切り出す位置が人物を追いかけます。")
@@ -376,10 +357,6 @@ struct EditorAutoReframePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("オートリフレーム: 人や顔を見つけて、縦動画などに切り出すときも映したい人が画面の中央に来るようにします。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             if clip.isStill {
                 Text("静止画クリップでは使えません。")
@@ -411,13 +388,13 @@ struct EditorAutoReframePanel: View {
                 .disabled(!hasTrack)
                 .opacity(hasTrack ? 1 : 0.4)
 
-                EditorSliderRow(title: String(localized: "なめらかさ(大きいほどゆっくり追う)"),
+                EditorSliderRow(title: String(localized: "なめらかさ"),
                                 value: smoothingBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.reframe.smoothing))
                     .disabled(!hasTrack)
                     .opacity(hasTrack ? 1 : 0.4)
-                EditorSliderRow(title: String(localized: "人物の大きさ(ズーム)"),
+                EditorSliderRow(title: String(localized: "ズーム"),
                                 value: zoomBinding,
                                 range: 1...2,
                                 display: String(format: "%.2fx", clip.reframe.zoom))
@@ -510,7 +487,7 @@ struct EditorStabilizePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("カメラの揺れを調べて、映像を少し拡大しながら揺れを打ち消します。調べるのに映像の長さと同じくらいの時間がかかることがあります。")
+            Text("解析にはクリップと同じくらいの時間がかかります")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -551,7 +528,7 @@ struct EditorStabilizePanel: View {
                                 display: maskPanelPercent(clip.stabilization.strength))
                     .disabled(!hasTrack)
                     .opacity(hasTrack ? 1 : 0.4)
-                EditorSliderRow(title: String(localized: "拡大(端の黒を隠す)"),
+                EditorSliderRow(title: String(localized: "拡大"),
                                 value: cropZoomBinding,
                                 range: 1.0...1.3,
                                 display: String(format: "%.2fx", clip.stabilization.cropZoom))
@@ -578,9 +555,6 @@ struct EditorStabilizePanel: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("揺れが大きいときは「拡大」を上げると端の黒が出にくくなります。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 HStack {
@@ -637,25 +611,13 @@ struct EditorEnhancePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: clip.isStill ? "photo" : "film",
-                                name: clip.name,
-                                start: clip.startTime,
-                                end: clip.endTime)
 
-            Text("画質補正: 暗い映像のざらつきや肌、ぼやけを整えます。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: String(localized: "ざらつきを減らす"),
+                EditorSliderRow(title: String(localized: "ノイズ除去"),
                                 value: denoiseBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.enhance.denoise))
-                Text("暗い場所で撮ったザラつきを減らします。上げすぎると細かい模様がぼやけます。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -663,25 +625,17 @@ struct EditorEnhancePanel: View {
                                 value: retouchBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.enhance.retouch))
-                Text("肌の色の部分だけをなめらかにします(顔ではなく色で判断します)。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                EditorSliderRow(title: String(localized: "くっきりさせる"),
+                EditorSliderRow(title: String(localized: "ディテール強調"),
                                 value: sharpenBinding,
                                 range: 0...1,
                                 display: maskPanelPercent(clip.enhance.sharpenUpscale))
-                Text("小さい映像やぼやけた映像の輪郭を強めて、くっきり見せます。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
-                Text("※ 処理が重いため、プレビューがカクつくことがあります。書き出した動画には正しく反映されます。")
+                Text("プレビューは重くなることがあります")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -723,17 +677,9 @@ struct EditorParallaxControls: View {
                     .font(.subheadline)
             }
             .tint(.accentColor)
-            Text("写真の手前と奥を分けて動かし、飛び出すように見せます。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             if let hasDepth {
                 if hasDepth {
-                    Text("この写真には奥行き情報があります。手前と奥で動く量が変わり、立体的に見えます。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text("この写真には奥行きの情報がないため、Ken Burnsで代わりに動かします。")
                         .font(.caption)
@@ -782,10 +728,6 @@ struct EditorParallaxControls: View {
                 .opacity(parallax.enabled ? 1 : 0.4)
             }
 
-            Text("写真が \(String(format: "%.1f", durationSeconds)) 秒かけて動きます。iPhoneのポートレートモードで撮った写真だと、より立体的に見えます。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .task(id: imageURL) {
             let url = imageURL
@@ -810,10 +752,6 @@ struct EditorClipParallaxPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: "photo",
-                                name: clip.name,
-                                start: clip.startTime,
-                                end: clip.endTime)
             if clip.isStill {
                 EditorParallaxControls(parallax: parallaxBinding,
                                        imageURL: clip.stillImageURL ?? clip.url,
@@ -839,10 +777,6 @@ struct EditorOverlayParallaxPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorItemHeaderRow(systemImage: overlay.isImage ? "photo" : "film",
-                                name: overlay.name,
-                                start: overlay.start,
-                                end: overlay.end)
             if overlay.isImage {
                 EditorParallaxControls(parallax: parallaxBinding,
                                        imageURL: overlay.url,

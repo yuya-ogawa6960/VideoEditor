@@ -164,8 +164,12 @@ final class CloudTranscriber: @unchecked Sendable {
         if assetDuration.isFinite, assetDuration > 0 { rangeEnd = min(rangeEnd, assetDuration) }
         guard rangeEnd.isFinite, rangeEnd > rangeStart + 0.05 else { throw CloudTranscriptionError.noAudio }
 
-        let ranges = Self.pieces(start: rangeStart, end: rangeEnd)
-        guard !ranges.isEmpty else { throw CloudTranscriptionError.noAudio }
+        let ranges = await Self.speechPieces(url: sourceURL, start: rangeStart, end: rangeEnd)
+        // 声がない(無音だけ)なら、何も送らずに終える
+        guard !ranges.isEmpty else {
+            progress(1)
+            return []
+        }
         let total = ranges.count
         let fallback = FallbackSwitch()
         let maxInFlight = max(1, Self.maxConcurrentPieces)
@@ -286,18 +290,26 @@ final class CloudTranscriber: @unchecked Sendable {
 
         // 1. クリップごとの範囲をピースに分ける
         var plans: [PiecePlan] = []
+        var hasAudio = false
         for (order, clip) in clips.enumerated() {
             let asset = AVURLAsset(url: clip.sourceURL)
             let assetDuration = try await asset.load(.duration).seconds
             let rangeStart = max(0, clip.sourceStart)
             var rangeEnd = clip.sourceEnd
             if assetDuration.isFinite, assetDuration > 0 { rangeEnd = min(rangeEnd, assetDuration) }
+            progress(BatchProgress(phase: .preparing, completed: order, total: clips.count, inBackgroundSession: false))
             guard rangeEnd.isFinite, rangeEnd > rangeStart + 0.05 else { continue }
-            for range in Self.pieces(start: rangeStart, end: rangeEnd) {
+            hasAudio = true
+            for range in await Self.speechPieces(url: clip.sourceURL, start: rangeStart, end: rangeEnd) {
                 plans.append(PiecePlan(clipOrder: order, range: range))
             }
         }
-        guard !plans.isEmpty else { throw CloudTranscriptionError.noAudio }
+        guard hasAudio else { throw CloudTranscriptionError.noAudio }
+        // どのクリップも無音だけなら、何も送らない
+        guard !plans.isEmpty else {
+            progress(BatchProgress(phase: .transcribing, completed: 1, total: 1, inBackgroundSession: false))
+            return clips.map { _ in [] }
+        }
 
         // 2. すべてのピースを先に切り出す
         let prepared = try await prepareAll(plans, clips: clips, directory: directory,
@@ -557,6 +569,12 @@ final class CloudTranscriber: @unchecked Sendable {
     struct PieceRange {
         let start: Double
         let end: Double
+    }
+
+    /// 声がありそうな区間だけをピースに分ける(はっきり無音の区間は送らない)
+    private static func speechPieces(url: URL, start: Double, end: Double) async -> [PieceRange] {
+        let regions = await SpeechRegionDetector.speechRanges(url: url, start: start, end: end)
+        return regions.flatMap { pieces(start: $0.start, end: $0.end) }
     }
 
     private static func pieces(start: Double, end: Double) -> [PieceRange] {

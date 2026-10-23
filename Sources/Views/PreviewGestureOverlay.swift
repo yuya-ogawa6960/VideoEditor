@@ -121,6 +121,9 @@ struct PreviewGestureOverlay: View {
     // モザイクの四隅のハンドル・回転のつまみ(ドラッグの始まりの状態)
     @State private var mosaicHandleStart: (center: NormalizedPoint, width: Double, height: Double)? = nil
     @State private var mosaicKnobActive = false
+    /// マスクの四隅の●をドラッグし始めたときの中心と幅・高さ(短辺比)
+    @State private var maskHandleStart: (center: NormalizedPoint, width: Double, height: Double)? = nil
+    @State private var maskKnobActive = false
     /// テキスト/オーバーレイのジェスチャーが続いている間 true(キャンセル時も自動で false に戻る)
     @GestureState private var gestureLive = false
     /// 「ドラッグで移動・2本指で拡大/回転」の案内を出し終えたか(初回だけ出す)
@@ -458,6 +461,10 @@ struct PreviewGestureOverlay: View {
             maskShapeView(mask, size: frameSize, short: short)
                 .frame(width: frameSize.width, height: frameSize.height)
                 .contentShape(Rectangle())
+                // モザイクと同じ: 四隅の●で大きさ、上のつまみで回転(枠と一緒に回る)
+                .overlay {
+                    maskHandles(binding, frame: frameSize, short: short, container: container)
+                }
                 .gesture(maskGesture(binding, container: container).updating($gestureLive) { _, state, _ in
                     state = true
                 })
@@ -502,6 +509,130 @@ struct PreviewGestureOverlay: View {
                 .background { Color.white.opacity(0.001) }
                 .overlay { maskBadge }
         }
+    }
+
+    /// マスクの枠に重ねるハンドル。四角・角丸・楕円は四隅の●で幅・高さ、どの形も上のつまみで回転
+    private func maskHandles(_ binding: Binding<MaskSettings>, frame: CGSize, short: CGFloat,
+                             container: CGRect) -> some View {
+        let mask = binding.wrappedValue
+        let knobDistance: CGFloat = 30
+        let showsCorners = mask.shape != .linear && mask.shape != .mirror
+        return ZStack {
+            VStack(spacing: 0) {
+                ZStack {
+                    Circle().fill(Color.white)
+                        .frame(width: 28, height: 28)
+                        .shadow(color: Color.black.opacity(0.5), radius: 2)
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.black)
+                }
+                Rectangle()
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: 1.5, height: knobDistance - 14)
+            }
+            .frame(width: 44, height: 44 + knobDistance, alignment: .top)
+            .contentShape(Rectangle())
+            .offset(y: -frame.height / 2 - knobDistance - 8)
+            .gesture(maskKnobGesture(binding, frame: frame, knobDistance: knobDistance + 8))
+
+            if maskKnobActive {
+                Text(verbatim: "\(Int(mask.rotation.rounded()))°")
+                    .font(.system(size: 13, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.black.opacity(0.7), in: Capsule())
+                    .rotationEffect(.degrees(-mask.rotation))
+                    .offset(y: -frame.height / 2 - knobDistance - 48)
+                    .allowsHitTesting(false)
+            }
+
+            if showsCorners {
+                ForEach(MosaicCorner.allCases, id: \.self) { corner in
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 18, height: 18)
+                        .overlay(Circle().stroke(Color.black.opacity(0.6), lineWidth: 1))
+                        .shadow(color: Color.black.opacity(0.5), radius: 2)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .offset(x: corner.sx * frame.width / 2, y: corner.sy * frame.height / 2)
+                        .gesture(maskCornerGesture(binding, corner: corner, short: short, container: container))
+                }
+            }
+        }
+    }
+
+    /// 四隅の●: 向かいの角を動かさずに幅・高さを変える(モザイクと同じ計算。大きさは短辺比、中心は container 比)
+    private func maskCornerGesture(_ binding: Binding<MaskSettings>, corner: MosaicCorner, short: CGFloat,
+                                   container: CGRect) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                var mask = binding.wrappedValue
+                if maskHandleStart == nil {
+                    history.record(project)
+                    openInteraction()
+                    maskHandleStart = (mask.center, mask.width, mask.height)
+                }
+                guard let start = maskHandleStart else { return }
+                // 指の動きを、マスクの向きに合わせた軸(枠の縦横)へ直す
+                let r = CGFloat(mask.rotation * Double.pi / 180)
+                let dx = value.translation.width
+                let dy = value.translation.height
+                let lx = dx * cos(r) + dy * sin(r)
+                let ly = -dx * sin(r) + dy * cos(r)
+                let w0 = CGFloat(start.width) * short
+                let h0 = CGFloat(start.height) * short
+                let minSide: CGFloat = 24
+                let w = max(minSide, w0 + corner.sx * lx)
+                let h = max(minSide, h0 + corner.sy * ly)
+                // 向かいの角を動かさない: 中心を枠の軸で (Δw/2, Δh/2) ずらし、画面の向きに戻す
+                let sx = corner.sx * (w - w0) / 2
+                let sy = corner.sy * (h - h0) / 2
+                let shiftX = sx * cos(r) - sy * sin(r)
+                let shiftY = sx * sin(r) + sy * cos(r)
+                let base = max(short, 1)
+                mask.width = min(max(Double(w / base), 0.05), 3)
+                mask.height = min(max(Double(h / base), 0.05), 3)
+                mask.center = NormalizedPoint(x: min(max(start.center.x + Double(shiftX / max(container.width, 1)), -0.25), 1.25),
+                                              y: min(max(start.center.y + Double(shiftY / max(container.height, 1)), -0.25), 1.25))
+                binding.wrappedValue = mask
+            }
+            .onEnded { _ in
+                maskHandleStart = nil
+                closeInteraction()
+            }
+    }
+
+    /// 上のつまみ: 中心のまわりに回す(0° / 90° / 180° の近くは吸い付く)
+    private func maskKnobGesture(_ binding: Binding<MaskSettings>, frame: CGSize, knobDistance: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                var mask = binding.wrappedValue
+                if !maskKnobActive {
+                    history.record(project)
+                    openInteraction()
+                    maskKnobActive = true
+                    session.startRotation = mask.rotation
+                }
+                let r0 = CGFloat(session.startRotation * Double.pi / 180)
+                let length = frame.height / 2 + knobDistance
+                let knob = CGPoint(x: length * sin(r0), y: -length * cos(r0))
+                let v = CGPoint(x: knob.x + value.translation.width, y: knob.y + value.translation.height)
+                var degrees = atan2(Double(v.y), Double(v.x)) * 180 / Double.pi + 90
+                if degrees > 180 { degrees -= 360 }
+                if degrees < -180 { degrees += 360 }
+                for snap in [-180.0, -90.0, 0.0, 90.0, 180.0] where abs(degrees - snap) < 4 {
+                    degrees = snap == 180 ? -180 : snap
+                }
+                mask.rotation = degrees
+                binding.wrappedValue = mask
+            }
+            .onEnded { _ in
+                maskKnobActive = false
+                closeInteraction()
+            }
     }
 
     private func beginIfNeeded(mask: MaskSettings) {
