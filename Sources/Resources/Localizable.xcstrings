@@ -12030,6 +12030,29 @@
         }
       }
     },
+    "オーバーレイとして追加": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add as Overlay"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir como superposición"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar como sobreposição"
+          }
+        }
+      }
+    },
     "オーバーレイに追加するもの": {
       "extractionState": "manual",
       "localizations": {
@@ -13383,6 +13406,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Volume por clipe"
+          }
+        }
+      }
+    },
+    "クリップとして追加": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add as Clip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir como clip"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar como clipe"
           }
         }
       }

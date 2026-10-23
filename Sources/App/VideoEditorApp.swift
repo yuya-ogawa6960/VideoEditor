@@ -23,6 +23,8 @@ struct VideoEditorApp: App {
         Task.detached(priority: .utility) { FilterLUT.prewarm() }
         // 読み込んだフォント(.ttf / .otf)を起動時に登録する
         Task.detached(priority: .utility) { MediaTools.registerStoredFonts() }
+        // 前回までのドラッグ&ドロップの一時フォルダを消す
+        Task.detached(priority: .utility) { MediaDrop.cleanUpTemporaryFolders() }
     }
 
     var body: some Scene {

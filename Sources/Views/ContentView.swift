@@ -61,6 +61,13 @@ struct ContentView: View {
     /// お知らせに「設定を開く」を出す(写真へのアクセスが許可されていないときなど)
     @State private var alertOffersSettings = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// iPhone Duo を開いたときなど、縦横とも regular の大きな画面
+    private var isLargeWindow: Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
     @State private var showClearProjectConfirm = false
     @State private var showSilenceCutConfirm = false
     @State private var showPunchInDialog = false
@@ -97,6 +104,12 @@ struct ContentView: View {
     @State private var showMediaPicker = false
     /// タイムライン末尾の「+」から追加したときは末尾に足す(それ以外は再生位置のクリップの後ろに差し込む)
     @State private var importAppendsAtEnd = false
+    /// ドロップで差し込む位置(タイムラインに落としたとき。importLocalFiles が一度だけ使う)
+    @State private var importInsertIndex: Int? = nil
+    /// ドラッグ中の項目がタイムライン・プレビューの上にあるか
+    @State private var timelineDropTargeted = false
+    @State private var previewDropTargeted = false
+    @State private var timelineWidth: CGFloat = 0
     /// 「動画・写真を追加」で、どこから追加するか(写真ライブラリ / ファイル / Google フォト)を選ぶ
     @State private var showMediaSourceDialog = false
     /// 「ファイル」アプリ(Google ドライブ・iCloud Drive など)から選ぶ
@@ -322,6 +335,8 @@ struct ContentView: View {
                 editor
             }
         }
+        // 大きな画面では左端を少し空ける(ケースなどで端に指が届きにくいため)
+        .padding(.leading, isLargeWindow ? 14 : 0)
         .confirmationDialog("どこから追加しますか?",
                             isPresented: $showMediaSourceDialog,
                             titleVisibility: .visible) {
@@ -396,6 +411,7 @@ struct ContentView: View {
             if IncomingMediaCenter.shared.autoImportProjectID == projectID {
                 IncomingMediaCenter.shared.autoImportProjectID = nil
             }
+            DroppedMediaHandoff.discard(for: projectID)
         }
     }
 
@@ -684,13 +700,24 @@ struct ContentView: View {
         GeometryReader { geo in
             let panelOpen: Bool = activePanel != nil
             let fullHeight: CGFloat = geo.size.height
-            let previewMax: CGFloat = panelOpen ? fullHeight : max(100, fullHeight * 0.45)
+            // プレビューは残りの高さをすべて使う(タイムラインとツールバーの間に隙間を作らない。
+            // iPhone Duo を開いた横持ちなど、高さに余裕がある画面ではそのぶん大きく映る)
+            let previewMax: CGFloat = fullHeight
             let panelMax: CGFloat = max(160, fullHeight * 0.38)
 
             VStack(spacing: 0) {
                 previewArea
                     .frame(maxWidth: .infinity, minHeight: 100, maxHeight: previewMax)
                     .background(Color.black)
+                    // ほかのアプリから落とした動画・写真は、再生位置からオーバーレイとして重ねる
+                    .onDrop(of: MediaDrop.types, isTargeted: $previewDropTargeted) { providers in
+                        handleOverlayDrop(providers)
+                    }
+                    .overlay {
+                        if previewDropTargeted, canAcceptDrop {
+                            MediaDropHighlight(title: String(localized: "オーバーレイとして追加"))
+                        }
+                    }
                     // プレビューのタップは PreviewGestureOverlay が選択に使う(再生・一時停止は下の再生ボタン)
                     .layoutPriority(1)
 
@@ -709,11 +736,19 @@ struct ContentView: View {
                                      timeline: timeline, selection: $selection,
                                      onAdd: { kind in handleTimelineAdd(kind) })
                             .frame(height: TimelineView.preferredHeight(for: project))
+                            // 右側(iPhone Duo のたて持ちで時刻などが出る列)の下までタイムラインを伸ばす
+                            .ignoresSafeArea(.container, edges: .trailing)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { timelineWidth = $0 }
+                            // ほかのアプリから落とした動画・写真は、落とした位置のクリップの切れ目に差し込む
+                            .onDrop(of: MediaDrop.types, isTargeted: $timelineDropTargeted) { providers, location in
+                                handleTimelineDrop(providers, at: location)
+                            }
+                            .overlay {
+                                if timelineDropTargeted, canAcceptDrop {
+                                    MediaDropHighlight(title: String(localized: "クリップとして追加"))
+                                }
+                            }
                     }
-                }
-
-                if !panelOpen {
-                    Spacer(minLength: 0)
                 }
 
                 bottomArea(maxPanelHeight: panelMax)
@@ -807,9 +842,9 @@ struct ContentView: View {
                               replacePickerItem: $replacePickerItem,
                               extractAudioPickerItem: $extractAudioPickerItem,
                               slideshowPickerItems: $slideshowPickerItems)
-                    .overlay(alignment: .topLeading) {
+                    // 隙間をなくしたので、タイムラインの「+ 追加」に重ならないよう中央に出す
+                    .overlay(alignment: .top) {
                         EditorModeBadge(title: toolbarModeTitle)
-                            .padding(.leading, 12)
                             .offset(y: -22)
                     }
                     .transition(.opacity)
@@ -3923,9 +3958,14 @@ struct ContentView: View {
         var failures: [String] = []
         var recorded = false
         var added = 0
-        // 差し込む位置: 再生位置のクリップの後ろ(末尾の「+」からのときと、クリップが無いときは末尾)
+        // 差し込む位置: 再生位置のクリップの後ろ(末尾の「+」からのときと、クリップが無いときは末尾)。
+        // タイムラインに落としたときは、落とした位置の切れ目
+        let droppedIndex: Int? = importInsertIndex
+        importInsertIndex = nil
         var insertAt: Int? = nil
-        if !importAppendsAtEnd, !project.clips.isEmpty,
+        if let droppedIndex {
+            insertAt = min(max(0, droppedIndex), project.clips.count)
+        } else if !importAppendsAtEnd, !project.clips.isEmpty,
            let location = project.locate(timelineTime: player.currentTime), location.index < project.clips.count {
             insertAt = location.index + 1
         }
@@ -4030,7 +4070,7 @@ struct ContentView: View {
             alertMessage = String(localized: "\(failures.count)件の動画・写真を読み込めませんでした。\n") + failures.joined(separator: "\n")
         } else if added > 0 {
             if let id = firstAddedID { selection = .clip(id) }
-            showToast(insertAt != nil
+            showToast(insertAt != nil && droppedIndex == nil
                       ? String(localized: "再生位置の後ろに \(added)件を差し込みました")
                       : String(localized: "\(added)件を追加しました"), undo: true)
         }
@@ -4051,6 +4091,129 @@ struct ContentView: View {
         }
     }
 
+    // MARK: ドラッグ&ドロップ
+
+    /// ほかのアプリから落とした動画・写真を受け取れるか(読み込み中・パネルや画面内の処理の間は受け取らない)
+    private var canAcceptDrop: Bool {
+        didRestore && !isImporting && !isLoadingPhotoMedia && !isPanelOrToolBusy
+    }
+
+    /// タイムラインに落とした: 落とした位置に近いクリップの切れ目に差し込む
+    private func handleTimelineDrop(_ providers: [NSItemProvider], at location: CGPoint) -> Bool {
+        guard canAcceptDrop, !providers.isEmpty else { return false }
+        // タイムラインは再生位置が中央。落とした x を時刻に直し、その時刻より後ろに中心があるクリップの前に入れる
+        let pps = max(timeline.pointsPerSecond, 0.0001)
+        let time = player.currentTime + Double(location.x - timelineWidth / 2) / pps
+        let ranges = TimelineView.clipRanges(for: project.snapshot())
+        let index = ranges.firstIndex { ($0.start + $0.end) / 2 > time } ?? ranges.count
+        beginDropImport(providers) { urls in
+            importInsertIndex = index
+            await importLocalFiles(urls, securityScoped: false, deleteSourcesAfter: true)
+        }
+        return true
+    }
+
+    /// プレビューに落とした: 再生位置からオーバーレイとして重ねる
+    private func handleOverlayDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard canAcceptDrop, !providers.isEmpty else { return false }
+        beginDropImport(providers) { urls in
+            await importOverlayFiles(urls)
+        }
+        return true
+    }
+
+    /// 落とした項目を一時フォルダにコピーしてから取り込む(コピーの間も「読み込み中」を出す)
+    private func beginDropImport(_ providers: [NSItemProvider], then importFiles: @escaping @MainActor ([URL]) async -> Void) {
+        EditorHaptics.tap()
+        isImporting = true
+        importTotal = providers.count
+        importDone = 0
+        importFraction = nil
+        importIsDownloading = true
+        importTask = Task { @MainActor in
+            let urls = await MediaDrop.loadFiles(from: providers)
+            importIsDownloading = false
+            guard !urls.isEmpty, !Task.isCancelled else {
+                MediaDrop.remove(urls)
+                isImporting = false
+                importTask = nil
+                if !Task.isCancelled {
+                    alertMessage = String(localized: "動画・写真のデータを取得できませんでした。")
+                }
+                return
+            }
+            await importFiles(urls)
+        }
+    }
+
+    /// 落とした動画・写真をオーバーレイにする(importOverlayItems のファイル版)
+    @MainActor
+    private func importOverlayFiles(_ urls: [URL]) async {
+        isImporting = true
+        importTotal = urls.count
+        importDone = 0
+        importFraction = nil
+        var failures: [String] = []
+        var recorded = false
+        var lastAdded: UUID?
+        var before: ProjectSnapshot?
+        for (index, url) in urls.enumerated() {
+            if Task.isCancelled {
+                MediaDrop.remove(Array(urls[index...]))
+                break
+            }
+            let fileName = LocalMediaImport.storedFileName(for: url, stripsNumberPrefix: true)
+            var stored: URL? = nil
+            do {
+                let result = try await LocalMediaImport.moveIntoMediaDirectory(url, fileName: fileName)
+                let destination = result.url
+                stored = destination
+                // 移せずにコピーしたときは、一時ファイルを消す
+                if !result.moved { try? FileManager.default.removeItem(at: url) }
+                var overlay: OverlayClip
+                switch LocalMediaImport.kind(of: destination) {
+                case .movie:
+                    overlay = try await MediaStore.makeOverlay(fromVideo: destination)
+                    OverlayPreset.bRollFull.apply(to: &overlay)
+                case .image:
+                    overlay = try MediaStore.makeImageOverlay(from: destination)
+                    overlay.duration = 4
+                }
+                overlay.start = max(0, player.currentTime)
+                if !recorded {
+                    before = project.snapshot()
+                    history.record(project)
+                    recorded = true
+                }
+                project.overlays.append(overlay)
+                project.sortOverlays()
+                lastAdded = overlay.id
+            } catch {
+                if let stored { try? FileManager.default.removeItem(at: stored) }
+                try? FileManager.default.removeItem(at: url)
+                if error is CancellationError || Task.isCancelled {
+                    MediaDrop.remove(Array(urls[(index + 1)...]))
+                    break
+                }
+                failures.append(error.localizedDescription)
+            }
+            importDone += 1
+        }
+        let cancelled = Task.isCancelled
+        isImporting = false
+        importFraction = nil
+        importTask = nil
+        if let lastAdded {
+            selection = .overlay(lastAdded)
+            // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻せる
+            panelSnapshot = before
+            activePanel = .overlayPlacement(lastAdded)
+        }
+        if !failures.isEmpty, !cancelled {
+            alertMessage = String(localized: "\(failures.count)件の素材を読み込めませんでした。\n") + failures.joined(separator: "\n")
+        }
+    }
+
     // MARK: 共有で受け取った動画・写真
 
     /// 下のパネルを開いている、または画面内の処理(無音カット・音量そろえ・逆再生・解析など)が動いている
@@ -4064,6 +4227,13 @@ struct ContentView: View {
     /// 読み込み中・復元中・下のパネルを開いている間・画面内の処理(無音カット・逆再生・解析など)の間は終わってから
     /// (onChange で呼び直す)。シートや写真の選択などを出している間は、少し待って確かめ直す
     private func checkIncomingMedia() {
+        // 一覧に落とした動画・写真(このプロジェクトはそのために作った)は、聞かずに取り込む
+        if didRestore, !isLoadingPhotoMedia, !isImporting, !isPanelOrToolBusy,
+           let dropped = DroppedMediaHandoff.take(for: projectID) {
+            importAppendsAtEnd = true
+            startLocalImport(dropped, securityScoped: false, deleteSourcesAfter: true)
+            return
+        }
         let center = IncomingMediaCenter.shared
         let urls: [URL] = center.pendingURLs
         guard !urls.isEmpty, didRestore, !isLoadingPhotoMedia, !isImporting else { return }

@@ -88,6 +88,10 @@ struct ProjectLibraryView: View {
     @State private var alertTitle = ""
     @State private var alertMessage: String?
 
+    /// ドラッグ中の項目が一覧の上にあるか(落とすと新しいプロジェクト)
+    @State private var dropTargeted = false
+    /// 落とした動画・写真を受け取っている間(ほかの操作を止めて、読み込み中を出す)
+    @State private var isLoadingDrop = false
     /// 共有で受け取った動画・写真を「新しいプロジェクトで編集」するか聞く
     @State private var showIncomingPrompt = false
     @State private var incomingPromptCount = 0
@@ -145,6 +149,27 @@ struct ProjectLibraryView: View {
                 }
             }
             .background(Color.black.ignoresSafeArea())
+            // ほかのアプリから動画・写真を落とすと、新しいプロジェクトを作って取り込む
+            .onDrop(of: MediaDrop.types, isTargeted: $dropTargeted) { providers in
+                handleDrop(providers)
+            }
+            .overlay {
+                if dropTargeted, !isPackageBusy {
+                    MediaDropHighlight(title: String(localized: "新しいプロジェクトで編集"))
+                        .padding(8)
+                }
+            }
+            // 受け取っている間は一覧を触れないようにする(途中でほかのプロジェクトを開かないように)
+            .overlay {
+                if isLoadingDrop {
+                    ZStack {
+                        Color.black.opacity(0.5).ignoresSafeArea()
+                        ProgressView()
+                            .controlSize(.large)
+                            .tint(.white)
+                    }
+                }
+            }
             .navigationTitle("プロジェクト")
             // 画面の下にバナー広告(読み込めるまでは場所を取らない。BannerAdView.swift)
             .safeAreaInset(edge: .bottom) {
@@ -287,13 +312,33 @@ struct ProjectLibraryView: View {
     }
 
     /// importingIncomingMedia: 共有で受け取った動画・写真を編集するために作る(開いた編集画面が聞かずに取り込む)
-    private func createProject(mediaMode: ProjectMediaMode, importingIncomingMedia: Bool = false) {
+    private func createProject(mediaMode: ProjectMediaMode, importingIncomingMedia: Bool = false,
+                               droppedMedia: [URL]? = nil) {
         Analytics.shared.track("project_create", ["media": String(describing: mediaMode)])
         let meta = library.create(mediaMode: mediaMode)
         if importingIncomingMedia {
             IncomingMediaCenter.shared.autoImportProjectID = meta.id
         }
+        if let droppedMedia {
+            DroppedMediaHandoff.set(droppedMedia, for: meta.id)
+        }
         onOpen(meta)
+    }
+
+    /// ほかのアプリから落とした動画・写真で新しいプロジェクトを作る(素材はアプリ内にコピーする)
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard !providers.isEmpty, !isPackageBusy else { return false }
+        isLoadingDrop = true
+        Task { @MainActor in
+            let urls = await MediaDrop.loadFiles(from: providers)
+            isLoadingDrop = false
+            guard !urls.isEmpty else {
+                alertMessage = String(localized: "動画・写真のデータを取得できませんでした。")
+                return
+            }
+            createProject(mediaMode: .appCopy, droppedMedia: urls)
+        }
+        return true
     }
 
     // MARK: 共有で受け取った動画・写真
@@ -477,7 +522,7 @@ struct ProjectLibraryView: View {
 
     /// 読み込み・書き出し・共有シートのどれかが進行中
     private var isPackageBusy: Bool {
-        isImporting || exportingMeta != nil || packageShareItem != nil
+        isImporting || exportingMeta != nil || packageShareItem != nil || isLoadingDrop
     }
 
     /// 「ファイル」アプリなどから開かれた .videomania を、ほかの読み込み・書き出しが終わっていれば読み込む
