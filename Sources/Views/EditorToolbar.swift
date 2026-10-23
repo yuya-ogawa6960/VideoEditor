@@ -159,6 +159,9 @@ struct EditorToolbar: View {
     /// 「スライドショー」で選ばれた写真
     @Binding var slideshowPickerItems: [PhotosPickerItem]
 
+    /// 項目を並べる列の幅(広い画面では中央に寄せるため)
+    @State private var rowWidth: CGFloat = 0
+
     /// 開いているグループの列(見つからなくなったら、たどれたところまで)
     private var resolved: (items: [EditorToolItem], groupTitle: String?) {
         var current = items
@@ -216,7 +219,10 @@ struct EditorToolbar: View {
                     }
                 }
                 .padding(.horizontal, 6)
+                // iPhone Duo を開いたときなど広い画面では、収まる項目を中央に寄せる(左に固まって右が空かないように)
+                .frame(minWidth: rowWidth >= 600 ? rowWidth : 0)
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
             .id(groupPath.joined(separator: "/"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
