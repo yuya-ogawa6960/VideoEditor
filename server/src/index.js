@@ -14,7 +14,7 @@ const POINTS = {
   daily: 20,              // 毎日ボーナス(日本時間で 1 日 1 回)
   transcribePerMinute: 5, // クラウド文字起こし 1 分
   chat: 2,                // 字幕の整え・翻訳・台本など 1 回
-  speechPerThousandChars: 3, // クラウドの声(読み上げ)1000 文字あたり
+  speechPerThousandChars: 50, // クラウドの声(読み上げ)1000 文字あたり(原価が文字起こしより高いため)
   adReward: 10,           // リワード広告 1 回
   adRewardDailyLimit: 5,  // リワード広告の 1 日の上限(日本時間)
 };
