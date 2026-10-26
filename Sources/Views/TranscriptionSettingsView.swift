@@ -41,6 +41,8 @@ struct TranscriptionSettingsView: View {
 
     // 前回の文字起こし結果
     @State private var cachedTranscriptCount: Int = 0
+    // 用語の登録
+    @State private var termCount: Int = 0
 
     init() {}
 
@@ -54,6 +56,7 @@ struct TranscriptionSettingsView: View {
             AdPrivacySection()
             cloudSection
             polishSection
+            termSection
             transcriptCacheSection
             diagnosticsSection
         }
@@ -63,6 +66,7 @@ struct TranscriptionSettingsView: View {
             refreshModelState()
             refreshDiagnostics()
             cachedTranscriptCount = TranscriptCache.shared.storedCount
+            termCount = CaptionTermDictionary.load().count
         }
         .alert(alertTitle, isPresented: alertBinding) {
             Button("OK", role: .cancel) {}
@@ -81,6 +85,21 @@ struct TranscriptionSettingsView: View {
     private var alertBinding: Binding<Bool> {
         Binding(get: { alertMessage != nil },
                 set: { if !$0 { alertMessage = nil } })
+    }
+
+    // MARK: - 用語の登録
+
+    private var termSection: some View {
+        Section {
+            NavigationLink {
+                CaptionTermListView()
+            } label: {
+                LabeledContent("用語の登録") {
+                    Text(verbatim: "\(termCount)")
+                        .monospacedDigit()
+                }
+            }
+        }
     }
 
     // MARK: - 前回の文字起こし結果

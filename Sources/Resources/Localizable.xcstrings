@@ -599,6 +599,29 @@
         }
       }
     },
+    "%lld 件の字幕を直しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated %lld captions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se actualizaron %lld subtítulos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld legendas atualizadas"
+          }
+        }
+      }
+    },
     "%lld 件の字幕を翻訳しました。「スタイル」の「表示」を「訳文」か「両方」にすると映像に出ます。": {
       "extractionState": "manual",
       "localizations": {
@@ -8005,6 +8028,29 @@
         }
       }
     },
+    "このままにする": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave as Is"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dejar así"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter assim"
+          }
+        }
+      }
+    },
     "このアングルを削除": {
       "extractionState": "manual",
       "localizations": {
@@ -9040,6 +9086,98 @@
         }
       }
     },
+    "すべて変えて、次からも自動で直す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change All and Fix Automatically Next Time"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar todo y corregir automáticamente la próxima vez"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterar tudo e corrigir automaticamente da próxima vez"
+          }
+        }
+      }
+    },
+    "すべて変える": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change All"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar todo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterar tudo"
+          }
+        }
+      }
+    },
+    "すべて消して、次からも自動で消す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete All and Remove Automatically Next Time"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar todo y quitar automáticamente la próxima vez"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir tudo e remover automaticamente da próxima vez"
+          }
+        }
+      }
+    },
+    "すべて消す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete All"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar todo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir tudo"
+          }
+        }
+      }
+    },
     "すべて選択": {
       "extractionState": "manual",
       "localizations": {
@@ -9680,6 +9818,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sumir aos poucos"
+          }
+        }
+      }
+    },
+    "ほかの %lld か所の「%@」も「%@」にしますか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also change the other %lld instances of “%@” to “%@”?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cambiar también las otras %lld apariciones de «%@» por «%@»?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterar também as outras %lld ocorrências de “%@” para “%@”?"
+          }
+        }
+      }
+    },
+    "ほかの %lld か所の「%@」も消しますか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also delete the other %lld instances of “%@”?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar también las otras %lld apariciones de «%@»?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir também as outras %lld ocorrências de “%@”?"
           }
         }
       }
@@ -30315,6 +30499,29 @@
         }
       }
     },
+    "変えた後": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depois"
+          }
+        }
+      }
+    },
     "変えると、少しして音に反映されます。": {
       "extractionState": "manual",
       "localizations": {
@@ -30334,6 +30541,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "As mudanças são aplicadas ao áudio após um instante."
+          }
+        }
+      }
+    },
+    "変える前": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes"
           }
         }
       }
@@ -34474,6 +34704,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não há áudio para transcrever (todos os clipes estão em silêncio ou mudos)."
+          }
+        }
+      }
+    },
+    "文字起こしのあとに自動で置き換えます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replaced automatically after transcription."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reemplaza automáticamente después de transcribir."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Substituído automaticamente após a transcrição."
           }
         }
       }
@@ -39032,6 +39285,29 @@
         }
       }
     },
+    "用語の登録": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Terms"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Términos personalizados"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termos personalizados"
+          }
+        }
+      }
+    },
     "男性・はっきり": {
       "extractionState": "manual",
       "localizations": {
@@ -39718,6 +39994,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "aparecer"
+          }
+        }
+      }
+    },
+    "登録した用語はありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terms yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay términos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum termo ainda"
           }
         }
       }

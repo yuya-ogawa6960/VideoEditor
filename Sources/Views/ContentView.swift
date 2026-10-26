@@ -100,6 +100,8 @@ struct ContentView: View {
     @State private var toolbarGroupPath: [String] = []
     /// 1.5: パネルを開いたときの状態(✕「キャンセル」で戻す)
     @State private var panelSnapshot: ProjectSnapshot?
+    /// 字幕を直したあとの「ほかの〇か所も変えますか?」
+    @State private var termReplacement: CaptionTermReplacement?
     /// 1.5: タイムラインの「+」から開く PhotosPicker
     @State private var showMediaPicker = false
     /// タイムライン末尾の「+」から追加したときは末尾に足す(それ以外は再生位置のクリップの後ろに差し込む)
@@ -770,6 +772,28 @@ struct ContentView: View {
             Button("動画と写真") { openOverlayPicker(.any(of: [.videos, .images])) }
             Button("キャンセル", role: .cancel) {}
         }
+        // 字幕を 1 件直したら、ほかの字幕の同じ言葉もまとめて直すか聞く(「カフェ小川」→「CAFE OGAWA」など)
+        .alert(termReplacement?.question ?? "",
+               isPresented: Binding(get: { termReplacement != nil },
+                                    set: { if !$0 { termReplacement = nil } }),
+               presenting: termReplacement) { replacement in
+            Button(replacement.confirmTitle) { applyTermReplacement(replacement, remember: false) }
+            Button(replacement.rememberTitle) { applyTermReplacement(replacement, remember: true) }
+            Button("このままにする", role: .cancel) {}
+        }
+    }
+
+    /// remember: 用語として登録し、次の文字起こしからも自動で直す
+    private func applyTermReplacement(_ replacement: CaptionTermReplacement, remember: Bool) {
+        history.record(project)
+        let changed = CaptionTermReplace.apply(replacement, to: project)
+        termReplacement = nil
+        if remember {
+            CaptionTermDictionary.add(from: replacement.from, to: replacement.to)
+        }
+        if changed > 0 {
+            showToast(String(localized: "\(changed) 件の字幕を直しました"), undo: true)
+        }
     }
 
     /// 「オーバーレイ」ボタン・タイムラインの「+」から。種類を選んでから写真ライブラリを開く
@@ -963,7 +987,18 @@ struct ContentView: View {
         } else {
             activePanel = nil
             rewindToText(of: panel)
+            if case .textEdit(let cueID) = panel {
+                offerTermReplacement(cueID: cueID)
+            }
         }
+    }
+
+    /// 字幕を直して ✓ で閉じたとき、変えた言葉がほかの字幕にもあれば、まとめて直すか聞く
+    private func offerTermReplacement(cueID: UUID) {
+        guard let before = panelSnapshot?.subtitles.first(where: { $0.id == cueID })?.text,
+              let after = project.subtitles.first(where: { $0.id == cueID })?.text else { return }
+        termReplacement = CaptionTermReplace.suggestion(oldText: before, newText: after,
+                                                        editedCueID: cueID, in: project.subtitles)
     }
 
     /// パネルの ✕「キャンセル」。開いたときの状態に戻して閉じる

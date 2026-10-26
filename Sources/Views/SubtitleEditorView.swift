@@ -112,6 +112,9 @@ struct SubtitleEditorView: View {
     @State private var aiTranslationTask: Task<Void, Never>?
 
     @State private var editingCueID: UUID?
+    /// 字幕 1 件の編集を開いたときの文(閉じたときに、ほかの字幕の同じ言葉も直すか聞くため)
+    @State private var editStartText: String?
+    @State private var termReplacement: CaptionTermReplacement?
 
     @State private var alertTitle: String = ""
     @State private var alertMessage: String?
@@ -228,6 +231,36 @@ struct SubtitleEditorView: View {
             }
             .navigationDestination(item: $editingCueID) { cueID in
                 SubtitleCueEditView(project: project, player: player, cueID: cueID)
+            }
+            .onChange(of: editingCueID) { oldID, newID in
+                if let newID {
+                    editStartText = project.subtitles.first(where: { $0.id == newID })?.text
+                    return
+                }
+                // 編集から戻った: 変えた言葉がほかの字幕にもあれば、まとめて直すか聞く
+                if let oldID, let before = editStartText,
+                   let after = project.subtitles.first(where: { $0.id == oldID })?.text {
+                    termReplacement = CaptionTermReplace.suggestion(oldText: before, newText: after,
+                                                                    editedCueID: oldID, in: project.subtitles)
+                }
+                editStartText = nil
+            }
+            .alert(termReplacement?.question ?? "",
+                   isPresented: Binding(get: { termReplacement != nil },
+                                        set: { if !$0 { termReplacement = nil } }),
+                   presenting: termReplacement) { replacement in
+                Button(replacement.confirmTitle) {
+                    CaptionTermReplace.apply(replacement, to: project)
+                    exportURL = nil
+                    termReplacement = nil
+                }
+                Button(replacement.rememberTitle) {
+                    CaptionTermReplace.apply(replacement, to: project)
+                    CaptionTermDictionary.add(from: replacement.from, to: replacement.to)
+                    exportURL = nil
+                    termReplacement = nil
+                }
+                Button("このままにする", role: .cancel) {}
             }
             .fileImporter(isPresented: $isImporterPresented,
                           allowedContentTypes: SubtitleEditorView.subtitleFileTypes,

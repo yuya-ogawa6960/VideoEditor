@@ -854,18 +854,21 @@ final class TranscriptionService {
         return Self.finalize(all)
     }
 
-    /// AI 仕上げが有効なら仕上げて並べ直す(失敗した部分は入力のまま)
+    /// AI 仕上げが有効なら仕上げて並べ直す(失敗した部分は入力のまま)。
+    /// 登録した用語(「カフェ小川」→「CAFE OGAWA」など)は、仕上げの前に置き換えて AI に正しい形を見せ、
+    /// 仕上げで元に戻されないよう後にもう一度置き換える
     private func polishIfEnabled(_ cues: [SubtitleCue], language: TranscriptionLanguage, settings: AppSettings,
                                  pauseReporter: BackgroundPauseReporter) async throws -> [SubtitleCue] {
-        guard settings.polishSubtitles, !cues.isEmpty else { return cues }
+        let fixed = CaptionTermDictionary.apply(to: cues)
+        guard settings.polishSubtitles, !fixed.isEmpty else { return fixed }
         let polishEngine = SubtitlePolisher.resolveEngine(settings: settings)
-        guard polishEngine != .none else { return cues }
+        guard polishEngine != .none else { return fixed }
         try checkCancelled()
         await updateUI(progress: 1, status: String(localized: "AIで字幕を仕上げ中(\(SubtitlePolisher.displayName(of: polishEngine)))…"))
-        let polished = await SubtitlePolisher.polish(cues, language: language, settings: settings,
+        let polished = await SubtitlePolisher.polish(fixed, language: language, settings: settings,
                                                      pauseReporter: pauseReporter)
         try checkCancelled()
-        return Self.finalize(polished)
+        return Self.finalize(CaptionTermDictionary.apply(to: polished))
     }
 
     // MARK: - 前回のクラウド文字起こしの取り込み
