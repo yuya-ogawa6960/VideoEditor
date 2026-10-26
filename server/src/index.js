@@ -19,6 +19,15 @@ const POINTS = {
   adRewardDailyLimit: 5,  // リワード広告の 1 日の上限(日本時間)
 };
 const SPEECH_MODEL = "gpt-4o-mini-tts";
+// Google の読み上げ(日本語)。キー(GOOGLE_TTS_API_KEY)は GitHub の secret から入れる
+const GOOGLE_TTS = "https://texttospeech.googleapis.com/v1/text:synthesize";
+const GOOGLE_VOICES = [
+  "ja-JP-Chirp3-HD-Aoede", "ja-JP-Chirp3-HD-Kore", "ja-JP-Chirp3-HD-Leda", "ja-JP-Chirp3-HD-Zephyr",
+  "ja-JP-Chirp3-HD-Charon", "ja-JP-Chirp3-HD-Fenrir", "ja-JP-Chirp3-HD-Orus", "ja-JP-Chirp3-HD-Puck",
+  "ja-JP-Neural2-B", "ja-JP-Neural2-C", "ja-JP-Neural2-D",
+];
+// Google は 1 回 5,000 バイトまで(日本語は 1 文字 3 バイト)。余裕を持って区切る
+const GOOGLE_MAX_BYTES = 4500;
 const SPEECH_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"];
 const MAX_SPEECH_CHARS = 4000;
 
@@ -283,6 +292,10 @@ const ALLOWED_EVENT_NAMES = new Set([
   "export_start", "export_done", "export_failed", "export_cancelled",
   // 字幕の自動作成: Whisper モデルの読み込み時間(区分)と、待ちきれずに Apple 音声認識へ切り替えた回
   "whisper_load", "whisper_switch_apple",
+  // 使い勝手の計測: 流れ(取り込み → 字幕 → 書き出し)・迷っている印・感想・動作の重さ
+  "media_add", "transcribe_start", "transcribe_done", "transcribe_failed", "transcribe_cancelled",
+  "panel_cancel", "undo", "disabled_tap", "search_pick", "search_no_result", "search_abandon",
+  "feedback", "metrics", "diagnostic",
 ]);
 
 async function ingestEvents(request, env) {
@@ -352,6 +365,91 @@ async function stats(url, env) {
     "SELECT app_version, os_version, COUNT(DISTINCT install_id) AS installs FROM events WHERE created_at >= ? GROUP BY app_version, os_version ORDER BY installs DESC LIMIT 20",
     since
   );
+
+  // ---- 使い勝手の計測 ----
+  // 流れ: その段階まで進んだ端末の数(起動した端末に対する割合)
+  const funnelSteps = [
+    ["app_open", "起動した"], ["project_create", "プロジェクトを作った"], ["media_add", "動画・写真を入れた"],
+    ["transcribe_done", "字幕を自動で作った"], ["export_done", "書き出した"],
+  ];
+  const funnelRows = await q(
+    "SELECT name, COUNT(DISTINCT install_id) AS installs FROM events WHERE created_at >= ? AND name IN ('app_open','project_create','media_add','transcribe_done','export_done') GROUP BY name",
+    since
+  );
+  const funnelMap = Object.fromEntries(funnelRows.map((r) => [r.name, r.installs]));
+  const opened = funnelMap.app_open || 0;
+  const funnel = funnelSteps.map(([name, label]) => ({
+    step: label,
+    installs: funnelMap[name] || 0,
+    rate: opened ? Math.round(((funnelMap[name] || 0) / opened) * 100) + "%" : "-",
+  }));
+  // 迷っている印: パネルを開いてキャンセルした割合
+  const panelCancel = await q(
+    `SELECT p.name AS name, p.n AS opened, COALESCE(c.n, 0) AS cancelled,
+            ROUND(100.0 * COALESCE(c.n, 0) / p.n) || '%' AS rate
+       FROM (SELECT json_extract(params, '$.name') AS name, COUNT(*) AS n FROM events WHERE created_at >= ? AND name = 'panel' GROUP BY 1) p
+       LEFT JOIN (SELECT json_extract(params, '$.name') AS name, COUNT(*) AS n FROM events WHERE created_at >= ? AND name = 'panel_cancel' GROUP BY 1) c
+         ON c.name = p.name
+      WHERE p.n >= 3
+      ORDER BY (1.0 * COALESCE(c.n, 0) / p.n) DESC LIMIT 30`,
+    since, since
+  );
+  const undoAfter = await q(
+    "SELECT json_extract(params, '$.after') AS after, COUNT(*) AS n, COUNT(DISTINCT install_id) AS installs FROM events WHERE created_at >= ? AND name = 'undo' GROUP BY after ORDER BY n DESC LIMIT 30",
+    since
+  );
+  const disabledTaps = await q(
+    "SELECT COALESCE(json_extract(params, '$.icon'), json_extract(params, '$.tool')) AS icon, MAX(json_extract(params, '$.tool')) AS tool, COUNT(*) AS n, COUNT(DISTINCT install_id) AS installs FROM events WHERE created_at >= ? AND name = 'disabled_tap' GROUP BY 1 ORDER BY n DESC LIMIT 30",
+    since
+  );
+  const searchSummary = await q(
+    "SELECT name, COUNT(*) AS n, COUNT(DISTINCT install_id) AS installs FROM events WHERE created_at >= ? AND name IN ('search_pick','search_no_result','search_abandon') GROUP BY name ORDER BY n DESC",
+    since
+  );
+  const searchPicks = await q(
+    "SELECT COALESCE(json_extract(params, '$.icon'), json_extract(params, '$.tool')) AS icon, MAX(json_extract(params, '$.tool')) AS tool, COUNT(*) AS n FROM events WHERE created_at >= ? AND name = 'search_pick' GROUP BY 1 ORDER BY n DESC LIMIT 20",
+    since
+  );
+  const transcribe = await q(
+    "SELECT name, json_extract(params, '$.engine') AS engine, COUNT(*) AS n FROM events WHERE created_at >= ? AND name IN ('transcribe_start','transcribe_done','transcribe_failed','transcribe_cancelled') GROUP BY name, engine ORDER BY engine, name",
+    since
+  );
+  // かかった時間: 開いてから書き出すまで・字幕を作ってから書き出すまで
+  const timeToExport = await q(
+    "SELECT json_extract(params, '$.since_open') AS since_open, COUNT(*) AS n FROM events WHERE created_at >= ? AND name = 'export_done' AND json_extract(params, '$.since_open') IS NOT NULL GROUP BY since_open ORDER BY n DESC",
+    since
+  );
+  const timeAfterCaptions = await q(
+    "SELECT json_extract(params, '$.since_captions') AS since_captions, COUNT(*) AS n FROM events WHERE created_at >= ? AND name = 'export_start' AND json_extract(params, '$.since_captions') IS NOT NULL GROUP BY since_captions ORDER BY n DESC",
+    since
+  );
+  // ひとことの感想
+  const feedback = await q(
+    "SELECT json_extract(params, '$.rating') AS rating, COALESCE(json_extract(params, '$.reason'), '') AS reason, COUNT(*) AS n FROM events WHERE created_at >= ? AND name = 'feedback' GROUP BY rating, reason ORDER BY rating DESC, n DESC",
+    since
+  );
+  // 動作の重さ(MetricKit。1 日 1 回ほどのまとめ)
+  const performance = await q(
+    `SELECT app_version, device, COUNT(*) AS reports,
+            ROUND(AVG(CAST(json_extract(params, '$.launch_ms') AS REAL))) AS launch_ms,
+            ROUND(AVG(CAST(json_extract(params, '$.hang_ms') AS REAL))) AS hang_ms,
+            SUM(CAST(COALESCE(json_extract(params, '$.hangs'), 0) AS INTEGER)) AS hangs,
+            ROUND(AVG(CAST(json_extract(params, '$.peak_mb') AS REAL))) AS peak_mb,
+            SUM(CAST(COALESCE(json_extract(params, '$.fg_abnormal'), 0) AS INTEGER)) AS abnormal_exits,
+            SUM(CAST(COALESCE(json_extract(params, '$.fg_memory'), 0) AS INTEGER)) AS memory_exits
+       FROM events WHERE created_at >= ? AND name = 'metrics'
+      GROUP BY app_version, device ORDER BY reports DESC LIMIT 30`,
+    since
+  );
+  const diagnostics = await q(
+    `SELECT app_version, SUM(CAST(json_extract(params, '$.crashes') AS INTEGER)) AS crashes,
+            SUM(CAST(json_extract(params, '$.hangs') AS INTEGER)) AS hangs,
+            SUM(CAST(json_extract(params, '$.cpu') AS INTEGER)) AS cpu,
+            SUM(CAST(json_extract(params, '$.disk') AS INTEGER)) AS disk
+       FROM events WHERE created_at >= ? AND name = 'diagnostic'
+      GROUP BY app_version ORDER BY app_version DESC LIMIT 20`,
+    since
+  );
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const table = (rows, cols) =>
     rows.length
@@ -370,6 +468,18 @@ async function stats(url, env) {
 <h2>書き出し(長さ別)</h2>${table(exportsRows, ["name", "length", "n"])}
 <h2>書き出しの失敗の種類</h2>${table(failed, ["kind", "n"])}
 <h2>バージョン・OS</h2>${table(versions, ["app_version", "os_version", "installs"])}
+<h1>使い勝手</h1>
+<h2>流れ(その段階まで進んだ端末)</h2>${table(funnel, ["step", "installs", "rate"])}
+<h2>パネルを開いてキャンセルした割合(高いほど迷っている)</h2>${table(panelCancel, ["name", "opened", "cancelled", "rate"])}
+<h2>元に戻す直前の操作(意図と違った印)</h2>${table(undoAfter, ["after", "n", "installs"])}
+<h2>使えないボタンを押した(理由が伝わっていない印)</h2>${table(disabledTaps, ["tool", "icon", "n", "installs"])}
+<h2>機能を探す</h2>${table(searchSummary, ["name", "n", "installs"])}${table(searchPicks, ["tool", "icon", "n"])}
+<h2>字幕の自動作成</h2>${table(transcribe, ["engine", "name", "n"])}
+<h2>開いてから書き出すまで</h2>${table(timeToExport, ["since_open", "n"])}
+<h2>字幕を作ってから書き出すまで</h2>${table(timeAfterCaptions, ["since_captions", "n"])}
+<h2>ひとことの感想</h2>${table(feedback, ["rating", "reason", "n"])}
+<h2>動作の重さ(MetricKit)</h2>${table(performance, ["app_version", "device", "reports", "launch_ms", "hang_ms", "hangs", "peak_mb", "abnormal_exits", "memory_exits"])}
+<h2>クラッシュ・固まり</h2>${table(diagnostics, ["app_version", "crashes", "hangs", "cpu", "disk"])}
 </body></html>`;
   return html(page);
 }
@@ -396,11 +506,11 @@ const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <h2>1. 動画・写真</h2>
 <p>編集する動画・写真・プロジェクトは、お使いの iPhone の中だけで処理・保存されます。開発者のサーバーに送られることはありません。</p>
 <h2>2. クラウド AI を使う場合</h2>
-<p>「クラウド AI」を選んだときだけ、文字起こしのための音声、字幕の整え・翻訳・台本作成のための文章、読み上げのための文章が OpenAI, L.L.C. に送られます(ポイントを使う場合は開発者のサーバーを経由し、内容は保存しません)。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
+<p>「クラウド AI」を選んだときだけ、文字起こしのための音声、字幕の整え・翻訳・台本作成のための文章、読み上げのための文章が OpenAI, L.L.C. に送られます(読み上げで Google の声を選んだときは、その文章が Google LLC に送られます)(ポイントを使う場合は開発者のサーバーを経由し、内容は保存しません)。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
 <h2>3. アカウントとポイント</h2>
 <p>Apple でサインインすると、Apple が発行する利用者ごとの識別子と、ポイントの残高・増減の記録を開発者のサーバー(Cloudflare)に保存します。氏名やメールアドレスは受け取りません。アプリの「文字起こしの方式」画面の「アカウントを削除」から、いつでも削除できます。</p>
 <h2>4. 使い方の統計</h2>
-<p>どの機能がどれだけ使われているかを、端末ごとのランダムな ID(アプリを削除すると変わります)で開発者のサーバーに送り、改善に役立てます。動画・文章・氏名は送りません。アプリの「文字起こしの方式」画面の「プライバシー」でいつでもオフにできます。</p>
+<p>どの機能がどれだけ使われているか、操作のどこで迷っているか(キャンセルや元に戻した回数など)、動作の重さ・異常終了の回数(Apple の MetricKit のまとめ)、書き出し後の任意の感想を、端末ごとのランダムな ID(アプリを削除すると変わります)で開発者のサーバーに送り、改善に役立てます。動画・文章・検索した言葉・氏名は送りません。アプリの「文字起こしの方式」画面の「プライバシー」でいつでもオフにできます。</p>
 <h2>5. 広告</h2>
 <p>アプリは Google AdMob の広告を表示します。AdMob は広告の配信・測定のために、端末の広告識別子(許可した場合)やおおよその位置などを利用することがあります。詳しくは <a href="https://policies.google.com/technologies/ads?hl=ja">Google のポリシー</a>をご覧ください。トラッキングは iPhone の設定でいつでも許可を取り消せます。</p>
 <h2>6. Google フォトからの取り込み</h2>
@@ -414,7 +524,7 @@ const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <p><a href="/support">サポートページ</a>をご覧ください。</p>
 <hr>
 <h1>Privacy Policy (English)</h1>
-<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI; with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. Anonymous usage statistics (which features are used, keyed by a random per-install ID) are sent to our server to improve the app; you can turn this off in the app. We do not share personal data with third parties except as required by law.</p>
+<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI (or to Google when you choose a Google voice); with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. Anonymous usage statistics (which features are used, keyed by a random per-install ID) are sent to our server to improve the app; you can turn this off in the app. We do not share personal data with third parties except as required by law.</p>
 <h2>Google Photos</h2>
 <p>When you add media from Google Photos, you sign in with Google and the app uses the Google Photos Picker API. The app only receives the photos and videos you select in the Google Photos picker (and their file name and type); it cannot see the rest of your library or your albums. The selected items are downloaded directly from Google to your iPhone and used only for editing there. They are never sent to our server or to any third party, and are not used for advertising or AI training (the only exception: if you yourself choose a Cloud AI feature such as cloud transcription for an imported video, only its audio is sent as described above). Your Google sign-in tokens are stored only on your iPhone (in the Keychain) and are never sent to our server. You can disconnect with "Log out" in the app, and revoke access at any time in your Google Account under Security &rarr; Third-party apps &amp; services (<a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>).</p>
 <p>Video Mania's use and transfer to any other app of information received from Google APIs will adhere to <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
@@ -615,13 +725,15 @@ async function transcribe(request, user, env) {
   });
 }
 
-// クラウドの声(読み上げ)。本文: { input, voice, speed?, instructions? }。音声(mp3)をそのまま返す
+// クラウドの声(読み上げ)。本文: { input, voice, speed?, instructions?, provider? }。音声(mp3)をそのまま返す。
+// provider が "google" なら Google の声(日本語)、それ以外は OpenAI
 async function speech(request, user, env) {
   const body = await request.json().catch(() => null);
   if (!body || typeof body.input !== "string") return error(400, "形式が正しくありません", "bad_request");
   const input = body.input.trim();
   if (!input) return error(400, "読み上げる文章が空です", "bad_request");
   if (input.length > MAX_SPEECH_CHARS) return error(413, "文章が長すぎます(" + MAX_SPEECH_CHARS + " 文字まで)", "too_large");
+  if (body.provider === "google") return await googleSpeech(body, input, user, env);
   const voice = SPEECH_VOICES.includes(body.voice) ? body.voice : "alloy";
   const speed = Math.min(4, Math.max(0.25, Number(body.speed || 1)));
   const payload = { model: SPEECH_MODEL, input, voice, speed, response_format: "mp3" };
@@ -653,6 +765,89 @@ async function speech(request, user, env) {
     status: 200,
     headers: { "content-type": "audio/mpeg", "x-vm-points": String(await balance(env, user.id)) },
   });
+}
+
+// Google の声。長い文章は文の切れ目で分けて順に作り、mp3 をつなげて返す
+async function googleSpeech(body, input, user, env) {
+  if (!env.GOOGLE_TTS_API_KEY) return error(503, "Google の声はまだ使えません", "google_not_configured");
+  const voice = GOOGLE_VOICES.includes(body.voice) ? body.voice : GOOGLE_VOICES[0];
+  const speakingRate = Math.min(2, Math.max(0.25, Number(body.speed || 1)));
+  const cost = Math.max(1, Math.ceil(input.length / 1000)) * POINTS.speechPerThousandChars;
+  if (!(await reserve(env, user.id, cost, "speech:google"))) {
+    return insufficient(cost, await balance(env, user.id));
+  }
+  const chunks = [];
+  for (const part of splitByBytes(input, GOOGLE_MAX_BYTES)) {
+    let upstream;
+    try {
+      upstream = await fetch(GOOGLE_TTS, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": env.GOOGLE_TTS_API_KEY },
+        body: JSON.stringify({
+          input: { text: part },
+          voice: { languageCode: voice.slice(0, 5), name: voice },
+          audioConfig: { audioEncoding: "MP3", speakingRate },
+        }),
+      });
+    } catch (e) {
+      await refund(env, user.id, cost, "speech:google:refund");
+      return error(502, "読み上げのサービスにつながりませんでした", "upstream_unreachable");
+    }
+    if (!upstream.ok) {
+      await refund(env, user.id, cost, "speech:google:refund");
+      if (upstream.status === 401 || upstream.status === 403) return upstreamAuthError();
+      const text = await upstream.text();
+      return new Response(text, { status: upstream.status, headers: { "content-type": upstream.headers.get("content-type") || "application/json" } });
+    }
+    const json = await upstream.json().catch(() => null);
+    if (!json || typeof json.audioContent !== "string") {
+      await refund(env, user.id, cost, "speech:google:refund");
+      return error(502, "読み上げの結果を読めませんでした", "upstream_bad_response");
+    }
+    const binary = atob(json.audioContent);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    chunks.push(bytes);
+  }
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const audio = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    audio.set(c, offset);
+    offset += c.length;
+  }
+  return new Response(audio, {
+    status: 200,
+    headers: { "content-type": "audio/mpeg", "x-vm-points": String(await balance(env, user.id)) },
+  });
+}
+
+// 文の切れ目(。!? と改行)で区切り、1 つが maxBytes(UTF-8)を超えないようにまとめる
+function splitByBytes(text, maxBytes) {
+  const encoder = new TextEncoder();
+  const size = (s) => encoder.encode(s).length;
+  const sentences = text.match(/[^。！？!?\n]+[。！？!?\n]*|[。！？!?\n]+/g) || [text];
+  const parts = [];
+  let current = "";
+  for (const sentence of sentences) {
+    if (size(current + sentence) <= maxBytes) {
+      current += sentence;
+      continue;
+    }
+    if (current) parts.push(current);
+    current = "";
+    // 1 文だけで長すぎるときは、文字数で切る
+    let piece = sentence;
+    while (size(piece) > maxBytes) {
+      let cut = piece.length;
+      while (cut > 1 && size(piece.slice(0, cut)) > maxBytes) cut = Math.floor(cut * 0.9);
+      parts.push(piece.slice(0, cut));
+      piece = piece.slice(cut);
+    }
+    current = piece;
+  }
+  if (current) parts.push(current);
+  return parts;
 }
 
 async function chat(request, user, env) {

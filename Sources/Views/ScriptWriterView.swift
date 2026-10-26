@@ -311,7 +311,12 @@ struct ScriptWriterSheetView: View {
                         }
                     }
                     Section(String(localized: "クラウドの声(OpenAI)")) {
-                        ForEach(CloudVoice.allCases) { voice in
+                        ForEach(CloudVoice.openAIVoices) { voice in
+                            Button(voice.displayName) { cloudVoice = voice }
+                        }
+                    }
+                    Section(String(localized: "クラウドの声(Google・日本語)")) {
+                        ForEach(CloudVoice.googleVoices) { voice in
                             Button(voice.displayName) { cloudVoice = voice }
                         }
                     }

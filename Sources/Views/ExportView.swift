@@ -747,6 +747,7 @@ struct ExportView: View {
                 Section {
                     resultView
                     if exporter.state == .finished {
+                        ExportFeedbackCard()
                         NativeAdCard()
                     }
                 }

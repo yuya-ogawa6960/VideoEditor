@@ -21,7 +21,7 @@ enum TextToSpeechError: LocalizedError {
     }
 }
 
-/// 読み上げに使う声。端末の声(AVSpeechSynthesisVoice)か、クラウドの声(OpenAI gpt-4o-mini-tts)
+/// 読み上げに使う声。端末の声(AVSpeechSynthesisVoice)か、クラウドの声(OpenAI gpt-4o-mini-tts / Google)
 enum TTSVoiceChoice: Equatable {
     /// 端末の声(nil は言語の標準の声)
     case device(String?)
@@ -34,13 +34,38 @@ enum TTSVoiceChoice: Equatable {
     }
 }
 
-/// OpenAI の読み上げの声(gpt-4o-mini-tts / tts-1 共通の名前)
+/// クラウドの読み上げの声。OpenAI(gpt-4o-mini-tts / tts-1 共通の名前)と Google(日本語。rawValue は Google の声の名前)
 enum CloudVoice: String, CaseIterable, Identifiable {
     case alloy, ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse
+    // Google(日本語)。Chirp 3 HD は自然さ重視、Neural2 は少し安定した読み方
+    case googleAoede = "ja-JP-Chirp3-HD-Aoede"
+    case googleKore = "ja-JP-Chirp3-HD-Kore"
+    case googleLeda = "ja-JP-Chirp3-HD-Leda"
+    case googleZephyr = "ja-JP-Chirp3-HD-Zephyr"
+    case googleCharon = "ja-JP-Chirp3-HD-Charon"
+    case googleFenrir = "ja-JP-Chirp3-HD-Fenrir"
+    case googleOrus = "ja-JP-Chirp3-HD-Orus"
+    case googlePuck = "ja-JP-Chirp3-HD-Puck"
+    case googleNeural2B = "ja-JP-Neural2-B"
+    case googleNeural2C = "ja-JP-Neural2-C"
+    case googleNeural2D = "ja-JP-Neural2-D"
+
     var id: String { rawValue }
 
-    /// 一覧に出す名前(英語名 + 雰囲気)
-    var displayName: String { "\(rawValue.capitalized)(\(mood))" }
+    /// Google の声か(ポイントでだけ使える。話し方の指示は使えない)
+    var isGoogle: Bool { rawValue.hasPrefix("ja-JP-") }
+
+    static var openAIVoices: [CloudVoice] { allCases.filter { !$0.isGoogle } }
+    static var googleVoices: [CloudVoice] { allCases.filter { $0.isGoogle } }
+
+    /// 一覧に出す名前(名前 + 雰囲気)
+    var displayName: String {
+        if isGoogle {
+            let name = rawValue.components(separatedBy: "Chirp3-HD-").last ?? rawValue
+            return "\(name.replacingOccurrences(of: "ja-JP-", with: ""))(\(mood))"
+        }
+        return "\(rawValue.capitalized)(\(mood))"
+    }
 
     var mood: String {
         switch self {
@@ -55,6 +80,17 @@ enum CloudVoice: String, CaseIterable, Identifiable {
         case .sage: return String(localized: "穏やか・知的")
         case .shimmer: return String(localized: "女性・澄んだ")
         case .verse: return String(localized: "男性・若い")
+        case .googleAoede: return String(localized: "女性・軽やか")
+        case .googleKore: return String(localized: "女性・しっかり")
+        case .googleLeda: return String(localized: "女性・若々しい")
+        case .googleZephyr: return String(localized: "女性・明るい")
+        case .googleCharon: return String(localized: "男性・落ち着き")
+        case .googleFenrir: return String(localized: "男性・はつらつ")
+        case .googleOrus: return String(localized: "男性・しっかり")
+        case .googlePuck: return String(localized: "男性・元気")
+        case .googleNeural2B: return String(localized: "女性・標準")
+        case .googleNeural2C: return String(localized: "男性・標準")
+        case .googleNeural2D: return String(localized: "男性・低め")
         }
     }
 }
@@ -156,6 +192,8 @@ enum CloudTextToSpeechError: LocalizedError {
     case upstreamAuth
     /// ポイント(サーバー)のログインの期限が切れた(サインアウト済み)
     case sessionExpired
+    /// Google の声はポイント(サーバー経由)でだけ使える
+    case googleNeedsPoints
     case server(Int, String)
 
     var errorDescription: String? {
@@ -168,6 +206,8 @@ enum CloudTextToSpeechError: LocalizedError {
             return String(localized: "APIキーが正しくありません。「文字起こしの方式」の画面で OpenAI の API キーを確認してください。")
         case .sessionExpired:
             return String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。")
+        case .googleNeedsPoints:
+            return String(localized: "Google の声はポイントで使います。「文字起こしの方式」の画面で Apple でサインインし、ポイントを使う設定にしてください。")
         case .server(let status, let detail):
             return String(localized: "クラウドの声を作れませんでした(\(status)): \(detail)")
         }
@@ -181,6 +221,8 @@ enum CloudTextToSpeech {
         guard !trimmed.isEmpty else { throw TextToSpeechError.emptyText }
         // どちらに送ったか(エラーの見せ方を決める。送っている間に設定が変わっても、送った宛先で判断する)
         let viaServer = CloudAIGateway.usesPoints
+        // Google の声は自分の OpenAI キーでは作れない(サーバーが Google に頼む)
+        if voice.isGoogle, !viaServer { throw CloudTextToSpeechError.googleNeedsPoints }
         let credential = CloudAIGateway.credential
         guard !credential.isEmpty else { throw CloudTextToSpeechError.notConfigured }
 
@@ -191,7 +233,9 @@ enum CloudTextToSpeech {
             "speed": min(max(speed, 0.25), 4),
             "response_format": "mp3"
         ]
-        if let instructions = instructions?.trimmingCharacters(in: .whitespacesAndNewlines), !instructions.isEmpty {
+        if voice.isGoogle {
+            body["provider"] = "google"
+        } else if let instructions = instructions?.trimmingCharacters(in: .whitespacesAndNewlines), !instructions.isEmpty {
             body["instructions"] = instructions
         }
         var request = URLRequest(url: CloudAIGateway.speechURL)
@@ -209,7 +253,10 @@ enum CloudTextToSpeech {
                 ? (String(data: data.prefix(200), encoding: .utf8) ?? "")
                 : errorBody.displayMessage
             // ポイント不足(サーバーの文は日本語だけなので、端末の言語の文を出す)
-            if status == 402 { throw CloudTextToSpeechError.insufficientPoints("") }
+            if status == 402 {
+                throw CloudTextToSpeechError.insufficientPoints(
+                    voice.isGoogle ? String(localized: "ポイントが足りません。毎日ボーナスや広告でポイントを増やしてください。") : "")
+            }
             if status == 401, viaServer {
                 // ログインの期限切れ。送ったトークンが今のものならサインアウトする
                 await MainActor.run { AccountService.shared.handleSessionExpired(sentToken: credential) }

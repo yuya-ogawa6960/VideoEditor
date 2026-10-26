@@ -108,6 +108,8 @@ struct ContentView: View {
     @State private var importAppendsAtEnd = false
     /// ドロップで差し込む位置(タイムラインに落としたとき。importLocalFiles が一度だけ使う)
     @State private var importInsertIndex: Int? = nil
+    /// 使い勝手の計測: 取り込んだ場所(ドロップのときだけ上書き)
+    @State private var importSourceOverride: String? = nil
     /// ドラッグ中の項目がタイムライン・プレビューの上にあるか
     @State private var timelineDropTargeted = false
     @State private var previewDropTargeted = false
@@ -458,6 +460,7 @@ struct ContentView: View {
             toast = nil
         }
         activePanel = nil
+        Analytics.shared.trackUndo(source: "toast")
         history.undo(project)
     }
 
@@ -549,6 +552,7 @@ struct ContentView: View {
             Button {
                 EditorHaptics.tap()
                 activePanel = nil
+                Analytics.shared.trackUndo(source: "button")
                 history.undo(project)
             } label: {
                 Image(systemName: "arrow.uturn.backward")
@@ -982,6 +986,7 @@ struct ContentView: View {
 
     /// パネルの ✓(完了)。手書き中なら描いた線を追加してから閉じる
     private func closePanel(_ panel: EditorPanel) {
+        Analytics.shared.noteAction(Self.analyticsName(of: panel))
         if panel == .drawingCanvas {
             finishDrawing()
         } else {
@@ -1003,6 +1008,7 @@ struct ContentView: View {
 
     /// パネルの ✕「キャンセル」。開いたときの状態に戻して閉じる
     private func cancelPanel(_ panel: EditorPanel) {
+        Analytics.shared.track("panel_cancel", ["name": Self.analyticsName(of: panel)])
         if panel == .drawingCanvas {
             cancelDrawing()
             return
@@ -3138,6 +3144,7 @@ struct ContentView: View {
         isImporting = false
         importFraction = nil
         importTask = nil
+        trackMediaAdd(target: "overlay", source: "photos", count: lastAdded == nil ? 0 : importDone - failures.count)
         if let lastAdded {
             selection = .overlay(lastAdded)
             // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻せる
@@ -3787,6 +3794,7 @@ struct ContentView: View {
         MediaTools.registerStoredFonts()
         if !didRestore {
             didRestore = true
+            Analytics.shared.projectOpened()
             let photoReferences: [String] = ProjectStore.photoReferences(projectID: projectID)
             if photoReferences.isEmpty {
                 restoreSavedProject()
@@ -3938,6 +3946,7 @@ struct ContentView: View {
             }
             importDone += 1
         }
+        trackMediaAdd(target: "clip", source: "photos", count: added)
         if added > 0, let rippleTime {
             project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
         }
@@ -4108,6 +4117,9 @@ struct ContentView: View {
             importDone += 1
             processed += 1
         }
+        trackMediaAdd(target: "clip",
+                      source: securityScoped ? "files" : (incomingFlags.contains(true) ? "share" : "google"),
+                      count: added)
         if added > 0, let rippleTime {
             project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
         }
@@ -4153,6 +4165,15 @@ struct ContentView: View {
         }
     }
 
+    /// 取り込んだ(使い勝手の計測。どこから・何本。名前や中身は送らない)
+    private func trackMediaAdd(target: String, source: String, count: Int) {
+        defer { importSourceOverride = nil }
+        guard count > 0 else { return }
+        Analytics.shared.track("media_add", ["target": target, "source": importSourceOverride ?? source,
+                                             "count": Analytics.countBucket(count)])
+        Analytics.shared.noteAction("media_add")
+    }
+
     // MARK: ドラッグ&ドロップ
 
     /// ほかのアプリから落とした動画・写真を受け取れるか(読み込み中・パネルや画面内の処理の間は受け取らない)
@@ -4187,6 +4208,7 @@ struct ContentView: View {
     /// 落とした項目を一時フォルダにコピーしてから取り込む(コピーの間も「読み込み中」を出す)
     private func beginDropImport(_ providers: [NSItemProvider], then importFiles: @escaping @MainActor ([URL]) async -> Void) {
         EditorHaptics.tap()
+        importSourceOverride = "drop"
         isImporting = true
         importTotal = providers.count
         importDone = 0
@@ -4197,6 +4219,7 @@ struct ContentView: View {
             importIsDownloading = false
             guard !urls.isEmpty, !Task.isCancelled else {
                 MediaDrop.remove(urls)
+                importSourceOverride = nil
                 isImporting = false
                 importTask = nil
                 if !Task.isCancelled {
@@ -4265,6 +4288,7 @@ struct ContentView: View {
         isImporting = false
         importFraction = nil
         importTask = nil
+        trackMediaAdd(target: "overlay", source: "photos", count: lastAdded == nil ? 0 : importDone - failures.count)
         if let lastAdded {
             selection = .overlay(lastAdded)
             // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻せる

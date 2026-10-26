@@ -416,6 +416,8 @@ enum CloudAIGateway {
     /// サーバーのエラーの code(server/src/index.js)を、端末の言語の文にする。知らない code は nil(サーバーの文を使う)
     static func localizedServerMessage(code: String) -> String? {
         switch code {
+        case "google_not_configured":
+            return String(localized: "Google の声はまだ使えません。")
         case "unauthorized":
             return String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。")
         case "insufficient_points":

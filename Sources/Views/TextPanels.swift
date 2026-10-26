@@ -1615,8 +1615,11 @@ struct EditorTextToSpeechPanel: View {
                     EditorChip(title: String(localized: "端末の声"), isSelected: cloudVoice == nil) {
                         cloudVoice = nil
                     }
-                    EditorChip(title: String(localized: "クラウドの声(OpenAI)"), isSelected: cloudVoice != nil) {
-                        if cloudVoice == nil { cloudVoice = .alloy }
+                    EditorChip(title: "OpenAI", isSelected: cloudVoice.map { !$0.isGoogle } ?? false) {
+                        if cloudVoice == nil || cloudVoice?.isGoogle == true { cloudVoice = .alloy }
+                    }
+                    EditorChip(title: "Google", isSelected: cloudVoice?.isGoogle ?? false) {
+                        if cloudVoice?.isGoogle != true { cloudVoice = .googleAoede }
                     }
                     Spacer()
                 }
@@ -1629,7 +1632,7 @@ struct EditorTextToSpeechPanel: View {
                                 Button(voice.name) { voiceID = voice.id }
                             }
                         } else {
-                            ForEach(CloudVoice.allCases) { voice in
+                            ForEach(cloudVoice?.isGoogle == true ? CloudVoice.googleVoices : CloudVoice.openAIVoices) { voice in
                                 Button(voice.displayName) { cloudVoice = voice }
                             }
                         }
@@ -1659,6 +1662,8 @@ struct EditorTextToSpeechPanel: View {
                         }
                     }
                     TextPanelHint(text: String(localized: "声を増やす: iPhone の「設定」→「アクセシビリティ」→「読み上げコンテンツ」→「声」で、高品質の声をダウンロードするとここに並びます。「パーソナルボイス」で作った自分の声も使えます。"))
+                } else if cloudVoice?.isGoogle == true {
+                    TextPanelHint(text: String(localized: "Google の声は日本語向けです。1000 文字ごとにポイントを使います。"))
                 } else {
                     EditorTextFieldRow(title: String(localized: "話し方の指示(任意)"),
                                        placeholder: String(localized: "例: 元気に、ゆっくり落ち着いて、ささやくように"),

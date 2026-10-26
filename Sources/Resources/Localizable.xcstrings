@@ -4095,6 +4095,75 @@
         }
       }
     },
+    "Google の声はまだ使えません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google voices aren't available yet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las voces de Google aún no están disponibles."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As vozes do Google ainda não estão disponíveis."
+          }
+        }
+      }
+    },
+    "Google の声はポイントで使います。「文字起こしの方式」の画面で Apple でサインインし、ポイントを使う設定にしてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google voices use points. On the Transcription screen, sign in with Apple and choose to use points."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las voces de Google usan puntos. En la pantalla de transcripción, inicia sesión con Apple y elige usar puntos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As vozes do Google usam pontos. Na tela de transcrição, entre com a Apple e escolha usar pontos."
+          }
+        }
+      }
+    },
+    "Google の声は日本語向けです。1000 文字ごとにポイントを使います。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google voices are for Japanese. Uses points per 1,000 characters."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las voces de Google son para japonés. Usa puntos por cada 1000 caracteres."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As vozes do Google são para japonês. Usa pontos a cada 1.000 caracteres."
+          }
+        }
+      }
+    },
     "Google の応答を読めませんでした。もう一度お試しください。": {
       "extractionState": "manual",
       "localizations": {
@@ -7131,6 +7200,29 @@
         }
       }
     },
+    "ありがとうございました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thank you"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gracias"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obrigado"
+          }
+        }
+      }
+    },
     "ある日の記録": {
       "extractionState": "manual",
       "localizations": {
@@ -9450,6 +9542,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Onde você vai usar?"
+          }
+        }
+      }
+    },
+    "どこで迷いましたか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where did you get stuck?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Dónde te atascaste?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde você travou?"
           }
         }
       }
@@ -13360,6 +13475,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Baixando da nuvem… (vídeos grandes podem levar alguns minutos)"
+          }
+        }
+      }
+    },
+    "クラウドの声(Google・日本語)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Voices (Google, Japanese)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voces en la nube (Google, japonés)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vozes na nuvem (Google, japonês)"
           }
         }
       }
@@ -20310,6 +20448,29 @@
         }
       }
     },
+    "ポイントが足りません。毎日ボーナスや広告でポイントを増やしてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough points. Get more with the daily bonus or ads."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tienes suficientes puntos. Consigue más con el bono diario o los anuncios."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pontos insuficientes. Ganhe mais com o bônus diário ou anúncios."
+          }
+        }
+      }
+    },
     "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。": {
       "extractionState": "manual",
       "localizations": {
@@ -24009,6 +24170,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não é possível criar a pasta de trabalho (%@)"
+          }
+        }
+      }
+    },
+    "使いやすかった": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Easy to use"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fácil de usar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fácil de usar"
+          }
+        }
+      }
+    },
+    "使い心地はどうでしたか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How was it to use?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Qué tal fue usarla?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como foi usar?"
           }
         }
       }
@@ -28084,6 +28291,29 @@
         }
       }
     },
+    "動作が重い": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slow"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lento"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lento"
+          }
+        }
+      }
+    },
     "動物": {
       "extractionState": "manual",
       "localizations": {
@@ -31166,6 +31396,29 @@
         }
       }
     },
+    "女性・しっかり": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Female, firm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Femenina, firme"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feminina, firme"
+          }
+        }
+      }
+    },
     "女性・元気": {
       "extractionState": "manual",
       "localizations": {
@@ -31212,6 +31465,29 @@
         }
       }
     },
+    "女性・標準": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Female, standard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Femenina, estándar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feminina, padrão"
+          }
+        }
+      }
+    },
     "女性・澄んだ": {
       "extractionState": "manual",
       "localizations": {
@@ -31231,6 +31507,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "feminina, clara"
+          }
+        }
+      }
+    },
+    "女性・若々しい": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Female, youthful"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Femenina, juvenil"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feminina, jovem"
+          }
+        }
+      }
+    },
+    "女性・軽やか": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Female, breezy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Femenina, ligera"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feminina, leve"
           }
         }
       }
@@ -39400,6 +39722,29 @@
         }
       }
     },
+    "男性・しっかり": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Male, firm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, firme"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, firme"
+          }
+        }
+      }
+    },
     "男性・はっきり": {
       "extractionState": "manual",
       "localizations": {
@@ -39419,6 +39764,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "masculina, nítida"
+          }
+        }
+      }
+    },
+    "男性・はつらつ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Male, lively"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, animada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, animada"
           }
         }
       }
@@ -39465,6 +39833,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "masculina, grave"
+          }
+        }
+      }
+    },
+    "男性・低め": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Male, lower"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, grave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, grave"
+          }
+        }
+      }
+    },
+    "男性・元気": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Male, upbeat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, alegre"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, alegre"
+          }
+        }
+      }
+    },
+    "男性・標準": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Male, standard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, estándar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masculina, padrão"
           }
         }
       }
@@ -40845,6 +41282,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Capítulo 1"
+          }
+        }
+      }
+    },
+    "答えずに送る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Without Choosing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar sin elegir"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar sem escolher"
           }
         }
       }
@@ -46526,6 +46986,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Leve (para redes sociais)"
+          }
+        }
+      }
+    },
+    "迷った": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Got stuck"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Me atasqué"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Travei"
           }
         }
       }

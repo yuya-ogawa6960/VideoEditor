@@ -3,6 +3,7 @@
 #   CLOUDFLARE_API_TOKEN   … Cloudflare の API トークン(「Workers を編集」+ D1 の編集権限)
 #   CLOUDFLARE_ACCOUNT_ID  … Cloudflare のアカウント ID
 #   OPENAI_API_KEY         … サーバーが使う OpenAI のキー
+#   GOOGLE_TTS_API_KEY     … Google の読み上げ(Text-to-Speech API)のキー。なければ Google の声は使えない
 # セッションの署名用の秘密(SESSION_SECRET)は、まだなければここで作ってサーバーに保存する。
 name: Deploy server
 
@@ -23,6 +24,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY }}
       STATS_TOKEN: ${{ secrets.STATS_TOKEN }}
     defaults:
       run:
@@ -100,6 +102,12 @@ jobs:
           printf '%s' "$OPENAI_API_KEY" | npx wrangler secret put OPENAI_API_KEY
           if ! npx wrangler secret list | grep -q SESSION_SECRET; then
             openssl rand -hex 32 | tr -d '\n' | npx wrangler secret put SESSION_SECRET
+          fi
+          # Google の読み上げのキー。GitHub の secret GOOGLE_TTS_API_KEY を設定したときだけ(貼り付けた空白・改行は除く)
+          if [ -n "$GOOGLE_TTS_API_KEY" ]; then
+            GOOGLE=$(printf '%s' "$GOOGLE_TTS_API_KEY" | tr -d '[:space:]')
+            echo "::add-mask::$GOOGLE"
+            printf '%s' "$GOOGLE" | npx wrangler secret put GOOGLE_TTS_API_KEY
           fi
           # 利用状況ページ(/stats?token=…)の合言葉。GitHub の secret STATS_TOKEN を設定したときだけ
           if [ -n "$STATS_TOKEN" ]; then

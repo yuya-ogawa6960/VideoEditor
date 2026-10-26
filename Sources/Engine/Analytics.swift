@@ -104,6 +104,77 @@ final class Analytics {
         }
     }
 
+    /// 長めの時間の区分(編集にかかった時間など)
+    static func longDurationBucket(_ seconds: Double) -> String {
+        switch seconds {
+        case ..<60: return "<1m"
+        case ..<300: return "1-5m"
+        case ..<900: return "5-15m"
+        case ..<1800: return "15-30m"
+        case ..<3600: return "30-60m"
+        default: return ">60m"
+        }
+    }
+
+    /// 数の区分("1" / "2-5" / "6-20" / ">20")
+    static func countBucket(_ count: Int) -> String {
+        switch count {
+        case ..<2: return "1"
+        case ..<6: return "2-5"
+        case ..<21: return "6-20"
+        default: return ">20"
+        }
+    }
+
+    // MARK: 使い勝手の計測(迷っている印・かかった時間)
+
+    @ObservationIgnored private var projectOpenedAt: Date?
+    @ObservationIgnored private var captionsDoneAt: Date?
+    @ObservationIgnored private var lastAction: (name: String, at: Date)?
+
+    /// プロジェクトを開いた(書き出しまでの時間を測る)
+    func projectOpened() {
+        projectOpenedAt = Date()
+        captionsDoneAt = nil
+        lastAction = nil
+    }
+
+    /// 直前の操作(元に戻したとき、何を戻したかを知るため)
+    func noteAction(_ name: String) {
+        lastAction = (name, Date())
+    }
+
+    /// 字幕を作り終えた(書き出しまでに字幕を直す時間を測る)
+    func captionsDone() {
+        captionsDoneAt = Date()
+        noteAction("captions")
+    }
+
+    /// 元に戻した。直前 60 秒以内の操作があれば、それを戻したとみなす(意図と違う結果になった印)
+    func trackUndo(source: String) {
+        var params = ["source": source, "after": "none"]
+        if let lastAction {
+            let elapsed = Date().timeIntervalSince(lastAction.at)
+            if elapsed < 60 {
+                params["after"] = lastAction.name
+                params["within"] = Self.durationBucket(elapsed)
+            }
+        }
+        track("undo", params)
+    }
+
+    /// 書き出しの出来事に足す時間(プロジェクトを開いてから・字幕を作ってから)
+    func exportTiming() -> [String: String] {
+        var params: [String: String] = [:]
+        if let projectOpenedAt {
+            params["since_open"] = Self.longDurationBucket(Date().timeIntervalSince(projectOpenedAt))
+        }
+        if let captionsDoneAt {
+            params["since_captions"] = Self.longDurationBucket(Date().timeIntervalSince(captionsDoneAt))
+        }
+        return params
+    }
+
     private func sessionStarted() {
         guard sessionStart == nil else { return }
         sessionStart = Date()

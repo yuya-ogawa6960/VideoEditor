@@ -132,6 +132,8 @@ struct EditorToolSearchSheet: View {
     let onPick: (EditorToolSearchEntry) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+    /// 結果から選んだ(閉じたときに「見つからなかった」として数えない)
+    @State private var didPick = false
 
     var body: some View {
         NavigationStack {
@@ -162,6 +164,15 @@ struct EditorToolSearchSheet: View {
                         prompt: String(localized: "機能の名前・やりたいこと"))
             .navigationTitle("機能を探す")
             .navigationBarTitleDisplayMode(.inline)
+            // 使い勝手の計測: 探したのに見つからなかった(検索語そのものは送らず、長さだけ)
+            .onDisappear {
+                let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !didPick, !trimmed.isEmpty else { return }
+                let found = contextEntries.contains { EditorToolSearchIndex.matches($0, query: query) }
+                    || rootEntries.contains { EditorToolSearchIndex.matches($0, query: query) }
+                Analytics.shared.track(found ? "search_abandon" : "search_no_result",
+                                       ["length": Analytics.countBucket(trimmed.count)])
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { dismiss() }
@@ -173,6 +184,8 @@ struct EditorToolSearchSheet: View {
 
     private func row(_ entry: EditorToolSearchEntry) -> some View {
         Button {
+            didPick = true
+            Analytics.shared.track("search_pick", ["tool": entry.item.id, "icon": entry.item.systemImage])
             onPick(entry)
             dismiss()
         } label: {

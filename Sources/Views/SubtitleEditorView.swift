@@ -588,6 +588,10 @@ struct SubtitleEditorView: View {
                 transcriptionTask = nil
                 return
             }
+            // 使い勝手の計測: 字幕を作り始めた・終わった・失敗した(方式と所要時間の区分だけ)
+            let engine = AppSettings.shared.transcriptionEngine.rawValue
+            let startedAt = Date()
+            Analytics.shared.track("transcribe_start", ["engine": engine])
             do {
                 let transcribed = try await transcriber.transcribe(snapshot: snapshot, language: language,
                                                                    defaultCaption: defaultCaption,
@@ -596,6 +600,7 @@ struct SubtitleEditorView: View {
                 let cues = SubtitleWordTiming.fillingMissing(transcribed)
                 if Task.isCancelled {
                     transcriptionTask = nil
+                    Analytics.shared.track("transcribe_cancelled", ["engine": engine])
                     return
                 }
                 if let onlyClipID, let range = project.outputRange(ofClip: onlyClipID) {
@@ -609,6 +614,10 @@ struct SubtitleEditorView: View {
                 }
                 project.sortSubtitles()
                 transcriptionTask = nil
+                Analytics.shared.track("transcribe_done", ["engine": engine,
+                                                           "took": Analytics.durationBucket(Date().timeIntervalSince(startedAt)),
+                                                           "cues": cues.isEmpty ? "0" : Analytics.countBucket(cues.count)])
+                if !cues.isEmpty { Analytics.shared.captionsDone() }
                 if cues.isEmpty {
                     showAlert(title: String(localized: "声が見つかりませんでした"),
                               message: String(localized: "話している言語が合っているか確かめて、もう一度お試しください。BGMだけの動画では字幕は作られません。"))
@@ -617,15 +626,18 @@ struct SubtitleEditorView: View {
                 }
             } catch is CancellationError {
                 transcriptionTask = nil
+                Analytics.shared.track("transcribe_cancelled", ["engine": engine])
             } catch TranscriptionError.notAuthorized {
                 // Whisper の準備中に Apple 音声認識へ切り替えたあと、音声認識の許可が無かったとき
                 transcriptionTask = nil
+                Analytics.shared.track("transcribe_failed", ["engine": engine, "kind": "not_authorized"])
                 showAlert(title: String(localized: "音声認識を許可してください"),
                           message: String(localized: "「設定を開く」→「音声認識」をオンにしてから、もう一度「自動で字幕を作る」を押してください。"),
                           offersSettings: true)
             } catch {
                 let cancelled = Task.isCancelled
                 transcriptionTask = nil
+                Analytics.shared.track(cancelled ? "transcribe_cancelled" : "transcribe_failed", ["engine": engine])
                 if !cancelled {
                     showAlert(title: String(localized: "字幕を作れませんでした"),
                               message: String(localized: "通信できる場所で、もう一度「自動で字幕を作る」を押してください。続くときは「文字起こしの方式とAI仕上げ」で方式を変えてみてください。\n\n詳細: ") + error.localizedDescription)

@@ -146,7 +146,8 @@ final class ExportManager {
     // MARK: - Public API
 
     func start(snapshot: ProjectSnapshot, saveToPhotos: Bool) {
-        Analytics.shared.track("export_start", Self.analyticsParams(snapshot, dual: false, saveToPhotos: saveToPhotos))
+        Analytics.shared.track("export_start", Self.analyticsParams(snapshot, dual: false, saveToPhotos: saveToPhotos)
+            .merging(Analytics.shared.exportTiming()) { current, _ in current })
         exportOnMain { [weak self] in
             guard let self, !self.isRunning else { return }
             self.queuedJobs = []
@@ -159,7 +160,8 @@ final class ExportManager {
 
     /// 横 16:9 → 縦 9:16(ぼかし背景)の順に 2 本続けて書き出す
     func startDual(snapshot: ProjectSnapshot, saveToPhotos: Bool = false) {
-        Analytics.shared.track("export_start", Self.analyticsParams(snapshot, dual: true, saveToPhotos: saveToPhotos))
+        Analytics.shared.track("export_start", Self.analyticsParams(snapshot, dual: true, saveToPhotos: saveToPhotos)
+            .merging(Analytics.shared.exportTiming()) { current, _ in current })
         exportOnMain { [weak self] in
             self?.startDualOnMain(snapshot: snapshot, saveToPhotos: saveToPhotos)
         }
@@ -717,7 +719,8 @@ final class ExportManager {
         Analytics.shared.track("export_done", ["length": Analytics.durationBucket(duration),
                                                "saved": saved ? "1" : "0",
                                                "sdr_fallback": fellBackToSDR ? "1" : "0",
-                                               "audio_only": audioOnly ? "1" : "0"])
+                                               "audio_only": audioOnly ? "1" : "0"]
+            .merging(Analytics.shared.exportTiming()) { current, _ in current })
         currentPipeline = nil
         currentAudioSession = nil
         lastOutputURL = outputURL
@@ -752,6 +755,8 @@ final class ExportManager {
             return
         }
 
+        // 書き出し 1 回ぶん(縦横同時は最後の 1 本のときだけ)。感想を聞く間隔に使う
+        ExportFeedback.noteExportFinished()
         let label = jobLabel
         jobLabel = ""
         progress = 1

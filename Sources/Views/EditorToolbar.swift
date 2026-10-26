@@ -247,6 +247,8 @@ struct EditorToolbar: View {
         } else if !item.isEnabled {
             Button {
                 // 触覚(注意)はトーストを出す側で鳴らす
+                // 使い勝手の計測: なぜ使えないか伝わっていない印
+                Analytics.shared.track("disabled_tap", ["tool": item.id, "icon": item.systemImage])
                 onDisabledTap(item.disabledReason ?? String(localized: "今は使えません"))
             } label: {
                 label(item)

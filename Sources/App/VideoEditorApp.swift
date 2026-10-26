@@ -12,6 +12,8 @@ struct VideoEditorApp: App {
         AudioSessionSetup.ensurePlayback()
         // 使い方の統計(匿名。設定で止められる)
         Analytics.shared.start()
+        // 動作の重さ・落ちた回数(Apple が 1 日に 1 回ほどまとめて届ける)も統計に送る
+        MetricsReporter.shared.start()
         // クラウド文字起こしの背景セッションをつなぎ直す(前回の起動中に送ったピースの結果を受け取れるように)
         CloudBackgroundUploader.shared.activate()
         // 「Apple でサインイン」がやめられていないか(設定 → Apple アカウント)を確かめる。
