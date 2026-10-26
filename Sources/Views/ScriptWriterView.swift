@@ -6,9 +6,19 @@ import Observation
 // =====================================================================
 // 第4弾: AI 台本
 //   テーマ・長さ・口調から ScriptWriter.write で台本(時刻つきの行)を作り、
-//   行を直してから「読み上げて挿入」(TextToSpeech → ナレーション)/「字幕として挿入」(SubtitleCue)。
-//   「字幕から構成案」は ScriptWriter.outline でチャプターのマーカーを追加する。
+//   行を直してから「ナレーションとして挿入」(TextToSpeech → ナレーション)/「キャプションとして挿入」(SubtitleCue)。
+//   「キャプションから構成案」は ScriptWriter.outline でチャプターのマーカーを追加する。
+//   作った台本はシートを閉じても ScriptWriterDraft に残す(次に開いたときに戻る)。
 // =====================================================================
+
+/// 閉じても台本が消えないように、シートの外に残しておく下書き(TextToSpeechDraft と同じ仕組み)
+enum ScriptWriterDraft {
+    static var topic = ""
+    /// nil なら、次に開いたときに動画の長さから決める
+    static var durationSeconds: Double?
+    static var tone: ScriptTone = .friendly
+    static var lines: [ScriptLine] = []
+}
 
 struct ScriptWriterSheetView: View {
     let project: EditorProject
@@ -19,13 +29,37 @@ struct ScriptWriterSheetView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var topic = ""
-    @State private var durationSeconds: Double = 60
-    @State private var tone: ScriptTone = .friendly
-    @State private var lines: [ScriptLine] = []
+    /// 確認してから始める AI の操作
+    private enum PendingAction {
+        /// 台本を作る(作り直す)
+        case write
+        /// キャプションから構成案を作る
+        case outline
+    }
+
+    @State private var topic = ScriptWriterDraft.topic
+    @State private var durationSeconds: Double = ScriptWriterDraft.durationSeconds ?? 60
+    @State private var tone: ScriptTone = ScriptWriterDraft.tone
+    @State private var lines: [ScriptLine] = ScriptWriterDraft.lines
     @State private var analysis = EditorAnalysisRunner()
     @State private var errorText: String?
+    /// エラーの原因に合わせてアラートに付けるボタン(AccountService.swift の CloudAIGateway.recovery)
+    @State private var errorRecovery: CloudAIRecovery = .none
+    /// 台本・構成案の結果(作成ボタンの下)
     @State private var infoText: String?
+    /// 挿入の結果(それぞれのボタンの下)
+    @State private var narrationInfoText: String?
+    @State private var subtitleInfoText: String?
+    /// 挿入したときの行(行が変わるまで、同じ内容を二重に入れないようボタンを止める)
+    @State private var narrationInsertedLines: [ScriptLine]?
+    @State private var subtitleInsertedLines: [ScriptLine]?
+    /// 作り直す・構成案の前の確認(台本の上書き・ポイントの目安)
+    @State private var pendingAction: PendingAction?
+    /// 台本があるときの「閉じる」の確認
+    @State private var isCloseConfirmationPresented = false
+    /// アラートから開く画面
+    @State private var showsAISettings = false
+    @State private var showsAccountSheet = false
 
     // 読み上げ
     @State private var language = "ja-JP"
@@ -52,6 +86,11 @@ struct ScriptWriterSheetView: View {
 
     private var hasEngine: Bool {
         ScriptWriter.isAvailable(settings: AppSettings.shared)
+    }
+
+    /// ポイントで AI を使うか(Apple Intelligence で作るときはポイントを使わないので、目安は出さない。SubtitleEditorView の AI翻訳と同じ判定)
+    private var usesPointsForAI: Bool {
+        CloudAIGateway.usesPoints && ScriptWriter.resolveExplicitEngine(settings: AppSettings.shared) == .cloud
     }
 
     private var trimmedTopic: String {
@@ -85,25 +124,83 @@ struct ScriptWriterSheetView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") {
-                        analysis.cancel()
-                        dismiss()
-                    }
+                    Button("閉じる") { requestClose() }
                 }
             }
-            .alert("お知らせ", isPresented: errorIsPresented) {
+            // 台本があるとき・作成中はスワイプで閉じられないようにする(台本が消える / 途中の結果がプロジェクトに入るため)
+            .interactiveDismissDisabled(!lines.isEmpty || analysis.isRunning)
+            .confirmationDialog("台本を閉じますか?",
+                                isPresented: $isCloseConfirmationPresented,
+                                titleVisibility: .visible) {
+                Button("台本を残して閉じる") {
+                    analysis.cancel()
+                    dismiss()
+                }
+                Button("台本を破棄して閉じる", role: .destructive) {
+                    analysis.cancel()
+                    lines = []
+                    dismiss()
+                }
+                Button("キャンセル", role: .cancel) { }
+            } message: {
+                Text("残した台本は、次に「AI台本」を開いたときに戻ります。")
+            }
+            // 作り直す(いまの台本が消える)・ポイントで使うときの目安を見せてから始める
+            .confirmationDialog(pendingActionTitle,
+                                isPresented: Binding(get: { pendingAction != nil },
+                                                     set: { if !$0 { pendingAction = nil } }),
+                                titleVisibility: .visible,
+                                presenting: pendingAction) { action in
+                switch action {
+                case .write:
+                    if lines.isEmpty {
+                        Button("台本を作る") { write() }
+                    } else {
+                        Button("台本を作り直す", role: .destructive) { write() }
+                    }
+                case .outline:
+                    Button("構成案を作る") { outline() }
+                }
+                Button("キャンセル", role: .cancel) { }
+            } message: { action in
+                Text(pendingActionMessage(action))
+            }
+            .alert("作成できませんでした", isPresented: errorIsPresented) {
+                switch errorRecovery {
+                case .signIn, .points:
+                    Button("アカウントとポイント") { showsAccountSheet = true }
+                case .apiKey:
+                    Button("文字起こしとAI仕上げ") { showsAISettings = true }
+                case .none:
+                    EmptyView()
+                }
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorText ?? "")
             }
+            .navigationDestination(isPresented: $showsAISettings) {
+                TranscriptionSettingsView()
+            }
+            // AccountPointsView.swift
+            .sheet(isPresented: $showsAccountSheet) {
+                AccountPointsSheet()
+            }
         }
         .preferredColorScheme(.dark)
         .onAppear {
-            let total = project.totalDuration
-            if total > 5 {
-                durationSeconds = min(600, max(10, (total / 5).rounded() * 5))
+            // 下書きに長さが無ければ、動画の長さから決める
+            if ScriptWriterDraft.durationSeconds == nil {
+                let total = project.totalDuration
+                if total > 5 {
+                    durationSeconds = min(600, max(10, (total / 5).rounded() * 5))
+                }
             }
             reloadVoices()
+        }
+        // 閉じるとき(スワイプで閉じられたときも)途中の作成を止めて、台本を下書きに残す
+        .onDisappear {
+            analysis.cancel()
+            saveDraft()
         }
     }
 
@@ -116,11 +213,34 @@ struct ScriptWriterSheetView: View {
         )
     }
 
+    private var pendingActionTitle: String {
+        switch pendingAction {
+        case .some(.write):
+            return lines.isEmpty ? String(localized: "台本を作りますか?") : String(localized: "台本を作り直しますか?")
+        case .some(.outline):
+            return String(localized: "構成案を作りますか?")
+        case .none:
+            return ""
+        }
+    }
+
+    /// 確認の文: 上書きの注意と、ポイントで使うときの目安(台本・構成案は 1 リクエスト。SubtitlePolisher.estimatedPoints)
+    private func pendingActionMessage(_ action: PendingAction) -> String {
+        var parts: [String] = []
+        if action == .write, !lines.isEmpty {
+            parts.append(String(localized: "いまの台本は消えます。"))
+        }
+        if usesPointsForAI {
+            parts.append(String(localized: "約 \(SubtitlePolisher.estimatedPoints(lineCount: 1)) pt を使います。"))
+        }
+        return parts.joined(separator: "\n")
+    }
+
     // MARK: 入力
 
     private var inputSection: some View {
         Section {
-            TextField("例: 京都の紅葉を巡る 1 日(見どころと移動のコツ)", text: $topic, axis: .vertical)
+            TextField("例: 京都の紅葉を巡る 1 日", text: $topic, axis: .vertical)
                 .lineLimit(1...4)
 
             VStack(alignment: .leading, spacing: 6) {
@@ -169,7 +289,7 @@ struct ScriptWriterSheetView: View {
                 TranscriptionSettingsView()
             } label: {
                 HStack {
-                    Label("AI の設定", systemImage: "gearshape")
+                    Label("文字起こしとAI仕上げ", systemImage: "gearshape")
                     Spacer()
                     Text(engineName)
                         .foregroundStyle(.secondary)
@@ -179,9 +299,9 @@ struct ScriptWriterSheetView: View {
             Text("テーマ")
         } footer: {
             if hasEngine {
-                Text("いまの AI: \(engineName)。字幕やマーカーがあれば、それも参考にして台本を作ります。")
+                Text("いまの AI: \(engineName)。キャプションやマーカーも参考にします。")
             } else {
-                Text("台本の作成には Apple Intelligence(iOS 26 以降)か OpenAI の API キーが必要です。「AI の設定」から設定してください。")
+                Text("「文字起こしとAI仕上げ」で AI を設定してください。")
             }
         }
     }
@@ -191,16 +311,16 @@ struct ScriptWriterSheetView: View {
     private var actionSection: some View {
         Section {
             Button {
-                write()
+                requestWrite()
             } label: {
                 Label(lines.isEmpty ? String(localized: "台本を作る") : String(localized: "台本を作り直す"), systemImage: "text.badge.star")
             }
             .disabled(trimmedTopic.isEmpty || analysis.isRunning)
 
             Button {
-                outline()
+                requestOutline()
             } label: {
-                Label("字幕から構成案(チャプター)を作る", systemImage: "list.bullet.indent")
+                Label("キャプションから構成案を作る", systemImage: "list.bullet.indent")
             }
             .disabled(project.subtitles.isEmpty || analysis.isRunning)
 
@@ -210,8 +330,45 @@ struct ScriptWriterSheetView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("「字幕から構成案」は、いまある字幕を読んで章の区切りを提案し、チャプターのマーカーとして追加します。")
+            Text("構成案はチャプターのマーカーとして追加します。")
         }
+    }
+
+    /// 台本があるときは上書きの確認、ポイントで使うときは目安を見せてから作る
+    private func requestWrite() {
+        guard !trimmedTopic.isEmpty else { return }
+        if !lines.isEmpty || usesPointsForAI {
+            pendingAction = .write
+        } else {
+            write()
+        }
+    }
+
+    private func requestOutline() {
+        guard !project.subtitles.isEmpty else { return }
+        if usesPointsForAI {
+            pendingAction = .outline
+        } else {
+            outline()
+        }
+    }
+
+    /// 台本があるときは、残すか破棄するかを確かめてから閉じる
+    private func requestClose() {
+        if lines.isEmpty {
+            analysis.cancel()
+            dismiss()
+        } else {
+            isCloseConfirmationPresented = true
+        }
+    }
+
+    private func saveDraft() {
+        ScriptWriterDraft.topic = topic
+        // 台本が無ければ長さは覚えない(次に開いたときに動画の長さから決める)
+        ScriptWriterDraft.durationSeconds = lines.isEmpty ? nil : durationSeconds
+        ScriptWriterDraft.tone = tone
+        ScriptWriterDraft.lines = lines
     }
 
     // MARK: 台本の行
@@ -249,7 +406,7 @@ struct ScriptWriterSheetView: View {
             }
         } footer: {
             if !lines.isEmpty {
-                Text("時刻は完成した動画での目安です。左にスワイプで削除できます。")
+                Text("時刻は完成した動画での目安です。")
             }
         }
     }
@@ -352,16 +509,23 @@ struct ScriptWriterSheetView: View {
                 Slider(value: $pitch, in: 0.6...1.6)
             }
 
+            // 入れたあとは、行を直すまで同じ内容を二重に入れないよう止める
             Button {
                 insertNarration()
             } label: {
-                Label("AI読み上げで入れる(ナレーション)", systemImage: "waveform.badge.plus")
+                Label("ナレーションとして挿入", systemImage: "waveform.badge.plus")
             }
-            .disabled(nonEmptyLines.isEmpty || analysis.isRunning)
+            .disabled(nonEmptyLines.isEmpty || analysis.isRunning || narrationInsertedLines == nonEmptyLines)
+
+            if let narrationInfoText {
+                Text(narrationInfoText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         } header: {
             Text("読み上げ")
         } footer: {
-            Text("各行をその時刻に読み上げたナレーションとして追加します。前の行と重なるときは後ろへずらします。")
+            Text("各行をその時刻のナレーションにします。前の行と重なるときは後ろへずらします。")
         }
     }
 
@@ -379,7 +543,7 @@ struct ScriptWriterSheetView: View {
         let chosenRate = rate
         let chosenPitch = pitch
         errorText = nil
-        infoText = nil
+        narrationInfoText = nil
         player.pause()
         analysis.run(title: String(localized: "読み上げを作成中")) { report in
             var created: [NarrationClip] = []
@@ -418,31 +582,40 @@ struct ScriptWriterSheetView: View {
             history.record(project)
             project.narration.append(contentsOf: adjusted)
             project.sortNarration()
-            infoText = String(localized: "\(adjusted.count) 件のナレーションを追加しました。「音量」「音声効果」で調整できます。")
+            narrationInfoText = String(localized: "\(adjusted.count) 件のナレーションを追加しました。")
+            narrationInsertedLines = items
             if let last = adjusted.last {
                 onNarrationAdded(last.id)
             }
         } onError: { error in
-            errorText = String(localized: "もう一度「AI読み上げで入れる」を押してください。続くときは「声」を「標準の声」に変えてお試しください。\n\n詳細: ") + error.localizedDescription
+            presentError(error,
+                         retryHint: String(localized: "もう一度「ナレーションとして挿入」を押してください。続くときは「声」を「標準の声」にしてください。"))
         }
     }
 
-    // MARK: 挿入(字幕)
+    // MARK: 挿入(キャプション)
 
     private var subtitleSection: some View {
         Section {
-            Toggle("既存の字幕を置き換える", isOn: $replaceSubtitles)
+            Toggle("今あるキャプションを置き換える", isOn: $replaceSubtitles)
                 .disabled(project.subtitles.isEmpty)
+            // 入れたあとは、行を直すまで同じ内容を二重に入れないよう止める
             Button {
                 insertSubtitles()
             } label: {
-                Label("字幕として挿入", systemImage: "captions.bubble")
+                Label("キャプションとして挿入", systemImage: "captions.bubble")
             }
-            .disabled(nonEmptyLines.isEmpty || analysis.isRunning)
+            .disabled(nonEmptyLines.isEmpty || analysis.isRunning || subtitleInsertedLines == nonEmptyLines)
+
+            if let subtitleInfoText {
+                Text(subtitleInfoText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         } header: {
             Text("キャプション")
         } footer: {
-            Text("各行をその時刻からの字幕にします。長さは文字数から見積もり、次の行と重ならないようにします。")
+            Text("各行をその時刻からのキャプションにします。次の行と重ならない長さにします。")
         }
     }
 
@@ -471,7 +644,8 @@ struct ScriptWriterSheetView: View {
             project.subtitles.append(contentsOf: withWords)
         }
         project.sortSubtitles()
-        infoText = String(localized: "\(withWords.count) 件の字幕を追加しました。「自動字幕」でタイミングや文を直せます。")
+        subtitleInfoText = String(localized: "\(withWords.count) 件のキャプションを追加しました。")
+        subtitleInsertedLines = items
     }
 
     // MARK: AI 呼び出し
@@ -494,13 +668,18 @@ struct ScriptWriterSheetView: View {
                                                       settings: AppSettings.shared)
             if Task.isCancelled { return }
             lines = result.sorted { $0.time < $1.time }
+            narrationInfoText = nil
+            subtitleInfoText = nil
+            narrationInsertedLines = nil
+            subtitleInsertedLines = nil
             if lines.isEmpty {
                 infoText = String(localized: "台本を作れませんでした。テーマをもう少し具体的にしてお試しください。")
             } else {
                 infoText = String(localized: "\(lines.count) 行の台本ができました。内容と時刻を直してから挿入できます。")
             }
         } onError: { error in
-            errorText = String(localized: "通信できる場所で、もう一度「台本を作る」を押してください。続くときは「AI の設定」を確かめてください。\n\n詳細: ") + error.localizedDescription
+            presentError(error,
+                         retryHint: String(localized: "もう一度「台本を作る」を押してください。続くときは「文字起こしとAI仕上げ」を確かめてください。"))
         }
     }
 
@@ -513,7 +692,7 @@ struct ScriptWriterSheetView: View {
             let suggested = try await ScriptWriter.outline(from: subtitles, settings: AppSettings.shared)
             if Task.isCancelled { return }
             guard !suggested.isEmpty else {
-                infoText = String(localized: "構成案を作れませんでした。字幕がもう少し長いとうまくいきます。")
+                infoText = String(localized: "構成案を作れませんでした。キャプションがもう少し長いとうまくいきます。")
                 return
             }
             history.record(project)
@@ -532,7 +711,24 @@ struct ScriptWriterSheetView: View {
             project.sortMarkers()
             infoText = String(localized: "\(added) 個のチャプターを追加しました。マーカーを選ぶと名前を直せます。")
         } onError: { error in
-            errorText = String(localized: "通信できる場所で、もう一度お試しください。続くときは「AI の設定」を確かめてください。\n\n詳細: ") + error.localizedDescription
+            presentError(error,
+                         retryHint: String(localized: "もう一度「キャプションから構成案を作る」を押してください。続くときは「文字起こしとAI仕上げ」を確かめてください。"))
+        }
+    }
+
+    /// エラーを原因に合ったボタン付きで出す
+    /// (ログインの期限切れ・ポイント不足 → アカウントとポイント、API キー → 文字起こしとAI仕上げ。AccountService.swift の CloudAIGateway.recovery)
+    private func presentError(_ error: Error, retryHint: String) {
+        let recovery = CloudAIGateway.recovery(for: error)
+        errorRecovery = recovery
+        switch recovery {
+        case .signIn, .points:
+            // 原因(サーバーの文)をそのまま。通信の案内は出さない
+            errorText = error.localizedDescription
+        case .apiKey:
+            errorText = String(localized: "「文字起こしとAI仕上げ」で Apple Intelligence か OpenAI の API キーを設定してください。\n\n詳細: ") + error.localizedDescription
+        case .none:
+            errorText = retryHint + String(localized: "\n\n詳細: ") + error.localizedDescription
         }
     }
 }

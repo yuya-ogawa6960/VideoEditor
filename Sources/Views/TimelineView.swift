@@ -99,11 +99,18 @@ struct TimelineView: View {
     @State private var reorderTranslation: CGFloat = 0
     /// 複数選択したクリップをまとめて動かしているときの、かたまりのクリップ(並び順)
     @State private var reorderGroupIDs: [UUID] = []
+    /// 並べ替え中のタイルの並びの左端(タイムライン原点からの pt)。全クリップを同じ幅のタイルにして詰め、
+    /// 持ち上げたクリップ(かたまりなら先頭)のタイルが持ち上げた位置に来るようにする(長いクリップでも隣を越えられる)
+    @State private var reorderRowX: CGFloat = 0
+    /// 持ち上げたクリップが画面の端に近いときの自動スクロール
+    @State private var reorderScrollTask: Task<Void, Never>? = nil
 
     /// スナップ中の時刻(黄色の縦線を出す)
     @State private var snapGuideTime: Double? = nil
     /// トラック行の縦スクロール量
     @State private var verticalOffset: CGFloat = 0
+    /// 部品のドラッグ中は段の割り当てと行の高さを固定する(終わったらアニメーションで整える)
+    @State private var frozenLanes: TimelineFrozenLanes? = nil
 
     /// 操作のヒントを一度だけ出す
     @AppStorage("timeline.reorderTrimHintShown") private var hintShown: Bool = false
@@ -120,7 +127,7 @@ struct TimelineView: View {
         let ranges = TimelineView.clipRanges(for: snapshot)
         let total = TimelineView.totalEnd(of: ranges, fallback: snapshot.totalDuration)
         let frameData = TimelineFrameData(time: time, pps: pps, total: total, ranges: ranges, snapshot: snapshot)
-        let rows = TimelineMetrics.visibleTracks(for: snapshot)
+        let rows = frozenLanes?.rows ?? TimelineMetrics.visibleTracks(for: snapshot)
         let height = TimelineMetrics.height(for: rows)
         let showsHint = !hintShown && !snapshot.clips.isEmpty
         let isScrubbing = scrubTime != nil
@@ -130,6 +137,8 @@ struct TimelineView: View {
                     showsHint: showsHint, isScrubbing: isScrubbing)
         }
         .frame(height: height)
+        // 画面側の高さが先に変わっても(段が増えた直後など)、トラックは上に揃えたまま動かさない
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(TimelineMetrics.background)
         .onChange(of: editGestureActive) { _, active in
             if !active { finishEdit() }
@@ -213,6 +222,7 @@ struct TimelineView: View {
             TimelineMetrics.background
                 .contentShape(Rectangle())
                 .onTapGesture {
+                    if tapStopsMomentum() { return }
                     selection = nil
                 }
 
@@ -408,26 +418,28 @@ struct TimelineView: View {
 
     // MARK: - 選択中の部品の枠とトリムハンドル
 
-    /// 上下の帯 + 長さのバッジ + 左右のハンドル(掴める幅 44pt、外側へ広げる)
+    /// 上下の帯 + 長さのバッジ + 左右のハンドル(掴める幅 44pt を部品の端をはさんで内側と外側に分ける)
     @ViewBuilder
     private func selectionDecor<L: Gesture, T: Gesture>(screenX: CGFloat, width: CGFloat,
                                                         visibleX: CGFloat, visibleWidth: CGFloat,
                                                         y: CGFloat, height: CGFloat, duration: Double,
                                                         leading: L, trailing: T) -> some View {
         let hit = TimelineMetrics.handleHitWidth
+        // 外側だけに広げると隣の部品のタップを奪うので半分は内側へ。細い部品は真ん中を動かせるよう内側を狭くする
+        let inside: CGFloat = min(hit / 2, max(0, width / 3))
         let badgeX = TimelineMetrics.stickyLabelX(trueX: screenX, visibleX: visibleX,
                                                   visibleWidth: visibleWidth, labelWidth: 44)
         TimelineSelectionFrame(visibleWidth: visibleWidth, height: height, duration: duration, badgeX: badgeX)
             .offset(x: visibleX, y: y)
             .zIndex(18)
-        TimelineTrimHandleHitArea(leading: true)
+        TimelineTrimHandleHitArea(leading: true, inset: inside)
             .frame(width: hit, height: height)
-            .offset(x: screenX - hit, y: y)
+            .offset(x: screenX - hit + inside, y: y)
             .gesture(leading)
             .zIndex(20)
-        TimelineTrimHandleHitArea(leading: false)
+        TimelineTrimHandleHitArea(leading: false, inset: inside)
             .frame(width: hit, height: height)
-            .offset(x: screenX + width, y: y)
+            .offset(x: screenX + width - inside, y: y)
             .gesture(trailing)
             .zIndex(20)
     }
@@ -481,6 +493,7 @@ struct TimelineView: View {
                     .frame(width: width, height: h)
                     .contentShape(Rectangle())
                     .onTapGesture { location in
+                        if tapStopsMomentum() { return }
                         selectMarker(nearestTo: location.x, originX: originX, pps: pps, markers: markers)
                     }
             }
@@ -496,6 +509,7 @@ struct TimelineView: View {
                 TimelineMarkerFlag(marker: item.marker, isSelected: isSel)
                     .offset(x: item.screenX - TimelineMetrics.markerPoleWidth / 2)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         selection = .marker(item.id)
                     }
                     .gesture(markerMoveGesture(id: item.id), including: isSel ? .all : .subviews)
@@ -526,25 +540,11 @@ struct TimelineView: View {
 
     // MARK: - 重ね合わせトラック
 
+    /// lanes は段(重なりの深さ)の割り当て(TimelineMetrics.overlayLanes。ドラッグ中は固定したもの)
     private func overlayItems(width: CGFloat, originX: CGFloat, pps: CGFloat,
-                              overlays: [OverlayClip]) -> [TimelineOverlayItem] {
+                              overlays: [OverlayClip], lanes: [UUID: Int]) -> [TimelineOverlayItem] {
         var result: [TimelineOverlayItem] = []
-        // 開始順に見て、空いているレーンを割り当てる(重なりの深さ)
-        let ordered = overlays.enumerated().sorted { a, b in
-            if a.element.start != b.element.start { return a.element.start < b.element.start }
-            return a.offset < b.offset
-        }
-        var laneEnds: [Double] = []
-        for entry in ordered {
-            let overlay = entry.element
-            let depth: Int
-            if let free = laneEnds.firstIndex(where: { $0 <= overlay.start + 0.0005 }) {
-                laneEnds[free] = overlay.end
-                depth = free
-            } else {
-                laneEnds.append(overlay.end)
-                depth = laneEnds.count - 1
-            }
+        for overlay in overlays {
             let x = originX + CGFloat(overlay.start) * pps
             let w = max(CGFloat(overlay.duration) * pps, 6)
             guard let span = TimelineMetrics.visibleSpan(x: x, width: w, viewWidth: width) else { continue }
@@ -552,7 +552,7 @@ struct TimelineView: View {
                                                       visibleWidth: span.width, labelWidth: 70)
             result.append(TimelineOverlayItem(id: overlay.id, overlay: overlay, screenX: x, width: w,
                                               visibleX: span.x, visibleWidth: span.width,
-                                              labelX: labelX, depth: depth))
+                                              labelX: labelX, depth: lanes[overlay.id] ?? 0))
         }
         return result
     }
@@ -560,12 +560,12 @@ struct TimelineView: View {
     private func overlayTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
                               overlays: [OverlayClip]) -> some View {
         let h = TimelineMetrics.overlayHeight
-        let items = overlayItems(width: width, originX: originX, pps: pps, overlays: overlays)
+        // 時間が重なるオーバーレイは別の段に並べる(depth = 段)。ドラッグ中は固定
+        let lanes: [UUID: Int] = frozenLanes?.overlayLanes ?? TimelineMetrics.overlayLanes(overlays)
+        let items = overlayItems(width: width, originX: originX, pps: pps, overlays: overlays, lanes: lanes)
         let selectedID: UUID? = selection?.overlayID
         let selectedItem: TimelineOverlayItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
-
-        // 時間が重なるオーバーレイは別の段に並べる(depth = 段)
-        let laneCount: Int = TimelineMetrics.overlayLaneCount(overlays)
+        let laneCount: Int = TimelineMetrics.laneCount(lanes)
         let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
 
         return ZStack(alignment: .topLeading) {
@@ -580,6 +580,7 @@ struct TimelineView: View {
                                    isSelected: isSel)
                     .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         selection = .overlay(item.id)
                     }
                     .gesture(overlayMoveGesture(id: item.id), including: isSel ? .all : .subviews)
@@ -623,28 +624,26 @@ struct TimelineView: View {
         let gap = TimelineMetrics.clipGap
         let margin = TimelineMetrics.cullMargin
         let laneH = TimelineMetrics.splitAudioLaneHeight
-        // 複数のクリップをまとめて動かしているときの、かたまりの先頭の位置(秒)
+        // 並べ替え中はどのクリップも同じ幅のタイルにして詰めて並べる(長いクリップでも隣の中点を越えられる)。
+        // 持ち上げたクリップ(かたまりなら先頭)は reorderAnchorX + 指の移動量に置く
+        let reordering = reorderClipID != nil
+        let tileStep: CGFloat = TimelineMetrics.tileWidth + gap
         let groupSet: Set<UUID> = Set(reorderGroupIDs)
-        var groupStart: Double? = nil
-        if !groupSet.isEmpty, let firstIndex = clips.firstIndex(where: { groupSet.contains($0.id) }),
-           firstIndex < ranges.count {
-            groupStart = ranges[firstIndex].start
-        }
+        let groupFirstIndex: Int? = groupSet.isEmpty ? nil : clips.firstIndex(where: { groupSet.contains($0.id) })
         // ranges が足りないときの保険(重なりなしで並べた位置)
         var t = 0.0
         for (i, clip) in clips.enumerated() {
             let d = max(0, clip.outputDuration)
             let range: TimelineClipRange = i < ranges.count ? ranges[i] : TimelineClipRange(start: t, end: t + d)
             t += d
-            let fullWidth = CGFloat(range.duration) * pps
-            var contentX = CGFloat(range.start) * pps
+            let fullWidth = reordering ? tileStep : CGFloat(range.duration) * pps
+            var contentX = reordering ? reorderSlotX(i) : CGFloat(range.start) * pps
             if let shiftIndex, i >= shiftIndex {
                 contentX += CGFloat(shift) * pps
             }
             var lifted = false
-            if let groupStart, groupSet.contains(clip.id) {
-                let offsetInGroup = CGFloat(range.start - groupStart) * pps
-                contentX = reorderAnchorX + reorderTranslation + offsetInGroup
+            if let groupFirstIndex, groupSet.contains(clip.id) {
+                contentX = reorderAnchorX + reorderTranslation + CGFloat(i - groupFirstIndex) * tileStep
                 lifted = true
             } else if let reorderClipID, reorderClipID == clip.id {
                 contentX = reorderAnchorX + reorderTranslation
@@ -749,6 +748,8 @@ struct TimelineView: View {
         return ZStack(alignment: .topLeading) {
             if showsTile {
                 Button {
+                    // 慣性スクロール中に指の下へ滑ってきたタイルでは開かない(止めるだけ)
+                    if tapStopsMomentum() { return }
                     onAdd(.media)
                 } label: {
                     TimelineAddTile(height: h)
@@ -787,6 +788,7 @@ struct TimelineView: View {
                     }
                     .offset(x: item.visibleX)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         if timeline.isMultiSelecting {
                             timeline.toggleMultiSelect(item.id)
                             UISelectionFeedbackGenerator().selectionChanged()
@@ -794,7 +796,7 @@ struct TimelineView: View {
                             selection = .clip(item.id)
                         }
                     }
-                    .gesture(reorderGesture(clipID: item.id))
+                    .gesture(reorderGesture(clipID: item.id, width: width))
                     .zIndex(item.isLifted ? 10 : (item.id == selectedClipID ? 1 : 0))
             }
 
@@ -822,6 +824,7 @@ struct TimelineView: View {
                     .frame(width: badge, height: badge)
                     .offset(x: item.centerX - badge / 2, y: (h - badge) / 2)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         selection = .clip(item.id)
                     }
                     .zIndex(15)
@@ -861,8 +864,8 @@ struct TimelineView: View {
         let items = textItems(width: width, originX: originX, pps: pps, textClips: textClips)
         let selectedID: UUID? = selection?.textID
         let selectedItem: TimelineTextItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
-        // 時間が重なるテキストは別の段に並べる
-        let lanes: [UUID: Int] = TimelineMetrics.textLanes(textClips)
+        // 時間が重なるテキストは別の段に並べる(ドラッグ中は固定)
+        let lanes: [UUID: Int] = frozenLanes?.textLanes ?? TimelineMetrics.textLanes(textClips)
         let laneCount: Int = (lanes.values.max() ?? 0) + 1
         let trackHeight: CGFloat = TimelineMetrics.textTrackHeight(lanes: laneCount)
         let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
@@ -880,6 +883,7 @@ struct TimelineView: View {
                                 isSelected: isSel)
                     .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         selection = .text(item.id)
                     }
                     .gesture(textMoveGesture(id: item.id), including: isSel ? .all : .subviews)
@@ -940,6 +944,7 @@ struct TimelineView: View {
                                    isSelected: isSel)
                     .offset(x: item.visibleX)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         selection = .drawing(item.id)
                     }
                     .gesture(drawingMoveGesture(id: item.id), including: isSel ? .all : .subviews)
@@ -996,6 +1001,7 @@ struct TimelineView: View {
                                         isFlagged: item.isFlagged)
                     .offset(x: item.visibleX)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         selection = .subtitle(item.id)
                     }
                     .gesture(subtitleMoveGesture(id: item.id), including: isSel ? .all : .subviews)
@@ -1040,6 +1046,7 @@ struct TimelineView: View {
                                  visibleEndTime: visibleEnd)
                     .offset(x: span.x)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         selection = .bgm
                     }
             }
@@ -1070,8 +1077,8 @@ struct TimelineView: View {
         let items = narrationItems(width: width, originX: originX, pps: pps, narration: narration)
         let selectedID: UUID? = selection?.narrationID
         let selectedItem: TimelineNarrationItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
-        // 時間が重なるナレーションは別の段に並べる
-        let lanes: [UUID: Int] = TimelineMetrics.narrationLanes(narration)
+        // 時間が重なるナレーションは別の段に並べる(ドラッグ中は固定)
+        let lanes: [UUID: Int] = frozenLanes?.narrationLanes ?? TimelineMetrics.narrationLanes(narration)
         let laneCount: Int = TimelineMetrics.laneCount(lanes)
         let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
         let selectedY: CGFloat = CGFloat(selectedID.flatMap { lanes[$0] } ?? 0) * laneStep
@@ -1090,6 +1097,7 @@ struct TimelineView: View {
                                      isSelected: isSel)
                     .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
+                        if tapStopsMomentum() { return }
                         selection = .narration(item.id)
                     }
                     .gesture(narrationMoveGesture(id: item.id), including: isSel ? .all : .subviews)
@@ -1138,6 +1146,8 @@ struct TimelineView: View {
             }
             return
         }
+        // 選択中の部品に触れていて横に動かしているなら、その部品の移動・トリムが始まるのを待つ(縦なら縦スクロール)
+        if interaction.editPending, abs(value.translation.width) >= abs(value.translation.height) { return }
 
         // 最初の動きで縦(トラックの縦スクロール)か横(時刻の移動)かを決める
         if interaction.verticalScroll == nil {
@@ -1266,6 +1276,13 @@ struct TimelineView: View {
         }
     }
 
+    /// 慣性スクロール中のタップは止めるだけにする(指の下に滑ってきた部品を選ばない)。止めたら true
+    private func tapStopsMomentum() -> Bool {
+        guard momentumTask != nil else { return false }
+        endScrubbing()
+        return true
+    }
+
     /// スクラブ(ドラッグ・慣性)を終了し、最終位置へ正確にシークする
     private func endScrubbing() {
         momentumTask?.cancel()
@@ -1287,7 +1304,10 @@ struct TimelineView: View {
                 state = true
             }
             .onChanged { value in
-                if interaction.edit != nil { return }
+                if interaction.edit != nil {
+                    // 選択中の部品の上で始めたピンチが移動・トリムにならないよう、途中の編集は取り消す
+                    cancelEdit()
+                }
                 if interaction.pinchStartPPS == nil {
                     interaction.pinchStartPPS = timeline.pointsPerSecond
                     if interaction.scrollStartTime != nil {
@@ -1359,6 +1379,11 @@ struct TimelineView: View {
 
     /// 端(edges、元の時刻)を delta だけ動かしたとき、8pt 以内の候補があれば吸い付くよう delta を補正する
     private func snappedDelta(_ delta: Double, edges: [Double]) -> Double {
+        // 動かしていないうちは吸い付かせない(触れただけで再生位置や隣の端へ飛ばない)
+        guard abs(delta) > 0.0001 else {
+            setSnapGuide(nil)
+            return delta
+        }
         let pps = max(timeline.pointsPerSecond, 0.0001)
         let threshold = Double(TimelineMetrics.snapThreshold) / pps
         var bestAdjust: Double? = nil
@@ -1408,6 +1433,23 @@ struct TimelineView: View {
 
     // MARK: - 編集操作の開始・終了
 
+    /// 選択中の部品に触れただけでは動かさない。editStartDistance 以上、横方向が主のドラッグになったら編集を始める。
+    /// 縦方向が主なら(トラックの縦スクロール)この指では編集しない
+    private func shouldBeginEdit(_ value: DragGesture.Value) -> Bool {
+        if interaction.editDeclined { return false }
+        // 触れている間は、横のドラッグをタイムラインのスクロールに渡さない(scrollChanged)
+        interaction.editPending = true
+        let dx = abs(value.translation.width)
+        let dy = abs(value.translation.height)
+        guard max(dx, dy) >= TimelineMetrics.editStartDistance else { return false }
+        interaction.editPending = false
+        if dy > dx {
+            interaction.editDeclined = true
+            return false
+        }
+        return true
+    }
+
     private func beginEdit(_ kind: TimelineEditKind, snapExcluding id: UUID? = nil, snaps: Bool = true) {
         if interaction.scrollStartTime != nil {
             interaction.scrollStartTime = nil
@@ -1415,12 +1457,23 @@ struct TimelineView: View {
         }
         endScrubbing()
         if player.isPlaying { player.pause() }
-        history.record(project)
         interaction.edit = kind
+        // 画面側はこの間タイムラインの高さを固定する(finishEdit で戻す。取り消しもそこを通る)
+        timeline.isEditing = true
+        // 履歴は最初に実際に値が変わるときに取る(recordEditHistory)。触れただけでは取らず、やり直しも消さない
+        interaction.historyRecorded = false
+        switch kind {
+        case .trimClip, .reorder:
+            // V1 を変えたあと、ほかのトラックの部品を同じ元素材の位置に付いたまま動かす(finishEdit)
+            interaction.clipLayout = project.captureClipLayout()
+        default:
+            interaction.clipLayout = nil
+        }
         interaction.snapTargets = snaps ? collectSnapTargets(excluding: id) : []
         interaction.lastSnapTarget = nil
         interaction.snapPrimed = false
         interaction.atTrimLimit = false
+        freezeLanes()
         // 操作中はプレビューの合成を作り直さない(終了時に 1 回だけ)
         player.beginInteraction()
         if !hintShown {
@@ -1428,16 +1481,44 @@ struct TimelineView: View {
         }
     }
 
+    /// 最初に実際に値が変わるときに 1 回だけ履歴を取る(値を変える直前に呼ぶ)
+    private func recordEditHistory() {
+        guard interaction.edit != nil, !interaction.historyRecorded else { return }
+        interaction.historyRecorded = true
+        history.record(project)
+    }
+
+    /// ドラッグ中は段の割り当てと行の高さを今のまま固定する(動かすたびにバーが段を飛んだり行の高さが変わったりしない)
+    private func freezeLanes() {
+        let snapshot = project.snapshot()
+        frozenLanes = TimelineFrozenLanes(rows: TimelineMetrics.visibleTracks(for: snapshot),
+                                          textLanes: TimelineMetrics.textLanes(snapshot.textClips),
+                                          overlayLanes: TimelineMetrics.overlayLanes(snapshot.overlays),
+                                          narrationLanes: TimelineMetrics.narrationLanes(snapshot.narration))
+    }
+
     private func finishEdit() {
+        // 編集が始まらなかった指(触れただけ・縦スクロール・ピンチで取り消し)の後始末
+        interaction.editPending = false
+        interaction.editDeclined = false
         guard let edit = interaction.edit else { return }
         interaction.edit = nil
+        timeline.isEditing = false
         switch edit {
         case .trimClip:
             leftTrimClipID = nil
             leftTrimShiftSeconds = 0
+            // プレビューに重ねていた端のコマを消す
+            timeline.clearTrimPreview()
         case .trimSubtitle, .moveSubtitle:
             project.sortSubtitles()
         case .reorder:
+            reorderScrollTask?.cancel()
+            reorderScrollTask = nil
+            interaction.reorderScrollFactor = 0
+            interaction.editStartClips = nil
+            // 端の自動スクロールで動いた分は、その位置を再生位置にする
+            endScrubbing()
             withAnimation(.easeOut(duration: 0.18)) {
                 reorderClipID = nil
                 reorderTranslation = 0
@@ -1454,6 +1535,16 @@ struct TimelineView: View {
         case .moveMarker:
             project.sortMarkers()
         }
+        // V1 のトリム・並べ替えに合わせて、字幕・テキスト・モザイクなどを同じ元素材の位置へ動かす(同じ 1 回の履歴)
+        if let layout = interaction.clipLayout {
+            interaction.clipLayout = nil
+            project.rippleTimelineItems(from: layout)
+        }
+        // 動かして元の位置に戻しただけなら履歴に残さない
+        if interaction.historyRecorded {
+            interaction.historyRecorded = false
+            history.discardLastIfUnchanged(project)
+        }
         interaction.snapTargets = []
         interaction.lastSnapTarget = nil
         interaction.snapPrimed = false
@@ -1461,7 +1552,46 @@ struct TimelineView: View {
         if snapGuideTime != nil {
             snapGuideTime = nil
         }
+        withAnimation(.easeOut(duration: 0.18)) {
+            frozenLanes = nil
+        }
         player.endInteraction()
+    }
+
+    /// 途中の移動・トリムを元に戻して編集を終える(ピンチが始まったとき)。同じ指のドラッグが続いても編集は始めない
+    private func cancelEdit() {
+        guard let edit = interaction.edit else { return }
+        if case .reorder = edit {
+            if let clips = interaction.editStartClips, clips.map(\.id) != project.clips.map(\.id) {
+                project.clips = clips
+            }
+        } else {
+            applyEdit(translation: 0)
+        }
+        finishEdit()
+        interaction.editDeclined = true
+    }
+
+    /// 進行中の編集に指の移動量を適用する
+    private func applyEdit(translation: CGFloat) {
+        switch interaction.edit {
+        case .trimClip?:
+            applyClipTrim(translation: translation)
+        case .trimSubtitle?, .moveSubtitle?:
+            applySubtitleEdit(translation: translation)
+        case .moveOverlay?, .trimOverlay?:
+            applyOverlayEdit(translation: translation)
+        case .moveNarration?, .trimNarration?:
+            applyNarrationEdit(translation: translation)
+        case .moveText?, .trimText?:
+            applyTextEdit(translation: translation)
+        case .moveDrawing?, .trimDrawing?:
+            applyDrawingEdit(translation: translation)
+        case .moveMarker?:
+            applyMarkerEdit(translation: translation)
+        case .reorder?, nil:
+            break
+        }
     }
 
     // MARK: - クリップのトリム
@@ -1473,7 +1603,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let i = project.index(of: clipID) else { return }
+                    guard shouldBeginEdit(value), let i = project.index(of: clipID) else { return }
                     let clip = project.clips[i]
                     let ranges = clipRanges()
                     beginEdit(.trimClip(id: clipID, leading: leading,
@@ -1510,12 +1640,16 @@ struct TimelineView: View {
         let reversed = clip.isReversed && clip.reversedURL != nil
         let movesStart = (leading != reversed)
         let signedDelta = reversed ? -delta : delta
+        // 動かしている端の元素材の秒(プレビューに重ねるコマの位置)
+        let edgeSeconds: Double
         if movesStart {
             let upper = max(0, originalEnd - minimumLength)
             let proposed = originalStart + signedDelta
             let newStart = min(max(0, proposed), upper)
+            edgeSeconds = newStart
             noteTrimLimit(abs(newStart - proposed) > 0.0001)
             if abs(newStart - clip.startTime) > 0.0001 {
+                recordEditHistory()
                 project.clips[i].startTime = newStart
             }
             if leading {
@@ -1526,8 +1660,10 @@ struct TimelineView: View {
             let lower = min(clip.duration, originalStart + minimumLength)
             let proposed = originalEnd + signedDelta
             let newEnd = max(min(clip.duration, proposed), lower)
+            edgeSeconds = newEnd
             noteTrimLimit(abs(newEnd - proposed) > 0.0001)
             if abs(newEnd - clip.endTime) > 0.0001 {
+                recordEditHistory()
                 project.clips[i].endTime = newEnd
             }
             if leading {
@@ -1535,11 +1671,16 @@ struct TimelineView: View {
                 leftTrimShiftSeconds = (originalEnd - newEnd) / speed
             }
         }
+        // 共有プレイヤーはシークせず(currentTime がタイムラインの原点)、端のコマだけプレビューに重ねる。
+        // startTime / endTime は逆再生でも元素材上の秒なので、元の url のその秒のコマでよい
+        if !clip.isStill {
+            timeline.requestTrimPreview(url: clip.url, sourceSeconds: edgeSeconds)
+        }
     }
 
     // MARK: - クリップの並べ替え(長押し → ドラッグ)
 
-    private func reorderGesture(clipID: UUID) -> some Gesture {
+    private func reorderGesture(clipID: UUID, width: CGFloat) -> some Gesture {
         LongPressGesture(minimumDuration: 0.35)
             .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
             .updating($editGestureActive) { value, state, _ in
@@ -1550,11 +1691,16 @@ struct TimelineView: View {
             .onChanged { value in
                 guard case .second(true, let drag) = value else { return }
                 if interaction.edit == nil {
+                    // ゆっくりスクロールしている指(長押しの許容距離の中で動いた)では並べ替えを始めない。
+                    // ピンチで取り消した(editDeclined)あとも、同じ指のドラッグで持ち上げ直さない
+                    guard interaction.scrollStartTime == nil, interaction.verticalScroll == nil,
+                          !interaction.editDeclined else { return }
                     beginReorder(clipID: clipID)
                 }
                 guard case let .reorder(id)? = interaction.edit, id == clipID else { return }
                 reorderTranslation = drag?.translation.width ?? 0
                 updateReorder()
+                updateReorderAutoScroll(width: width)
             }
             .onEnded { _ in
                 finishEdit()
@@ -1564,6 +1710,7 @@ struct TimelineView: View {
     private func beginReorder(clipID: UUID) {
         guard project.index(of: clipID) != nil else { return }
         beginEdit(.reorder(id: clipID), snaps: false)
+        interaction.editStartClips = project.clips
         // 複数選択中に選んだクリップを持ち上げたら、選んだクリップをひとかたまりにして一緒に動かす
         var group: [UUID] = []
         if timeline.isMultiSelecting {
@@ -1572,6 +1719,11 @@ struct TimelineView: View {
             }
             let ids = timeline.multiSelectedClipIDs
             if ids.count > 1 {
+                // 離れていたクリップを寄せるときだけ並びが変わる(履歴を取る)
+                let positions = project.clips.indices.filter { ids.contains(project.clips[$0].id) }
+                if let first = positions.first, let last = positions.last, last - first + 1 != positions.count {
+                    recordEditHistory()
+                }
                 project.gatherClips(ids: ids)
                 group = project.clips.map { $0.id }.filter { ids.contains($0) }
             }
@@ -1581,6 +1733,8 @@ struct TimelineView: View {
         let anchorID: UUID = group.first ?? clipID
         let anchorIndex: Int = project.index(of: anchorID) ?? 0
         reorderAnchorX = anchorIndex < ranges.count ? CGFloat(ranges[anchorIndex].start) * pps : 0
+        // 持ち上げたクリップのタイルが今の位置に来るようにタイルの並びを置く
+        reorderRowX = reorderAnchorX - CGFloat(anchorIndex) * (TimelineMetrics.tileWidth + TimelineMetrics.clipGap)
         reorderTranslation = 0
         withAnimation(.easeOut(duration: 0.15)) {
             reorderClipID = clipID
@@ -1592,86 +1746,125 @@ struct TimelineView: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
-    /// 複数のクリップのかたまりを動かす: かたまりの中心が隣のクリップの中点を越えたら、そのクリップを反対側へ回す
+    /// 並べ替え中のタイルの並び: 番号 i のタイルの左端(タイムライン原点からの pt)
+    private func reorderSlotX(_ i: Int) -> CGFloat {
+        reorderRowX + CGFloat(i) * (TimelineMetrics.tileWidth + TimelineMetrics.clipGap)
+    }
+
+    /// 複数のクリップのかたまりを動かす: かたまりの中心が隣のタイルの中点を越えたら、そのクリップを反対側へ回す
     private func updateGroupReorder() {
         let ids: Set<UUID> = Set(reorderGroupIDs)
-        let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
+        let step = TimelineMetrics.tileWidth + TimelineMetrics.clipGap
         var iterations = 0
         while iterations < project.clips.count {
             iterations += 1
             let clips = project.clips
-            let ranges = clipRanges()
-            guard ranges.count == clips.count,
-                  let lo = clips.firstIndex(where: { ids.contains($0.id) }),
+            guard let lo = clips.firstIndex(where: { ids.contains($0.id) }),
                   let hi = clips.lastIndex(where: { ids.contains($0.id) }) else { return }
-            let blockStart: Double = ranges[lo].start
-            let blockEnd: Double = ranges[hi].end
-            let blockWidth = CGFloat(blockEnd - blockStart) * pps
-            let center = reorderAnchorX + reorderTranslation + blockWidth / 2
-            if hi + 1 < clips.count {
-                let nextMid = CGFloat((ranges[hi + 1].start + ranges[hi + 1].end) / 2) * pps
-                if center > nextMid {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        let moved = project.clips.remove(at: hi + 1)
-                        project.clips.insert(moved, at: lo)
-                    }
-                    UISelectionFeedbackGenerator().selectionChanged()
-                    continue
+            let center = reorderAnchorX + reorderTranslation + CGFloat(hi - lo + 1) * step / 2
+            if hi + 1 < clips.count, center > reorderSlotX(hi + 1) + step / 2 {
+                recordEditHistory()
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    let moved = project.clips.remove(at: hi + 1)
+                    project.clips.insert(moved, at: lo)
                 }
+                UISelectionFeedbackGenerator().selectionChanged()
+                continue
             }
-            if lo > 0 {
-                let previousMid = CGFloat((ranges[lo - 1].start + ranges[lo - 1].end) / 2) * pps
-                if center < previousMid {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        let moved = project.clips.remove(at: lo - 1)
-                        project.clips.insert(moved, at: hi)
-                    }
-                    UISelectionFeedbackGenerator().selectionChanged()
-                    continue
+            if lo > 0, center < reorderSlotX(lo - 1) + step / 2 {
+                recordEditHistory()
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    let moved = project.clips.remove(at: lo - 1)
+                    project.clips.insert(moved, at: hi)
                 }
+                UISelectionFeedbackGenerator().selectionChanged()
+                continue
             }
             break
         }
     }
 
-    /// 持ち上げたクリップの中心が隣のクリップの中点を越えたら入れ替える
+    /// 持ち上げたクリップの中心が隣のタイルの中点を越えたら入れ替える
     private func updateReorder() {
         if !reorderGroupIDs.isEmpty {
             updateGroupReorder()
             return
         }
         guard let id = reorderClipID else { return }
-        let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
+        let step = TimelineMetrics.tileWidth + TimelineMetrics.clipGap
         var iterations = 0
         while iterations < project.clips.count {
             iterations += 1
             guard let i = project.index(of: id) else { return }
-            let clips = project.clips
-            let ranges = clipRanges()
-            guard ranges.count == clips.count, i < ranges.count else { return }
-            let draggedWidth = CGFloat(ranges[i].duration) * pps
-            let center = reorderAnchorX + reorderTranslation + draggedWidth / 2
-            if i + 1 < clips.count {
-                let nextMid = CGFloat((ranges[i + 1].start + ranges[i + 1].end) / 2) * pps
-                if center > nextMid {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        project.clips.swapAt(i, i + 1)
-                    }
-                    UISelectionFeedbackGenerator().selectionChanged()
-                    continue
+            let center = reorderAnchorX + reorderTranslation + step / 2
+            if i + 1 < project.clips.count, center > reorderSlotX(i + 1) + step / 2 {
+                recordEditHistory()
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    project.clips.swapAt(i, i + 1)
                 }
+                UISelectionFeedbackGenerator().selectionChanged()
+                continue
             }
-            if i > 0 {
-                let previousMid = CGFloat((ranges[i - 1].start + ranges[i - 1].end) / 2) * pps
-                if center < previousMid {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        project.clips.swapAt(i, i - 1)
-                    }
-                    UISelectionFeedbackGenerator().selectionChanged()
-                    continue
+            if i > 0, center < reorderSlotX(i - 1) + step / 2 {
+                recordEditHistory()
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    project.clips.swapAt(i, i - 1)
                 }
+                UISelectionFeedbackGenerator().selectionChanged()
+                continue
             }
             break
+        }
+    }
+
+    /// 持ち上げたクリップが画面の端に近づいたら、その方向へタイムラインを流す(遠くまで運べるように)。
+    /// 流れた分だけ reorderAnchorX もずらし、持ち上げたクリップは指の下に留める
+    private func updateReorderAutoScroll(width: CGFloat) {
+        let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
+        let step = TimelineMetrics.tileWidth + TimelineMetrics.clipGap
+        let originX = width / 2 - CGFloat(scrubTime ?? player.currentTime) * pps
+        let left = originX + reorderAnchorX + reorderTranslation
+        let right = left + CGFloat(max(1, reorderGroupIDs.count)) * step
+        let margin = TimelineMetrics.reorderScrollMargin
+        var factor: CGFloat = 0
+        if left < margin {
+            factor = -min(1, (margin - left) / margin)
+        } else if right > width - margin {
+            factor = min(1, (right - (width - margin)) / margin)
+        }
+        interaction.reorderScrollFactor = factor
+        if factor != 0, reorderScrollTask == nil {
+            startReorderAutoScroll()
+        }
+    }
+
+    private func startReorderAutoScroll() {
+        // タイルの並びの端が画面の中央に来るところまでスクロールできる
+        let pps = max(timeline.pointsPerSecond, 0.0001)
+        let lower = min(0, Double(reorderSlotX(0)) / pps)
+        let upper = max(timelineDuration(), Double(reorderSlotX(project.clips.count)) / pps)
+        reorderScrollTask = Task { @MainActor in
+            var last = CACurrentMediaTime()
+            // 取り消されたときは return で抜ける(下の reorderScrollTask = nil を通らない。
+            // finishEdit が取り消したあとに始めた次の並べ替えのタスクを消さないため)
+            while true {
+                try? await Task.sleep(nanoseconds: 16_000_000)
+                if Task.isCancelled { return }
+                guard case .reorder? = interaction.edit, interaction.reorderScrollFactor != 0 else { break }
+                let now = CACurrentMediaTime()
+                let dt = min(max(now - last, 0.001), 0.05)
+                last = now
+                let current = scrubTime ?? player.currentTime
+                let points = Double(interaction.reorderScrollFactor) * TimelineMetrics.reorderScrollPointsPerSecond * dt
+                let next = min(max(current + points / pps, lower), upper)
+                let moved = next - current
+                // 端まで来たら止める
+                guard abs(moved) > 0.000001 else { break }
+                scrubTime = next
+                reorderAnchorX += CGFloat(moved * pps)
+                updateReorder()
+            }
+            reorderScrollTask = nil
         }
     }
 
@@ -1684,7 +1877,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let cue = project.subtitles.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let cue = project.subtitles.first(where: { $0.id == id }) else { return }
                     beginEdit(.moveSubtitle(id: id, originalStart: cue.start, originalEnd: cue.end), snapExcluding: id)
                 }
                 applySubtitleEdit(translation: value.translation.width)
@@ -1701,7 +1894,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let cue = project.subtitles.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let cue = project.subtitles.first(where: { $0.id == id }) else { return }
                     beginEdit(.trimSubtitle(id: id, leading: leading,
                                             originalStart: cue.start, originalEnd: cue.end),
                               snapExcluding: id)
@@ -1725,6 +1918,7 @@ struct TimelineView: View {
                 let newStart = min(max(0, proposed), max(0, originalEnd - minimumLength))
                 noteTrimLimit(abs(newStart - proposed) > 0.0001)
                 if abs(project.subtitles[i].start - newStart) > 0.0001 {
+                    recordEditHistory()
                     project.subtitles[i].start = newStart
                 }
             } else {
@@ -1733,6 +1927,7 @@ struct TimelineView: View {
                 let newEnd = max(min(proposed, upper), originalStart + minimumLength)
                 noteTrimLimit(abs(newEnd - proposed) > 0.0001)
                 if abs(project.subtitles[i].end - newEnd) > 0.0001 {
+                    recordEditHistory()
                     project.subtitles[i].end = newEnd
                 }
             }
@@ -1743,6 +1938,7 @@ struct TimelineView: View {
             let moved = snappedDelta(delta, edges: [originalStart, originalEnd])
             let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.subtitles[i].start - newStart) > 0.0001 {
+                recordEditHistory()
                 project.subtitles[i].start = newStart
                 project.subtitles[i].end = newStart + length
             }
@@ -1760,7 +1956,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let overlay = project.overlays.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let overlay = project.overlays.first(where: { $0.id == id }) else { return }
                     beginEdit(.moveOverlay(id: id, originalStart: overlay.start), snapExcluding: id)
                 }
                 applyOverlayEdit(translation: value.translation.width)
@@ -1777,7 +1973,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let overlay = project.overlays.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let overlay = project.overlays.first(where: { $0.id == id }) else { return }
                     beginEdit(.trimOverlay(id: id, leading: leading, original: overlay), snapExcluding: id)
                 }
                 applyOverlayEdit(translation: value.translation.width)
@@ -1799,6 +1995,7 @@ struct TimelineView: View {
             let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
             let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.overlays[i].start - newStart) > 0.0001 {
+                recordEditHistory()
                 project.overlays[i].start = newStart
             }
         case let .trimOverlay(id, leading, original)?:
@@ -1820,6 +2017,8 @@ struct TimelineView: View {
                 if !original.isImage {
                     updated.sourceStart = max(0, original.sourceStart + (newStart - original.start) * speed)
                 }
+                // キーフレームは部品の先頭からの秒なので、切ったぶん前へずらす(元のキーから毎回作り直す)
+                updated.keyframes = KeyframeInterpolator.shifted(original.keyframes, removingHead: newStart - original.start)
             } else {
                 // 右端: 長さだけ変える。動画は素材の残り長さまで
                 let upperEnd = max(timelineDuration(), original.end)
@@ -1832,6 +2031,7 @@ struct TimelineView: View {
                 noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
             }
             if project.overlays[i] != updated {
+                recordEditHistory()
                 project.overlays[i] = updated
             }
         default:
@@ -1848,7 +2048,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let clip = project.narration.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let clip = project.narration.first(where: { $0.id == id }) else { return }
                     beginEdit(.moveNarration(id: id, originalStart: clip.start), snapExcluding: id)
                 }
                 applyNarrationEdit(translation: value.translation.width)
@@ -1865,7 +2065,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let clip = project.narration.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let clip = project.narration.first(where: { $0.id == id }) else { return }
                     beginEdit(.trimNarration(id: id, leading: leading, original: clip), snapExcluding: id)
                 }
                 applyNarrationEdit(translation: value.translation.width)
@@ -1887,6 +2087,7 @@ struct TimelineView: View {
             let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
             let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.narration[i].start - newStart) > 0.0001 {
+                recordEditHistory()
                 project.narration[i].start = newStart
             }
         case let .trimNarration(id, leading, original)?:
@@ -1919,6 +2120,7 @@ struct TimelineView: View {
                 noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
             }
             if project.narration[i] != updated {
+                recordEditHistory()
                 project.narration[i] = updated
             }
         default:
@@ -1935,7 +2137,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let clip = project.textClips.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let clip = project.textClips.first(where: { $0.id == id }) else { return }
                     beginEdit(.moveText(id: id, originalStart: clip.start), snapExcluding: id)
                 }
                 applyTextEdit(translation: value.translation.width)
@@ -1952,7 +2154,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let clip = project.textClips.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let clip = project.textClips.first(where: { $0.id == id }) else { return }
                     beginEdit(.trimText(id: id, leading: leading, original: clip), snapExcluding: id)
                 }
                 applyTextEdit(translation: value.translation.width)
@@ -1974,19 +2176,22 @@ struct TimelineView: View {
             let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
             let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.textClips[i].start - newStart) > 0.0001 {
+                recordEditHistory()
                 project.textClips[i].start = newStart
             }
         case let .trimText(id, leading, original)?:
             guard let i = project.textClips.firstIndex(where: { $0.id == id }) else { return }
             var updated = original
             if leading {
-                // 左端: 開始を動かし終了は固定
+                // 左端: 開始を動かし終了は固定。キーフレームは部品の先頭からの秒なので、切ったぶん前へずらす
+                // (追尾のモザイクが顔から外れないよう、元のキーから毎回作り直す)
                 let upperStart = max(0, original.end - minimumLength)
                 let proposed = original.start + snappedDelta(delta, edges: [original.start])
                 let newStart = min(max(0, proposed), upperStart)
                 noteTrimLimit(abs(newStart - proposed) > 0.0001)
                 updated.start = newStart
                 updated.duration = max(minimumLength, original.end - newStart)
+                updated.keyframes = KeyframeInterpolator.shifted(original.keyframes, removingHead: newStart - original.start)
             } else {
                 // 右端: 長さだけ変える
                 let upperEnd = max(timelineDuration(), original.end)
@@ -1996,6 +2201,7 @@ struct TimelineView: View {
                 noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
             }
             if project.textClips[i] != updated {
+                recordEditHistory()
                 project.textClips[i] = updated
             }
         default:
@@ -2012,7 +2218,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let drawing = project.drawings.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let drawing = project.drawings.first(where: { $0.id == id }) else { return }
                     beginEdit(.moveDrawing(id: id, originalStart: drawing.start), snapExcluding: id)
                 }
                 applyDrawingEdit(translation: value.translation.width)
@@ -2029,7 +2235,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let drawing = project.drawings.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let drawing = project.drawings.first(where: { $0.id == id }) else { return }
                     beginEdit(.trimDrawing(id: id, leading: leading, original: drawing), snapExcluding: id)
                 }
                 applyDrawingEdit(translation: value.translation.width)
@@ -2051,6 +2257,7 @@ struct TimelineView: View {
             let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
             let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.drawings[i].start - newStart) > 0.0001 {
+                recordEditHistory()
                 project.drawings[i].start = newStart
             }
         case let .trimDrawing(id, leading, original)?:
@@ -2071,6 +2278,7 @@ struct TimelineView: View {
                 noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
             }
             if project.drawings[i] != updated {
+                recordEditHistory()
                 project.drawings[i] = updated
             }
         default:
@@ -2087,7 +2295,7 @@ struct TimelineView: View {
             }
             .onChanged { value in
                 if interaction.edit == nil {
-                    guard let marker = project.markers.first(where: { $0.id == id }) else { return }
+                    guard shouldBeginEdit(value), let marker = project.markers.first(where: { $0.id == id }) else { return }
                     beginEdit(.moveMarker(id: id, originalTime: marker.time), snapExcluding: id)
                 }
                 applyMarkerEdit(translation: value.translation.width)
@@ -2104,6 +2312,7 @@ struct TimelineView: View {
         let delta = snappedDelta(Double(translation) / pps, edges: [originalTime])
         let newTime = clampTime(originalTime + delta)
         if abs(project.markers[i].time - newTime) > 0.0001 {
+            recordEditHistory()
             project.markers[i].time = newTime
         }
     }

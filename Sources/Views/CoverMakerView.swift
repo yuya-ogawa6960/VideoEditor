@@ -1,11 +1,13 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import CoreTransferable
+import UniformTypeIdentifiers
 
 // =====================================================================
-// サムネ(カバー画像)作成画面。
+// サムネイル(カバー画像)作成画面。
 // 動画の 1 コマ(または写真)を背景に、メモ風のカード(タイトル + 本文)を重ねて画像にする。
-// 描画は CoverRenderer(別担当)。ここでは設定の編集・プレビュー・保存だけを行う。
+// 描画は CoverRenderer(別担当)。ここでは設定の編集・プレビュー・保存・共有だけを行う。
 // 設定は project.cover(CoverSettings)に保存され、プロジェクトと一緒に残る。
 // =====================================================================
 
@@ -31,12 +33,12 @@ struct CoverMakerView: View {
 
     // 保存・共有
     @State private var isSaving = false
-    @State private var isPreparingShare = false
-    @State private var shareURL: URL?
     @State private var alertTitle = ""
     @State private var alertMessage: String?
     /// アラートに「設定を開く」を出すか(写真の追加が許可されていないときだけ)
     @State private var alertOffersSettings = false
+    /// Google Fonts を探す画面
+    @State private var showsFontBrowser = false
 
     /// プレビューの描画幅(px)
     private let previewWidth: CGFloat = 1280
@@ -66,7 +68,7 @@ struct CoverMakerView: View {
                     outputSection
                 }
             }
-            .navigationTitle("サムネ")
+            .navigationTitle("サムネイル")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -78,12 +80,10 @@ struct CoverMakerView: View {
                 scheduleRender(delay: 0)
             }
             .onChange(of: project.cover) {
-                shareURL = nil
                 scheduleRender()
             }
             .onChange(of: project.clips) {
                 loadStrip()
-                shareURL = nil
                 scheduleRender()
             }
             .onChange(of: photoItem) {
@@ -92,6 +92,12 @@ struct CoverMakerView: View {
             .onDisappear {
                 renderTask?.cancel()
                 stripTask?.cancel()
+            }
+            // 「フォントを追加」。入れたフォントをそのまま選ぶ
+            .sheet(isPresented: $showsFontBrowser) {
+                GoogleFontsBrowser { name in
+                    project.cover.fontName = name
+                }
             }
             .alert(alertTitle, isPresented: Binding(
                 get: { alertMessage != nil },
@@ -429,17 +435,23 @@ struct CoverMakerView: View {
             }
             // 一覧画面で、各フォントの名前をそのフォントで表示する(メニュー形式だとフォントが反映されない)
             .pickerStyle(.navigationLink)
+
+            // Google Fonts から入れる(入れたフォントはそのまま選ばれる)
+            Button {
+                showsFontBrowser = true
+            } label: {
+                Label("フォントを追加", systemImage: "plus")
+            }
         } header: {
             Text("フォント")
-        } footer: {
-            Text("「ファイル」から読み込んだフォント(.ttf / .otf)は、テキスト編集のフォント読み込みから追加できます。")
         }
     }
 
     // MARK: - 保存・共有
 
     private var outputSection: some View {
-        Section {
+        let snapshot = project.snapshot()
+        return Section {
             Button {
                 saveToPhotos()
             } label: {
@@ -454,29 +466,16 @@ struct CoverMakerView: View {
             }
             .disabled(isSaving || !canRender)
 
-            if let shareURL {
-                ShareLink(item: shareURL) {
-                    Label("送る・ファイルに保存", systemImage: "square.and.arrow.up")
-                }
-            } else {
-                Button {
-                    prepareShare()
-                } label: {
-                    if isPreparingShare {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("画像を作成中…")
-                        }
-                    } else {
-                        Label("送るための画像を作る", systemImage: "square.and.arrow.up")
-                    }
-                }
-                .disabled(isPreparingShare || !canRender)
+            // 1 回押すだけで共有シートが開く。画像は送り先を選んだときに描く(CoverShareItem)
+            ShareLink(item: CoverShareItem(snapshot: snapshot, cover: project.cover, size: outputSize(for: snapshot)),
+                      preview: SharePreview(String(localized: "サムネイル"), image: Image(uiImage: preview ?? UIImage()))) {
+                Label("共有", systemImage: "square.and.arrow.up")
             }
+            .disabled(preview == nil)
         } header: {
-            Text("保存・送る")
+            Text("保存・共有")
         } footer: {
-            Text("「書き出し」で選んだ画面比率で、幅 \(Int(outputWidth)) px の画像(JPEG)を作ります。YouTube のサムネイルなどに使えます。")
+            Text("書き出しの画面比率で、幅 \(Int(outputWidth)) px の JPEG を作ります。")
         }
     }
 
@@ -606,7 +605,7 @@ struct CoverMakerView: View {
                 let image = try await CoverRenderer.render(snapshot: snapshot, cover: cover, size: size)
                 try await CoverRenderer.saveToPhotos(image)
                 showAlert(title: String(localized: "保存しました"),
-                          message: String(localized: "表紙の画像を写真アプリに保存しました。"))
+                          message: String(localized: "サムネイルを写真に保存しました。"))
             } catch CoverRendererError.photosAccessDenied {
                 showAlert(title: String(localized: "保存できませんでした"),
                           message: String(localized: "「設定を開く」→「写真」で写真の追加を許可してから、もう一度「写真に保存」を押してください。\n\n詳細: ")
@@ -626,39 +625,23 @@ struct CoverMakerView: View {
         alertOffersSettings = offersSettings
         alertMessage = message
     }
+}
 
-    private func prepareShare() {
-        guard !isPreparingShare, canRender else { return }
-        isPreparingShare = true
-        let snapshot = project.snapshot()
-        let cover = project.cover
-        let size = outputSize(for: snapshot)
-        Task { @MainActor in
-            do {
-                let image = try await CoverRenderer.render(snapshot: snapshot, cover: cover, size: size)
-                guard let data = image.jpegData(compressionQuality: 0.92) else {
-                    throw CoverMakerError.cannotEncode
-                }
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.dateFormat = "yyyyMMdd_HHmmss"
-                let directory = FileManager.default.temporaryDirectory
-                // 前に送る用に作った画像は消す(tmp に溜まらないように。共有シートは閉じているので使い中のものは無い)
-                if let oldFiles = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
-                    for file in oldFiles where file.lastPathComponent.hasPrefix("cover_") && file.pathExtension.lowercased() == "jpg" {
-                        try? FileManager.default.removeItem(at: file)
-                    }
-                }
-                let url = directory
-                    .appendingPathComponent("cover_\(formatter.string(from: Date())).jpg")
-                try data.write(to: url, options: .atomic)
-                shareURL = url
-            } catch {
-                showAlert(title: String(localized: "画像を作れませんでした"),
-                          message: String(localized: "端末の空き容量を確かめて、もう一度お試しください。\n\n詳細: ") + error.localizedDescription)
+/// 共有シートに渡すサムネイル。送り先を選んだときに CoverRenderer で描いて JPEG にする(ボタン 1 回で共有できるように)
+private struct CoverShareItem: Transferable {
+    let snapshot: ProjectSnapshot
+    let cover: CoverSettings
+    let size: CGSize
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .jpeg) { item in
+            let image = try await CoverRenderer.render(snapshot: item.snapshot, cover: item.cover, size: item.size)
+            guard let data = image.jpegData(compressionQuality: 0.92) else {
+                throw CoverMakerError.cannotEncode
             }
-            isPreparingShare = false
+            return data
         }
+        .suggestedFileName("cover.jpg")
     }
 }
 

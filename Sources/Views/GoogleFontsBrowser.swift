@@ -9,7 +9,12 @@ struct GoogleFontsBrowser: View {
     @Environment(\.dismiss) private var dismiss
     @State private var families: [GoogleFontFamily] = []
     @State private var loading = true
+    /// 一覧を読み込めなかったとき(一覧の代わりに出す。「再試行」で読み直す)
     @State private var errorText: String?
+    /// 「再試行」のたびに増やして .task(id:) を再実行する
+    @State private var loadAttempt = 0
+    /// フォントを入れられなかったとき(一覧はそのまま、アラートで知らせる)
+    @State private var installErrorText: String?
     @State private var query = ""
     @State private var japaneseOnly = true
     @State private var category = String(localized: "すべて")
@@ -52,7 +57,17 @@ struct GoogleFontsBrowser: View {
                 if loading {
                     ProgressView("フォントの一覧を読み込んでいます…").frame(maxHeight: .infinity)
                 } else if let errorText {
-                    Text(errorText).foregroundStyle(.secondary).padding().frame(maxHeight: .infinity)
+                    VStack(spacing: 12) {
+                        Text(errorText)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("再試行") {
+                            loadAttempt += 1
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding()
+                    .frame(maxHeight: .infinity)
                 } else {
                     List(shown) { family in
                         GoogleFontRow(family: family,
@@ -72,7 +87,10 @@ struct GoogleFontsBrowser: View {
                     Button("閉じる") { dismiss() }
                 }
             }
-            .task {
+            // 開いたときと「再試行」のたびに一覧を読み直す
+            .task(id: loadAttempt) {
+                loading = true
+                errorText = nil
                 do {
                     families = try await GoogleFontsService.loadCatalog()
                 } catch {
@@ -81,6 +99,14 @@ struct GoogleFontsBrowser: View {
                 loading = false
             }
             .onChange(of: japaneseOnly) { _, _ in category = String(localized: "すべて") }
+            .alert("フォントを追加できませんでした", isPresented: Binding(
+                get: { installErrorText != nil },
+                set: { if !$0 { installErrorText = nil } }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(installErrorText ?? "")
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -96,7 +122,7 @@ struct GoogleFontsBrowser: View {
                     onInstalled(first)
                 }
             } catch {
-                errorText = nil
+                installErrorText = String(localized: "もう一度「追加」を押してください。\n\n詳細: ") + error.localizedDescription
             }
         }
     }

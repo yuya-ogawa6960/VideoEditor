@@ -1,52 +1,147 @@
 import SwiftUI
 import Observation
 
-/// 書き出し中だけ表示される小さなバナー(メイン画面上部に配置)
+/// 書き出し中に表示される小さなバナー(メイン画面上部に配置)。
+/// 終わった直後は結果(写真に保存した・終わった・書き出せなかった)を数秒だけ残し、前面で終わっても気づけるようにする。
+/// 本体をタップすると onOpen(書き出し画面を開くなど)。■ は確認してから止める
 struct ExportProgressBanner: View {
+    /// 本体をタップしたとき(書き出し画面を開くなど)。nil なら本体は押せない
+    var onOpen: (() -> Void)? = nil
+
+    /// ■ を押したあとの確認(すぐには止めない)
+    @State private var confirmStop = false
+    /// 終わった直後に数秒だけ出す結果(nil なら出さない)
+    @State private var result: ExportManager.State?
+
     var body: some View {
         let exporter = ExportManager.shared
         let running = exporter.isRunning
         let progress = min(max(exporter.progress, 0), 1)
         // 書き出していないときも呼んで、次の書き出しで計測し直せるようにする
         let remaining = ExportTimeEstimator.shared.remainingText(isRunning: running, progress: progress)
-        if running {
-            HStack(spacing: 10) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.accentColor)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(verbatim: "書き出し中 \(Int((progress * 100).rounded()))%")
-                            .font(.caption.weight(.semibold).monospacedDigit())
-                        if let remaining {
-                            Text(remaining)
-                                .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    ProgressView(value: progress)
-                        .progressViewStyle(.linear)
-                        .frame(width: 150)
-                }
-                Button {
-                    exporter.cancel()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("書き出しを止める")
+        ZStack {
+            // 何も出していないときも部品を置いておく(中身が空だと .onChange・.task が付かない)
+            Color.clear.frame(width: 0, height: 0)
+            if running {
+                runningBanner(progress: progress, remaining: remaining)
+            } else if let result {
+                resultBanner(result, savedToPhotos: exporter.savedToPhotos)
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 4)
-            .padding(.vertical, 2)
-            .background(.regularMaterial, in: Capsule())
-            .shadow(color: Color.black.opacity(0.15), radius: 6, y: 2)
-            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+        .onChange(of: running) { wasRunning, isRunning in
+            if isRunning {
+                result = nil
+            } else if wasRunning {
+                // 終わった直後は結果を数秒だけ残す(自分で止めたときは出さない)
+                switch exporter.state {
+                case .finished, .failed: result = exporter.state
+                default: result = nil
+                }
+            }
+        }
+        .task(id: result) {
+            guard result != nil else { return }
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            withAnimation { result = nil }
+        }
+        .confirmationDialog("書き出しを止めますか?", isPresented: $confirmStop, titleVisibility: .visible) {
+            Button("止める", role: .destructive) {
+                exporter.cancel()
+            }
+            Button("続ける", role: .cancel) {}
+        }
+    }
+
+    /// 書き出し中(進み具合 + 止めるボタン)
+    private func runningBanner(progress: Double, remaining: String?) -> some View {
+        HStack(spacing: 10) {
+            openable {
+                HStack(spacing: 10) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(verbatim: "書き出し中 \(Int((progress * 100).rounded()))%")
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                            if let remaining {
+                                Text(remaining)
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 150)
+                    }
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            Button {
+                confirmStop = true
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("書き出しを止める")
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 4)
+        .padding(.vertical, 2)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: Color.black.opacity(0.15), radius: 6, y: 2)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// 終わった直後の結果(本当の結果にもとづく。写真に保存できなかったときは「保存しました」と言わない)
+    private func resultBanner(_ state: ExportManager.State, savedToPhotos: Bool) -> some View {
+        let failed: Bool
+        if case .failed = state {
+            failed = true
         } else {
-            EmptyView()
+            failed = false
+        }
+        let text: String
+        if failed {
+            text = String(localized: "書き出せませんでした")
+        } else if savedToPhotos {
+            text = String(localized: "写真に保存しました")
+        } else {
+            text = String(localized: "書き出しが終わりました")
+        }
+        return openable {
+            HStack(spacing: 8) {
+                Image(systemName: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(failed ? Color.orange : Color.green)
+                Text(text)
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .contentShape(Capsule())
+        }
+        .padding(.vertical, 2)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: Color.black.opacity(0.15), radius: 6, y: 2)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// 本体。onOpen があれば押せるボタンにする
+    @ViewBuilder
+    private func openable<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        if let onOpen {
+            Button(action: onOpen) {
+                content()
+            }
+            .buttonStyle(.plain)
+        } else {
+            content()
         }
     }
 }

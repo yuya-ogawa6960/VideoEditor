@@ -306,6 +306,9 @@ struct CompareView: View {
     let player: PlayerController
     /// 最初に選んでおく書き出し履歴(nil なら最新)
     var initialRecordID: UUID? = nil
+    /// 「この位置で編集画面に戻る」で、再生位置を合わせたあとに呼ぶ(書き出し画面から開いたときに書き出し画面も閉じる。ExportView.swift)。
+    /// nil ならこの画面だけ閉じる
+    var onReturnToEditor: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -549,7 +552,7 @@ struct CompareView: View {
     private var recordSection: some View {
         Section {
             if exporter.history.isEmpty {
-                Text("まだ書き出した動画がありません。先に「書き出し」をすると、その動画といまの編集を見比べられます。")
+                Text("書き出した動画がまだありません。先に書き出すと、いまの編集と見比べられます。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
@@ -615,7 +618,7 @@ struct CompareView: View {
         } header: {
             Text("表示と音声")
         } footer: {
-            Text("A はいまの編集(プレビュー画質)、B は選んだ書き出し済みの動画です。再生や位置の移動は両方に同時に反映されます。")
+            Text("A はいまの編集、B は選んだ書き出し。再生と移動は両方に同時に効きます。")
         }
     }
 
@@ -651,7 +654,7 @@ struct CompareView: View {
         } header: {
             Text("音の大きさ")
         } footer: {
-            Text("YouTube などのネット動画で聞きやすい大きさかを「小さめ / ちょうどいい / 大きすぎ」で表示します。A はいまの編集の音を一時的に書き出して測ります。")
+            Text("ネット動画の目安で「小さめ / ちょうどいい / 大きすぎ」を表示します。")
         }
     }
 
@@ -768,13 +771,18 @@ struct CompareView: View {
                 let t = sync.currentTime
                 sync.pause()
                 player.seek(to: t)
-                dismiss()
+                // 書き出し画面から開いたときは、書き出し画面も閉じて編集画面まで戻る
+                if let onReturnToEditor {
+                    onReturnToEditor()
+                } else {
+                    dismiss()
+                }
             } label: {
                 Label("この位置で編集画面に戻る", systemImage: "arrow.uturn.backward")
             }
             .disabled(sync.duration <= 0)
         } footer: {
-            Text("編集画面の再生位置を、いま比較している位置に合わせて閉じます。")
+            Text("編集画面の再生位置をこの位置に合わせて閉じます。")
         }
     }
 }

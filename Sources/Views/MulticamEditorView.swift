@@ -12,6 +12,10 @@ struct MulticamEditorView: View {
     @State private var isAddingAngles = false
     @State private var syncingAngleIDs: Set<UUID> = []
     @State private var errorMessage: String?
+    /// 「切替をすべて消去」の確認
+    @State private var isClearSwitchesPresented = false
+    /// 切替に使われているアングルを消す前の確認(消すアングル)
+    @State private var pendingDeleteAngleID: UUID?
 
     var body: some View {
         Group {
@@ -33,6 +37,28 @@ struct MulticamEditorView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+        .confirmationDialog("切替をすべて消去しますか?",
+                            isPresented: $isClearSwitchesPresented,
+                            titleVisibility: .visible) {
+            Button("すべて消去", role: .destructive) {
+                clearSwitches()
+            }
+            Button("キャンセル", role: .cancel) { }
+        } message: {
+            Text("\(switchTotal) 件の切替点を消します。")
+        }
+        .confirmationDialog("このアングルを削除しますか?",
+                            isPresented: Binding(get: { pendingDeleteAngleID != nil },
+                                                 set: { if !$0 { pendingDeleteAngleID = nil } }),
+                            titleVisibility: .visible,
+                            presenting: pendingDeleteAngleID) { id in
+            Button("削除", role: .destructive) {
+                deleteAngle(id: id)
+            }
+            Button("キャンセル", role: .cancel) { }
+        } message: { id in
+            Text(String(localized: "このアングルへの切替 \(switchCount(usingAngle: id)) 件も消えます。"))
         }
     }
 
@@ -94,7 +120,7 @@ struct MulticamEditorView: View {
                 }
 
                 if clip.multicam.angles.isEmpty {
-                    Text("同じ場面を別のカメラで撮った動画を「アングルを追加」で入れると、再生しながらボタンで切り替えられます。")
+                    Text("別のカメラの動画を「アングルを追加」で入れると、再生しながら切り替えられます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -130,7 +156,7 @@ struct MulticamEditorView: View {
                     angleRow(angle: angle, number: index + 1, clip: clip)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                deleteAngle(id: angle.id)
+                                requestDeleteAngle(id: angle.id)
                             } label: {
                                 Label("削除", systemImage: "trash")
                             }
@@ -155,13 +181,13 @@ struct MulticamEditorView: View {
             } header: {
                 Text("アングル")
             } footer: {
-                Text("「ずれ」は、別のカメラの映像とメインの映像のタイミングの差です。まず「自動で合わせる」を押すと、音を聞き比べて自動でそろえます。手で直すときは、口の動きと声が合うまで ±ボタンで調整します(+ にするとアングルの映像が先に進みます)。")
+                Text("「自動で合わせる」は音でそろえます。手で直すときは、+ にするとアングルの映像が先に進みます。")
             }
 
             // 切替一覧
             Section {
                 if clip.multicam.switches.isEmpty {
-                    Text("切替はまだありません(最初はメインを使用)")
+                    Text("切替はまだありません")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -176,7 +202,7 @@ struct MulticamEditorView: View {
                             }
                     }
                     Button(role: .destructive) {
-                        clearSwitches()
+                        isClearSwitchesPresented = true
                     } label: {
                         Label("切替をすべて消去", systemImage: "trash")
                     }
@@ -222,16 +248,6 @@ struct MulticamEditorView: View {
                 }
 
                 Spacer()
-
-                Button(role: .destructive) {
-                    deleteAngle(id: angle.id)
-                } label: {
-                    Image(systemName: "trash")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("このアングルを削除")
             }
 
             HStack(spacing: 6) {
@@ -341,11 +357,34 @@ struct MulticamEditorView: View {
         project.clips[i] = clip
     }
 
+    /// いまの切替点の数(「切替をすべて消去」の確認用)
+    private var switchTotal: Int {
+        guard let i = project.index(of: clipID) else { return 0 }
+        return project.clips[i].multicam.switches.count
+    }
+
+    /// このアングルを消すと一緒に消える切替の数(アングル番号は 1 から)
+    private func switchCount(usingAngle id: UUID) -> Int {
+        guard let i = project.index(of: clipID),
+              let angleIndex = project.clips[i].multicam.angles.firstIndex(where: { $0.id == id }) else { return 0 }
+        let number = angleIndex + 1
+        return project.clips[i].multicam.switches.filter { $0.angle == number }.count
+    }
+
+    /// 切替に使われているアングルは、切替も消えることを確かめてから削除する
+    private func requestDeleteAngle(id: UUID) {
+        if switchCount(usingAngle: id) > 0 {
+            pendingDeleteAngleID = id
+        } else {
+            deleteAngle(id: id)
+        }
+    }
+
     private func insertSwitch(angle n: Int) {
         guard let clipIndex = project.index(of: clipID),
               let location = project.locate(timelineTime: player.currentTime),
               location.index == clipIndex else {
-            errorMessage = String(localized: "「先頭へ」を押して再生位置をこのクリップの中に移してから、切り替えボタンを押してください。")
+            errorMessage = String(localized: "「先頭へ」で再生位置をこのクリップに移してから切り替えてください。")
             return
         }
         let time = location.sourceTime
@@ -420,7 +459,7 @@ struct MulticamEditorView: View {
                 let offset = try await AudioSync.estimateOffset(mainURL: mainURL, angleURL: angleURL)
                 setOffset(offset, angleID: angleID)
             } catch {
-                errorMessage = String(localized: "±ボタンで、口の動きと声が合うまで手で調整してください(両方の動画に同じ音が入っていないと自動では合わせられません)。\n\n詳細: ") + error.localizedDescription
+                errorMessage = String(localized: "両方の動画に同じ音が無いと自動では合わせられません。±ボタンで手で合わせてください。\n\n詳細: ") + error.localizedDescription
             }
             syncingAngleIDs.remove(angleID)
         }

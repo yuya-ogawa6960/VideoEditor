@@ -61,6 +61,11 @@ enum TimelineMetrics {
     static let selectionBarThickness: CGFloat = 3
     /// スナップする距離(pt)
     static let snapThreshold: CGFloat = 8
+    /// 選択中の部品を動かし始めるまでのドラッグ量(pt)。触れただけ・縦のドラッグでは動かさない
+    static let editStartDistance: CGFloat = 6
+    /// 並べ替え中、持ち上げたクリップがこの幅まで画面の端に近づいたら自動でスクロールする(pt)と、その最高速(pt/秒)
+    static let reorderScrollMargin: CGFloat = 44
+    static let reorderScrollPointsPerSecond: Double = 360
     /// 空のトラックをまとめた「+ 追加」行の高さ
     static let addRowHeight: CGFloat = 32
     /// 左端のトラックアイコンの大きさ
@@ -352,6 +357,14 @@ struct TimelineFrameData {
     let snapshot: ProjectSnapshot
 }
 
+/// 部品のドラッグ中に固定しておく行と段の割り当て(動かすたびに段が変わってバーが行を飛んだり、行の高さが変わったりしない)
+struct TimelineFrozenLanes {
+    let rows: [TimelineTrackKind]
+    let textLanes: [UUID: Int]
+    let overlayLanes: [UUID: Int]
+    let narrationLanes: [UUID: Int]
+}
+
 /// 再描画を伴わないジェスチャー管理用の状態
 final class TimelineInteraction {
     var scrollStartTime: Double? = nil
@@ -360,6 +373,18 @@ final class TimelineInteraction {
     var lastSeekTime: CFTimeInterval = 0
     var pinchStartPPS: Double? = nil
     var edit: TimelineEditKind? = nil
+    /// 選択中の部品に触れていて、editStartDistance だけ動くまで編集を始めるのを待っている
+    var editPending: Bool = false
+    /// この指では編集しない(縦方向に動いた、ピンチで取り消した)
+    var editDeclined: Bool = false
+    /// この編集で履歴を取ったか(最初に実際に値が変わるときに 1 回だけ取る)
+    var historyRecorded: Bool = false
+    /// V1 の編集(トリム・並べ替え)を始める前のクリップの配置(終わったら部品を付いて動かす)
+    var clipLayout: ClipLayoutSnapshot? = nil
+    /// 並べ替えを始める前のクリップの並び(ピンチで取り消すときに戻す)
+    var editStartClips: [Clip]? = nil
+    /// 並べ替え中の端の自動スクロールの速さ(-1 ... 1。0 で止まる)
+    var reorderScrollFactor: CGFloat = 0
     /// 編集中にスナップする候補の時刻(編集開始時に 1 回だけ集める)
     var snapTargets: [Double] = []
     /// 今スナップしている時刻(同じ候補で何度も振動させないため)
@@ -539,6 +564,8 @@ struct TimelineWaveformStrip: View {
     var centered: Bool = false
     /// 波形の高さに掛ける倍率(クリップの音量。1 = そのまま)
     var gain: Float = 1
+    /// true なら左右を反転して描く(逆再生のクリップ。表示上の先頭が素材の終わり)
+    var reversed: Bool = false
 
     @State private var waveform: AudioWaveform? = nil
     @State private var loadedPath: String = ""
@@ -553,13 +580,15 @@ struct TimelineWaveformStrip: View {
         let symmetric = centered
         let fill = color
         let scale = max(0, gain)
+        let mirrored = reversed
 
         Canvas { context, size in
             guard let wf = current, size.width >= 2, size.height >= 1, end > start else { return }
             let count = max(1, min(Int(size.width / 2), 4000))
             let loop = looping ? wf.duration : 0
-            let peaks = TimelineWaveformStrip.peaks(wf, from: start, to: end, count: count, loop: loop)
+            var peaks = TimelineWaveformStrip.peaks(wf, from: start, to: end, count: count, loop: loop)
             guard !peaks.isEmpty else { return }
+            if mirrored { peaks.reverse() }
             let step = size.width / CGFloat(count)
             let barWidth = max(1, step - 1)
             var shape = Path()
@@ -907,15 +936,18 @@ struct TimelineTrimHandle: View {
     }
 }
 
-/// トリムハンドルの掴める範囲(幅 44pt)。見た目(約 14pt)は部品側の端に寄せ、外側へ掴める範囲を広げる。
-/// leading = true なら部品の左端に付くハンドル(見た目は右寄せ)
+/// トリムハンドルの掴める範囲(幅 44pt)。見た目(約 14pt)は部品の端のすぐ外側に付け、
+/// 掴める範囲は端をはさんで内側(inset)と外側に分ける。leading = true なら部品の左端に付くハンドル(見た目は右寄せ)
 struct TimelineTrimHandleHitArea: View {
     let leading: Bool
+    /// 掴める範囲のうち部品の内側に入っている幅
+    var inset: CGFloat = 0
 
     var body: some View {
         let visual = TimelineMetrics.handleVisualWidth
         TimelineTrimHandle(leading: leading)
             .frame(width: visual)
+            .padding(leading ? .trailing : .leading, inset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: leading ? .trailing : .leading)
             .contentShape(Rectangle())
     }
@@ -1629,7 +1661,7 @@ struct TimelinePacingStrip: View {
 // MARK: - V1 の下の音声の波形
 
 /// V1(メイン映像)の下に、クリップごとの音の大きさを波形で出す段。
-/// 音量(ゲイン)を反映し、消音・音声なしのクリップは平らな線にする
+/// 音量(そろえたゲイン × クリップの音量)を反映し、消音・音声なしのクリップは平らな線にする
 struct TimelineClipAudioLane: View {
     let items: [TimelineClipItem]
     let pointsPerSecond: CGFloat
@@ -1642,19 +1674,25 @@ struct TimelineClipAudioLane: View {
                 let clip = item.clip
                 let speed = TimelineClipView.effectiveSpeed(of: clip)
                 let localLeft = item.visibleX - item.screenX
-                let waveStart = clip.startTime + Double(localLeft / pps) * speed
-                let waveEnd = min(clip.endTime, clip.startTime + Double((localLeft + item.visibleWidth) / pps) * speed)
+                // 見えている範囲の元素材の秒。逆再生は表示上の先頭が元素材の終わり(サムネイルと同じ鏡像)
+                let isReversed = clip.isReversed && clip.reversedURL != nil
+                let visibleFrom = Double(localLeft / pps) * speed
+                let visibleTo = Double((localLeft + item.visibleWidth) / pps) * speed
+                let waveStart = isReversed ? max(clip.startTime, clip.endTime - visibleTo) : clip.startTime + visibleFrom
+                let waveEnd = isReversed ? clip.endTime - visibleFrom : min(clip.endTime, clip.startTime + visibleTo)
                 let hasSound = clip.hasAudio && !clip.isMuted && !clip.isStill
                 ZStack {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(TimelineMetrics.audioColor.opacity(hasSound ? 0.22 : 0.08))
                     if hasSound && item.visibleWidth >= 4 && waveEnd > waveStart {
+                        // 高さには出力と同じく、そろえたゲイン × クリップの音量(volume)を掛ける
                         TimelineWaveformStrip(url: clip.url,
                                               sourceStart: waveStart,
                                               sourceEnd: waveEnd,
                                               color: TimelineMetrics.splitAudioColor,
                                               centered: true,
-                                              gain: clip.audio.gain)
+                                              gain: clip.audio.gain * clip.audio.volume,
+                                              reversed: isReversed)
                             .padding(.vertical, 2)
                     } else {
                         Rectangle()

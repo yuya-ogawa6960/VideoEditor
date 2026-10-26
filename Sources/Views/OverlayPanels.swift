@@ -51,7 +51,7 @@ private func overlayPercentText(_ value: Double) -> String {
 }
 
 private func overlaySecondsText(_ value: Double) -> String {
-    String(format: "%.1f 秒", value)
+    String(localized: "\(String(format: "%.1f", value)) 秒")
 }
 
 /// 2 つの正規化矩形がほぼ同じか(チップの選択表示用)
@@ -541,9 +541,10 @@ struct EditorOverlayFilterPanel: View {
         FilterPickerView(filter: $overlay.filter,
                          sourceImage: thumbnail,
                          onApplyToAll: {
+                             // プリセット・強さ・明るさ・コントラスト・彩度だけ写す(各オーバーレイの HSL・LUT・ほかの補正はそのまま)
                              let filter = overlay.filter
                              for i in project.overlays.indices {
-                                 project.overlays[i].filter = filter
+                                 project.overlays[i].filter = FilterPickerView.presetLook(from: filter, onto: project.overlays[i].filter)
                              }
                          })
         .task(id: overlay.url) {

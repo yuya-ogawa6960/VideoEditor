@@ -15,6 +15,24 @@ struct FilterPickerView: View {
         sourceImage.map { ObjectIdentifier($0) }
     }
 
+    /// このパネルで触る値(プリセット・強さ・明るさ・コントラスト・彩度)が初期値か。HSL・LUT・ほかの補正は見ない
+    private var isPresetLookDefault: Bool {
+        filter.preset == .none && filter.intensity == 1
+            && filter.adjustments.brightness == 0 && filter.adjustments.contrast == 1 && filter.adjustments.saturation == 1
+    }
+
+    /// source のプリセット・強さ・明るさ・コントラスト・彩度だけを target に写す。
+    /// リセットや「全クリップに適用」で、HSL・LUT・露出などの「カラー補正」を消さないために使う
+    static func presetLook(from source: FilterSettings, onto target: FilterSettings) -> FilterSettings {
+        var result = target
+        result.preset = source.preset
+        result.intensity = source.intensity
+        result.adjustments.brightness = source.adjustments.brightness
+        result.adjustments.contrast = source.adjustments.contrast
+        result.adjustments.saturation = source.adjustments.saturation
+        return result
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             presetStrip
@@ -42,12 +60,12 @@ struct FilterPickerView: View {
 
             HStack {
                 Button {
-                    filter = FilterSettings()
+                    filter = Self.presetLook(from: FilterSettings(), onto: filter)
                 } label: {
                     Label("リセット", systemImage: "arrow.counterclockwise")
                 }
                 .buttonStyle(.bordered)
-                .disabled(filter.isIdentity && filter.intensity == 1)
+                .disabled(isPresetLookDefault)
 
                 Spacer()
 

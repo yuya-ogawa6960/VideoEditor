@@ -254,6 +254,33 @@ enum KeyframeInterpolator {
         let l = ks.last!
         return Value(center: l.center, scale: l.scale, rotation: l.rotation, opacity: l.opacity)
     }
+
+    /// 部品の先頭を removedHead 秒ぶん切ったあとのキーフレーム列(先頭を伸ばしたときは負)。
+    /// 切った区間の中のキーは消し、新しい先頭(0 秒)にそのときの補間値のキーを入れる
+    /// (追尾のモザイクなどが、切った位置の値から始まる)
+    static func shifted(_ keyframes: [Keyframe], removingHead removedHead: Double) -> [Keyframe] {
+        guard !keyframes.isEmpty, abs(removedHead) > 0.0001 else { return keyframes }
+        var result: [Keyframe] = []
+        var dropped = false
+        for key in keyframes {
+            var k = key
+            k.time = key.time - removedHead
+            if k.time >= -0.001 {
+                result.append(k)
+            } else {
+                dropped = true
+            }
+        }
+        guard dropped, !result.contains(where: { abs($0.time) < 0.001 }) else { return result }
+        let v = value(at: removedHead, keyframes: keyframes,
+                      fallback: Value(center: .center, scale: 1, rotation: 0, opacity: 1))
+        var head = Keyframe(time: 0, center: v.center, scale: v.scale, rotation: v.rotation, opacity: v.opacity)
+        if let before = keyframes.filter({ $0.time < removedHead }).max(by: { $0.time < $1.time }) {
+            head.easing = before.easing
+        }
+        result.insert(head, at: 0)
+        return result
+    }
 }
 
 // MARK: - テキストレイヤー(字幕とは別の自由配置テキスト。ステッカーも兼ねる)

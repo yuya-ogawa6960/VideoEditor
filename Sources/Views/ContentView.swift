@@ -37,6 +37,8 @@ struct ContentView: View {
 
     @State private var activePanel: EditorPanel?
     @State private var activeSheet: EditorSheet?
+    /// 字幕のシートを開いたときに開いて見せる場所(「キャプションを翻訳」から)。シートを閉じたら忘れる
+    @State private var subtitleSheetSection: SubtitleEditorSection?
 
     @State private var pickerItems: [PhotosPickerItem] = []
     /// 「オーバーレイ」で選んだ動画・写真
@@ -100,6 +102,10 @@ struct ContentView: View {
     @State private var toolbarGroupPath: [String] = []
     /// 1.5: パネルを開いたときの状態(✕「キャンセル」で戻す)
     @State private var panelSnapshot: ProjectSnapshot?
+    /// 開いているパネルの高さ(トーストをパネルの上に出すため)
+    @State private var openPanelHeight: CGFloat = 0
+    /// お知らせを閉じたあとに出すトースト(一部だけ読み込めたときの「元に戻す」つきのお知らせ)
+    @State private var toastAfterAlert: EditorToast?
     /// 字幕を直したあとの「ほかの〇か所も変えますか?」
     @State private var termReplacement: CaptionTermReplacement?
     /// 1.5: タイムラインの「+」から開く PhotosPicker
@@ -114,6 +120,9 @@ struct ContentView: View {
     @State private var timelineDropTargeted = false
     @State private var previewDropTargeted = false
     @State private var timelineWidth: CGFloat = 0
+    /// クリップを動かしている間(移動・トリム・並べ替え)に固定しておくタイムラインの高さ。終わったら nil に戻す
+    /// (ドラッグ中に行が増えて、指の下でタイムラインがずれないように)
+    @State private var frozenTimelineHeight: CGFloat?
     /// 「動画・写真を追加」で、どこから追加するか(写真ライブラリ / ファイル / Google フォト)を選ぶ
     @State private var showMediaSourceDialog = false
     /// 「ファイル」アプリ(Google ドライブ・iCloud Drive など)から選ぶ
@@ -130,7 +139,7 @@ struct ContentView: View {
     /// 「オーバーレイ」を押したときの「動画だけ / 写真だけ / 両方」の選択
     @State private var showOverlayKindDialog = false
     @State private var overlayPickerFilter: PHPickerFilter = .any(of: [.videos, .images])
-    /// 1.5: 「聞きやすくする」(ナレーション 1 件の音量そろえ)の確認対象
+    /// 1.5: ナレーション 1 件の「ラウドネスを自動一致」の確認対象
     @State private var normalizeNarrationTarget: UUID?
 
     init(projectID: UUID, onClose: @escaping () -> Void) {
@@ -299,8 +308,17 @@ struct ContentView: View {
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
         }
-        .onChange(of: activeSheet) { _, sheet in
-            if let sheet { Analytics.shared.track("sheet", ["name": Self.analyticsName(of: sheet)]) }
+        .onChange(of: activeSheet) { previous, sheet in
+            if let sheet {
+                Analytics.shared.track("sheet", ["name": Self.analyticsName(of: sheet)])
+            } else if case .multicam? = previous {
+                // マルチカメラはアングルの読み込みがシートを閉じたあとに終わって書き込むことがあるので、開くときの履歴は残す
+            } else {
+                // 何も変えずにシートを閉じたときは、開くときに記録した履歴を捨てる(↶ が空振りしないように)
+                history.discardLastIfUnchanged(project)
+            }
+            // 「キャプションを翻訳」で指定した開く場所は、字幕のシートを閉じたら忘れる
+            if sheet != .subtitles { subtitleSheetSection = nil }
         }
         .confirmationDialog("このプロジェクトを空にしますか?",
                             isPresented: $showClearProjectConfirm,
@@ -310,7 +328,7 @@ struct ContentView: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("このプロジェクトのクリップ・字幕・BGM・オーバーレイ・ナレーション・テキスト・手書き・マーカーはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
+            Text("このプロジェクトのクリップ・キャプション・BGM・オーバーレイ・ナレーション・テキスト・手書き・マーカーはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
         .alert("お知らせ", isPresented: alertIsPresented) {
             if alertOffersSettings {
@@ -332,7 +350,8 @@ struct ContentView: View {
     private var mainColumn: some View {
         VStack(spacing: 0) {
             topBarWithDialogs
-            ExportProgressBanner()
+            // 本体をタップすると書き出し画面に戻る
+            ExportProgressBanner(onOpen: { openExport() })
             if project.isEmpty {
                 emptyState
             } else {
@@ -401,7 +420,13 @@ struct ContentView: View {
             if sheet == nil { scheduleIncomingCheck() }
         }
         .onChange(of: alertMessage) { _, message in
-            if message == nil { scheduleIncomingCheck() }
+            if message == nil {
+                scheduleIncomingCheck()
+                if let pending = toastAfterAlert {
+                    toastAfterAlert = nil
+                    showToast(pending.message, style: pending.style, undo: pending.canUndo)
+                }
+            }
         }
         // 下のパネルを閉じた・画面内の処理(無音カット・逆再生・解析など)が終わったときも、待たせていた確認を出す
         // (どれかが残っている間は確認しないので、全部なくなったときに呼び直す)
@@ -427,11 +452,13 @@ struct ContentView: View {
             EditorToastView(toast: current) {
                 undoFromToast()
             }
-            .padding(.bottom, 84)
+            // パネルを開いている間はパネルの上に出す(パネルに重ならず、「元に戻す」が指の下に来ないように)
+            .padding(.bottom, activePanel == nil ? 84 : openPanelHeight + 8)
             // 雲のようにふわっと現れ、消えるときは真ん中にスッと吸い込まれる(動きを減らす設定では薄く出入りするだけ)
             .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.toastCloud)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.22), value: activePanel == nil)
         .task(id: current.id) {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             if Task.isCancelled { return }
@@ -489,12 +516,15 @@ struct ContentView: View {
             }
             .confirmationDialog("動画の置き場所(いま: \(mediaMode.displayName))",
                                 isPresented: $isChoosingMediaMode, titleVisibility: .visible) {
-                Button("写真ライブラリから参照(容量を使わない)") {
+                Button("写真ライブラリから参照") {
                     ProjectLibrary.shared.setMediaMode(id: projectID, to: .photoLibrary)
+                    // 次に作るプロジェクトも同じ置き場所にする
+                    NewProjectMediaMode.last = .photoLibrary
                     showToast(String(localized: "これから追加する動画は写真ライブラリから参照します"))
                 }
-                Button("アプリに取り込む(写真を消しても安心)") {
+                Button("アプリに取り込む") {
                     ProjectLibrary.shared.setMediaMode(id: projectID, to: .appCopy)
+                    NewProjectMediaMode.last = .appCopy
                     showToast(String(localized: "これから追加する動画はアプリに取り込みます"))
                 }
                 Button("キャンセル", role: .cancel) {}
@@ -551,6 +581,11 @@ struct ContentView: View {
 
             Button {
                 EditorHaptics.tap()
+                if undoRemovesStroke {
+                    // 手書きの途中は最後の線を消す(プロジェクトの履歴は戻さない)
+                    draftStrokes.removeLast()
+                    return
+                }
                 activePanel = nil
                 Analytics.shared.trackUndo(source: "button")
                 history.undo(project)
@@ -558,13 +593,13 @@ struct ContentView: View {
                 Image(systemName: "arrow.uturn.backward")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
-                    .opacity(history.canUndo ? 1 : 0.3)
+                    .opacity(history.canUndo || undoRemovesStroke ? 1 : 0.3)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!history.canUndo)
-            .accessibilityLabel("元に戻す")
+            .disabled(!history.canUndo && !undoRemovesStroke)
+            .accessibilityLabel(undoRemovesStroke ? String(localized: "最後の線を消す") : String(localized: "元に戻す"))
 
             Button {
                 EditorHaptics.tap()
@@ -574,12 +609,13 @@ struct ContentView: View {
                 Image(systemName: "arrow.uturn.forward")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
-                    .opacity(history.canRedo ? 1 : 0.3)
+                    .opacity(history.canRedo && !undoRemovesStroke ? 1 : 0.3)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!history.canRedo)
+            // 手書きの途中(線あり)はやり直さない(パネルが閉じて描いた線が消えるため)
+            .disabled(!history.canRedo || undoRemovesStroke)
             .accessibilityLabel("やり直す")
 
             Button {
@@ -590,19 +626,20 @@ struct ContentView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
+                    .opacity(project.isEmpty ? 0.3 : 1)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // 空のプロジェクトでは使えない(見えないパネルが開き、あとで取り込んだクリップまで ✕ で消えるため)
+            .disabled(project.isEmpty)
             .accessibilityLabel("機能を探す")
 
             Spacer()
 
             Button {
                 EditorHaptics.tap()
-                player.pause()
-                activePanel = nil
-                activeSheet = .export
+                openExport()
             } label: {
                 Text("書き出し")
                     .font(.subheadline.weight(.bold))
@@ -622,6 +659,18 @@ struct ContentView: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 48)
+    }
+
+    /// 書き出し画面を開く(上部バーの「書き出し」と、書き出し中のバナーのタップから)
+    private func openExport() {
+        player.pause()
+        // 手書きの途中なら、描いた線を追加してから閉じる
+        if isDrawingNew {
+            finishDrawing()
+        } else {
+            activePanel = nil
+        }
+        activeSheet = .export
     }
 
     // MARK: - 空の状態
@@ -653,6 +702,9 @@ struct ContentView: View {
     // MARK: - 編集画面
 
     private var isDrawingNew: Bool { activePanel == .drawingCanvas }
+
+    /// 手書きの途中で描いた線があるときは、上部バーの ↶ が最後の線を消す(プロジェクトの履歴は戻さない)
+    private var undoRemovesStroke: Bool { isDrawingNew && !draftStrokes.isEmpty }
 
     /// マスクのパネルを開いている間は、プレビュー上でマスクの中心・大きさ・角度を操作できる
     private var previewMaskTarget: PreviewMaskTarget? {
@@ -697,7 +749,10 @@ struct ContentView: View {
                                           maskTarget: previewMaskTarget,
                                           rectSelection: previewRectSelection,
                                           player: player,
-                                          onSelect: { newSelection in selection = newSelection })
+                                          onSelect: { newSelection in
+                                              // パネルを開いている間はプレビューのタップで選択を変えない(パネルが閉じて ✕「キャンセル」で戻せなくなるため)
+                                              if activePanel == nil { selection = newSelection }
+                                          })
                 }
             }
     }
@@ -741,7 +796,8 @@ struct ContentView: View {
                         TimelineView(project: project, player: player, history: history,
                                      timeline: timeline, selection: $selection,
                                      onAdd: { kind in handleTimelineAdd(kind) })
-                            .frame(height: TimelineView.preferredHeight(for: project))
+                            // クリップを動かしている間は高さを変えない(終わったら新しい高さへ)
+                            .frame(height: frozenTimelineHeight ?? TimelineView.preferredHeight(for: project))
                             // 右側(iPhone Duo のたて持ちで時刻などが出る列)の下までタイムラインを伸ばす
                             .ignoresSafeArea(.container, edges: .trailing)
                             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { timelineWidth = $0 }
@@ -760,6 +816,16 @@ struct ContentView: View {
                 bottomArea(maxPanelHeight: panelMax)
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            // クリップを動かし始めたら、そのときの高さでタイムラインを固定する。終わったら新しい高さへなめらかに戻す
+            .onChange(of: timeline.isEditing) { _, editing in
+                if editing {
+                    frozenTimelineHeight = TimelineView.preferredHeight(for: project)
+                } else {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        frozenTimelineHeight = nil
+                    }
+                }
+            }
         }
         .photosPicker(isPresented: $showOverlayPicker,
                       selection: $overlayPickerItems,
@@ -796,7 +862,7 @@ struct ContentView: View {
             CaptionTermDictionary.add(from: replacement.from, to: replacement.to)
         }
         if changed > 0 {
-            showToast(String(localized: "\(changed) 件の字幕を直しました"), undo: true)
+            showToast(String(localized: "\(changed) 件のキャプションを直しました"), undo: true)
         }
     }
 
@@ -859,6 +925,8 @@ struct ContentView: View {
                                      onClose: { closePanel(panel) }) {
                     panelContent(panel)
                 }
+                // トーストをパネルの上に出すため、高さを控えておく
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { openPanelHeight = $0 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
                 EditorToolbar(items: toolbarItems,
@@ -882,7 +950,7 @@ struct ContentView: View {
         .confirmationDialog("オートパンチイン(話の区切りでズームを切り替えます)",
                             isPresented: $showPunchInDialog,
                             titleVisibility: .visible) {
-            Button("1.15 倍・話の区切りごと(おすすめ)") { applyPunchIn(zoom: 1.15, interval: nil) }
+            Button("1.15 倍・話の区切りごと") { applyPunchIn(zoom: 1.15, interval: nil) }
             Button("1.25 倍・話の区切りごと") { applyPunchIn(zoom: 1.25, interval: nil) }
             Button("1.15 倍・4 秒ごと") { applyPunchIn(zoom: 1.15, interval: 4) }
             Button("キャンセル", role: .cancel) {}
@@ -902,7 +970,7 @@ struct ContentView: View {
         .confirmationDialog("全クリップとナレーションの音量をそろえます",
                             isPresented: $showNormalizeConfirm,
                             titleVisibility: .visible) {
-            Button("音量そろえを実行") {
+            Button("ラウドネスを自動一致") {
                 startNormalize(clipIDs: project.clips.map { $0.id },
                                narrationIDs: project.narration.map { $0.id })
             }
@@ -910,10 +978,10 @@ struct ContentView: View {
         } message: {
             Text("各クリップとナレーションの音の大きさを測り、聞きやすい大きさにそろえます。「元に戻す」で戻せます。")
         }
-        .confirmationDialog("このナレーションを聞きやすくします",
+        .confirmationDialog("このナレーションの音量をそろえます",
                             isPresented: normalizeNarrationConfirmIsPresented,
                             titleVisibility: .visible) {
-            Button("聞きやすくする") {
+            Button("ラウドネスを自動一致") {
                 if let narrationID = normalizeNarrationTarget {
                     startNormalize(clipIDs: [], narrationIDs: [narrationID])
                 }
@@ -958,12 +1026,12 @@ struct ContentView: View {
             return String(localized: "クリップ\(i + 1)")
         case .subtitle(let cueID):
             guard let i = project.subtitles.firstIndex(where: { $0.id == cueID }) else { return nil }
-            return String(localized: "字幕\(i + 1)")
+            return String(localized: "キャプション\(i + 1)")
         case .bgm:
             return project.audio.bgmName ?? "BGM"
         case .overlay(let overlayID):
             guard let i = project.overlays.firstIndex(where: { $0.id == overlayID }) else { return nil }
-            return String(localized: "重ねた素材\(i + 1)")
+            return String(localized: "オーバーレイ\(i + 1)")
         case .narration(let narrationID):
             guard let item = project.narration.first(where: { $0.id == narrationID }) else { return nil }
             return item.name.isEmpty ? String(localized: "ナレーション") : item.name
@@ -991,9 +1059,14 @@ struct ContentView: View {
             finishDrawing()
         } else {
             activePanel = nil
+            discardOpenHistoryEntryIfUnchanged(after: panel)
             rewindToText(of: panel)
             if case .textEdit(let cueID) = panel {
                 offerTermReplacement(cueID: cueID)
+            }
+            if panel == .textToSpeech,
+               !TextToSpeechDraft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                showToast(String(localized: "読み上げる文章は残してあります"), style: .info)
             }
         }
     }
@@ -1016,11 +1089,35 @@ struct ContentView: View {
         let snapshot = panelSnapshot
         activePanel = nil
         panelSnapshot = nil
-        if let snapshot, project.snapshot() != snapshot {
-            project.restore(snapshot)
-            showToast(String(localized: "変更を取り消しました"), style: .info)
+        // 解析が終わる前に ✕ で閉じたら解析も止める(戻したクリップに、あとから結果が書き込まれないように)
+        switch panel {
+        case .autoReframe, .stabilize:
+            if analysis.isRunning { analysis.cancel() }
+        default:
+            break
         }
+        if let snapshot, project.snapshot() != snapshot {
+            // 取り消しも 1 回の操作として履歴に残し、トーストの「元に戻す」で取り消す前に戻せるようにする
+            history.record(project)
+            project.restore(snapshot)
+            showToast(String(localized: "変更を取り消しました"), style: .info, undo: true)
+        }
+        discardOpenHistoryEntryIfUnchanged(after: panel)
         rewindToText(of: panel)
+    }
+
+    /// 何も変えずにパネルを閉じたときは、開くときに記録した履歴を捨てる(↶ が空振りしないように)。
+    /// 閉じたあとに書き込みが残るパネルでは捨てない(捨てると、その書き込みを「元に戻す」で戻せなくなる):
+    /// オーディオエフェクトは閉じたあとに未反映の変更を書き込み、
+    /// オートリフレーム・スタビライザー・カラーマッチは解析が閉じたあとに終わって結果を書き込むことがあり、
+    /// ロゴ・透かしは選んだ写真の読み込みが閉じたあとに終わって書き込むことがある
+    private func discardOpenHistoryEntryIfUnchanged(after panel: EditorPanel) {
+        switch panel {
+        case .audioEffects, .narrationEffects, .autoReframe, .stabilize, .colorMatch, .watermark:
+            return
+        default:
+            history.discardLastIfUnchanged(project)
+        }
     }
 
     @ViewBuilder
@@ -1028,7 +1125,7 @@ struct ContentView: View {
         switch panel {
         case .speed(let clipID):
             if let clip = project.clipBinding(id: clipID) {
-                EditorSpeedPanel(clip: clip)
+                EditorSpeedPanel(project: project, clip: clip)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1100,7 +1197,7 @@ struct ContentView: View {
             }
         case .clipAnimation(let clipID):
             if let clip = project.clipBinding(id: clipID) {
-                EditorClipAnimationPanel(clip: clip)
+                EditorClipAnimationPanel(clip: clip, project: project, player: player)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1112,7 +1209,7 @@ struct ContentView: View {
             }
         case .speedCurve(let clipID):
             if let clip = project.clipBinding(id: clipID) {
-                EditorSpeedCurvePanel(clip: clip)
+                EditorSpeedCurvePanel(project: project, clip: clip)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1120,7 +1217,8 @@ struct ContentView: View {
             if let clip = project.clipBinding(id: clipID) {
                 EditorAudioEffectsPanel(url: clip.wrappedValue.url,
                                         name: clip.wrappedValue.name,
-                                        effects: clip.audio.effects)
+                                        effects: clip.audio.effects,
+                                        project: project)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1154,27 +1252,27 @@ struct ContentView: View {
             }
         case .textAnimation(let textID):
             if let text = project.textClipBinding(id: textID) {
-                EditorTextAnimationPanel(text: text)
+                EditorTextAnimationPanel(text: text, player: player)
             } else {
                 EditorMissingPanelContent()
             }
         case .textPlacement(let textID):
             if let text = project.textClipBinding(id: textID) {
-                EditorTextPlacementPanel(text: text)
+                EditorTextPlacementPanel(text: text, player: player)
             } else {
                 EditorMissingPanelContent()
             }
         case .textKeyframes(let textID):
             if let text = project.textClipBinding(id: textID) {
                 let current = text.wrappedValue
-                EditorKeyframePanel(player: player,
-                                    start: current.start,
-                                    duration: current.duration,
-                                    currentValue: KeyframeInterpolator.Value(center: current.center,
-                                                                             scale: current.scale,
-                                                                             rotation: current.rotation,
-                                                                             opacity: current.opacity),
-                                    keyframes: text.keyframes)
+                EditorKeyedKeyframePanel(player: player,
+                                         start: current.start,
+                                         duration: current.duration,
+                                         base: KeyframeInterpolator.Value(center: current.center,
+                                                                          scale: current.scale,
+                                                                          rotation: current.rotation,
+                                                                          opacity: current.opacity),
+                                         keyframes: text.keyframes)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1217,15 +1315,15 @@ struct ContentView: View {
         case .overlayKeyframes(let overlayID):
             if let overlay = project.overlayBinding(id: overlayID) {
                 let current = overlay.wrappedValue
-                EditorKeyframePanel(player: player,
-                                    start: current.start,
-                                    duration: current.duration,
-                                    currentValue: KeyframeInterpolator.Value(center: NormalizedPoint(x: current.frame.midX,
-                                                                                                     y: current.frame.midY),
-                                                                             scale: 1,
-                                                                             rotation: current.rotation,
-                                                                             opacity: current.opacity),
-                                    keyframes: overlay.keyframes)
+                EditorKeyedKeyframePanel(player: player,
+                                         start: current.start,
+                                         duration: current.duration,
+                                         base: KeyframeInterpolator.Value(center: NormalizedPoint(x: current.frame.midX,
+                                                                                                  y: current.frame.midY),
+                                                                          scale: 1,
+                                                                          rotation: current.rotation,
+                                                                          opacity: current.opacity),
+                                         keyframes: overlay.keyframes)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1237,7 +1335,7 @@ struct ContentView: View {
             }
         case .overlayTransition(let overlayID):
             if let overlay = project.overlayBinding(id: overlayID) {
-                EditorOverlayTransitionPanel(overlay: overlay)
+                EditorOverlayTransitionPanel(overlay: overlay, player: player)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1259,15 +1357,17 @@ struct ContentView: View {
             if let narration = project.narrationBinding(id: narrationID) {
                 EditorAudioEffectsPanel(url: narration.wrappedValue.url,
                                         name: narration.wrappedValue.name,
-                                        effects: narration.effects)
+                                        effects: narration.effects,
+                                        project: project)
             } else {
                 EditorMissingPanelContent()
             }
         case .narrationRecord:
+            // 追加しても選択は変えない(選択が変わるとパネルが閉じ、結果の表示が見えなくなるため)
             EditorNarrationRecordPanel(project: project,
                                        player: player,
                                        history: history,
-                                       onRecorded: { id in selection = .narration(id) })
+                                       onRecorded: { _ in })
 
         // ---- 第3弾: 手書き ----
         case .drawingCanvas:
@@ -1312,10 +1412,11 @@ struct ContentView: View {
                                  history: history,
                                  selectedClipID: selection?.clipID)
         case .textToSpeech:
+            // 追加しても選択は変えない(選択が変わるとパネルが閉じ、結果の表示が見えなくなるため)
             EditorTextToSpeechPanel(project: project,
                                     player: player,
                                     history: history,
-                                    onAdded: { id in selection = .narration(id) })
+                                    onAdded: { _ in })
 
         // ---- 第4弾: クリップ ----
         case .mask(let clipID):
@@ -1369,7 +1470,7 @@ struct ContentView: View {
                               onFix: { fix in applyEditingFix(fix) })
         case .mosaic(let textID):
             if let clip = project.textClipBinding(id: textID) {
-                EditorMosaicPanel(clip: clip)
+                EditorMosaicPanel(clip: clip, player: player)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1434,14 +1535,27 @@ struct ContentView: View {
     // 1.5: よく使う項目(9 個まで)+ グループ(2 段目の列)+「その他」。削除は最後。
     // 対象に当てはまらない項目(静止画 / 動画)は出さず、条件しだいで使えない項目はタップで理由を出す。
 
-    /// 🔍 機能を探す(いまのツールバー + 何かを選んでいるときは全体の編集も)
+    /// 🔍 機能を探す(いまのツールバー + 何かを選んでいるときは全体の編集も。
+    /// 何も選んでいないときは、再生位置のクリップの機能(速度・スプリットなど)も探せる)
     private var toolSearchSheet: some View {
+        let isWholeEdit: Bool = selection == nil && !timeline.isMultiSelecting
+        let wholeTitle = String(localized: "全体の編集")
+        if isWholeEdit, let clipID = clipIDAtPlayhead {
+            // 選ぶとそのクリップを選択してから実行する(runSearchedTool)
+            let clipTitle = String(localized: "再生位置のクリップ")
+            return EditorToolSearchSheet(contextEntries: EditorToolSearchIndex.flatten(rootItems, isRoot: true, contextTitle: wholeTitle),
+                                         contextTitle: wholeTitle,
+                                         rootEntries: EditorToolSearchIndex.flatten(clipItems(clipID), isRoot: false,
+                                                                                    contextTitle: clipTitle, selectsClipID: clipID),
+                                         rootTitle: clipTitle,
+                                         onPick: { entry in runSearchedTool(entry) })
+        }
         let contextTitle: String = toolbarModeTitle
-        let context: [EditorToolSearchEntry] = EditorToolSearchIndex.flatten(toolbarItems, isRoot: selection == nil && !timeline.isMultiSelecting,
+        let context: [EditorToolSearchEntry] = EditorToolSearchIndex.flatten(toolbarItems, isRoot: isWholeEdit,
                                                                              contextTitle: contextTitle)
-        let root: [EditorToolSearchEntry] = (selection == nil && !timeline.isMultiSelecting)
+        let root: [EditorToolSearchEntry] = isWholeEdit
             ? []
-            : EditorToolSearchIndex.flatten(rootItems, isRoot: true, contextTitle: String(localized: "全体の編集"))
+            : EditorToolSearchIndex.flatten(rootItems, isRoot: true, contextTitle: wholeTitle)
         return EditorToolSearchSheet(contextEntries: context,
                                      contextTitle: contextTitle,
                                      rootEntries: root,
@@ -1451,12 +1565,17 @@ struct ContentView: View {
     /// 検索で選んだ機能を実行する。写真を選ぶ機能など、ここから実行できないものはツールバーをその場所まで開く
     private func runSearchedTool(_ entry: EditorToolSearchEntry) {
         let item = entry.item
-        let needsDeselect: Bool = entry.isRoot && (selection != nil || timeline.isMultiSelecting)
         // シートが閉じてから実行する(パネルやシートを開く機能があるため)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            // 手書きの途中なら、描いた線を追加してから(パネルが閉じると線が消えるため)
+            if isDrawingNew { finishDrawing() }
+            let needsDeselect: Bool = entry.isRoot && (selection != nil || timeline.isMultiSelecting)
             if needsDeselect {
                 timeline.endMultiSelect()
                 selection = nil
+            } else if let clipID = entry.selectsClipID {
+                // 何も選んでいないときに出した再生位置のクリップの機能: そのクリップを選んでから実行する
+                selection = .clip(clipID)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 guard item.isEnabled else {
@@ -1679,7 +1798,7 @@ struct ContentView: View {
         })
         items.append(EditorToolItem(String(localized: "言いよどみカット"), systemImage: "scissors.badge.ellipsis", id: "ai-fillers",
                                     enabled: !project.subtitles.isEmpty,
-                                    disabledReason: String(localized: "先に字幕を作ってください")) {
+                                    disabledReason: String(localized: "先にキャプションを作成してください")) {
             cutFillers()
         })
         items.append(EditorToolItem(String(localized: "冒頭フック"), systemImage: "bolt.fill", id: "ai-coldopen",
@@ -1699,13 +1818,15 @@ struct ContentView: View {
                                     enabled: !noClips, disabledReason: needClips) {
             withClipAtPlayhead { clipID in
                 openPanel(.audioEffects(clipID))
-                showToast(String(localized: "「スピーチを強調(AI)」を右に動かすと、声以外の雑音が消えます"))
             }
         })
-        items.append(EditorToolItem(String(localized: "字幕を翻訳"), systemImage: "character.book.closed", id: "ai-translate") {
+        items.append(EditorToolItem(String(localized: "キャプションを翻訳"), systemImage: "character.book.closed", id: "ai-translate",
+                                    enabled: !project.subtitles.isEmpty,
+                                    disabledReason: String(localized: "先にキャプションを作成してください")) {
             history.record(project)
+            // 字幕のシートを「翻訳」を開いた状態で出す
+            subtitleSheetSection = .translate
             activeSheet = .subtitles
-            showToast(String(localized: "字幕の画面の「翻訳」から英語などに訳せます"))
         })
         items.append(EditorToolItem(String(localized: "AI読み上げ"), systemImage: "waveform.badge.mic", id: "ai-tts") {
             openPanel(.textToSpeech)
@@ -1754,7 +1875,7 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "マーカー"), systemImage: "flag") {
             addMarkerAtPlayhead()
         })
-        items.append(EditorToolItem(String(localized: "フォーマット"), systemImage: "rectangle.stack.badge.plus") {
+        items.append(EditorToolItem(String(localized: "パーツ"), systemImage: "rectangle.stack.badge.plus") {
             openPanel(.formatKit)
         })
         items.append(EditorToolItem(String(localized: "サムネ"), systemImage: "photo.badge.plus") {
@@ -1854,7 +1975,6 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "スピーチを強調"), systemImage: "person.wave.2", id: "clip-ai-speech",
                                     enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
             openPanel(.audioEffects(clipID))
-            showToast(String(localized: "「スピーチを強調(AI)」を右に動かすと、声以外の雑音が消えます"))
         })
         items.append(EditorToolItem(String(localized: "自動補正"), systemImage: "wand.and.rays", id: "clip-ai-enhance") {
             autoEnhance(clipID)
@@ -1913,7 +2033,6 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "スピーチを強調"), systemImage: "person.wave.2",
                                     enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
             openPanel(.audioEffects(clipID))
-            showToast(String(localized: "「スピーチを強調(AI)」を右に動かすと、声以外の雑音が消えます"))
         })
         items.append(EditorToolItem(String(localized: "オーディオエフェクト"), systemImage: "waveform.and.magnifyingglass",
                                     enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
@@ -1978,13 +2097,11 @@ struct ContentView: View {
         let index = project.index(of: clipID) ?? 0
         items.append(EditorToolItem(String(localized: "前へ移動"), systemImage: "arrow.left.to.line",
                                     enabled: index > 0, disabledReason: String(localized: "これ以上前には動かせません")) {
-            history.record(project)
-            if project.moveClips(ids: [clipID], by: -1) { showToast(String(localized: "前へ移動しました"), undo: true) }
+            if moveClipsRippling([clipID], by: -1) { showToast(String(localized: "前へ移動しました"), undo: true) }
         })
         items.append(EditorToolItem(String(localized: "後ろへ移動"), systemImage: "arrow.right.to.line",
                                     enabled: index < project.clips.count - 1, disabledReason: String(localized: "これ以上後ろには動かせません")) {
-            history.record(project)
-            if project.moveClips(ids: [clipID], by: 1) { showToast(String(localized: "後ろへ移動しました"), undo: true) }
+            if moveClipsRippling([clipID], by: 1) { showToast(String(localized: "後ろへ移動しました"), undo: true) }
         })
         let canSlip = !isStill && (clip.map { $0.duration - ($0.endTime - $0.startTime) > 0.05 } ?? false)
         items.append(EditorToolItem(String(localized: "スリップ"), systemImage: "arrow.left.and.right.square",
@@ -2088,7 +2205,7 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "オーディオエフェクト"), systemImage: "waveform.and.magnifyingglass") {
             openPanel(.narrationEffects(narrationID))
         })
-        items.append(EditorToolItem(String(localized: "聞きやすくする"), systemImage: "waveform",
+        items.append(EditorToolItem(String(localized: "ラウドネスを自動一致"), systemImage: "waveform",
                                     enabled: audioToolProgress == nil,
                                     disabledReason: Self.busyReason) {
             normalizeNarrationTarget = narrationID
@@ -2334,7 +2451,7 @@ struct ContentView: View {
     private func cutFillers() {
         let cues = project.subtitles
         guard !cues.isEmpty else {
-            showToast(String(localized: "先に字幕を作ってください(字幕の言葉から探します)"), style: .warning)
+            showToast(String(localized: "先にキャプションを作成してください"), style: .warning)
             return
         }
         let spans = FillerDetector.spans(in: cues)
@@ -2632,11 +2749,19 @@ struct ContentView: View {
         selection = nil
     }
 
+    /// クリップを前後に動かす(動かせたら true)。字幕・テキスト・オーバーレイなどは同じ素材の位置に付いたまま動く
+    private func moveClipsRippling(_ ids: Set<UUID>, by step: Int) -> Bool {
+        history.record(project)
+        let layout = project.captureClipLayout()
+        guard project.moveClips(ids: ids, by: step) else { return false }
+        project.rippleTimelineItems(from: layout)
+        return true
+    }
+
     private func moveMultiSelected(by step: Int) {
         let ids = timeline.multiSelectedClipIDs
         guard !ids.isEmpty else { return }
-        history.record(project)
-        let moved: Bool = project.moveClips(ids: ids, by: step)
+        let moved: Bool = moveClipsRippling(ids, by: step)
         if moved {
             UISelectionFeedbackGenerator().selectionChanged()
         } else {
@@ -2683,11 +2808,13 @@ struct ContentView: View {
             }
         case .subtitles:
             // クリップを選んで開いたときは、そのクリップだけ字幕を作れる
-            SubtitleEditorView(project: project, player: player, focusClipID: selection?.clipID)
+            SubtitleEditorView(project: project, player: player, focusClipID: selection?.clipID,
+                               initialSection: subtitleSheetSection)
         case .audio:
             AudioSettingsView(project: project)
         case .export:
-            ExportView(project: project)
+            // 編集画面のプレーヤーを渡す(「比較」から「この位置で編集画面に戻る」で同じ位置に戻れるように)
+            ExportView(project: project, player: player)
         case .scopes(let clipID):
             ScopeSheetView(player: player, clip: project.clips.first(where: { $0.id == clipID }))
         case .coverMaker:
@@ -3153,7 +3280,7 @@ struct ContentView: View {
         }
         if !failures.isEmpty, !cancelled {
             alertOffersSettings = needsPhotoSettings
-            alertMessage = String(localized: "\(failures.count)件の素材を読み込めませんでした。\n") + failures.joined(separator: "\n")
+            alertMessage = Self.importResultMessage(added: lastAdded == nil ? 0 : importDone - failures.count, failures: failures)
         } else if lastAdded != nil, importCopiedPhotoMedia {
             showToast(Self.photoCopiedNote(), style: .info)
         }
@@ -3251,7 +3378,7 @@ struct ContentView: View {
         player.pause()
         mediaToolTask?.cancel()
         mediaToolTask = Task { @MainActor in
-            mediaToolProgress = ClipFXProgress(title: String(localized: "フリーズフレームを作成中"), fraction: nil)
+            mediaToolProgress = ClipFXProgress(title: String(localized: "フレーム保持を作成中"), fraction: nil)
             do {
                 let imageURL = try await MediaTools.freezeFrameImage(from: clip.url, at: sourceTime)
                 mediaToolProgress = nil
@@ -3292,13 +3419,13 @@ struct ContentView: View {
                     project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
                 }
                 selection = .clip(still.id)
-                showToast(String(localized: "静止画にしました"), undo: true)
+                showToast(String(localized: "フレーム保持を追加しました"), undo: true)
             } catch is CancellationError {
                 mediaToolProgress = nil
             } catch {
                 mediaToolProgress = nil
                 if !Task.isCancelled {
-                    alertMessage = String(localized: "静止画を作成できませんでした。\n\(error.localizedDescription)")
+                    alertMessage = String(localized: "フレーム保持を作成できませんでした。\n\(error.localizedDescription)")
                 }
             }
             mediaToolTask = nil
@@ -3409,15 +3536,18 @@ struct ContentView: View {
             // 素材に依存しない設定は引き継ぐ(リフレーム・手ぶれ補正の解析結果は素材ごとなので引き継がない)
             replaced.mask = old.mask
             replaced.enhance = old.enhance
+            let before = project.snapshot()
             history.record(project)
             project.clips[i] = replaced
             importDone = 1
             if shortened {
                 showToast(String(localized: "置き換えました(新しい動画が短いため、クリップも短くなりました)"), undo: true)
             } else if !fresh.isStill, fresh.duration - length > 0.05 {
-                // 長さはそのままで、どこを使うかを細かく合わせられるように
+                // 長さはそのままで、どこを使うかを細かく合わせられるようスリップのパネルを開く
+                // (履歴は記録済みなので openPanel は使わない。トーストの「元に戻す」と ✕「キャンセル」で置き換え前に戻る)
+                panelSnapshot = before
+                activePanel = .slip(clipID)
                 showToast(String(localized: "置き換えました。使う部分を調整できます"), undo: true)
-                openPanel(.slip(clipID))
             } else {
                 showToast(String(localized: "置き換えました"), undo: true)
             }
@@ -3667,7 +3797,7 @@ struct ContentView: View {
 
         audioToolProgress = nil
         if cancelled {
-            showToast(String(localized: "音量そろえをキャンセルしました"), style: .info)
+            showToast(String(localized: "ラウドネスの自動一致をキャンセルしました"), style: .info)
             return
         }
         guard !clipGains.isEmpty || !narrationGains.isEmpty else {
@@ -3743,6 +3873,8 @@ struct ContentView: View {
         player.pause()
         mediaToolTask?.cancel()
         analysis.cancel()
+        // 手書きの途中なら、描いた線を追加してから閉じる
+        if isDrawingNew { finishDrawing() }
         activePanel = nil
         activeSheet = nil
         selection = nil
@@ -3867,6 +3999,16 @@ struct ContentView: View {
         return String(localized: "スローモーションなど参照できない動画は、アプリに取り込みました")
     }
 
+    /// 読み込めなかったときのお知らせ。一部だけ読み込めたときは件数を先に出し、同じ理由はまとめる
+    private static func importResultMessage(added: Int, failures: [String]) -> String {
+        var seen = Set<String>()
+        let reasons: [String] = failures.filter { seen.insert($0).inserted }
+        let head: String = added > 0
+            ? String(localized: "\(added)件追加・\(failures.count)件失敗")
+            : String(localized: "\(failures.count)件の動画・写真を読み込めませんでした。")
+        return ([head] + reasons).joined(separator: "\n")
+    }
+
     /// 復元したクリップのサムネイルを読み直す(保存ファイルには画像を含めないため)
     @MainActor
     private func reloadThumbnails() async {
@@ -3954,11 +4096,15 @@ struct ContentView: View {
         isImporting = false
         importFraction = nil
         importTask = nil
+        // 一部だけ読み込めなかったときも、読み込めたクリップは選び、お知らせを閉じたら「元に戻す」つきのトーストを出す
+        if let id = firstAddedID { selection = .clip(id) }
         if !failures.isEmpty, !cancelled {
             alertOffersSettings = needsPhotoSettings
-            alertMessage = String(localized: "\(failures.count)件の動画・写真を読み込めませんでした。\n") + failures.joined(separator: "\n")
+            alertMessage = Self.importResultMessage(added: added, failures: failures)
+            if added > 0 {
+                toastAfterAlert = EditorToast(String(localized: "\(added)件を追加しました"), canUndo: true)
+            }
         } else if added > 0 {
-            if let id = firstAddedID { selection = .clip(id) }
             if importCopiedPhotoMedia {
                 // 写真ライブラリから参照できずにアプリへ取り込んだことを伝える(元に戻すも出す)
                 showToast(Self.photoCopiedNote(), style: .info, undo: true)
@@ -4140,10 +4286,14 @@ struct ContentView: View {
         importFraction = nil
         importIsDownloading = false
         importTask = nil
+        // 一部だけ読み込めなかったときも、読み込めたクリップは選び、お知らせを閉じたら「元に戻す」つきのトーストを出す
+        if let id = firstAddedID { selection = .clip(id) }
         if !failures.isEmpty, !cancelled {
-            alertMessage = String(localized: "\(failures.count)件の動画・写真を読み込めませんでした。\n") + failures.joined(separator: "\n")
+            alertMessage = Self.importResultMessage(added: added, failures: failures)
+            if added > 0 {
+                toastAfterAlert = EditorToast(String(localized: "\(added)件を追加しました"), canUndo: true)
+            }
         } else if added > 0 {
-            if let id = firstAddedID { selection = .clip(id) }
             showToast(insertAt != nil && droppedIndex == nil
                       ? String(localized: "再生位置の後ろに \(added)件を差し込みました")
                       : String(localized: "\(added)件を追加しました"), undo: true)
@@ -4296,7 +4446,7 @@ struct ContentView: View {
             activePanel = .overlayPlacement(lastAdded)
         }
         if !failures.isEmpty, !cancelled {
-            alertMessage = String(localized: "\(failures.count)件の素材を読み込めませんでした。\n") + failures.joined(separator: "\n")
+            alertMessage = Self.importResultMessage(added: lastAdded == nil ? 0 : importDone - failures.count, failures: failures)
         }
     }
 
@@ -4604,6 +4754,33 @@ private struct EditorTimeReadout: View {
         Text(text)
             .font(.system(size: size).monospacedDigit())
             .foregroundStyle(Color.white.opacity(0.85))
+    }
+}
+
+// MARK: - キーフレームのパネル(再生位置の補間値を渡す)
+
+/// EditorKeyframePanel に、再生位置でのキーフレームの補間値を currentValue として渡す。
+/// キーフレームがあると描画は基本の値(center / scale / rotation / opacity)を見ないため、
+/// 基本の値を渡すと「キーフレームを追加」が今見えている配置と違う値で入ってしまう。
+/// 再生時刻の変化で ContentView 全体が描き直されないよう別の View にしている
+private struct EditorKeyedKeyframePanel: View {
+    let player: PlayerController
+    /// 部品の出力タイムライン上の開始・長さ
+    let start: Double
+    let duration: Double
+    /// キーフレームが無いときの配置(基本の値)
+    let base: KeyframeInterpolator.Value
+    @Binding var keyframes: [Keyframe]
+
+    var body: some View {
+        // EditorKeyframePanel の playheadRelative と同じ丸め方(部品の範囲内に収める)
+        let local: Double = min(max(player.currentTime - start, 0), max(duration, 0))
+        let current: KeyframeInterpolator.Value = KeyframeInterpolator.value(at: local, keyframes: keyframes, fallback: base)
+        EditorKeyframePanel(player: player,
+                            start: start,
+                            duration: duration,
+                            currentValue: current,
+                            keyframes: $keyframes)
     }
 }
 

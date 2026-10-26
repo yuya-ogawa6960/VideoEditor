@@ -49,12 +49,14 @@ enum CloudTranscriptionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return String(localized: "OpenAI の API キーが設定されていません。「文字起こしの方式」の画面でキーを入力してください。")
+            // ポイントで使う設定ならサインイン、そうでなければ API キーを案内する
+            return CloudAIGateway.notConfiguredMessage
         case .invalidAPIKey:
-            if CloudAIGateway.usesPoints || AccountService.shared.source == .points {
-                return String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。")
+            // ポイント(サーバー)の 401 はサインアウト済みなので usesPoints では見分けられない → 設定(prefersPoints)で見る
+            if CloudAIGateway.prefersPoints {
+                return CloudAIGateway.sessionExpiredMessage
             }
-            return String(localized: "APIキーが正しくありません。「文字起こしの方式」の画面で OpenAI の API キーを確認してください。")
+            return CloudAIGateway.invalidAPIKeyMessage
         case .rateLimited(let detail):
             return detail.isEmpty ? String(localized: "利用上限です。しばらく待ってからもう一度お試しください。")
                                   : String(localized: "利用上限です。\(detail)")
@@ -70,7 +72,7 @@ enum CloudTranscriptionError: LocalizedError {
             // 402 は Video Mania のポイント不足(サーバーからの応答。OpenAI のエラーではない)。
             // 背景セッションの記録(CloudJobManifest.Failure)にも残るよう、新しい case を足さずに status で見分ける
             if status == 402 {
-                return String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。")
+                return CloudAIGateway.insufficientPointsMessage
             }
             if CloudAIGateway.usesPoints {
                 return String(localized: "サーバーがエラーを返しました(\(status)): \(message)")

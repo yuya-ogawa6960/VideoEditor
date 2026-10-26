@@ -11,10 +11,10 @@ fileprivate enum ExportViewPreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .snsShort: return String(localized: "SNS(縦動画)")
-        case .youtube: return String(localized: "YouTube(横動画)")
-        case .longHigh: return String(localized: "きれいに残す")
-        case .uhd4k: return String(localized: "4K(いちばんきれい)")
+        case .snsShort: return String(localized: "SNS 縦動画")
+        case .youtube: return String(localized: "YouTube 横動画")
+        case .longHigh: return String(localized: "高画質で保存")
+        case .uhd4k: return String(localized: "4K 最高画質")
         }
     }
 
@@ -128,6 +128,8 @@ struct ExportView: View {
     @State private var dualExport: Bool = false
     @State private var compareTarget: ExportRecord?
     @State private var comparePlayer: PlayerController?
+    /// 履歴から消そうとしている書き出し(ファイルも消えるので、確認してから消す)
+    @State private var historyToDelete: [ExportRecord] = []
 
     // GIF
     @State private var showGIFPanel: Bool = false
@@ -206,7 +208,7 @@ struct ExportView: View {
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 0) {
                     bottomBar
-                    // 書き出しボタンの下にバナー広告(読み込めるまでは場所を取らない。BannerAdView.swift)
+                    // 書き出しボタンの下にバナー広告(届く前から同じ高さで場所を取るので、ボタンは動かない。届かなければ閉じる。BannerAdView.swift)
                     BannerAdSlot()
                 }
             }
@@ -220,7 +222,12 @@ struct ExportView: View {
             .sheet(item: $compareTarget) { record in
                 CompareView(project: project,
                             player: player ?? comparePlayer ?? PlayerController(),
-                            initialRecordID: record.id)
+                            initialRecordID: record.id,
+                            onReturnToEditor: {
+                                // 「この位置で編集画面に戻る」は比較と書き出しの両方を閉じる
+                                compareTarget = nil
+                                dismiss()
+                            })
             }
             .onAppear {
                 recomputeEstimate()
@@ -231,8 +238,13 @@ struct ExportView: View {
             .onChange(of: project.snapshot()) {
                 recomputeEstimate()
             }
-            .onChange(of: exporter.state) {
+            .onChange(of: exporter.state) { oldValue, newValue in
                 recomputeEstimate()
+                // 書き出しが終わったら全画面広告(前の広告から間があいているときだけ)。
+                // この画面が見えているときだけ出す(閉じて編集に戻ったあとは出さない。比較画面を開いている間も出さない)
+                if newValue == .finished, oldValue != .finished, compareTarget == nil {
+                    AdsManager.shared.showInterstitial(.exportFinished)
+                }
             }
             .alert(alertTitle, isPresented: Binding(
                 get: { alertMessage != nil },
@@ -246,6 +258,24 @@ struct ExportView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(alertMessage ?? "")
+            }
+            .confirmationDialog("書き出した動画を削除しますか?",
+                                isPresented: Binding(
+                                    get: { !historyToDelete.isEmpty },
+                                    set: { if !$0 { historyToDelete = [] } }
+                                ),
+                                titleVisibility: .visible) {
+                Button("削除", role: .destructive) {
+                    for record in historyToDelete {
+                        exporter.deleteRecord(record)
+                    }
+                    historyToDelete = []
+                }
+                Button("キャンセル", role: .cancel) {
+                    historyToDelete = []
+                }
+            } message: {
+                Text("書き出したファイルも消えます。写真アプリに保存したものは残ります。")
             }
         }
     }
@@ -417,7 +447,7 @@ struct ExportView: View {
             .buttonStyle(.plain)
         } footer: {
             if !showAdvanced {
-                Text("画面比率・細かさ・画質などを自分で決めたいときに開きます。ふつうは上の使いみちを選ぶだけで大丈夫です。")
+                Text("画面比率・解像度・画質・コーデックを自分で決めるときに開きます。")
             }
         }
     }
@@ -457,7 +487,7 @@ struct ExportView: View {
         } header: {
             Text("画面と画質")
         } footer: {
-            Text("「形が合わないとき」は、素材と画面比率が違うときに、黒帯・ぼかし背景で全体を見せるか、はみ出す部分を切るかを選びます。解像度は数字が大きいほどきれいで、ファイルも大きくなります。")
+            Text("「形が合わないとき」は、素材と画面比率が違うときの収め方です。")
         }
         .disabled(exporter.isRunning)
     }
@@ -510,12 +540,12 @@ struct ExportView: View {
                 }
             }
 
-            Toggle("データ量を自分で決める", isOn: manualBitrateBinding)
+            Toggle("ビットレートを指定", isOn: manualBitrateBinding)
 
             if let mbps = project.canvas.bitrateMbps {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("映像のデータ量")
+                        Text("ビットレート")
                         Spacer()
                         Text("\(Int(mbps.rounded())) Mbps")
                             .monospacedDigit()
@@ -531,7 +561,7 @@ struct ExportView: View {
                     .foregroundStyle(.secondary)
                 }
             } else {
-                LabeledContent("映像のデータ量", value: String(localized: "自動(約 \(autoBitrateMbps) Mbps)"))
+                LabeledContent("ビットレート", value: String(localized: "自動(約 \(autoBitrateMbps) Mbps)"))
             }
 
             Picker("音質", selection: $project.canvas.audioBitrateKbps) {
@@ -541,8 +571,8 @@ struct ExportView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("ファイルの種類")
-                Picker("ファイルの種類", selection: $project.canvas.fileFormat) {
+                Text("形式")
+                Picker("形式", selection: $project.canvas.fileFormat) {
                     ForEach(ExportFileFormat.allCases) { format in
                         Text(format.displayName).tag(format)
                     }
@@ -555,7 +585,7 @@ struct ExportView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("フレームレート")
-                Picker("なめらかさ", selection: $project.canvas.frameRate) {
+                Picker("フレームレート", selection: $project.canvas.frameRate) {
                     ForEach(frameRates, id: \.self) { fps in
                         Text("\(fps)").tag(fps)
                     }
@@ -574,10 +604,7 @@ struct ExportView: View {
         } header: {
             Text("ファイルの細かい設定")
         } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("保存形式は迷ったら「自動」。HEVC は小さくきれい、H.264 は古い機器でも再生しやすい形式です。")
-                Text("「字幕を映像に入れる」をオフにすると、字幕は動画に入りません(字幕ファイルを別に使うとき向け)。")
-            }
+            Text("コーデックは迷ったら「自動」。HEVC は小さく高画質、H.264 は古い機器でも再生できます。")
         }
         .disabled(exporter.isRunning)
         .onChange(of: project.canvas.codec) { _, codec in
@@ -857,13 +884,19 @@ struct ExportView: View {
         recomputeEstimate()
         guard canStart else { return }
         let snapshot = project.snapshot()
+        let wantsPhotos = saveToPhotos
         if dualExport {
-            exporter.startDual(snapshot: snapshot, saveToPhotos: saveToPhotos)
+            exporter.startDual(snapshot: snapshot, saveToPhotos: wantsPhotos)
         } else {
-            exporter.start(snapshot: snapshot, saveToPhotos: saveToPhotos)
+            exporter.start(snapshot: snapshot, saveToPhotos: wantsPhotos)
         }
-        // 書き出しは広告の間も続く
-        AdsManager.shared.showInterstitial(.exportStart)
+        // 書き出しは広告の間も続く。初回は通知・写真の許可の確認(ExportManager が開始時に聞く)が出ることがあるので、
+        // 出るかもしれないときは全画面広告を出さない(システムの確認の上に重ねない)
+        Task { @MainActor in
+            let mayPrompt = await ExportManager.permissionPromptMayAppear(saveToPhotos: wantsPhotos)
+            guard !mayPrompt, exporter.isRunning else { return }
+            AdsManager.shared.showInterstitial(.exportStart)
+        }
     }
 
     private func saveToPhotosLibrary() {
@@ -973,7 +1006,7 @@ struct ExportView: View {
         } header: {
             Text("SNS パック(まとめて書き出し)")
         } footer: {
-            Text("1 回で、YouTube 用の横動画、ショート用の縦動画、サムネ、字幕ファイル、チャプター一覧をまとめて作ります。動画は上の「書き出した動画」に並びます。")
+            Text("横動画・縦動画・サムネ・字幕ファイル・チャプター一覧をまとめて作ります。")
         }
     }
 
@@ -1060,7 +1093,7 @@ struct ExportView: View {
                 }
             } label: {
                 HStack {
-                    Label("GIF(短い動くイラスト)で書き出す", systemImage: "photo.stack")
+                    Label("GIFで書き出す", systemImage: "photo.stack")
                     Spacer()
                     Image(systemName: showGIFPanel ? "chevron.up" : "chevron.down")
                         .font(.caption)
@@ -1088,7 +1121,7 @@ struct ExportView: View {
         } header: {
             Text("その他の書き出し")
         } footer: {
-            Text("「縦横を同時に書き出す」をオンにすると、前の画面の書き出しボタンで 16:9(横)と 9:16(縦)を続けて作ります(2 本分の空き容量が必要)。チャプター一覧は「マーカー」のチャプターから作り、YouTube の概要欄に貼り付けられます。")
+            Text("縦横同時は横 16:9 と縦 9:16 を続けて作り、空き容量は 2 本分必要です。")
         }
     }
 
@@ -1148,7 +1181,7 @@ struct ExportView: View {
             .font(.caption)
             .foregroundStyle(gifRange == nil ? Color.red : Color.secondary)
 
-        Picker("なめらかさ", selection: $gifFPS) {
+        Picker("フレームレート", selection: $gifFPS) {
             ForEach([8, 10, 12, 15], id: \.self) { fps in
                 Text("\(fps) コマ/秒").tag(fps)
             }
@@ -1167,7 +1200,7 @@ struct ExportView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("止める", role: .destructive) {
+                    Button("キャンセル", role: .destructive) {
                         gifTask?.cancel()
                     }
                     .buttonStyle(.borderless)
@@ -1252,10 +1285,9 @@ struct ExportView: View {
                     historyRow(record)
                 }
                 .onDelete { offsets in
+                    // ファイルも消えるので、すぐには消さず確認してから(historyToDelete → confirmationDialog)
                     let records = exporter.history
-                    for index in offsets where index < records.count {
-                        exporter.deleteRecord(records[index])
-                    }
+                    historyToDelete = offsets.filter { $0 < records.count }.map { records[$0] }
                 }
             }
         } header: {

@@ -343,16 +343,29 @@ struct EditorAutoReframePanel: View {
         Binding<Double>(get: { clip.reframe.zoom }, set: { clip.reframe.zoom = $0 })
     }
 
-    /// 画面比率の設定によって効くかどうかの説明
+    /// 効くかどうかの説明。合成(VideoCompositor.reframeCrop)と同じ条件:
+    /// 「埋める」か、画面と(回転・クロップ後の)映像の縦横比が 2% より違うとき
     private var canvasNote: String {
-        let canvas = project.canvas
-        if canvas.aspect == .original {
-            return String(localized: "比率が「元のまま」のため無効です")
+        let snapshot = project.snapshot()
+        if snapshot.canvas.scaling == .fill {
+            return String(localized: "「埋める」のため、切り出す位置が人物を追いかけます")
         }
-        if canvas.scaling == .fill {
-            return String(localized: "比率 \(canvas.aspect.displayName)・埋める: 切り出す位置が人物を追いかけます。")
+        let canvas = CompositionBuilder.renderSize(for: snapshot, purpose: .preview)
+        var size = clip.displaySize
+        if clip.geometry.rotationQuarterTurns % 2 == 1 {
+            size = CGSize(width: size.height, height: size.width)
         }
-        return String(localized: "画面比率が元の映像と違うときに効きます(いまは \(canvas.aspect.displayName))。「比率」で「埋める」にすると確実に効きます。")
+        size.width *= CGFloat(clip.geometry.crop.width)
+        size.height *= CGFloat(clip.geometry.crop.height)
+        guard size.width > 0, size.height > 0, canvas.width > 0, canvas.height > 0 else {
+            return String(localized: "画面と映像の比率が違うときに効きます")
+        }
+        let canvasAspect = canvas.width / canvas.height
+        let imageAspect = size.width / size.height
+        if abs(canvasAspect - imageAspect) / imageAspect > 0.02 {
+            return String(localized: "画面と映像の比率が違うため効きます")
+        }
+        return String(localized: "画面と映像の比率が同じため効きません。「比率」で「埋める」にすると効きます")
     }
 
     var body: some View {
@@ -515,7 +528,7 @@ struct EditorStabilizePanel: View {
                 }
 
                 Toggle(isOn: enabledBinding) {
-                    Label("手ぶれ補正を使う", systemImage: "hand.raised.slash")
+                    Label("スタビライザーを使う", systemImage: "hand.raised.slash")
                         .font(.subheadline)
                 }
                 .tint(.accentColor)
@@ -1001,7 +1014,7 @@ final class EditorTrackingController {
                 }
             }
             let seconds = String(format: "%.1f", sourceEnd - sourceStart)
-            self.statusText = String(localized: "\(seconds) 秒分の動きを追従させました(動きのポイント \(keyframes.count) 個)。「キーフレーム」で確認・調整できます。")
+            self.statusText = String(localized: "\(seconds) 秒分を追従させました(キーフレーム \(keyframes.count) 個)")
         } onError: { [weak self] error in
             self?.errorText = String(localized: "追跡できませんでした: \(error.localizedDescription)")
         }
@@ -1049,7 +1062,7 @@ struct EditorTrackingPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("トラッキング: プレビューの上で、追いかけたい人や物を囲むように指でなぞってください。\(targetName)がその動きについていきます。")
+            Text("プレビューで追いかけたい対象を指で囲みます")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1084,7 +1097,7 @@ struct EditorTrackingPanel: View {
 
             HStack {
                 if keyframeCount > 0 {
-                    Text("動きのポイント \(keyframeCount) 個")
+                    Text("キーフレーム \(keyframeCount) 個")
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -1097,7 +1110,7 @@ struct EditorTrackingPanel: View {
                 .opacity(keyframeCount == 0 ? 0.4 : 1)
             }
 
-            Text("※ 再生位置にあるメインの映像で追いかけます。切り抜き・回転・「オートリフレーム」を使っているクリップでは位置がずれることがあります。")
+            Text("クロップ・回転・オートリフレーム中のクリップではずれることがあります")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

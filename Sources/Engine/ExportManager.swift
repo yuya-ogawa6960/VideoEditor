@@ -72,14 +72,9 @@ final class ExportManager {
         case idle, preparing, exporting, finished, failed(String), cancelled
     }
 
-    private(set) var state: State = .idle {
-        didSet {
-            // 書き出しが終わったら全画面広告(前の広告から間があいているときだけ)
-            if state == .finished, oldValue != .finished {
-                Task { @MainActor in AdsManager.shared.showInterstitial(.exportFinished) }
-            }
-        }
-    }
+    /// 書き出し完了の全画面広告はここでは出さない(書き出し画面が見えているときだけ ExportView が出す。
+    /// 画面を閉じて編集やナレーションの録音に戻ったあとで、裏で終わった書き出しの広告が重ならないように)
+    private(set) var state: State = .idle
     /// 0...1
     private(set) var progress: Double = 0
     private(set) var isRunning: Bool = false {
@@ -1002,6 +997,16 @@ final class ExportManager {
     }
 
     // MARK: - Notifications
+
+    /// 書き出しの開始で、通知・写真の許可の確認(システムの表示)が出るかもしれないか。
+    /// 全画面広告をその上に重ねないよう、ExportView が書き出し開始の広告を出す前に見る
+    static func permissionPromptMayAppear(saveToPhotos: Bool) async -> Bool {
+        if saveToPhotos, PHPhotoLibrary.authorizationStatus(for: .addOnly) == .notDetermined {
+            return true
+        }
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        return settings.authorizationStatus == .notDetermined
+    }
 
     @MainActor
     private func requestNotificationAuthorizationIfNeeded() {

@@ -131,11 +131,6 @@ struct EditorNarrationRecordPanel: View {
                 Text(resultText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else {
-                Text("録音したナレーションは再生位置からタイムラインに追加されます。追加後は「音量」や「音量そろえ」で調整できます。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.top, 6)
@@ -326,20 +321,6 @@ struct EditorNarrationVolumePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "mic")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(narration.name)
-                    .font(.subheadline)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Text("\(MediaTimeText.precise(narration.start)) – \(MediaTimeText.precise(narration.end))")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-
             EditorSliderRow(title: String(localized: "ボリューム"),
                             value: $narration.volume,
                             range: 0...1,
@@ -363,11 +344,6 @@ struct EditorNarrationVolumePanel: View {
                 .disabled(!hasGain)
                 .opacity(hasGain ? 1 : 0.4)
             }
-
-            Text("ツールバーの「音量そろえ」や「聞きやすくする」で、このナレーションの音量を自動で整えられます。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 6)
     }

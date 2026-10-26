@@ -54,6 +54,8 @@ struct GooglePhotosImportView: View {
                         model.cancelAll()
                         dismiss()
                     }
+                    // ダウンロード中は閉じられない(やめるなら下の「キャンセル」)
+                    .disabled(model.phase == .downloading)
                 }
             }
         }
@@ -208,10 +210,7 @@ struct GooglePhotosImportView: View {
                     .frame(maxWidth: .infinity, minHeight: 36)
             }
             .buttonStyle(.bordered)
-            Button("キャンセル", role: .cancel) {
-                model.cancel()
-            }
-            .font(.subheadline)
+            cancelButton
         }
     }
 
@@ -236,11 +235,9 @@ struct GooglePhotosImportView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("キャンセル", role: .cancel) {
-                model.cancel()
-            }
-            .buttonStyle(.bordered)
-            .padding(.top, 6)
+            cancelButton
+                .buttonStyle(.bordered)
+                .padding(.top, 6)
         }
     }
 
@@ -262,10 +259,7 @@ struct GooglePhotosImportView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
             .buttonStyle(BrandProminentButtonStyle())
-            Button("キャンセル", role: .cancel) {
-                model.cancel()
-            }
-            .font(.subheadline)
+            cancelButton
         }
     }
 
@@ -299,21 +293,31 @@ struct GooglePhotosImportView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             if cancellable {
-                Button("キャンセル", role: .cancel) {
-                    model.cancel()
-                }
-                .font(.subheadline)
+                cancelButton
             }
         }
     }
 
-    private var signOutButton: some View {
-        Button("ログアウト") {
-            model.signOut()
+    /// 「キャンセル」: 今の手順をやめて待機に戻る(文字だけでも押しやすいよう 44pt 以上)
+    private var cancelButton: some View {
+        Button(role: .cancel) {
+            model.cancel()
+        } label: {
+            Text("キャンセル")
+                .font(.subheadline)
+                .frame(minWidth: 44, minHeight: 44)
         }
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .padding(.top, 8)
+    }
+
+    private var signOutButton: some View {
+        Button {
+            model.signOut()
+        } label: {
+            Text("ログアウト")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 44, minHeight: 44)
+        }
     }
 
     // MARK: - 部品

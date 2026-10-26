@@ -10,6 +10,14 @@ import Security
 // - `AppSettings.shared` は @Observable。どのスレッドからも読める(NSLock で保護)
 // =====================================================================
 
+// MARK: - 説明文に出すポイントの値段
+
+/// 説明文に出すポイントの値段(サーバーの値。まだ知らなければ目安)。AccountPointsView の「使うポイント」と同じキー
+private enum PointPriceText {
+    static var transcribePerMinute: Int { AccountService.shared.price("transcribePerMinute", default: 10) }
+    static var chat: Int { AccountService.shared.price("chat", default: 20) }
+}
+
 // MARK: - 文字起こしエンジン
 
 enum TranscriptionEngine: String, CaseIterable, Identifiable {
@@ -19,13 +27,8 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
-        switch self {
-        case .apple: return String(localized: "Apple 音声認識(端末内・高速)")
-        case .whisper: return String(localized: "OpenAI Whisper(端末内・高精度)")
-        case .cloud: return String(localized: "クラウドAI(最高精度・ポイントかAPIキー)")
-        }
-    }
+    /// 選択肢の名前(短い名前と同じ。違いは summary・pros・cons で出す)
+    var displayName: String { shortName }
 
     /// 進捗表示などで使う短い名前
     var shortName: String {
@@ -41,8 +44,12 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
         case .apple:
             return String(localized: "iOS 標準の音声認識を使います。通信不要で速く、追加のダウンロードもほぼ不要です。精度は標準的で、固有名詞や早口の会話では誤認識が増えます。")
         case .whisper:
-            return String(localized: "OpenAI Whisper を端末内で実行します(WhisperKit)。日本語でも精度が高く、音声が端末の外に出ません。初回にモデルのダウンロード(150MB〜1.6GB)が必要で、処理には時間がかかります。")
+            return String(localized: "OpenAI Whisper を端末内で実行します(WhisperKit)。日本語でも精度が高く、音声が端末の外に出ません。初回にモデルのダウンロード(150〜630MB)が必要で、処理には時間がかかります。")
         case .cloud:
+            // ポイントで使っているときはポイント、そうでなければ自分のキーの料金を出す
+            if AccountService.shared.usesPoints {
+                return String(localized: "OpenAI の音声認識(速度優先: whisper-1 / 精度優先: gpt-4o-transcribe 系)をクラウドで実行します。高精度で端末の負荷も小さい反面、音声がサーバーを通して OpenAI に送られ、1分 \(PointPriceText.transcribePerMinute)pt を使います。")
+            }
             return String(localized: "OpenAI の音声認識(速度優先: whisper-1 / 精度優先: gpt-4o-transcribe 系)をクラウドで実行します。高精度で端末の負荷も小さい反面、音声を OpenAI のサーバーへ送信し、API 利用料(目安 約0.9円/分)がかかります。")
         }
     }
@@ -51,15 +58,25 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
         switch self {
         case .apple: return [String(localized: "無料・通信不要"), String(localized: "処理が速い"), String(localized: "設定不要ですぐ使える")]
         case .whisper: return [String(localized: "高精度(特に日本語の句読点・漢字変換)"), String(localized: "通信不要・無料"), String(localized: "音声を外部に送らない")]
-        case .cloud: return [String(localized: "最高精度"), String(localized: "長い動画でも速く、端末が熱くならない"), String(localized: "AI 仕上げも同じキーで使える")]
+        case .cloud: return [String(localized: "最高精度"), String(localized: "長い動画でも速く、端末が熱くならない"), String(localized: "AI 仕上げも追加の設定なしで使える")]
         }
     }
 
     var cons: [String] {
         switch self {
         case .apple: return [String(localized: "精度は標準的"), String(localized: "固有名詞・専門用語に弱い")]
-        case .whisper: return [String(localized: "モデルのダウンロードが必要(150MB〜1.6GB)"), String(localized: "処理が遅い(動画の長さの 0.3〜1 倍程度)"), String(localized: "電池を使い、端末が熱くなることがある")]
-        case .cloud: return [String(localized: "OpenAI API キーが必要(従量課金)"), String(localized: "音声データを OpenAI へ送信する"), String(localized: "通信環境が必要")]
+        case .whisper: return [String(localized: "150〜630MB のモデルをダウンロードする"), String(localized: "処理が遅い(動画の長さの 0.3〜1 倍程度)"), String(localized: "電池を使い、端末が熱くなることがある")]
+        case .cloud:
+            let account = AccountService.shared
+            let cost: String
+            if account.usesPoints {
+                cost = String(localized: "1分 \(PointPriceText.transcribePerMinute)pt を使う")
+            } else if account.isAvailable {
+                cost = String(localized: "サインインか OpenAI の API キーが必要")
+            } else {
+                cost = String(localized: "OpenAI の API キーが必要")
+            }
+            return [cost, String(localized: "音声データを OpenAI へ送信する"), String(localized: "通信環境が必要")]
         }
     }
 }
@@ -104,10 +121,18 @@ enum CloudTranscriptionQuality: String, CaseIterable, Identifiable {
     }
 
     var detail: String {
+        // ポイントで使っているときはポイント、そうでなければ自分のキーの料金を出す
+        let usesPoints = AccountService.shared.usesPoints
         switch self {
         case .fast:
-            return String(localized: "whisper-1 で認識します。応答が速く、単語ごとの時刻も付くので字幕のタイミングが正確です。長い動画でも短時間で終わります。料金の目安は 約0.9円/分($0.006/分)。")
+            if usesPoints {
+                return String(localized: "whisper-1 で認識します。応答が速く、単語ごとの時刻も付くので字幕のタイミングが正確です。1分 \(PointPriceText.transcribePerMinute)pt。")
+            }
+            return String(localized: "whisper-1 で認識します。応答が速く、単語ごとの時刻も付くので字幕のタイミングが正確です。料金の目安は約0.9円/分。")
         case .accurate:
+            if usesPoints {
+                return String(localized: "gpt-4o-transcribe 系(話者分離対応モデル)で認識します。聞き取りにくい音声や固有名詞で誤認識が少し減ることがありますが、処理にかなり時間がかかります。ポイントは速度優先と同じです。")
+            }
             return String(localized: "gpt-4o-transcribe 系(話者分離対応モデル)で認識します。聞き取りにくい音声や固有名詞で誤認識が少し減ることがありますが、処理にかなり時間がかかります。料金の目安は速度優先とほぼ同じです。")
         }
     }
@@ -137,7 +162,12 @@ enum PolishEngine: String, CaseIterable, Identifiable {
         switch self {
         case .auto: return String(localized: "端末内 AI が使えるときだけ使います。")
         case .onDevice: return String(localized: "iOS 26 以降で Apple Intelligence が有効な端末でのみ動作します。通信不要・無料。")
-        case .cloud: return String(localized: "OpenAI(gpt-4o-mini)で仕上げます。字幕テキストを送信し、わずかな利用料がかかります。")
+        case .cloud:
+            // ポイントで使っているときはポイント(80 行ごと)、そうでなければ自分のキーの料金
+            if AccountService.shared.usesPoints {
+                return String(localized: "OpenAI(gpt-4o-mini)で仕上げます。字幕テキストを送信し、80行ごとに \(PointPriceText.chat)pt を使います。")
+            }
+            return String(localized: "OpenAI(gpt-4o-mini)で仕上げます。字幕テキストを送信し、使った分だけ OpenAI から請求されます。")
         case .none: return String(localized: "音声認識の結果をそのまま使います。")
         }
     }

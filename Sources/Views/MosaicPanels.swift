@@ -10,6 +10,8 @@ import Vision
 
 struct EditorMosaicPanel: View {
     @Binding var clip: TextClip
+    /// 再生位置を知るのに使う(キーフレームのあるモザイクは、基本の値ではなく再生位置のキーに書くため)。無ければ先頭(0 秒)のキーに書く
+    var player: PlayerController? = nil
 
     private var style: Binding<MosaicStyle> {
         Binding(
@@ -18,12 +20,39 @@ struct EditorMosaicPanel: View {
         )
     }
 
+    /// キーフレームがあるか(顔モザイク・トラッキング)。あると描画は基本の値(center / scale / rotation)を見ない(MosaicModels)
+    private var isKeyed: Bool { !clip.keyframes.isEmpty }
+
+    /// 基本の値(キーフレームを見ない配置)
+    private var baseValue: KeyframeInterpolator.Value {
+        KeyframeInterpolator.Value(center: clip.center, scale: clip.scale, rotation: clip.rotation, opacity: clip.opacity)
+    }
+
+    /// キーを書く時刻 = 再生位置の、モザイクの先頭からの相対秒(範囲内に丸める。EditorTextPlacementPanel・プレビューの操作と同じ)
+    private var keyTime: Double {
+        let now = player?.currentTime ?? clip.start
+        return min(max(now - clip.start, 0), max(clip.duration, 0))
+    }
+
+    /// 見せる配置。キーフレームがあれば再生位置の補間値(プレビューの枠と同じ)、無ければ基本の値
+    private var shownValue: KeyframeInterpolator.Value {
+        guard isKeyed else { return baseValue }
+        return KeyframeInterpolator.value(at: keyTime, keyframes: clip.keyframes, fallback: baseValue)
+    }
+
     var body: some View {
+        let shown = shownValue
         VStack(alignment: .leading, spacing: 14) {
-            Text("位置と大きさは、プレビューのモザイクをドラッグ・2本指で調整できます。動く人や物には「トラッキング」で追いかけさせられます。")
+            Text("位置と大きさはプレビューの枠をドラッグ・ピンチで調整")
                 .font(.system(size: 12))
                 .foregroundStyle(Color.white.opacity(0.6))
                 .fixedSize(horizontal: false, vertical: true)
+            if isKeyed {
+                Text("キーフレームがあるので、回転は再生位置での値を変えます")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Picker("かけ方", selection: style.kind) {
                 ForEach(MosaicKind.allCases) { kind in
@@ -43,23 +72,19 @@ struct EditorMosaicPanel: View {
                             value: style.strength,
                             range: 0...1,
                             display: "\(Int((style.wrappedValue.strength * 100).rounded()))%")
-            // 大きさはプレビューの四隅の●、回転は上のつまみ(ここでは微調整だけ)
-            Text("大きさ: プレビューの枠の四隅にある ● をドラッグ(向かいの角は動きません)。位置: 枠の中をドラッグ。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            // 回転はプレビューの枠の上のつまみ(ここでは微調整だけ)
             HStack(spacing: 8) {
-                Text(String(localized: "回転 \(Int(clip.rotation.rounded()))°"))
+                Text(String(localized: "回転 \(Int(shown.rotation.rounded()))°"))
                     .font(.caption)
                     .monospacedDigit()
                 Spacer()
-                EditorChip(title: "-15°", isSelected: false) { clip.rotation = Self.normalized(clip.rotation - 15) }
-                EditorChip(title: "-1°", isSelected: false) { clip.rotation = Self.normalized(clip.rotation - 1) }
-                EditorChip(title: "0°", isSelected: false) { clip.rotation = 0 }
-                EditorChip(title: "+1°", isSelected: false) { clip.rotation = Self.normalized(clip.rotation + 1) }
-                EditorChip(title: "+15°", isSelected: false) { clip.rotation = Self.normalized(clip.rotation + 15) }
+                EditorChip(title: "-15°", isSelected: false) { rotate(by: -15) }
+                EditorChip(title: "-1°", isSelected: false) { rotate(by: -1) }
+                EditorChip(title: "0°", isSelected: false) { updatePlacement { $0.rotation = 0 } }
+                EditorChip(title: "+1°", isSelected: false) { rotate(by: 1) }
+                EditorChip(title: "+15°", isSelected: false) { rotate(by: 15) }
             }
-            Text("回転: プレビューの枠の上にあるつまみを回すか、2 本指でひねります。0°・90° の近くでは吸い付きます。")
+            Text("回転は枠の上のつまみか 2 本指で")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -69,12 +94,38 @@ struct EditorMosaicPanel: View {
                 reset.kind = style.wrappedValue.kind
                 clip.mosaic = reset
                 clip.widthRatio = 0.3
-                clip.scale = 1
-                clip.rotation = 0
+                updatePlacement {
+                    $0.scale = 1
+                    $0.rotation = 0
+                }
             }
             .font(.system(size: 14))
             .frame(minHeight: 44)
         }
+    }
+
+    /// 回転を delta 度だけ変える(-180 ... 180 に収める)
+    private func rotate(by delta: Double) {
+        updatePlacement { $0.rotation = Self.normalized($0.rotation + delta) }
+    }
+
+    /// 大きさ・回転を直す。キーフレームが無ければ基本の値に書く。
+    /// あれば基本の値は変えず、再生位置のキーへ書く(プレビューの操作・EditorTextPlacementPanel と同じ KeyframeEditing:
+    /// 全キーで同じ値(顔モザイク・トラッキングは rotation 0・scale 1)なら差分を全キーにかけ、キーごとに違えば再生位置のキーを置き換え / 追加)
+    private func updatePlacement(_ change: (inout KeyframeInterpolator.Value) -> Void) {
+        let time = keyTime
+        let start = shownValue
+        var value = start
+        change(&value)
+        guard isKeyed else {
+            clip.center = value.center
+            clip.scale = value.scale
+            clip.rotation = value.rotation
+            return
+        }
+        // 書く時刻と再生位置がずれないように、再生中なら止める(プレビューの操作と同じ)
+        if let player, player.isPlaying { player.pause() }
+        clip.keyframes = KeyframeEditing.applying(value, from: start, at: time, to: clip.keyframes)
     }
 
     private static func normalized(_ degrees: Double) -> Double {
@@ -151,49 +202,30 @@ struct EditorPacingPanel: View {
         Int(timeline.pacing.filter { $0.level == level }.reduce(0) { $0 + ($1.end - $1.start) })
     }
 
+    /// いまの設定(投稿先・厳しさ・AI)の 1 行
+    private var settingsText: String {
+        let platform = TargetPlatform(rawValue: platformRaw) ?? .youtube
+        let sensitivity = PacingSensitivity(rawValue: sensitivityRaw) ?? .normal
+        var text = platform.displayName + "・" + sensitivity.displayName
+        if useAI { text += "・AI" }
+        return text
+    }
+
     var body: some View {
         let issues: [PacingSegment] = timeline.pacing.filter { $0.level != .good }
         VStack(alignment: .leading, spacing: 10) {
+            // 結果のまとめ。投稿先・厳しさ・AI は ⚙ の中。変えても「再チェック」を押すまでは走らない
             HStack(spacing: 12) {
                 summary(.good)
                 summary(.loose)
                 summary(.dull)
                 Spacer()
-                EditorChip(title: String(localized: "もう一度"), isSelected: false) { onRerun() }
-                EditorChip(title: String(localized: "帯を消す"), isSelected: false) {
-                    timeline.pacing = []
-                    timeline.pacingChecks = []
-                }
+                settingsMenu
+                EditorChip(title: String(localized: "再チェック"), isSelected: false) { onRerun() }
             }
-
-            // 投稿先(場所ごとに基準が変わる)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(TargetPlatform.allCases) { platform in
-                        EditorChip(title: platform.displayName, isSelected: platformRaw == platform.rawValue) {
-                            platformRaw = platform.rawValue
-                            onRerun()
-                        }
-                    }
-                }
-            }
-            Text("投稿先を選ぶと、その場所で評価されやすい基準(比率・長さ・つかみ・字幕・終了画面など)でチェックします。")
+            Text(settingsText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Picker("厳しさ", selection: $sensitivityRaw) {
-                ForEach(PacingSensitivity.allCases) { level in
-                    Text(level.displayName).tag(level.rawValue)
-                }
-            }
-            .pickerStyle(.segmented)
-            Toggle("AI で話の中身も見る(字幕が必要)", isOn: $useAI)
-                .font(.subheadline)
-            Text("景色のきれいさ・表情・笑い声や自然の音などの雰囲気、場面の切り替わり、話の速さや間も見て判定しています。厳しさや AI を変えたら「もう一度」を押してください。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             if !timeline.pacingChecks.isEmpty {
                 Text("編集チェック")
@@ -239,6 +271,38 @@ struct EditorPacingPanel: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    /// ⚙: 投稿先(場所ごとに基準が変わる)・厳しさ・AI と「帯を消す」
+    private var settingsMenu: some View {
+        Menu {
+            Picker(String(localized: "投稿先"), selection: $platformRaw) {
+                ForEach(TargetPlatform.allCases) { platform in
+                    Text(platform.displayName).tag(platform.rawValue)
+                }
+            }
+            Picker(String(localized: "厳しさ"), selection: $sensitivityRaw) {
+                ForEach(PacingSensitivity.allCases) { level in
+                    Text(level.displayName).tag(level.rawValue)
+                }
+            }
+            Toggle(String(localized: "AI で話の中身も見る"), isOn: $useAI)
+            Divider()
+            Button(role: .destructive) {
+                timeline.pacing = []
+                timeline.pacingChecks = []
+            } label: {
+                Label("帯を消す", systemImage: "eraser")
+            }
+            .disabled(timeline.pacing.isEmpty && timeline.pacingChecks.isEmpty)
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.body)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("チェックの設定")
     }
 
     private func checkRow(_ check: EditingCheck) -> some View {

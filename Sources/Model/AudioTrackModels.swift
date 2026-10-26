@@ -45,10 +45,12 @@ struct NarrationClip: Identifiable, Equatable {
 
 // MARK: - クリップごとの音声設定
 
-/// クリップの音声に関する追加設定(ゲイン・J カット・L カット)
+/// クリップの音声に関する追加設定(音量・ゲイン・J カット・L カット)
 struct ClipAudioSettings: Equatable {
     /// 正規化ゲイン(線形、1 = 変更なし)
     var gain: Float = 1
+    /// ユーザーが決めるクリップ音量(0...2、1 = 変更なし)。ミックス時は gain と掛け合わせる
+    var volume: Float = 1
     /// J カット: このクリップの映像より何秒早く音声を始めるか。
     /// 音声は元素材の (startTime - audioLeadIn) から取る。
     var audioLeadIn: Double = 0
@@ -58,6 +60,6 @@ struct ClipAudioSettings: Equatable {
     /// イコライザー・ピッチ・ボイスプリセット(Phase3Models.swift)
     var effects = AudioEffects()
 
-    var isIdentity: Bool { gain == 1 && audioLeadIn == 0 && audioTailOut == 0 }
+    var isIdentity: Bool { gain == 1 && volume == 1 && audioLeadIn == 0 && audioTailOut == 0 }
     var hasSplitEdit: Bool { audioLeadIn > 0 || audioTailOut > 0 }
 }

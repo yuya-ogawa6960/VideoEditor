@@ -16,11 +16,14 @@ struct EditorToolSearchEntry: Identifiable {
     let groupPath: [String]
     /// 何も選んでいないとき(全体の編集)の機能か
     let isRoot: Bool
+    /// 実行する前に選択するクリップ(何も選んでいないときに出す、再生位置のクリップの機能)
+    let selectsClipID: UUID?
 }
 
 enum EditorToolSearchIndex {
     /// ツールバーの項目を平らに並べる(グループは中身だけ、小見出しは除く)
-    static func flatten(_ items: [EditorToolItem], isRoot: Bool, contextTitle: String) -> [EditorToolSearchEntry] {
+    static func flatten(_ items: [EditorToolItem], isRoot: Bool, contextTitle: String,
+                        selectsClipID: UUID? = nil) -> [EditorToolSearchEntry] {
         var result: [EditorToolSearchEntry] = []
         func walk(_ list: [EditorToolItem], path: [String], crumbs: [String]) {
             for item in list {
@@ -33,7 +36,8 @@ enum EditorToolSearchIndex {
                     let crumb = ([contextTitle] + crumbs).joined(separator: " › ")
                     let key = (isRoot ? "root/" : "ctx/") + (path + [item.id]).joined(separator: "/")
                     result.append(EditorToolSearchEntry(id: key, item: item, breadcrumb: crumb,
-                                                        groupPath: path, isRoot: isRoot))
+                                                        groupPath: path, isRoot: isRoot,
+                                                        selectsClipID: selectsClipID))
                 }
             }
         }
@@ -70,7 +74,7 @@ enum EditorToolSearchIndex {
         String(localized: "ボイスオーバー録音"): [String(localized: "ナレーション"), String(localized: "録音"), String(localized: "声を入れる"), String(localized: "アフレコ")],
         String(localized: "AI読み上げ"): [String(localized: "読み上げ"), String(localized: "音声合成"), "TTS"],
         String(localized: "音声抽出"): [String(localized: "音を取り出す"), String(localized: "動画から音"), "extract"],
-        String(localized: "ラウドネスを自動一致"): [String(localized: "音量そろえ"), String(localized: "音量を合わせる"), String(localized: "ノーマライズ"), "loudness"],
+        String(localized: "ラウドネスを自動一致"): [String(localized: "音量そろえ"), String(localized: "音量を合わせる"), String(localized: "聞きやすくする"), String(localized: "ノーマライズ"), "loudness"],
         String(localized: "無音部分を削除"): [String(localized: "無音カット"), String(localized: "間を詰める"), String(localized: "ジェットカット"), "silence"],
         "BGM": [String(localized: "音楽"), String(localized: "曲"), String(localized: "ミュージック"), "music"],
         String(localized: "オーバーレイ"): [String(localized: "重ねる"), String(localized: "ワイプ"), String(localized: "Bロール"), String(localized: "ピクチャインピクチャ"), "PiP", "overlay"],
@@ -98,7 +102,8 @@ enum EditorToolSearchIndex {
         String(localized: "マーカー"): [String(localized: "目印"), String(localized: "印"), "marker"],
         String(localized: "ロゴ・透かし"): [String(localized: "ウォーターマーク"), String(localized: "ロゴ"), String(localized: "透かし")],
         String(localized: "サムネ"): [String(localized: "表紙"), String(localized: "サムネイル"), String(localized: "カバー"), "thumbnail"],
-        String(localized: "フォーマット"): [String(localized: "お決まりパーツ"), String(localized: "テンプレート"), String(localized: "オープニング")],
+        String(localized: "パーツ"): [String(localized: "お決まりパーツ"), String(localized: "フォーマット"), String(localized: "テンプレート"), String(localized: "オープニング")],
+        String(localized: "キャプションを翻訳"): [String(localized: "翻訳"), String(localized: "英語"), "translate"],
         String(localized: "前回と比較"): [String(localized: "比較"), String(localized: "ビフォーアフター")],
         String(localized: "手書き"): [String(localized: "描く"), String(localized: "ペン"), String(localized: "落書き")],
         String(localized: "複製"): [String(localized: "コピー"), "duplicate"],
@@ -129,6 +134,8 @@ struct EditorToolSearchSheet: View {
     let contextEntries: [EditorToolSearchEntry]
     let contextTitle: String
     let rootEntries: [EditorToolSearchEntry]
+    /// 2 つ目の区切りの見出し(ふだんは「全体の編集」。何も選んでいないときは再生位置のクリップの機能を出す)
+    var rootTitle: String = String(localized: "全体の編集")
     let onPick: (EditorToolSearchEntry) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
@@ -141,7 +148,7 @@ struct EditorToolSearchSheet: View {
                 let context = contextEntries.filter { EditorToolSearchIndex.matches($0, query: query) }
                 let root = rootEntries.filter { EditorToolSearchIndex.matches($0, query: query) }
                 if context.isEmpty && root.isEmpty {
-                    Text("見つかりませんでした。別の言葉で探してみてください(例: 字幕、ぼかし、速度)。")
+                    Text("見つかりませんでした。別の言葉で探してみてください。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -153,7 +160,7 @@ struct EditorToolSearchSheet: View {
                     }
                 }
                 if !root.isEmpty {
-                    Section("全体の編集") {
+                    Section(rootTitle) {
                         ForEach(root) { entry in
                             row(entry)
                         }

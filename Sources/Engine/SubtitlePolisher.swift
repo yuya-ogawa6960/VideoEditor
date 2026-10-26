@@ -12,12 +12,17 @@ import FoundationModels
 //
 // エンジン:
 //   (a) 端末内: FoundationModels(iOS 26+、Apple Intelligence が有効な端末)
-//   (b) クラウド: OpenAI Chat Completions(gpt-4o-mini、ユーザーの API キー)
+//   (b) クラウド: OpenAI Chat Completions(gpt-4o-mini。ポイントのサーバー経由か、ユーザーの API キー)
 //   (c) なし
+//   文字起こしの後の自動の仕上げ(polish)は resolveEngine で決める(クラウドは「クラウド」を選んだときだけ。利用料を黙ってかけない)。
+//   利用者が押して始める AI 翻訳(translate の userInitiated)は resolveExplicitEngine で決める
+//   (「使わない」でも Apple Intelligence か、ポイント / API キーのクラウドを使う)。
 //
-// 字幕はバッチ(クラウド 40 件 / 端末内 16 件)に分けて送る。クラウドは最大 3 バッチを同時に送り、
+// 字幕はバッチ(クラウド 80 件 / 端末内 16 件)に分けて送る。クラウドは最大 3 バッチを同時に送り、
 // 端末内モデルは 1 本ずつ。結果はバッチ順にまとめる。
-// 失敗しても例外は投げず、入力をそのまま返す(バッチ単位で部分的に適用される)。
+// 応答が届いたのに読めなかったバッチは半分に割って送り直す(クラウドは 1 リクエストごとにポイントがかかるので 1 段だけ。
+// 応答が無かった = エラーのときは割らない。端末内はコンテキストが小さいので nil でも割り、3 段まで)。
+// 失敗しても例外は投げず、入力をそのまま返す(バッチ単位で部分的に適用される)。直近の失敗は lastError に残す。
 // id・時刻・単語タイミングはできる限り保持し、本文が変わった cue の単語は新しい本文に合わせて再配分する。
 //
 // クラウドの一時的な通信エラー(タイムアウト・回線切れ・NSPOSIXErrorDomain の接続中断など)はバッチごとに送り直す:
@@ -25,6 +30,34 @@ import FoundationModels
 // フォアグラウンドに戻るまで待ってから(回数に数えない)、
 // フォアグラウンドなら 2・4・8・16 秒おいて合計 6 回まで。使い切ったら同じ実行の残りのリクエストはすぐに諦める。
 // =====================================================================
+
+/// AI 仕上げ・翻訳の失敗の種類(SubtitlePolisher.lastError)。
+/// 画面が「サインイン」「ポイントを増やす」「API キーを確認」のどれを案内するかは CloudAIGateway.recovery(for:) で決める
+enum SubtitlePolisherError: LocalizedError {
+    /// 使える AI が無い(Apple Intelligence が使えず、サインインも API キーも無い)
+    case noEngine
+    /// クラウドを使う判定なのに認証が無い(送る直前にサインアウトされたときなど)
+    case notConfigured
+    /// ポイント(サーバー)のログインの期限が切れた(サインアウト済み)
+    case sessionExpired
+    /// ポイント不足(402)
+    case insufficientPoints
+    /// 自分の OpenAI キーが正しくない(自分のキーで送ったときだけ)
+    case invalidAPIKey
+    /// そのほか(通信・サーバー・端末内 AI のエラー、応答を読めなかった、など。文をそのまま見せる)
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .noEngine: return CloudAIGateway.noEngineMessage
+        case .notConfigured: return CloudAIGateway.notConfiguredMessage
+        case .sessionExpired: return CloudAIGateway.sessionExpiredMessage
+        case .insufficientPoints: return CloudAIGateway.insufficientPointsMessage
+        case .invalidAPIKey: return CloudAIGateway.invalidAPIKeyMessage
+        case .failed(let message): return message
+        }
+    }
+}
 
 enum SubtitlePolisher {
 
@@ -52,21 +85,50 @@ enum SubtitlePolisher {
         engine == .cloud ? cloudMaxConcurrentBatches : 1
     }
 
+    /// 応答が届いたのに読めなかったバッチを半分に割って送り直す深さの上限。
+    /// クラウドは 1 リクエストごとにポイント(利用料)がかかるので 1 段だけ(80 件のバッチで最大 3 リクエスト)。
+    /// 端末内モデルは無料だがコンテキストが小さいので 3 段まで(16 → 8 → 4 件)
+    private static func maxSplitDepth(for engine: ResolvedEngine) -> Int {
+        engine == .onDevice ? 3 : 1
+    }
+
+    /// クラウド(ポイント)で lineCount 件を校正・翻訳したときの目安のポイント。
+    /// cloudBatchSize 件ごとに 1 リクエスト、1 リクエストはサーバーの "chat" の値段(読めなかった応答の送り直しは含まない)
+    static func estimatedPoints(lineCount: Int) -> Int {
+        guard lineCount > 0 else { return 0 }
+        let requests = (lineCount + cloudBatchSize - 1) / cloudBatchSize
+        return requests * AccountService.shared.price("chat", default: 20)
+    }
+
     // MARK: - 直近のエラー(表示・デバッグ用。キーは含めない)
 
     private static let errorLock = NSLock()
-    private static var storedLastError: String?
+    private static var storedLastError: SubtitlePolisherError?
 
-    static var lastErrorMessage: String? {
+    /// 直近の失敗(polish / translate / summarize を始めるたびに消す)。成功したとき・まだ何もしていないときは nil。
+    /// 画面は CloudAIGateway.recovery(for:) に渡して、サインイン / ポイント / API キーのどれを案内するか決める
+    static var lastError: SubtitlePolisherError? {
         errorLock.lock()
         defer { errorLock.unlock() }
         return storedLastError
     }
 
-    private static func setLastError(_ message: String?) {
+    /// lastError の文
+    static var lastErrorMessage: String? { lastError?.errorDescription }
+
+    private static func setLastError(_ error: SubtitlePolisherError?) {
         errorLock.lock()
-        storedLastError = message
+        storedLastError = error
         errorLock.unlock()
+    }
+
+    /// 応答は届いたのに 1 件も読めなかったとき(ほかの失敗が記録されていなければ、その旨を残す)
+    private static func setUnreadableReplyErrorIfNeeded() {
+        errorLock.lock()
+        defer { errorLock.unlock() }
+        if storedLastError == nil {
+            storedLastError = .failed(String(localized: "AI の応答を読み取れませんでした。もう一度お試しください"))
+        }
     }
 
     // MARK: - クラウド通信の状態(1 回の polish / translate / summarize で共有)
@@ -111,6 +173,7 @@ enum SubtitlePolisher {
         return false
     }
 
+    /// 文字起こしの後の自動の仕上げのエンジン
     static func resolveEngine(settings: AppSettings) -> ResolvedEngine {
         switch settings.polishEngine {
         case .none:
@@ -123,6 +186,16 @@ enum SubtitlePolisher {
             // 自動ではクラウドに頼らない(利用料をかけるのは「クラウド」を選んだときだけ)
             return isOnDeviceAvailable ? .onDevice : .none
         }
+    }
+
+    /// 利用者が押して始める機能(AI 翻訳・台本・構成案)のエンジン。
+    /// 「仕上げに使うAI」は自動の仕上げの設定なので、「使わない」「自動」「端末内」でも Apple Intelligence があればそれを使い、
+    /// 無ければサインイン済み(ポイント)か API キーがあるときクラウドを使う。「クラウド」は認証がある限りクラウドを優先する
+    static func resolveExplicitEngine(settings: AppSettings) -> ResolvedEngine {
+        let cloud = settings.isCloudConfigured
+        if settings.polishEngine == .cloud, cloud { return .cloud }
+        if isOnDeviceAvailable { return .onDevice }
+        return cloud ? .cloud : .none
     }
 
     /// 進捗表示用の名前
@@ -140,10 +213,11 @@ enum SubtitlePolisher {
     /// - pauseReporter: クラウドのリクエストがバックグラウンド待ちになったときの通知先(任意)
     static func polish(_ cues: [SubtitleCue], language: TranscriptionLanguage, settings: AppSettings,
                        pauseReporter: BackgroundPauseReporter? = nil) async -> [SubtitleCue] {
+        // 前の実行の失敗を、早く返るときも残さない(画面が古い理由を見せないように)
+        setLastError(nil)
         guard !cues.isEmpty else { return cues }
         let engine = resolveEngine(settings: settings)
         guard engine != .none else { return cues }
-        setLastError(nil)
 
         let instructions = polishInstructions(language: language)
         let header = polishPromptHeader(language: language)
@@ -151,8 +225,7 @@ enum SubtitlePolisher {
         let texts: [String] = cues.map { $0.text }
         let network = CloudRequestState(pauseReporter: pauseReporter)
 
-        let replies = await runBatches(count: cues.count, batchSize: batchSize(for: engine),
-                                       maxConcurrent: maxConcurrentBatches(for: engine)) { indices in
+        let replies = await runBatches(count: cues.count, engine: engine) { indices in
             let prompt = SubtitlePolisher.itemsPrompt(header: header, items: indices.map { ($0, texts[$0]) })
             return await SubtitlePolisher.generate(engine: engine, instructions: instructions, prompt: prompt,
                                                    apiKey: apiKey, network: network)
@@ -162,13 +235,20 @@ enum SubtitlePolisher {
     }
 
     /// 字幕を翻訳して translatedText に入れる(本文・時刻・単語は変えない)。
-    /// エンジンが無い / 1 件も翻訳できなかったときは nil
+    /// エンジンが無い / 1 件も翻訳できなかったときは nil(理由は lastError。キャンセルのときだけ nil のまま)。
+    /// - userInitiated: 利用者が押して始めた翻訳(字幕の画面の「AI翻訳」)なら true → resolveExplicitEngine で
+    ///   「使わない」でも Apple Intelligence か、ポイント / API キーのクラウドを使う。
+    ///   false(文字起こしの「＋訳」など、利用料を知らせずに走るもの)は自動の仕上げと同じ判定
     static func translate(_ cues: [SubtitleCue], from language: TranscriptionLanguage, toEnglish: Bool,
-                          settings: AppSettings) async -> [SubtitleCue]? {
-        guard !cues.isEmpty else { return nil }
-        let engine = resolveEngine(settings: settings)
-        guard engine != .none else { return nil }
+                          settings: AppSettings, userInitiated: Bool = false) async -> [SubtitleCue]? {
+        // 前の実行の失敗を、早く返るときも残さない(画面が古い理由を見せないように)
         setLastError(nil)
+        guard !cues.isEmpty else { return nil }
+        let engine = userInitiated ? resolveExplicitEngine(settings: settings) : resolveEngine(settings: settings)
+        guard engine != .none else {
+            setLastError(.noEngine)
+            return nil
+        }
 
         let instructions = translationInstructions(source: language, toEnglish: toEnglish)
         let header = toEnglish ? "Translate the following subtitles."
@@ -177,13 +257,12 @@ enum SubtitlePolisher {
         let texts: [String] = cues.map { $0.text }
         let network = CloudRequestState(pauseReporter: nil)
 
-        let replies = await runBatches(count: cues.count, batchSize: batchSize(for: engine),
-                                       maxConcurrent: maxConcurrentBatches(for: engine)) { indices in
+        let replies = await runBatches(count: cues.count, engine: engine) { indices in
             let prompt = SubtitlePolisher.itemsPrompt(header: header, items: indices.map { ($0, texts[$0]) })
             return await SubtitlePolisher.generate(engine: engine, instructions: instructions, prompt: prompt,
                                                    apiKey: apiKey, network: network)
         }
-        if Task.isCancelled || replies.isEmpty { return nil }
+        if Task.isCancelled { return nil }
 
         var result = cues
         var count = 0
@@ -193,17 +272,25 @@ enum SubtitlePolisher {
             result[index].translatedText = cleaned
             count += 1
         }
-        return count > 0 ? result : nil
+        guard count > 0 else {
+            setUnreadableReplyErrorIfNeeded()
+            return nil
+        }
+        return result
     }
 
     /// 文章(字幕をつないだものなど)を日本語 2〜3 文に要約する。
     /// エンジンが無い / 失敗したときは nil(例外は投げない)
     static func summarize(_ text: String, settings: AppSettings) async -> String? {
+        // 前の実行の失敗を、早く返るときも残さない(画面が古い理由を見せないように)
+        setLastError(nil)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let engine = resolveEngine(settings: settings)
-        guard engine != .none else { return nil }
-        setLastError(nil)
+        guard engine != .none else {
+            setLastError(.noEngine)
+            return nil
+        }
 
         let limit = (engine == .onDevice) ? 2500 : 12000
         let body = trimmed.count > limit ? String(trimmed.prefix(limit)) : trimmed
@@ -299,11 +386,13 @@ enum SubtitlePolisher {
 
     // MARK: - バッチ実行
 
-    /// count 件を batchSize ごとに処理し、index → 応答テキストを集める。失敗したバッチは半分に割って再試行。
-    /// maxConcurrent > 1 なら最大その数のバッチを同時に処理する(クラウド用)。結果はバッチ順にまとめる
-    private static func runBatches(count: Int, batchSize: Int, maxConcurrent: Int,
+    /// count 件をエンジンごとのバッチサイズで処理し、index → 応答テキストを集める。
+    /// 読めなかったバッチは半分に割って送り直す(process)。クラウドは最大 cloudMaxConcurrentBatches 本を同時に処理する。
+    /// 結果はバッチ順にまとめる
+    private static func runBatches(count: Int, engine: ResolvedEngine,
                                    generate: @escaping @Sendable ([Int]) async -> String?) async -> [Int: String] {
-        let size = max(1, batchSize)
+        let size = max(1, batchSize(for: engine))
+        let maxConcurrent = maxConcurrentBatches(for: engine)
         let batches: [[Int]] = stride(from: 0, to: count, by: size).map { (first: Int) -> [Int] in
             Array(first..<min(count, first + size))
         }
@@ -314,7 +403,7 @@ enum SubtitlePolisher {
             // 1 本ずつ(端末内モデルは同時に 1 セッションだけ)
             for indices in batches {
                 if Task.isCancelled { return [:] }
-                let got = await SubtitlePolisher.process(indices: indices, depth: 0, generate: generate)
+                let got = await SubtitlePolisher.process(indices: indices, depth: 0, engine: engine, generate: generate)
                 perBatch.append(got)
             }
         } else {
@@ -329,7 +418,8 @@ enum SubtitlePolisher {
                         let batchIndex = launched
                         let indices = batches[batchIndex]
                         group.addTask {
-                            let got = await SubtitlePolisher.process(indices: indices, depth: 0, generate: generate)
+                            let got = await SubtitlePolisher.process(indices: indices, depth: 0, engine: engine,
+                                                                     generate: generate)
                             return (batchIndex, got)
                         }
                         launched += 1
@@ -350,17 +440,23 @@ enum SubtitlePolisher {
         return replies
     }
 
-    private static func process(indices: [Int], depth: Int,
+    /// indices を 1 回のリクエストで処理し、index → 応答テキストを返す。
+    /// 応答が届いたのに読めなかったときは半分に割って送り直す(maxSplitDepth まで)。
+    /// 応答が無かった(通信・サーバーのエラー・ポイント不足・ログインの期限切れ)ときは、割って送り直しても同じ結果で
+    /// ポイントだけ減りかねないので、クラウドは諦める。端末内モデルはコンテキスト超過で失敗(nil)することがあるので割る
+    private static func process(indices: [Int], depth: Int, engine: ResolvedEngine,
                                 generate: ([Int]) async -> String?) async -> [Int: String] {
         if Task.isCancelled || indices.isEmpty { return [:] }
-        if let raw = await generate(indices), let parsed = parseItems(raw) {
+        let raw = await generate(indices)
+        if let raw, let parsed = parseItems(raw) {
             let valid = parsed.filter { indices.contains($0.key) }
             if !valid.isEmpty { return valid }
         }
-        guard indices.count > 4, depth < 3 else { return [:] }
+        if raw == nil, engine != .onDevice { return [:] }
+        guard indices.count > 4, depth < maxSplitDepth(for: engine) else { return [:] }
         let mid = indices.count / 2
-        let left = await process(indices: Array(indices[0..<mid]), depth: depth + 1, generate: generate)
-        let right = await process(indices: Array(indices[mid...]), depth: depth + 1, generate: generate)
+        let left = await process(indices: Array(indices[0..<mid]), depth: depth + 1, engine: engine, generate: generate)
+        let right = await process(indices: Array(indices[mid...]), depth: depth + 1, engine: engine, generate: generate)
         return left.merging(right) { _, new in new }
     }
 
@@ -387,12 +483,12 @@ enum SubtitlePolisher {
                 return response.content
             } catch {
                 if error is CancellationError { return nil }
-                setLastError(String(localized: "端末内 AI: \(error.localizedDescription)"))
+                setLastError(.failed(String(localized: "端末内 AI: \(error.localizedDescription)")))
                 return nil
             }
         }
         #endif
-        setLastError(String(localized: "端末内 AI はこの端末では利用できません"))
+        setLastError(.failed(String(localized: "端末内 AI はこの端末では利用できません")))
         return nil
     }
 
@@ -404,7 +500,7 @@ enum SubtitlePolisher {
                                        network: CloudRequestState) async -> String? {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
-            setLastError(String(localized: "OpenAI の API キーが設定されていません"))
+            setLastError(.notConfigured)
             return nil
         }
         let payload: [String: Any] = [
@@ -456,7 +552,7 @@ enum SubtitlePolisher {
                 // Task がキャンセルされていない .cancelled や NSPOSIXErrorDomain の接続中断(53 など)は、
                 // 画面ロックなどでシステムが通信を打ち切ったもの → 一時的
                 guard TransientNetworkRetry.isTransient(error) else {
-                    setLastError(String(localized: "通信エラー: \(error.localizedDescription)"))
+                    setLastError(.failed(String(localized: "通信エラー: \(error.localizedDescription)")))
                     return nil
                 }
                 if AppLifecycle.shared.isInBackground || BackgroundEpoch.current != epochBefore {
@@ -467,7 +563,7 @@ enum SubtitlePolisher {
                 networkFailures += 1
                 if networkFailures >= TransientNetworkRetry.maxAttempts {
                     network.giveUp()
-                    setLastError(String(localized: "通信エラー: \(error.localizedDescription)"))
+                    setLastError(.failed(String(localized: "通信エラー: \(error.localizedDescription)")))
                     return nil
                 }
                 do {
@@ -487,18 +583,18 @@ enum SubtitlePolisher {
                     // (サインアウトより先に止める。止める前に次のバッチが OpenAI 宛てにセッショントークンを送らないように)
                     network.giveUp()
                     await MainActor.run { AccountService.shared.handleSessionExpired(sentToken: key) }
-                    setLastError(String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。"))
-                case 401: setLastError(String(localized: "APIキーが正しくありません"))
+                    setLastError(.sessionExpired)
+                case 401: setLastError(.invalidAPIKey)
                 case 402:
                     // ポイント不足は他のバッチも同じなので、残りは送らない
                     network.giveUp()
-                    setLastError(String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。"))
-                case 429: setLastError(String(localized: "利用上限です"))
+                    setLastError(.insufficientPoints)
+                case 429: setLastError(.failed(String(localized: "利用上限です")))
                 default:
                     let summary = viaServer ? String(localized: "サーバーがエラーを返しました(\(status))")
                                             : String(localized: "OpenAI がエラーを返しました(\(status))")
                     let detail = CloudAIErrorBody(data: data).displayMessage
-                    setLastError(detail.isEmpty ? summary : summary + ": " + detail)
+                    setLastError(.failed(detail.isEmpty ? summary : summary + ": " + detail))
                 }
                 return nil
             }
@@ -506,7 +602,7 @@ enum SubtitlePolisher {
                   let choices = root["choices"] as? [[String: Any]],
                   let message = choices.first?["message"] as? [String: Any],
                   let content = message["content"] as? String else {
-                setLastError(String(localized: "OpenAI の応答を読み取れませんでした"))
+                setLastError(.failed(String(localized: "OpenAI の応答を読み取れませんでした")))
                 return nil
             }
             return content

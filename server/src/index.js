@@ -733,10 +733,13 @@ async function speech(request, user, env) {
   const input = body.input.trim();
   if (!input) return error(400, "読み上げる文章が空です", "bad_request");
   if (input.length > MAX_SPEECH_CHARS) return error(413, "文章が長すぎます(" + MAX_SPEECH_CHARS + " 文字まで)", "too_large");
-  if (body.provider === "google") return await googleSpeech(body, input, user, env);
+  // 日本語の文は、声が読み間違えやすい言葉(固有名詞・読みが何通りもある熟語など)だけをひらがなにしてから渡す。
+  // ポイントは元の文の長さで数える(読みの確認は追加のポイントなし)。失敗したら元の文のまま
+  const spoken = body.fixReadings === false ? input : await fixJapaneseReadings(input, env);
+  if (body.provider === "google") return await googleSpeech(body, input, spoken, user, env);
   const voice = SPEECH_VOICES.includes(body.voice) ? body.voice : "alloy";
   const speed = Math.min(4, Math.max(0.25, Number(body.speed || 1)));
-  const payload = { model: SPEECH_MODEL, input, voice, speed, response_format: "mp3" };
+  const payload = { model: SPEECH_MODEL, input: spoken, voice, speed, response_format: "mp3" };
   if (typeof body.instructions === "string" && body.instructions.trim()) payload.instructions = body.instructions.trim().slice(0, 400);
 
   const cost = Math.max(1, Math.ceil(input.length / 1000)) * POINTS.speechPerThousandChars;
@@ -768,7 +771,7 @@ async function speech(request, user, env) {
 }
 
 // Google の声。長い文章は文の切れ目で分けて順に作り、mp3 をつなげて返す
-async function googleSpeech(body, input, user, env) {
+async function googleSpeech(body, input, spoken, user, env) {
   if (!env.GOOGLE_TTS_API_KEY) return error(503, "Google の声はまだ使えません", "google_not_configured");
   const voice = GOOGLE_VOICES.includes(body.voice) ? body.voice : GOOGLE_VOICES[0];
   const speakingRate = Math.min(2, Math.max(0.25, Number(body.speed || 1)));
@@ -777,7 +780,7 @@ async function googleSpeech(body, input, user, env) {
     return insufficient(cost, await balance(env, user.id));
   }
   const chunks = [];
-  for (const part of splitByBytes(input, GOOGLE_MAX_BYTES)) {
+  for (const part of splitByBytes(spoken, GOOGLE_MAX_BYTES)) {
     let upstream;
     try {
       upstream = await fetch(GOOGLE_TTS, {
@@ -820,6 +823,60 @@ async function googleSpeech(body, input, user, env) {
     status: 200,
     headers: { "content-type": "audio/mpeg", "x-vm-points": String(await balance(env, user.id)) },
   });
+}
+
+const READING_PROMPT = [
+  "あなたは日本語の音声合成のための読み仮名チェッカーです。",
+  "入力された文の中から、音声合成エンジンが読み間違えやすい語だけを選び、文脈に合った正しい読みを返してください。",
+  "対象: 固有名詞(人名・地名・駅名・店名・商品名・作品名)、ジャンル名や業界の言い方(例: 家系ラーメン → いえけいらーめん)、",
+  "複数の読み方があり文脈で決まる熟語(例: 生物、上手、市場、今日、一日、人気)、専門用語、当て字、難読語。",
+  "誰でも同じに読む一般的な語は入れないでください。数字・英字だけの語も入れないでください。",
+  "word には入力文にある表記をそのまま(漢字を含む、ひとまとまりの語として)書き、reading はひらがな(必要ならカタカナ)だけで書いてください。",
+  '出力は JSON だけ: {"words":[{"word":"家系ラーメン","reading":"いえけいらーめん"}]}。該当がなければ {"words":[]}。',
+].join("\n");
+
+// 日本語の文の、読み間違えやすい言葉だけをひらがなに置き換える(OpenAI のチャットで読みを確かめる)。
+// 置き換えるのは返ってきた語が元の文にそのままあるときだけ。8 秒で返らない・読めないときは元の文のまま
+async function fixJapaneseReadings(input, env) {
+  if (!/[\u4e00-\u9fff々]/.test(input) || !env.OPENAI_API_KEY) return input;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const upstream = await fetch(OPENAI + "/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { authorization: "Bearer " + env.OPENAI_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        temperature: 0,
+        max_tokens: 1500,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: READING_PROMPT },
+          { role: "user", content: input },
+        ],
+      }),
+    });
+    if (!upstream.ok) return input;
+    const data = await upstream.json();
+    const parsed = JSON.parse((data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "{}");
+    const words = Array.isArray(parsed.words) ? parsed.words : [];
+    const usable = words
+      .filter((w) => w && typeof w.word === "string" && typeof w.reading === "string")
+      .map((w) => ({ word: w.word.trim(), reading: w.reading.trim() }))
+      .filter((w) => w.word.length > 0 && w.word.length <= 24 && /[\u4e00-\u9fff々]/.test(w.word)
+        && /^[\u3041-\u309f\u30a0-\u30ffー・]+$/.test(w.reading) && input.includes(w.word))
+      // 長い語から置き換える(「家系ラーメン」を「家系」より先に)
+      .sort((a, b) => b.word.length - a.word.length)
+      .slice(0, 80);
+    let out = input;
+    for (const w of usable) out = out.split(w.word).join(w.reading);
+    return out;
+  } catch (e) {
+    return input;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // 文の切れ目(。!? と改行)で区切り、1 つが maxBytes(UTF-8)を超えないようにまとめる

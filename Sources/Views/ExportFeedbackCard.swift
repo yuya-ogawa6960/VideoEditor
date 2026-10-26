@@ -42,10 +42,12 @@ enum ExportFeedback {
 
 struct ExportFeedbackCard: View {
     private enum Step {
-        case hidden, asking, reasons, thanks
+        case hidden, asking, reasons, thanks, closed
     }
 
     @State private var step: Step
+    /// 聞いていたときの高さ。答えたあと・× のあとも同じ高さを少し保ってからたたむ(下の広告がボタンの位置に上がってこないように)
+    @State private var keptHeight: CGFloat = 0
 
     init() {
         // 何も描かない View では onAppear が呼ばれないので、ここで決める(同じ回は 2 度目以降 false)
@@ -72,7 +74,7 @@ struct ExportFeedbackCard: View {
                             .font(.subheadline.weight(.semibold))
                         Spacer()
                         Button {
-                            withAnimation { step = .hidden }
+                            withAnimation { step = .closed }
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.caption.weight(.semibold))
@@ -102,6 +104,7 @@ struct ExportFeedbackCard: View {
                     }
                 }
                 .padding(.vertical, 4)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { keptHeight = max(keptHeight, $0) }
             case .reasons:
                 VStack(alignment: .leading, spacing: 10) {
                     Text("どこで迷いましたか?")
@@ -119,12 +122,26 @@ struct ExportFeedbackCard: View {
                     .frame(minHeight: 44)
                 }
                 .padding(.vertical, 4)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { keptHeight = max(keptHeight, $0) }
             case .thanks:
+                // 聞いていたときと同じ高さのまま出す(下の広告が、押したボタンの位置に上がってこないように)
                 Label("ありがとうございました", systemImage: "checkmark.circle")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, minHeight: keptHeight, alignment: .topLeading)
+            case .closed:
+                // × のあとも同じ高さを少し保つ
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: keptHeight)
             }
+        }
+        .task(id: step) {
+            // 答えたあと・× のあとは 2 秒おいてからたたむ
+            guard step == .thanks || step == .closed else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation { step = .hidden }
         }
     }
 }
@@ -157,9 +174,15 @@ private struct FlowChips: View {
 
     private func chips(in range: Range<Int>) -> some View {
         ForEach(Array(reasons[range])) { reason in
-            Button(reason.title) { onPick(reason.key) }
-                .buttonStyle(.bordered)
-                .font(.subheadline)
+            Button {
+                onPick(reason.key)
+            } label: {
+                // .bordered の余白と合わせて、押せる高さを 44 にする
+                Text(reason.title)
+                    .frame(minHeight: 30)
+            }
+            .buttonStyle(.bordered)
+            .font(.subheadline)
         }
     }
 }

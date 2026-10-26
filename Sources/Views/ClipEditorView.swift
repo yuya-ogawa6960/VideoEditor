@@ -53,14 +53,14 @@ struct ClipEditorView: View {
             }
 
             // トリミング
-            Section("使う部分(トリミング)") {
+            Section("トリミング") {
                 HStack(alignment: .top, spacing: 12) {
                     trimThumbnail(startThumbnail ?? current.thumbnail)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("開始 \(MediaTimeText.precise(current.startTime))")
                         Text("終了 \(MediaTimeText.precise(current.endTime))")
                         Text("長さ \(MediaTimeText.precise(current.trimmedDuration))")
-                        Text("速度を反映した長さ \(MediaTimeText.precise(current.outputDuration))")
+                        Text("デュレーション \(MediaTimeText.precise(current.outputDuration))")
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption)
@@ -85,21 +85,24 @@ struct ClipEditorView: View {
                         .font(.caption)
                     Slider(value: endBinding(clip), in: 0...upper)
                 }
-                Button("使う部分を元に戻す") {
+                Button("トリミングを解除") {
                     var updated = clip.wrappedValue
                     updated.startTime = 0
                     updated.endTime = updated.duration
+                    // キャプションやテキストなどを同じ素材の位置に付けたまま動かす(TimelineRipple.swift)
+                    let layout = project.captureClipLayout()
                     clip.wrappedValue = updated
+                    project.rippleTimelineItems(from: layout)
                 }
                 .disabled(!current.isTrimmed)
             }
 
             // 速度
-            Section("速度・デュレーション") {
+            Section("速度") {
                 HStack(spacing: 6) {
                     ForEach(speedPresets, id: \.self) { preset in
                         Button {
-                            clip.wrappedValue.speed = preset
+                            setSpeed(preset, of: clip)
                         } label: {
                             Text(String(format: "%gx", preset))
                                 .font(.caption)
@@ -111,7 +114,7 @@ struct ClipEditorView: View {
                     }
                 }
                 HStack {
-                    Slider(value: clip.speed, in: 0.25...4, step: 0.05)
+                    Slider(value: speedBinding(clip), in: 0.25...4, step: 0.05)
                     Text(String(format: "%.2fx", current.speed))
                         .font(.callout)
                         .monospacedDigit()
@@ -121,7 +124,7 @@ struct ClipEditorView: View {
 
             // 音声
             Section("音") {
-                Toggle("音を消す(ミュート)", isOn: clip.isMuted)
+                Toggle("ミュート", isOn: clip.isMuted)
                     .disabled(!current.hasAudio)
                 if !current.hasAudio {
                     Text("このクリップには音がありません")
@@ -135,7 +138,11 @@ struct ClipEditorView: View {
                 FilterPickerView(filter: clip.filter,
                                  sourceImage: current.thumbnail,
                                  onApplyToAll: {
-                                     project.applyFilterToAllClips(clip.wrappedValue.filter)
+                                     // プリセット・強さ・明るさ・コントラスト・彩度だけ写す(各クリップの HSL・LUT・ほかの補正はそのまま)
+                                     let filter = clip.wrappedValue.filter
+                                     for i in project.clips.indices {
+                                         project.clips[i].filter = FilterPickerView.presetLook(from: filter, onto: project.clips[i].filter)
+                                     }
                                  })
             }
 
@@ -194,6 +201,8 @@ struct ClipEditorView: View {
     }
 
     // MARK: - トリミング用 Binding
+    // トリミングを変えると後ろのクリップが動くので、キャプション・テキストなどを同じ素材の位置に付けたまま動かす
+    // (EditorProject.captureClipLayout / rippleTimelineItems。TimelineRipple.swift)
 
     private func startBinding(_ clip: Binding<Clip>) -> Binding<Double> {
         let gap = minimumGap
@@ -202,7 +211,9 @@ struct ClipEditorView: View {
             set: { newValue in
                 var updated = clip.wrappedValue
                 updated.startTime = max(0, min(newValue, updated.endTime - gap))
+                let layout = project.captureClipLayout()
                 clip.wrappedValue = updated
+                project.rippleTimelineItems(from: layout)
             }
         )
     }
@@ -214,8 +225,26 @@ struct ClipEditorView: View {
             set: { newValue in
                 var updated = clip.wrappedValue
                 updated.endTime = min(updated.duration, max(newValue, updated.startTime + gap))
+                let layout = project.captureClipLayout()
                 clip.wrappedValue = updated
+                project.rippleTimelineItems(from: layout)
             }
+        )
+    }
+
+    // MARK: - 速度
+    // 速度を変えるとクリップの長さが変わるので、トリミングと同じく後ろのものを付けたまま動かす
+
+    private func setSpeed(_ speed: Double, of clip: Binding<Clip>) {
+        let layout = project.captureClipLayout()
+        clip.wrappedValue.speed = min(max(speed, 0.25), 4)
+        project.rippleTimelineItems(from: layout)
+    }
+
+    private func speedBinding(_ clip: Binding<Clip>) -> Binding<Double> {
+        Binding<Double>(
+            get: { clip.wrappedValue.speed },
+            set: { setSpeed($0, of: clip) }
         )
     }
 }

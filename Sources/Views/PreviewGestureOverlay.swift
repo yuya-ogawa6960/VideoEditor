@@ -5,13 +5,15 @@ import ImageIO
 
 // =====================================================================
 // プレビューの上に重ねる透明なレイヤー。
-// 選択中のテキスト(ステッカー)/オーバーレイに点線の枠を出し、
-//   ドラッグ   → 中心位置
+// 選択中のテキスト(ステッカー・モザイク)/オーバーレイに点線の枠を出し、
+//   ドラッグ   → 中心位置(枠の上で。映像の中央から 8 pt 以内は吸い付き、細い線で示す)
 //   ピンチ     → 大きさ(テキスト: scale / オーバーレイ: 枠の幅、縦横比を保つ)
-//   回転       → 角度(テキストのみ)
-// を直接変えられる。履歴はジェスチャーの開始時に 1 回だけ記録し、
-// 書き込みは 1 秒間に 30 回まで(最後の値は必ず書く)。
+//   回転       → 角度(6° 未満は無視。0 / ±90 / 180 の 4° 以内は吸い付く)
+// を直接変えられる。ピンチと回転は選択中ならプレビューのどこで始めてもよい(小さな部品でもつまめる)。
+// 履歴はジェスチャーの開始時に 1 回だけ記録し、書き込みは 1 秒間に 30 回まで(最後の値は必ず書く)。
 // 点線の枠の部分だけがタッチを受け取り、それ以外はプレビューのタップ(再生/停止)に通す。
+// キーフレームのある部品は、枠を再生位置の配置(描画と同じ補間値)で出し、
+// ジェスチャーの結果は基本の値ではなく、ジェスチャーを始めた時刻のキーフレームに書く(KeyframeEditing)。
 //
 // 第4弾の追加モード:
 //   maskTarget    → マスクパネルを開いている間、マスクの形を点線で出し、
@@ -40,6 +42,14 @@ struct PreviewRectSelection {
     let onComplete: (NormalizedRect) -> Void
 }
 
+/// キーフレームのある部品のジェスチャー開始時の状態。
+/// time はキーを書く時刻(部品の開始からの相対秒)、value はその時刻の補間値、keyframes は開始時の列
+struct PreviewKeyedStart {
+    var time: Double
+    var value: KeyframeInterpolator.Value
+    var keyframes: [Keyframe]
+}
+
 /// ジェスチャー中の状態(再描画を起こさないよう class で持つ)
 final class PreviewGestureSession {
     var isActive = false
@@ -49,14 +59,23 @@ final class PreviewGestureSession {
     /// player.beginInteraction() を呼んで、まだ endInteraction() していない
     var interactionOpen = false
 
-    // ジェスチャー開始時(または別のジェスチャーが終わった時)の値
+    // ジェスチャー開始時(または別のジェスチャーが終わった時)の値。キーフレームがあれば再生位置の補間値
     var startCenter = NormalizedPoint.center
     var startScale = 1.0
     var startRotation = 0.0
     var startFrame = NormalizedRect.full
+    // モザイクの幅・高さ(キーフレームのあるモザイクは、ピンチでこちらを変える)
+    var startWidthRatio = 0.3
+    var startHeightRatio = 0.22
     // マスク用(短辺比率)
     var startMaskWidth = 0.6
     var startMaskHeight = 0.6
+    /// キーフレームのある部品なら、キーを書く時刻と開始時の列(無ければ nil = 基本の値に書く)
+    var keyed: PreviewKeyedStart? = nil
+    /// 2 本指の回転が 6° を超えて「本当に回している」と分かったか(それまでは無視する)
+    var rotateUnlocked = false
+    /// いま吸い付いている角度(nil = 吸い付いていない)。吸い付いた瞬間だけ振動させるために持つ
+    var snappedRotation: Double? = nil
 
     // ジェスチャーの生の値と、その基準(別のジェスチャーが終わったときに合わせ直す)
     var rawDrag = CGSize.zero
@@ -119,13 +138,17 @@ struct PreviewGestureOverlay: View {
     /// 選択中のオーバーレイの代わりの絵(ドラッグ中に半透明で出す)
     @State private var proxyImage: UIImage? = nil
     // モザイクの四隅のハンドル・回転のつまみ(ドラッグの始まりの状態)
-    @State private var mosaicHandleStart: (center: NormalizedPoint, width: Double, height: Double)? = nil
-    @State private var mosaicKnobActive = false
+    @State private var mosaicHandleStart: MosaicHandleStart? = nil
+    @State private var mosaicKnobStart: MosaicHandleStart? = nil
     /// マスクの四隅の●をドラッグし始めたときの中心と幅・高さ(短辺比)
     @State private var maskHandleStart: (center: NormalizedPoint, width: Double, height: Double)? = nil
     @State private var maskKnobActive = false
-    /// テキスト/オーバーレイのジェスチャーが続いている間 true(キャンセル時も自動で false に戻る)
+    /// テキスト/オーバーレイの枠のドラッグが続いている間 true(キャンセル時も自動で false に戻る)
     @GestureState private var gestureLive = false
+    /// プレビュー全体のピンチ・回転が続いている間 true(同上)
+    @GestureState private var previewPinchLive = false
+    /// ドラッグ中、中心が映像の中央に吸い付いているか(x = 縦線、y = 横線を出す)
+    @State private var snapGuide: (x: Bool, y: Bool) = (false, false)
     /// 「ドラッグで移動・2本指で拡大/回転」の案内を出し終えたか(初回だけ出す)
     @AppStorage("ux15.previewGestureCoachShown") private var coachShown = false
 
@@ -133,6 +156,26 @@ struct PreviewGestureOverlay: View {
     private static let minWriteInterval: CFAbsoluteTime = 1.0 / 30.0
     /// 点線の枠の隅に出す印の大きさ(14 pt 以上)
     private static let badgeIconSize: CGFloat = 14
+    /// 2 本指の回転はこの角度(度)未満なら無視する(ピンチのつもりで傾かないように)
+    private static let rotationDeadZone = 6.0
+    /// 0 / ±90 / 180 からこの角度(度)以内なら吸い付く
+    private static let rotationSnap = 4.0
+    /// 中心が映像の中央からこの距離(pt)以内なら吸い付く
+    private static let centerSnapDistance: CGFloat = 8
+
+    /// 枠のドラッグかプレビュー全体のピンチ・回転が続いている
+    private var isGestureLive: Bool { gestureLive || previewPinchLive }
+
+    /// 選択中のテキスト/オーバーレイをプレビューのどこでもピンチ・回転できる状態か
+    private var hasPinchTarget: Bool {
+        rectSelection == nil && maskTarget == nil && (selection?.textID != nil || selection?.overlayID != nil)
+    }
+
+    /// モザイクの四隅の●・回転のつまみをドラッグ中(この間はプレビュー全体のピンチ・回転を受けない。
+    /// ●に置いた指から始まった 2 本指が、幅・高さと scale・角度を同時に書かないように)
+    private var mosaicHandleActive: Bool {
+        mosaicHandleStart != nil || mosaicKnobStart != nil
+    }
 
     init(project: EditorProject,
          history: EditorHistory,
@@ -162,6 +205,7 @@ struct PreviewGestureOverlay: View {
                     if onSelect != nil {
                         tapCatcher(size: size)
                     }
+                    snapGuides(size: size)
                     if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
                         textFrame(binding, size: size)
                     } else if let id = selection?.overlayID, let binding = project.overlayBinding(id: id) {
@@ -174,8 +218,12 @@ struct PreviewGestureOverlay: View {
                 }
             }
             .frame(width: size.width, height: size.height, alignment: .topLeading)
+            // 選択中はプレビューのどこで始めてもピンチ・回転できる(枠の上で始めた分もここで受ける)
+            .simultaneousGesture(previewPinchGesture(size: size).updating($previewPinchLive) { _, state, _ in
+                state = true
+            }, including: hasPinchTarget ? .all : .subviews)
         }
-        .onChange(of: gestureLive) { _, live in
+        .onChange(of: isGestureLive) { _, live in
             // ジェスチャーがキャンセルされて onEnded が来ない場合でも、作り直しの停止を必ず解く
             if !live {
                 finishInteractionIfNeeded()
@@ -208,6 +256,7 @@ struct PreviewGestureOverlay: View {
         guard session.isActive || session.interactionOpen else { return }
         session.resetFlags()
         session.isActive = false
+        clearSnapGuides()
         closeInteraction()
     }
 
@@ -430,8 +479,10 @@ struct PreviewGestureOverlay: View {
                         overlayBinding.wrappedValue = overlay
                     }
                 )
-                // オーバーレイのマスクはそのオーバーレイの枠の中で考える
-                maskFrame(maskBinding, container: overlayBinding.wrappedValue.frame.rect(in: size))
+                // オーバーレイのマスクはそのオーバーレイの枠の中で考える(キーフレームがあれば再生位置の枠)
+                let overlay = overlayBinding.wrappedValue
+                let container = Self.placedOverlayRect(overlay, at: frameTime(for: overlay.keyframes), in: size).rect
+                maskFrame(maskBinding, container: container)
             }
         }
     }
@@ -779,13 +830,13 @@ struct PreviewGestureOverlay: View {
         let w: CGFloat = max(width, 28)
         let h: CGFloat = max(height, 28)
         return ZStack {
-            if gestureLive {
+            if isGestureLive {
                 proxy()
                     .frame(width: w, height: h)
                     .allowsHitTesting(false)
             }
             RoundedRectangle(cornerRadius: 4)
-                .stroke(style: StrokeStyle(lineWidth: gestureLive ? 2 : 1.5, dash: [6, 4]))
+                .stroke(style: StrokeStyle(lineWidth: isGestureLive ? 2 : 1.5, dash: [6, 4]))
                 .foregroundStyle(Color.white.opacity(0.9))
                 .shadow(color: Color.black.opacity(0.5), radius: 1)
         }
@@ -851,14 +902,16 @@ struct PreviewGestureOverlay: View {
 
     private func textFrame(_ binding: Binding<TextClip>, size: CGSize) -> some View {
         let clip = binding.wrappedValue
-        let rect = Self.estimatedRect(for: clip, in: size)
+        // キーフレームがあれば再生位置の配置(描画と同じ補間値)で枠を出す
+        let placed = Self.placedText(clip, at: frameTime(for: clip.keyframes))
+        let rect = Self.estimatedRect(for: placed, in: size)
         let frameSize = CGSize(width: max(rect.width, 28), height: max(rect.height, 28))
         return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right") {
-            textProxy(clip, size: size)
+            textProxy(placed, size: size)
         }
         .overlay {
             if clip.isMosaic {
-                mosaicHandles(binding, size: size, frame: frameSize)
+                mosaicHandles(binding, placed: placed, size: size, frame: frameSize)
             }
         }
         // パネルの「±15°」などで回したときも、映像からはみ出さないようにする
@@ -870,25 +923,30 @@ struct PreviewGestureOverlay: View {
                 binding.wrappedValue = fitted
             }
         }
-        .gesture(textGesture(binding, size: size).updating($gestureLive) { _, state, _ in
+        // 枠で受けるのはドラッグだけ(ピンチ・回転はプレビュー全体で受ける)
+        .gesture(textDragGesture(binding, size: size).updating($gestureLive) { _, state, _ in
             state = true
         })
         // 選択中の枠のタップは下(再生/停止や選択解除)に通さない
         .gesture(TapGesture().onEnded { }, including: onSelect != nil ? .gesture : .none)
-        .rotationEffect(.degrees(clip.rotation))
+        .rotationEffect(.degrees(placed.rotation))
         .position(x: rect.midX, y: rect.midY)
     }
 
     private func overlayFrame(_ binding: Binding<OverlayClip>, size: CGSize) -> some View {
         let overlay = binding.wrappedValue
-        let rect = overlay.frame.rect(in: size)
+        // キーフレームがあれば再生位置の枠と角度(描画と同じ補間値)
+        let placed = Self.placedOverlayRect(overlay, at: frameTime(for: overlay.keyframes), in: size)
+        let rect = placed.rect
         return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right") {
             overlayProxy(overlay)
         }
-        .gesture(overlayGesture(binding, size: size).updating($gestureLive) { _, state, _ in
+        .gesture(overlayDragGesture(binding, size: size).updating($gestureLive) { _, state, _ in
             state = true
         })
         .gesture(TapGesture().onEnded { }, including: onSelect != nil ? .gesture : .none)
+        // 枠と代わりの絵もオーバーレイと同じ向きに回す(描画と同じく時計回りが正)
+        .rotationEffect(.degrees(placed.rotation))
         .position(x: rect.midX, y: rect.midY)
         .task(id: overlay.url) {
             proxyImage = nil
@@ -906,9 +964,32 @@ struct PreviewGestureOverlay: View {
         var sy: CGFloat { self == .topLeft || self == .topRight ? -1 : 1 }
     }
 
-    /// 枠の中に重ねる(枠と一緒に回転する)。四隅の●で幅・高さ、上のつまみで回転
-    private func mosaicHandles(_ binding: Binding<TextClip>, size: CGSize, frame: CGSize) -> some View {
-        let clip = binding.wrappedValue
+    /// 四隅の●・回転のつまみをドラッグし始めたときの状態(center・scale・rotation は再生位置の配置)
+    private struct MosaicHandleStart {
+        var center: NormalizedPoint
+        var scale: Double
+        var rotation: Double
+        /// 幅・高さ(画面比、scale 込み)
+        var width: Double
+        var height: Double
+        /// キーフレームがあれば、書く時刻と開始時の列
+        var keyed: PreviewKeyedStart?
+    }
+
+    private func makeMosaicHandleStart(_ clip: TextClip) -> MosaicHandleStart {
+        let keyed = keyedStart(for: clip)
+        pauseIfKeyed(keyed)
+        let placed = keyed?.value ?? Self.baseValue(clip)
+        return MosaicHandleStart(center: placed.center,
+                                 scale: placed.scale,
+                                 rotation: placed.rotation,
+                                 width: clip.widthRatio * placed.scale,
+                                 height: (clip.mosaic?.heightRatio ?? 0.22) * placed.scale,
+                                 keyed: keyed)
+    }
+
+    /// 枠の中に重ねる(枠と一緒に回転する)。四隅の●で幅・高さ、上のつまみで回転。placed は再生位置の配置
+    private func mosaicHandles(_ binding: Binding<TextClip>, placed: TextClip, size: CGSize, frame: CGSize) -> some View {
         let knobDistance: CGFloat = 30
         return ZStack {
             // 回転のつまみ(上辺の中央から線で伸びる)
@@ -930,14 +1011,14 @@ struct PreviewGestureOverlay: View {
             .offset(y: -frame.height / 2 - knobDistance - 8)
             .gesture(mosaicKnobGesture(binding, size: size, frame: frame, knobDistance: knobDistance + 8))
 
-            if mosaicKnobActive {
-                Text(verbatim: "\(Int(clip.rotation.rounded()))°")
+            if mosaicKnobStart != nil {
+                Text(verbatim: "\(Int(placed.rotation.rounded()))°")
                     .font(.system(size: 13, weight: .bold).monospacedDigit())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Color.black.opacity(0.7), in: Capsule())
-                    .rotationEffect(.degrees(-clip.rotation))
+                    .rotationEffect(.degrees(-placed.rotation))
                     .offset(y: -frame.height / 2 - knobDistance - 48)
                     .allowsHitTesting(false)
             }
@@ -962,15 +1043,15 @@ struct PreviewGestureOverlay: View {
             .onChanged { value in
                 var clip = binding.wrappedValue
                 if mosaicHandleStart == nil {
+                    // 枠のドラッグやプレビュー全体のピンチが進んでいる間は●を始めない(同じ値を 2 か所から書かない)
+                    guard !session.isActive else { return }
                     history.record(project)
                     openInteraction()
-                    mosaicHandleStart = (clip.center,
-                                         clip.widthRatio * clip.scale,
-                                         (clip.mosaic?.heightRatio ?? 0.22) * clip.scale)
+                    mosaicHandleStart = makeMosaicHandleStart(clip)
                 }
                 guard let start = mosaicHandleStart else { return }
                 // 指の動きを、モザイクの向きに合わせた軸(枠の縦横)へ直す
-                let r = CGFloat(clip.rotation * Double.pi / 180)
+                let r = CGFloat(start.rotation * Double.pi / 180)
                 let dx = value.translation.width
                 let dy = value.translation.height
                 let lx = dx * cos(r) + dy * sin(r)
@@ -985,16 +1066,19 @@ struct PreviewGestureOverlay: View {
                 let sy = corner.sy * (h - h0) / 2
                 let shiftX = sx * cos(r) - sy * sin(r)
                 let shiftY = sx * sin(r) + sy * cos(r)
-                let scale = max(clip.scale, 0.01)
+                let scale = max(start.scale, 0.01)
                 clip.widthRatio = min(max(Double(w / max(size.width, 1)) / scale, 0.02), 3)
                 clip.mosaic?.heightRatio = min(max(Double(h / max(size.height, 1)) / scale, 0.02), 3)
-                clip.center = NormalizedPoint(x: start.center.x + Double(shiftX / max(size.width, 1)),
-                                              y: start.center.y + Double(shiftY / max(size.height, 1)))
-                // 回転した枠が映像からはみ出さないようにする
-                clip.keepMosaicInside(size)
+                let center = NormalizedPoint(x: start.center.x + Double(shiftX / max(size.width, 1)),
+                                             y: start.center.y + Double(shiftY / max(size.height, 1)))
+                // 位置を書く(キーフレームがあれば再生位置のキーへ)。回転した枠が映像からはみ出さないようにする
+                writePlacement(center: center, scale: start.scale, rotation: start.rotation,
+                               keyed: start.keyed, to: &clip, size: size)
                 binding.wrappedValue = clip
             }
             .onEnded { _ in
+                // 始めなかった(ピンチ中だった)●は、ピンチが開いた作り直しの停止を閉じない
+                guard mosaicHandleStart != nil else { return }
                 mosaicHandleStart = nil
                 closeInteraction()
             }
@@ -1005,14 +1089,16 @@ struct PreviewGestureOverlay: View {
         DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
                 var clip = binding.wrappedValue
-                if !mosaicKnobActive {
+                if mosaicKnobStart == nil {
+                    // 枠のドラッグやプレビュー全体のピンチが進んでいる間はつまみを始めない
+                    guard !session.isActive else { return }
                     history.record(project)
                     openInteraction()
-                    mosaicKnobActive = true
-                    session.startRotation = clip.rotation
+                    mosaicKnobStart = makeMosaicHandleStart(clip)
                 }
+                guard let start = mosaicKnobStart else { return }
                 // つまみの最初の位置(中心からのベクトル、画面の向き)に指の動きを足して角度にする
-                let r0 = CGFloat(session.startRotation * Double.pi / 180)
+                let r0 = CGFloat(start.rotation * Double.pi / 180)
                 let length = frame.height / 2 + knobDistance
                 let knob = CGPoint(x: length * sin(r0), y: -length * cos(r0))
                 let v = CGPoint(x: knob.x + value.translation.width, y: knob.y + value.translation.height)
@@ -1023,15 +1109,240 @@ struct PreviewGestureOverlay: View {
                 for snap in [-180.0, -90.0, 0.0, 90.0, 180.0] where abs(degrees - snap) < 4 {
                     degrees = snap == 180 ? -180 : snap
                 }
-                clip.rotation = degrees
-                // 回すと外接する範囲が広がるので、映像からはみ出す分は縮めて内側へ寄せる
-                clip.keepMosaicInside(size)
+                // 角度を書く(キーフレームがあれば再生位置のキーへ)。回すと外接する範囲が広がるので、
+                // 映像からはみ出す分は縮めて内側へ寄せる
+                writePlacement(center: start.center, scale: start.scale, rotation: degrees,
+                               keyed: start.keyed, to: &clip, size: size)
                 binding.wrappedValue = clip
             }
             .onEnded { _ in
-                mosaicKnobActive = false
+                guard mosaicKnobStart != nil else { return }
+                mosaicKnobStart = nil
                 closeInteraction()
             }
+    }
+
+    // MARK: - キーフレームのある部品(枠は再生位置の配置、書き込みは始めた時刻のキーへ)
+
+    /// 枠を出す時刻(再生位置)。キーフレームの無い部品は基本の値をそのまま使うので再生位置を読まない(再描画を減らす)
+    private func frameTime(for keyframes: [Keyframe]) -> Double {
+        guard !keyframes.isEmpty, let player else { return 0 }
+        return player.currentTime
+    }
+
+    /// キーを書く時刻 = 再生位置の、部品の先頭からの相対秒(範囲内に丸める。EditorKeyframePanel と同じ)
+    private func keyTime(start: Double, duration: Double) -> Double {
+        let now: Double = player?.currentTime ?? start
+        return min(max(now - start, 0), max(duration, 0))
+    }
+
+    /// 基本の値(キーフレームを見ない配置)
+    private static func baseValue(_ clip: TextClip) -> KeyframeInterpolator.Value {
+        KeyframeInterpolator.Value(center: clip.center, scale: clip.scale, rotation: clip.rotation, opacity: clip.opacity)
+    }
+
+    private static func baseValue(_ overlay: OverlayClip) -> KeyframeInterpolator.Value {
+        KeyframeInterpolator.Value(center: NormalizedPoint(x: overlay.frame.midX, y: overlay.frame.midY),
+                                   scale: 1, rotation: overlay.rotation, opacity: overlay.opacity)
+    }
+
+    /// キーフレームのある部品なら、ジェスチャーを始めた再生位置のキーの時刻と補間値(無ければ nil)
+    private func keyedStart(for clip: TextClip) -> PreviewKeyedStart? {
+        guard !clip.keyframes.isEmpty else { return nil }
+        let time = keyTime(start: clip.start, duration: clip.duration)
+        let value = KeyframeInterpolator.value(at: time, keyframes: clip.keyframes, fallback: Self.baseValue(clip))
+        return PreviewKeyedStart(time: time, value: value, keyframes: clip.keyframes)
+    }
+
+    private func keyedStart(for overlay: OverlayClip) -> PreviewKeyedStart? {
+        guard !overlay.keyframes.isEmpty else { return nil }
+        let time = keyTime(start: overlay.start, duration: overlay.duration)
+        let value = KeyframeInterpolator.value(at: time, keyframes: overlay.keyframes, fallback: Self.baseValue(overlay))
+        return PreviewKeyedStart(time: time, value: value, keyframes: overlay.keyframes)
+    }
+
+    /// 別のジェスチャーが終わったあと、キーの時刻はそのままに補間値と列を今の状態に合わせ直す
+    private func reseeded(_ keyed: PreviewKeyedStart?, keyframes: [Keyframe],
+                          fallback: KeyframeInterpolator.Value) -> PreviewKeyedStart? {
+        guard let keyed, !keyframes.isEmpty else { return nil }
+        let value = KeyframeInterpolator.value(at: keyed.time, keyframes: keyframes, fallback: fallback)
+        return PreviewKeyedStart(time: keyed.time, value: value, keyframes: keyframes)
+    }
+
+    /// キーフレームを書き換えるときは再生を止める(枠と書き込み先の時刻がずれないように)
+    private func pauseIfKeyed(_ keyed: PreviewKeyedStart?) {
+        guard keyed != nil else { return }
+        player?.pause()
+    }
+
+    /// 位置・大きさ(scale)・角度をテキスト/モザイクに書く。
+    /// キーフレームがあれば(keyed)基本の値は変えず、ジェスチャーを始めた時刻のキーに書く(KeyframeEditing)
+    private func writePlacement(center: NormalizedPoint, scale: Double, rotation: Double,
+                                keyed: PreviewKeyedStart?, to clip: inout TextClip, size: CGSize) {
+        if let keyed {
+            let value = KeyframeInterpolator.Value(center: center, scale: scale, rotation: rotation,
+                                                   opacity: keyed.value.opacity)
+            clip.keyframes = KeyframeEditing.applying(value, from: keyed.value, at: keyed.time, to: keyed.keyframes)
+        } else {
+            clip.center = center
+            clip.scale = scale
+            clip.rotation = rotation
+            // モザイクは、回転した枠が映像からはみ出さないようにする(テキストはそのまま)
+            if clip.isMosaic { clip.keepMosaicInside(size) }
+        }
+    }
+
+    // MARK: - 吸い付き(中央の位置・0 / 90 / 180 度)
+
+    /// 中央に吸い付いている間の細い線(縦 = x、横 = y)
+    @ViewBuilder
+    private func snapGuides(size: CGSize) -> some View {
+        if snapGuide.x {
+            Rectangle()
+                .fill(Color.yellow.opacity(0.9))
+                .frame(width: 1, height: size.height)
+                .position(x: size.width / 2, y: size.height / 2)
+                .allowsHitTesting(false)
+        }
+        if snapGuide.y {
+            Rectangle()
+                .fill(Color.yellow.opacity(0.9))
+                .frame(width: size.width, height: 1)
+                .position(x: size.width / 2, y: size.height / 2)
+                .allowsHitTesting(false)
+        }
+    }
+
+    /// ドラッグの始まりで、すでに中央にある軸は「吸い付き済み」にしておく(始めた瞬間に振動させない)
+    private func seedSnapGuides(size: CGSize) {
+        let c = session.startCenter
+        snapGuide = (abs(CGFloat(c.x - 0.5)) * size.width <= Self.centerSnapDistance,
+                     abs(CGFloat(c.y - 0.5)) * size.height <= Self.centerSnapDistance)
+    }
+
+    private func clearSnapGuides() {
+        if snapGuide.x || snapGuide.y {
+            snapGuide = (false, false)
+        }
+    }
+
+    /// ドラッグ中、中心が映像の中央(0.5)から 8 pt 以内なら縦・横それぞれ別に吸い付ける。
+    /// 吸い付いている軸は細い線で示し、吸い付いた瞬間に 1 回だけ振動する
+    private func snappedCenter(_ center: NormalizedPoint, size: CGSize) -> NormalizedPoint {
+        guard session.dragActive else { return center }
+        var c = center
+        let snapX = abs(CGFloat(c.x - 0.5)) * size.width <= Self.centerSnapDistance
+        let snapY = abs(CGFloat(c.y - 0.5)) * size.height <= Self.centerSnapDistance
+        if snapX { c.x = 0.5 }
+        if snapY { c.y = 0.5 }
+        if (snapX && !snapGuide.x) || (snapY && !snapGuide.y) {
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
+        if snapGuide.x != snapX || snapGuide.y != snapY {
+            snapGuide = (snapX, snapY)
+        }
+        return c
+    }
+
+    /// ちょうど 0 / ±90 / 180 にあるならその角度(吸い付き済みとして扱う)
+    private static func snapTarget(near rotation: Double) -> Double? {
+        let r = KeyframeEditing.normalizedDegrees(rotation)
+        return [-180.0, -90.0, 0.0, 90.0, 180.0].first { abs(r - $0) < 0.001 }
+    }
+
+    /// 2 本指の回転の角度を決める。6° 未満は無視し(一度超えたら以後は指に付いてくる)、
+    /// 0 / ±90 / 180 の 4° 以内は吸い付く(吸い付いた瞬間に 1 回だけ振動)
+    private func rotationWithSnap(start: Double, delta: Double) -> Double {
+        if !session.rotateUnlocked {
+            if abs(delta) < Self.rotationDeadZone { return KeyframeEditing.normalizedDegrees(start) }
+            session.rotateUnlocked = true
+        }
+        var rotation = KeyframeEditing.normalizedDegrees(start + delta)
+        var snapped: Double? = nil
+        for target in [-180.0, -90.0, 0.0, 90.0, 180.0] where abs(rotation - target) < Self.rotationSnap {
+            rotation = target == 180 ? -180 : target
+            snapped = rotation
+        }
+        if let snapped, snapped != session.snappedRotation {
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
+        session.snappedRotation = snapped
+        return rotation
+    }
+
+    // MARK: - プレビュー全体のピンチ・回転(選択中のテキスト/オーバーレイ)
+
+    /// 選択中の部品の大きさ・角度を、プレビューのどこで始めた 2 本指でも変えられるようにする
+    private func previewPinchGesture(size: CGSize) -> some Gesture {
+        let magnify = MagnifyGesture()
+            .onChanged { value in
+                // ●・つまみのドラッグ中に始まった 2 本指は無視する(そのドラッグが終わるまで)
+                guard !mosaicHandleActive else { return }
+                beginSelectedIfNeeded()
+                session.magnifyActive = true
+                session.rawMagnify = value.magnification
+                applySelected(size: size, force: false)
+            }
+            .onEnded { _ in
+                guard !mosaicHandleActive else { return }
+                applySelected(size: size, force: true)
+                endSelectedGesture {
+                    session.rawMagnify = 1
+                    session.baseMagnify = 1
+                    session.magnifyActive = false
+                }
+            }
+
+        let rotate = RotateGesture()
+            .onChanged { value in
+                guard !mosaicHandleActive else { return }
+                beginSelectedIfNeeded()
+                session.rotateActive = true
+                session.rawRotate = value.rotation.degrees
+                applySelected(size: size, force: false)
+            }
+            .onEnded { _ in
+                guard !mosaicHandleActive else { return }
+                applySelected(size: size, force: true)
+                endSelectedGesture {
+                    session.rawRotate = 0
+                    session.baseRotate = 0
+                    session.rotateActive = false
+                    // 次にひねるときも 6° を超えてから付いてくる
+                    session.rotateUnlocked = false
+                }
+            }
+
+        return magnify.simultaneously(with: rotate)
+    }
+
+    private func beginSelectedIfNeeded() {
+        if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
+            beginIfNeeded(text: binding.wrappedValue)
+        } else if let id = selection?.overlayID, let binding = project.overlayBinding(id: id) {
+            beginIfNeeded(overlay: binding.wrappedValue)
+        }
+    }
+
+    private func applySelected(size: CGSize, force: Bool) {
+        guard session.isActive else { return }
+        if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
+            applyText(binding, size: size, force: force)
+        } else if let id = selection?.overlayID, let binding = project.overlayBinding(id: id) {
+            applyOverlay(binding, size: size, force: force)
+        }
+    }
+
+    private func endSelectedGesture(cleanup: () -> Void) {
+        if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
+            endGesture(text: binding.wrappedValue, cleanup: cleanup)
+        } else if let id = selection?.overlayID, let binding = project.overlayBinding(id: id) {
+            endGesture(overlay: binding.wrappedValue, cleanup: cleanup)
+        } else {
+            // 部品が消えた・選択が外れた: 状態だけ片付ける
+            cleanup()
+            finishInteractionIfNeeded()
+        }
     }
 
     // MARK: - テキストのジェスチャー
@@ -1039,24 +1350,36 @@ struct PreviewGestureOverlay: View {
     private func beginIfNeeded(text clip: TextClip) {
         guard !session.isActive else { return }
         history.record(project)
-        session.startCenter = clip.center
-        session.startScale = clip.scale
-        session.startRotation = clip.rotation
+        let keyed = keyedStart(for: clip)
+        pauseIfKeyed(keyed)
+        seedStart(text: clip, keyed: keyed)
         session.resetDeltas()
         session.resetFlags()
         session.lastWrite = 0
+        session.rotateUnlocked = false
+        session.snappedRotation = Self.snapTarget(near: session.startRotation)
         session.isActive = true
         openInteraction()
     }
 
+    /// 開始値を clip の配置に合わせる(キーフレームがあれば、書く時刻の補間値)
+    private func seedStart(text clip: TextClip, keyed: PreviewKeyedStart?) {
+        let placed = keyed?.value ?? Self.baseValue(clip)
+        session.startCenter = placed.center
+        session.startScale = placed.scale
+        session.startRotation = placed.rotation
+        session.startWidthRatio = clip.widthRatio
+        session.startHeightRatio = clip.mosaic?.heightRatio ?? 0.22
+        session.keyed = keyed
+    }
+
     private func endGesture(text clip: TextClip, cleanup: () -> Void) {
-        session.startCenter = clip.center
-        session.startScale = clip.scale
-        session.startRotation = clip.rotation
+        seedStart(text: clip, keyed: reseeded(session.keyed, keyframes: clip.keyframes, fallback: Self.baseValue(clip)))
         session.rebase()
         cleanup()
         if !session.anyActive {
             session.isActive = false
+            clearSnapGuides()
             closeInteraction()
         }
     }
@@ -1070,22 +1393,30 @@ struct PreviewGestureOverlay: View {
         let d = session.effectiveDrag
         let cx = session.startCenter.x + Double(d.width / max(size.width, 1))
         let cy = session.startCenter.y + Double(d.height / max(size.height, 1))
-        clip.center = NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25))
-        clip.scale = min(max(session.startScale * Double(session.effectiveMagnify), 0.2), 6)
-        var rotation = (session.startRotation + session.effectiveRotate).truncatingRemainder(dividingBy: 360)
-        if rotation > 180 { rotation -= 360 }
-        if rotation < -180 { rotation += 360 }
-        clip.rotation = rotation
-        // モザイクは、回転した枠が映像からはみ出さないようにする(テキストはそのまま)
-        if clip.isMosaic { clip.keepMosaicInside(size) }
+        let center = snappedCenter(NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25)), size: size)
+        var scale = min(max(session.startScale * Double(session.effectiveMagnify), 0.2), 6)
+        let rotation = rotationWithSnap(start: session.startRotation, delta: session.effectiveRotate)
+        if session.keyed != nil, clip.isMosaic {
+            // キーフレームのあるモザイクの大きさは幅・高さの比率で持ち、キーの scale は変えない
+            // (顔モザイクのキーは scale 1 のまま。ContentView の顔モザイクと同じ持ち方)
+            let m = Double(session.effectiveMagnify)
+            clip.widthRatio = min(max(session.startWidthRatio * m, 0.02), 3)
+            clip.mosaic?.heightRatio = min(max(session.startHeightRatio * m, 0.02), 3)
+            scale = session.startScale
+        }
+        writePlacement(center: center, scale: scale, rotation: rotation, keyed: session.keyed, to: &clip, size: size)
         binding.wrappedValue = clip
     }
 
-    private func textGesture(_ binding: Binding<TextClip>, size: CGSize) -> some Gesture {
-        let drag = DragGesture(minimumDistance: 2, coordinateSpace: .global)
+    /// 枠のドラッグ(位置)。ピンチ・回転は previewPinchGesture がプレビュー全体で受ける
+    private func textDragGesture(_ binding: Binding<TextClip>, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
                 beginIfNeeded(text: binding.wrappedValue)
-                session.dragActive = true
+                if !session.dragActive {
+                    session.dragActive = true
+                    seedSnapGuides(size: size)
+                }
                 session.rawDrag = value.translation
                 applyText(binding, size: size, force: false)
             }
@@ -1095,42 +1426,9 @@ struct PreviewGestureOverlay: View {
                     session.rawDrag = .zero
                     session.baseDrag = .zero
                     session.dragActive = false
+                    clearSnapGuides()
                 }
             }
-
-        let magnify = MagnifyGesture()
-            .onChanged { value in
-                beginIfNeeded(text: binding.wrappedValue)
-                session.magnifyActive = true
-                session.rawMagnify = value.magnification
-                applyText(binding, size: size, force: false)
-            }
-            .onEnded { _ in
-                applyText(binding, size: size, force: true)
-                endGesture(text: binding.wrappedValue) {
-                    session.rawMagnify = 1
-                    session.baseMagnify = 1
-                    session.magnifyActive = false
-                }
-            }
-
-        let rotate = RotateGesture()
-            .onChanged { value in
-                beginIfNeeded(text: binding.wrappedValue)
-                session.rotateActive = true
-                session.rawRotate = value.rotation.degrees
-                applyText(binding, size: size, force: false)
-            }
-            .onEnded { _ in
-                applyText(binding, size: size, force: true)
-                endGesture(text: binding.wrappedValue) {
-                    session.rawRotate = 0
-                    session.baseRotate = 0
-                    session.rotateActive = false
-                }
-            }
-
-        return drag.simultaneously(with: magnify).simultaneously(with: rotate)
     }
 
     // MARK: - オーバーレイのジェスチャー
@@ -1138,22 +1436,36 @@ struct PreviewGestureOverlay: View {
     private func beginIfNeeded(overlay: OverlayClip) {
         guard !session.isActive else { return }
         history.record(project)
-        session.startFrame = overlay.frame
-        session.startRotation = overlay.rotation
+        let keyed = keyedStart(for: overlay)
+        pauseIfKeyed(keyed)
+        seedStart(overlay: overlay, keyed: keyed)
         session.resetDeltas()
         session.resetFlags()
         session.lastWrite = 0
+        session.rotateUnlocked = false
+        session.snappedRotation = Self.snapTarget(near: session.startRotation)
         session.isActive = true
         openInteraction()
     }
 
-    private func endGesture(overlay: OverlayClip, cleanup: () -> Void) {
+    /// 開始値をオーバーレイの配置に合わせる(キーフレームがあれば、書く時刻の補間値)
+    private func seedStart(overlay: OverlayClip, keyed: PreviewKeyedStart?) {
+        let placed = keyed?.value ?? Self.baseValue(overlay)
         session.startFrame = overlay.frame
-        session.startRotation = overlay.rotation
+        session.startCenter = placed.center
+        session.startScale = placed.scale
+        session.startRotation = placed.rotation
+        session.keyed = keyed
+    }
+
+    private func endGesture(overlay: OverlayClip, cleanup: () -> Void) {
+        seedStart(overlay: overlay,
+                  keyed: reseeded(session.keyed, keyframes: overlay.keyframes, fallback: Self.baseValue(overlay)))
         session.rebase()
         cleanup()
         if !session.anyActive {
             session.isActive = false
+            clearSnapGuides()
             closeInteraction()
         }
     }
@@ -1164,31 +1476,41 @@ struct PreviewGestureOverlay: View {
         session.lastWrite = now
 
         var overlay = binding.wrappedValue
-        let f = session.startFrame
         let d = session.effectiveDrag
-        var w = min(max(f.width * Double(session.effectiveMagnify), 0.05), 1)
-        var h = f.width > 0 ? f.height * (w / f.width) : f.height
-        if h > 1 {
-            w = min(1, w / h)
-            h = 1
+        let cx = session.startCenter.x + Double(d.width / max(size.width, 1))
+        let cy = session.startCenter.y + Double(d.height / max(size.height, 1))
+        let rotation = rotationWithSnap(start: session.startRotation, delta: session.effectiveRotate)
+        if let keyed = session.keyed {
+            // キーフレームがあるとき: 枠(基本の値)は変えず、位置・大きさ・角度を始めた時刻のキーに書く
+            let center = snappedCenter(NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25)), size: size)
+            let scale = min(max(session.startScale * Double(session.effectiveMagnify), 0.05), 6)
+            let value = KeyframeInterpolator.Value(center: center, scale: scale, rotation: rotation,
+                                                   opacity: keyed.value.opacity)
+            overlay.keyframes = KeyframeEditing.applying(value, from: keyed.value, at: keyed.time, to: keyed.keyframes)
+        } else {
+            let f = session.startFrame
+            var w = min(max(f.width * Double(session.effectiveMagnify), 0.05), 1)
+            var h = f.width > 0 ? f.height * (w / f.width) : f.height
+            if h > 1 {
+                w = min(1, w / h)
+                h = 1
+            }
+            let center = snappedCenter(NormalizedPoint(x: cx, y: cy), size: size)
+            overlay.frame = NormalizedRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h).clamped()
+            overlay.rotation = rotation
         }
-        let cx = f.midX + Double(d.width / max(size.width, 1))
-        let cy = f.midY + Double(d.height / max(size.height, 1))
-        overlay.frame = NormalizedRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h).clamped()
-        var rotation = (session.startRotation + session.effectiveRotate).truncatingRemainder(dividingBy: 360)
-        // 0・90・180・270 度の近くでは吸い付く
-        for snap in [-270.0, -180.0, -90.0, 0.0, 90.0, 180.0, 270.0] where abs(rotation - snap) < 3 {
-            rotation = snap
-        }
-        overlay.rotation = rotation
         binding.wrappedValue = overlay
     }
 
-    private func overlayGesture(_ binding: Binding<OverlayClip>, size: CGSize) -> some Gesture {
-        let drag = DragGesture(minimumDistance: 2, coordinateSpace: .global)
+    /// 枠のドラッグ(位置)。ピンチ・回転は previewPinchGesture がプレビュー全体で受ける
+    private func overlayDragGesture(_ binding: Binding<OverlayClip>, size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
                 beginIfNeeded(overlay: binding.wrappedValue)
-                session.dragActive = true
+                if !session.dragActive {
+                    session.dragActive = true
+                    seedSnapGuides(size: size)
+                }
                 session.rawDrag = value.translation
                 applyOverlay(binding, size: size, force: false)
             }
@@ -1198,42 +1520,9 @@ struct PreviewGestureOverlay: View {
                     session.rawDrag = .zero
                     session.baseDrag = .zero
                     session.dragActive = false
+                    clearSnapGuides()
                 }
             }
-
-        let magnify = MagnifyGesture()
-            .onChanged { value in
-                beginIfNeeded(overlay: binding.wrappedValue)
-                session.magnifyActive = true
-                session.rawMagnify = value.magnification
-                applyOverlay(binding, size: size, force: false)
-            }
-            .onEnded { _ in
-                applyOverlay(binding, size: size, force: true)
-                endGesture(overlay: binding.wrappedValue) {
-                    session.rawMagnify = 1
-                    session.baseMagnify = 1
-                    session.magnifyActive = false
-                }
-            }
-
-        let rotate = RotateGesture()
-            .onChanged { value in
-                beginIfNeeded(overlay: binding.wrappedValue)
-                session.rotateActive = true
-                session.rawRotate = value.rotation.degrees
-                applyOverlay(binding, size: size, force: false)
-            }
-            .onEnded { _ in
-                applyOverlay(binding, size: size, force: true)
-                endGesture(overlay: binding.wrappedValue) {
-                    session.rawRotate = 0
-                    session.baseRotate = 0
-                    session.rotateActive = false
-                }
-            }
-
-        return drag.simultaneously(with: magnify).simultaneously(with: rotate)
     }
 }
 

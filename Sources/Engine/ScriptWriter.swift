@@ -8,31 +8,46 @@ import FoundationModels
 //
 // エンジン:
 //   - iOS 26 以降で Apple Intelligence が使える端末: FoundationModels(LanguageModelSession)
-//   - それ以外で OpenAI API キーがあるとき: Chat Completions(gpt-4o-mini)
+//   - それ以外でサインイン済み(ポイント)か OpenAI API キーがあるとき: Chat Completions(gpt-4o-mini)
 //   - どちらも無ければ ScriptWriterError.noEngine
-//   設定の「AI 仕上げ」が「クラウド」ならキーがある限りクラウドを優先する。「使わない」でも
-//   (ユーザーが明示的に AI 台本を押しているので)使えるエンジンがあれば使う。
+//   台本・構成案はユーザーが押して始める機能なので SubtitlePolisher.resolveExplicitEngine で決める:
+//   設定の「AI 仕上げ」が「クラウド」なら認証がある限りクラウドを優先し、「使わない」「自動」「端末内」でも
+//   (自動の仕上げを止める設定なので)Apple Intelligence があればそれ、無ければポイントか API キーでクラウドを使う。
+//   resolveEngine(自動の仕上げと同じ判定)は PacingAnalyzer のように利用料を知らせずに走る処理が使う。
 // 応答は JSON を要求するが、前後の説明文やコードフェンス、プレーンテキストの箇条書きでも
 // できるだけ読み取る。
 // =====================================================================
 
 enum ScriptWriterError: LocalizedError {
+    /// 使える AI が無い(Apple Intelligence が使えず、サインインも API キーも無い)
     case noEngine
     case emptyTopic
     case noSubtitles
     case invalidResponse
+    /// ポイント(サーバー)のログインの期限が切れた(サインアウト済み)
+    case sessionExpired
+    /// ポイント不足(402)
+    case insufficientPoints
+    /// 自分の OpenAI キーが正しくない(自分のキーで送ったときだけ)
+    case invalidAPIKey
     case requestFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .noEngine:
-            return String(localized: "AI が使えません。iOS 26 以降で Apple Intelligence を有効にするか、設定で OpenAI の API キーを登録してください")
+            return CloudAIGateway.noEngineMessage
         case .emptyTopic:
             return String(localized: "台本のテーマを入力してください")
         case .noSubtitles:
             return String(localized: "字幕がありません。先に文字起こしをしてください")
         case .invalidResponse:
             return String(localized: "AI の応答を読み取れませんでした。もう一度お試しください")
+        case .sessionExpired:
+            return CloudAIGateway.sessionExpiredMessage
+        case .insufficientPoints:
+            return CloudAIGateway.insufficientPointsMessage
+        case .invalidAPIKey:
+            return CloudAIGateway.invalidAPIKeyMessage
         case .requestFailed(let detail):
             return detail
         }
@@ -45,6 +60,8 @@ enum ScriptWriter {
 
     // MARK: - エンジン
 
+    /// 利用料を知らせずに走る処理(PacingAnalyzer の AI 採点など)のエンジン。自動の仕上げと同じく、
+    /// クラウドを使うのは「クラウド」を選んだときだけ(そのときは認証がある限りクラウドを優先する)
     static func resolveEngine(settings: AppSettings) -> SubtitlePolisher.ResolvedEngine {
         let onDevice = SubtitlePolisher.isOnDeviceAvailable
         let cloud = settings.hasCloudCredential
@@ -53,18 +70,22 @@ enum ScriptWriter {
             if cloud { return .cloud }
             return onDevice ? .onDevice : .none
         case .onDevice, .auto, .none:
-            // クラウドを使うのは「クラウド」を選んだときだけ
             return onDevice ? .onDevice : .none
         }
     }
 
+    /// 利用者が押して始める台本・構成案のエンジン(「使わない」でも Apple Intelligence か、ポイント / API キーのクラウドを使う)
+    static func resolveExplicitEngine(settings: AppSettings) -> SubtitlePolisher.ResolvedEngine {
+        SubtitlePolisher.resolveExplicitEngine(settings: settings)
+    }
+
     static func isAvailable(settings: AppSettings) -> Bool {
-        resolveEngine(settings: settings) != .none
+        resolveExplicitEngine(settings: settings) != .none
     }
 
     /// 表示用のエンジン名("Apple Intelligence" / "OpenAI" / "なし")
     static func engineDisplayName(settings: AppSettings) -> String {
-        SubtitlePolisher.displayName(of: resolveEngine(settings: settings))
+        SubtitlePolisher.displayName(of: resolveExplicitEngine(settings: settings))
     }
 
     // MARK: - 台本
@@ -73,7 +94,7 @@ enum ScriptWriter {
                       markers: [TimelineMarker], settings: AppSettings) async throws -> [ScriptLine] {
         let trimmedTopic = topic.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTopic.isEmpty else { throw ScriptWriterError.emptyTopic }
-        let engine = resolveEngine(settings: settings)
+        let engine = resolveExplicitEngine(settings: settings)
         guard engine != .none else { throw ScriptWriterError.noEngine }
 
         let safeDuration: Double = durationSeconds.isFinite ? durationSeconds : 60
@@ -186,7 +207,7 @@ enum ScriptWriter {
             .filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .sorted { $0.start < $1.start }
         guard !cues.isEmpty else { throw ScriptWriterError.noSubtitles }
-        let engine = resolveEngine(settings: settings)
+        let engine = resolveExplicitEngine(settings: settings)
         guard engine != .none else { throw ScriptWriterError.noEngine }
 
         let limit = (engine == .onDevice) ? 2500 : 12000
@@ -329,9 +350,9 @@ enum ScriptWriter {
             case 401 where viaServer:
                 // ポイント(サーバー)のログインの期限切れ。送ったトークンが今のものならサインアウトする
                 await MainActor.run { AccountService.shared.handleSessionExpired(sentToken: key) }
-                throw ScriptWriterError.requestFailed(String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。"))
-            case 401: throw ScriptWriterError.requestFailed(String(localized: "OpenAI の API キーが正しくありません"))
-            case 402: throw ScriptWriterError.requestFailed(String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。"))
+                throw ScriptWriterError.sessionExpired
+            case 401: throw ScriptWriterError.invalidAPIKey
+            case 402: throw ScriptWriterError.insufficientPoints
             case 429: throw ScriptWriterError.requestFailed(String(localized: "OpenAI の利用上限に達しました"))
             default:
                 let summary = viaServer ? String(localized: "サーバーがエラーを返しました(\(status))")

@@ -403,7 +403,7 @@ private final class WhisperRunState: @unchecked Sendable {
         if seconds < 60 { return String(localized: "残り1分未満") }
         let minutes = Int((seconds / 60).rounded(.up))
         if minutes >= 60 {
-            return "残り約 \(minutes / 60)時間\(minutes % 60)分"
+            return String(localized: "残り約 \(minutes / 60)時間\(minutes % 60)分")
         }
         return String(localized: "残り約 \(minutes)分")
     }

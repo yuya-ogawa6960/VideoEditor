@@ -99,6 +99,8 @@ enum TextToSpeech {
     /// 読み上げの声を 1 つの入口で作る(端末 / クラウド)。instructions はクラウドのときだけ(話し方の指示)
     static func render(choice: TTSVoiceChoice, text: String, rate: Float, pitch: Float,
                        instructions: String?) async throws -> URL {
+        // 登録した読み方に置き換えてから声に渡す(家系ラーメン → いえけいラーメン など)
+        let text = ReadingDictionary.apply(to: text)
         switch choice {
         case .device(let identifier):
             return try await render(text: text, voiceIdentifier: identifier, rate: rate, pitch: pitch)
@@ -199,15 +201,18 @@ enum CloudTextToSpeechError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return String(localized: "クラウドの声を使うには、「文字起こしの方式」の画面で Apple でサインインするか、OpenAI の API キーを設定してください。")
+            // ポイントで使う設定ならサインイン、そうでなければ API キーを案内する
+            return CloudAIGateway.prefersPoints
+                ? String(localized: "クラウドの声を使うには、「アカウントとポイント」で Apple でサインインしてください。")
+                : String(localized: "クラウドの声を使うには、「文字起こしとAI仕上げ」で OpenAI の API キーを設定してください。")
         case .insufficientPoints(let detail):
-            return detail.isEmpty ? String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。") : detail
+            return detail.isEmpty ? CloudAIGateway.insufficientPointsMessage : detail
         case .upstreamAuth:
-            return String(localized: "APIキーが正しくありません。「文字起こしの方式」の画面で OpenAI の API キーを確認してください。")
+            return CloudAIGateway.invalidAPIKeyMessage
         case .sessionExpired:
-            return String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。")
+            return CloudAIGateway.sessionExpiredMessage
         case .googleNeedsPoints:
-            return String(localized: "Google の声はポイントで使います。「文字起こしの方式」の画面で Apple でサインインし、ポイントを使う設定にしてください。")
+            return String(localized: "Google の声はポイントで使います。「アカウントとポイント」で Apple でサインインし、「ポイントで使う」を選んでください。")
         case .server(let status, let detail):
             return String(localized: "クラウドの声を作れませんでした(\(status)): \(detail)")
         }
@@ -253,10 +258,7 @@ enum CloudTextToSpeech {
                 ? (String(data: data.prefix(200), encoding: .utf8) ?? "")
                 : errorBody.displayMessage
             // ポイント不足(サーバーの文は日本語だけなので、端末の言語の文を出す)
-            if status == 402 {
-                throw CloudTextToSpeechError.insufficientPoints(
-                    voice.isGoogle ? String(localized: "ポイントが足りません。毎日ボーナスや広告でポイントを増やしてください。") : "")
-            }
+            if status == 402 { throw CloudTextToSpeechError.insufficientPoints("") }
             if status == 401, viaServer {
                 // ログインの期限切れ。送ったトークンが今のものならサインアウトする
                 await MainActor.run { AccountService.shared.handleSessionExpired(sentToken: credential) }

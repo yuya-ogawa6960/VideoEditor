@@ -8,7 +8,8 @@ import UserMessagingPlatform
 // =====================================================================
 // 広告(Google AdMob)
 //   - インタースティシャル(全画面): 書き出し開始・書き出し完了・AI の解析の開始と完了・プロジェクトを閉じたとき。
-//     出しすぎないよう、前の広告から minimumInterval 秒あける
+//     出しすぎないよう、前の広告から minimumInterval 秒あける。
+//     書き出しの開始・完了は書き出し画面(ExportView)だけが出す(裏で終わった書き出しや、許可の確認の上に重ねない)
 //   - ネイティブ: NativeAdCard(処理中の画面・AI 処理中のカード・書き出し完了画面)
 //   - リワード: 「広告を見て +ポイント」。見終わったら AccountService.claimAdReward() でサーバーに伝える
 //     (本番は AdMob のサーバー側検証(SSV)でサーバーが直接ポイントを足す。userIdentifier に利用者 ID を渡す)
@@ -242,9 +243,9 @@ final class AdsManager: NSObject {
         }
     }
 
-    /// その場面で全画面広告を出す(準備できていない・前の広告から間がないときは何もしない)
+    /// その場面で全画面広告を出す(準備できていない・前の広告から間がない・トラッキングの確認が出ているときは何もしない)
     func showInterstitial(_ placement: AdPlacement) {
-        guard isStarted, !isShowing, let ad = interstitial else { return }
+        guard isStarted, !isShowing, !isRequestingTracking, let ad = interstitial else { return }
         guard Date().timeIntervalSince(lastShown) >= Self.minimumInterval else { return }
         guard let root = Self.topViewController() else { return }
         isShowing = true

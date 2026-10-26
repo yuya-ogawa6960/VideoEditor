@@ -173,6 +173,7 @@ struct AIWorkingCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if inlineAd {
+                // 届く前から同じ高さ(72)の枠を取るので、広告が届いても下のボタンは動かない(NativeAdCard.swift)
                 NativeAdCard()
             }
             Label(note, systemImage: noteIcon)
@@ -256,7 +257,8 @@ struct FloatingRobot: View {
     }
 }
 
-/// 作業中のカードの上に、画面に空きがあれば大きめのネイティブ広告を出す。空きが無ければカードだけ(中に小さな広告)
+/// 作業中のカードの上に、画面に空きがあれば大きめのネイティブ広告を出す。空きが無ければカードだけ(中に小さな広告)。
+/// 広告は届く前から同じ大きさの枠を取るので、どちらにするかの判定もカードの位置も途中で変わらない
 struct WorkingCardWithAd<Card: View>: View {
     @ViewBuilder let card: (_ inlineAd: Bool) -> Card
 

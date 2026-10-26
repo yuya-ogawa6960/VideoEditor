@@ -2,12 +2,13 @@ import SwiftUI
 import UIKit
 
 // =====================================================================
-// 文字起こし設定画面
+// 「文字起こしとAI仕上げ」の設定画面
 //
 // - エンジン(Apple / Whisper / クラウドAI)の選択と説明
 // - Whisper モデルの選択・ダウンロード(進捗)・削除
-// - OpenAI API キー(Keychain 保存、保存後は末尾 4 文字のみ表示)
+// - OpenAI API キー(Keychain 保存、保存後は末尾 4 文字のみ表示。ポイントで使っている間は折りたたむ)
 // - AI 仕上げの ON/OFF とエンジン
+// プライバシー・サポート用の情報は「設定」(AppSettingsView)にある。
 //
 // 使い方: NavigationStack の中に `TranscriptionSettingsView()` を置く(push)。
 // シートで出すときは `TranscriptionSettingsSheet()`(NavigationStack + 完了ボタン付き)。
@@ -15,10 +16,14 @@ import UIKit
 
 struct TranscriptionSettingsView: View {
     @State private var settings = AppSettings.shared
+    @State private var account = AccountService.shared
 
     // API キー入力
     @State private var keyDraft: String = ""
     @State private var isEditingKey: Bool = false
+    /// ポイントで使っている間、自分のキーの欄を開いているか
+    @State private var showsOwnKey: Bool = false
+    @State private var showsKeyDeleteConfirmation: Bool = false
 
     // Whisper モデル
     @State private var downloadProgress: Double? = nil
@@ -31,13 +36,6 @@ struct TranscriptionSettingsView: View {
     // 通知
     @State private var alertTitle: String = ""
     @State private var alertMessage: String? = nil
-
-    // 診断(ロック中の継続・バックグラウンド送信)
-    @State private var diagnosticBundleID: String = ""
-    @State private var diagnosticContinued: String = ""
-    @State private var diagnosticUploads: String = ""
-    @State private var diagnosticAds: String = ""
-    @State private var showsDiagnostics: Bool = false
 
     // 前回の文字起こし結果
     @State private var cachedTranscriptCount: Int = 0
@@ -52,19 +50,19 @@ struct TranscriptionSettingsView: View {
             if settings.transcriptionEngine == .whisper {
                 whisperSection
             }
-            AccountPointsSection()
-            AdPrivacySection()
+            // ポイントのサーバーが無いビルド(準備中)では出さない(「設定」・一覧と同じ)
+            if account.isAvailable {
+                AccountPointsSection()
+            }
             cloudSection
             polishSection
             termSection
             transcriptCacheSection
-            diagnosticsSection
         }
-        .navigationTitle("文字起こしの方式")
+        .navigationTitle("文字起こしとAI仕上げ")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             refreshModelState()
-            refreshDiagnostics()
             cachedTranscriptCount = TranscriptCache.shared.storedCount
             termCount = CaptionTermDictionary.load().count
         }
@@ -80,11 +78,23 @@ struct TranscriptionSettingsView: View {
         } message: {
             Text("次に Whisper で文字起こしするときに再ダウンロードされます。")
         }
+        .confirmationDialog("OpenAI の API キーを削除しますか?",
+                            isPresented: $showsKeyDeleteConfirmation, titleVisibility: .visible) {
+            Button("削除", role: .destructive) { deleteKey() }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("もう一度使うときは入力し直してください。")
+        }
     }
 
     private var alertBinding: Binding<Bool> {
         Binding(get: { alertMessage != nil },
                 set: { if !$0 { alertMessage = nil } })
+    }
+
+    /// クラウド AI をポイントで使っている(isSignedIn も読んで、サインイン・サインアウトで描き直す)
+    private var usesPoints: Bool {
+        account.isSignedIn && account.usesPoints
     }
 
     // MARK: - 用語の登録
@@ -146,16 +156,26 @@ struct TranscriptionSettingsView: View {
                     .foregroundStyle(.orange)
             }
             if settings.transcriptionEngine == .cloud, !settings.isCloudConfigured {
-                Label("クラウドAI を使うには下の API キーを設定してください。",
-                      systemImage: "key")
+                Label(cloudNotConfiguredHint, systemImage: "key")
                     .font(.footnote)
                     .foregroundStyle(.orange)
             }
         } header: {
             Text("文字起こしの方式")
         } footer: {
-            Text("迷ったら「Apple」で十分です。どの方式でも、認識結果は文・文節ごとに区切られ、フィラー(「あのー」など)は自動で除かれます。")
+            Text("迷ったら Apple で十分です。")
         }
+    }
+
+    /// クラウドAI を選んだのに使えないときの案内(サインイン・ポイントの設定・キーのどれで使えるようになるか)
+    private var cloudNotConfiguredHint: String {
+        if !account.isAvailable {
+            return String(localized: "クラウドAI を使うには下の API キーを設定してください。")
+        }
+        if account.isSignedIn {
+            return String(localized: "クラウドAI を使うには「アカウントとポイント」でポイントを使う設定にするか、下に API キーを入れてください。")
+        }
+        return String(localized: "クラウドAI を使うには、サインインするか下に API キーを入れてください。")
     }
 
     // MARK: - Whisper
@@ -204,7 +224,7 @@ struct TranscriptionSettingsView: View {
         } header: {
             Text("Whisper モデル")
         } footer: {
-            Text("モデルは Wi-Fi 接続でのダウンロードをおすすめします。文字起こし開始時に未ダウンロードなら自動でダウンロードします。large-v3 turbo は最も高精度です(約 630MB)。")
+            Text("初回は文字起こしの開始時に自動でダウンロードします。Wi-Fi 推奨。")
         }
     }
 
@@ -212,15 +232,6 @@ struct TranscriptionSettingsView: View {
 
     private var cloudSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("API キーとは")
-                    .font(.subheadline.weight(.semibold))
-                Text("OpenAI のサービスを使うための「合言葉」のような文字列です。OpenAI のサイトでアカウントを作り、「API keys」で作成した「sk-」で始まる文字列をコピーして、下に貼り付けてください。使った分だけ OpenAI から料金が請求されます。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 2)
-
             if settings.transcriptionEngine == .cloud {
                 Picker("クラウドの精度", selection: $settings.cloudQuality) {
                     ForEach(CloudTranscriptionQuality.allCases) { quality in
@@ -232,59 +243,87 @@ struct TranscriptionSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if settings.hasOpenAIKey, !isEditingKey {
-                HStack {
-                    Text("API キー")
-                    Spacer()
-                    Text(settings.openAIKeyHint)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-                Button("キーを変更") {
-                    keyDraft = ""
-                    isEditingKey = true
-                }
-                Button("キーを削除", role: .destructive) {
-                    settings.openAIKey = ""
-                    keyDraft = ""
-                    isEditingKey = false
+            if usesPoints {
+                // ポイントで使っている間、自分のキーの欄は折りたたんでおく(サインイン前・ポイントが使えないビルドではそのまま出す)
+                DisclosureGroup("自分の OpenAI キーを使う", isExpanded: $showsOwnKey) {
+                    ownKeyRows
                 }
             } else {
-                HStack {
-                    SecureField("sk-… を入力", text: $keyDraft)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Button("貼り付け") {
-                        if let pasted = UIPasteboard.general.string {
-                            keyDraft = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
+                ownKeyRows
+            }
+        } header: {
+            if usesPoints {
+                Text("クラウドAI")
+            } else {
+                Text("クラウドAI(OpenAI)")
+            }
+        } footer: {
+            if usesPoints {
+                Text("音声と字幕テキストはサーバーを通して OpenAI に送られます。")
+            } else {
+                Text("音声と字幕テキストは OpenAI に送られ、使った分だけ OpenAI から請求されます。")
+            }
+        }
+    }
+
+    /// 自分の OpenAI キー(説明・入力・変更・削除・取得のリンク)
+    @ViewBuilder
+    private var ownKeyRows: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("API キーとは")
+                .font(.subheadline.weight(.semibold))
+            Text("OpenAI のサイトの「API keys」で作る、「sk-」で始まる文字列です。使った分だけ OpenAI から請求されます。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+
+        if settings.hasOpenAIKey, !isEditingKey {
+            HStack {
+                Text("API キー")
+                Spacer()
+                Text(settings.openAIKeyHint)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            Button("キーを変更") {
+                keyDraft = ""
+                isEditingKey = true
+            }
+            Button("キーを削除", role: .destructive) {
+                showsKeyDeleteConfirmation = true
+            }
+        } else {
+            HStack {
+                SecureField("sk-… を入力", text: $keyDraft)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("貼り付け") {
+                    if let pasted = UIPasteboard.general.string {
+                        keyDraft = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+                .buttonStyle(.borderless)
+            }
+            HStack {
+                Button("保存") { saveKey() }
+                    .buttonStyle(.borderless)
+                    .disabled(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if settings.hasOpenAIKey {
+                    Spacer()
+                    Button("キャンセル") {
+                        keyDraft = ""
+                        isEditingKey = false
                     }
                     .buttonStyle(.borderless)
                 }
-                HStack {
-                    Button("保存") { saveKey() }
-                        .buttonStyle(.borderless)
-                        .disabled(keyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    if settings.hasOpenAIKey {
-                        Spacer()
-                        Button("キャンセル") {
-                            keyDraft = ""
-                            isEditingKey = false
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
             }
+        }
 
-            if let url = URL(string: "https://platform.openai.com/api-keys") {
-                Link(destination: url) {
-                    Label("API キーを取得(OpenAI)", systemImage: "safari")
-                }
+        if let url = URL(string: "https://platform.openai.com/api-keys") {
+            Link(destination: url) {
+                Label("API キーを取得(OpenAI)", systemImage: "safari")
             }
-        } header: {
-            Text("クラウドAI(OpenAI)")
-        } footer: {
-            Text("クラウドAI を使うと、動画の音声(文字起こし)や字幕テキスト(AI 仕上げ)が OpenAI のサーバーへ送信されます。料金は OpenAI の従量課金で、文字起こしは速度優先(whisper-1)・精度優先とも目安 約0.9円/分($0.006/分換算)です。音声は約 2 分ごとに分けて最大 4 本ずつ同時に送るため、長い動画でも待ち時間が短くなります。API キーはこの端末の Keychain にのみ保存され、外部には送られません。")
         }
     }
 
@@ -316,49 +355,8 @@ struct TranscriptionSettingsView: View {
         } header: {
             Text("AI 仕上げ")
         } footer: {
-            Text("音声を文字にしたあと、句読点の補正・言いよどみの削除・長い字幕の分割を AI が行います。端末内(Apple Intelligence)は iOS 26 以降で Apple Intelligence が有効な端末のみ使えます。クラウドは OpenAI の API キーが必要で、字幕テキストが送信されます。")
+            Text("句読点の補正・言いよどみの削除・長い字幕の分割を AI が行います。")
         }
-    }
-
-    // MARK: - 診断
-
-    private var diagnosticsSection: some View {
-        Section {
-            DisclosureGroup("サポート用の情報", isExpanded: $showsDiagnostics) {
-                diagnosticRow(title: String(localized: "実行時のバンドル ID"), value: diagnosticBundleID, monospaced: true)
-                diagnosticRow(title: String(localized: "ロック中の継続"), value: diagnosticContinued, monospaced: false)
-                diagnosticRow(title: String(localized: "バックグラウンド送信(クラウドAI)"), value: diagnosticUploads, monospaced: false)
-                diagnosticRow(title: String(localized: "広告の状態"), value: diagnosticAds, monospaced: true)
-                Button {
-                    refreshDiagnostics()
-                } label: {
-                    Label("情報を更新", systemImage: "arrow.clockwise")
-                }
-            }
-        } footer: {
-            Text("ふだんは開く必要はありません。画面ロック中も書き出し・文字起こしを続けられるかの状態で、うまく動かないときにこの内容を伝えてください。")
-        }
-    }
-
-    private func diagnosticRow(title: String, value: String, monospaced: Bool) -> some View {
-        let valueFont: Font = monospaced ? Font.system(.footnote, design: .monospaced) : Font.footnote
-        let valueText: String = value.isEmpty ? "—" : value
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.subheadline)
-            Text(valueText)
-                .font(valueFont)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func refreshDiagnostics() {
-        diagnosticBundleID = ContinuedProcessing.runtimeBundleIdentifier
-        diagnosticContinued = ContinuedProcessing.lastDiagnostic
-        diagnosticUploads = CloudBackgroundUploader.shared.diagnosticSummary()
-        diagnosticAds = AdsManager.shared.diagnosticSummary()
     }
 
     // MARK: - 操作
@@ -414,6 +412,13 @@ struct TranscriptionSettingsView: View {
     private func deleteModels() {
         WhisperTranscriber.shared.deleteDownloadedModels()
         refreshModelState()
+    }
+
+    /// 「キーを削除」の確認のあと
+    private func deleteKey() {
+        settings.openAIKey = ""
+        keyDraft = ""
+        isEditingKey = false
     }
 
     private func saveKey() {

@@ -70,7 +70,7 @@ struct AudioSettingsView: View {
                 Button {
                     isImporterPresented = true
                 } label: {
-                    Label("BGMを選ぶ(ファイル)", systemImage: "music.note.list")
+                    Label("BGMを選ぶ", systemImage: "music.note.list")
                 }
                 .disabled(isImporting)
             }
@@ -83,12 +83,12 @@ struct AudioSettingsView: View {
                 }
             }
 
-            Toggle("最後の2秒でだんだん小さくする", isOn: $project.audio.bgmFadeOut)
+            Toggle("最後の2秒をフェードアウト", isOn: $project.audio.bgmFadeOut)
                 .disabled(project.audio.bgmURL == nil)
         } header: {
             Text("BGM")
         } footer: {
-            Text("「ファイル」アプリに保存した音楽ファイル(MP3 / M4A / WAV / AIFF など)を使えます。Apple Music の曲(DRM保護)は使用できません。BGMは動画の長さに合わせて繰り返されます。")
+            Text("DRM保護された Apple Music の曲は使えません。BGMは動画の長さに合わせてループします。")
         }
     }
 
@@ -119,7 +119,7 @@ struct AudioSettingsView: View {
                 Slider(value: $project.audio.originalVolume, in: 0...1)
             }
         } header: {
-            Text("ボリューム")
+            Text("音量")
         }
     }
 
@@ -146,7 +146,7 @@ struct AudioSettingsView: View {
                 project.audio.bgmURL = localURL
                 project.audio.bgmName = url.deletingPathExtension().lastPathComponent
             } catch {
-                errorMessage = String(localized: "端末の空き容量を確かめて、もう一度選んでください。Apple Music の曲は使えないので、「ファイル」アプリに保存した曲を選んでください。\n\n詳細: ") + error.localizedDescription
+                errorMessage = String(localized: "空き容量を確かめて、もう一度選んでください。Apple Music の曲は使えません。\n\n詳細: ") + error.localizedDescription
             }
         }
     }

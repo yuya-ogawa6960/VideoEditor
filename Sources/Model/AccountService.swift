@@ -30,15 +30,22 @@ enum CloudAISource: String, CaseIterable, Identifiable {
 
 enum AccountError: LocalizedError {
     case notConfigured
-    case server(String)
+    /// サーバーがエラーを返した(見せる文・HTTP ステータス・server/src/index.js の code)
+    case server(String, status: Int, code: String)
     case invalidResponse
 
     var errorDescription: String? {
         switch self {
         case .notConfigured: return String(localized: "ポイントのサーバーがまだ用意されていません。")
-        case .server(let message): return message
+        case .server(let message, _, _): return message
         case .invalidResponse: return String(localized: "サーバーの応答を読めませんでした。時間をおいてお試しください。")
         }
+    }
+
+    /// 今日のボーナスはもう受け取っている(409)
+    var isAlreadyClaimed: Bool {
+        if case .server(_, let status, let code) = self { return code == "already_claimed" || status == 409 }
+        return false
     }
 }
 
@@ -63,6 +70,14 @@ final class AccountService {
     private(set) var points: Int?
     /// 今日の毎日ボーナスがまだ受け取れるか
     private(set) var dailyAvailable = false
+    /// サーバーのポイントの値段(/v1/me の prices。キーは server/src/index.js の POINTS)
+    private(set) var prices: [String: Int] = [:]
+    /// 毎日ボーナスのポイント
+    var dailyPoints: Int { prices["daily"] ?? 20 }
+
+    func price(_ key: String, default value: Int) -> Int {
+        prices[key] ?? value
+    }
     /// サーバー上の利用者 ID(リワード広告のサーバー側検証に渡す)
     private(set) var userID: String?
     /// 今日すでに広告でもらった回数 / 1 日の上限 / 1 回のポイント
@@ -73,6 +88,9 @@ final class AccountService {
     private(set) var isWorking = false
     /// 残りポイントを取り直している途中か
     private(set) var isRefreshing = false
+    /// 毎日ボーナス / 広告のポイントを受け取っている途中か(ボタンを無効にして、二度押しで 409 の赤い文が出ないように)
+    private(set) var isClaimingDaily = false
+    private(set) var isClaimingAd = false
     var lastError: String?
 
     /// クラウド AI をどちらで使うか
@@ -245,6 +263,7 @@ final class AccountService {
             let json = try await request("v1/me", method: "GET", body: nil, authorized: true)
             points = json["points"] as? Int
             dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
+            if let serverPrices = json["prices"] as? [String: Int] { prices = serverPrices }
             applyAdState(json)
         } catch {
             lastError = error.localizedDescription
@@ -253,16 +272,21 @@ final class AccountService {
 
     @MainActor
     func claimDaily() async {
+        // 二度押し(前の受け取りがまだ終わっていない)は無視する
+        guard !isClaimingDaily else { return }
+        isClaimingDaily = true
+        defer { isClaimingDaily = false }
         lastError = nil
         do {
             let json = try await request("v1/points/daily", method: "POST", body: Data("{}".utf8), authorized: true)
             points = json["points"] as? Int
             dailyAvailable = false
         } catch {
-            let message = error.localizedDescription
+            // 「受け取り済み」(409。ほかの端末で受け取った後など)は失敗ではないので、赤い文は出さず残高と状態だけ合わせる
+            let message: String? = (error as? AccountError)?.isAlreadyClaimed == true ? nil : error.localizedDescription
             await refresh()
             // refresh は前のエラーを消すので、受け取りの失敗はその後に入れる
-            lastError = message
+            if let message { lastError = message }
         }
     }
 
@@ -291,6 +315,10 @@ final class AccountService {
     /// 本番は AdMob のサーバー側検証で足されるので、少し待って残高を取り直す
     @MainActor
     func claimAdReward() async {
+        // 二度押し(前の受け取りがまだ終わっていない)は無視する
+        guard !isClaimingAd else { return }
+        isClaimingAd = true
+        defer { isClaimingAd = false }
         lastError = nil
         do {
             let json = try await request("v1/ads/claim", method: "POST", body: Data("{}".utf8), authorized: true)
@@ -342,9 +370,10 @@ final class AccountService {
         }
         guard (200..<300).contains(status) else {
             // サーバーの文は日本語だけなので、知っている code は端末の言語の文にする(CloudAIErrorBody)
-            let detail = CloudAIErrorBody(data: data).displayMessage
+            let body = CloudAIErrorBody(data: data)
+            let detail = body.displayMessage
             let message = detail.isEmpty ? String(localized: "サーバーでエラーが起きました(\(status))") : detail
-            throw AccountError.server(message)
+            throw AccountError.server(message, status: status, code: body.code)
         }
         return json
     }
@@ -386,6 +415,12 @@ enum CloudAIGateway {
 
     static var usesPoints: Bool { AccountService.shared.usesPoints }
 
+    /// ポイントで使う設定か(サーバーがあり「ポイントで使う」を選んでいる。サインインしていなくても true)。
+    /// 認証が無いときの案内を「サインイン」にするか「API キー」にするかを決める(usesPoints はサインイン済みのときだけ true)
+    static var prefersPoints: Bool {
+        AccountService.serverURL != nil && AccountService.shared.source == .points
+    }
+
     static var transcriptionsURL: URL {
         if usesPoints, let base = AccountService.serverURL {
             return base.appendingPathComponent("v1/audio/transcriptions")
@@ -413,15 +448,46 @@ enum CloudAIGateway {
         usesPoints ? AccountService.shared.sessionToken : AppSettings.shared.openAIKey
     }
 
+    // MARK: - 案内文(サインイン・ポイントは「アカウントとポイント」、API キーは「文字起こしとAI仕上げ」の画面)
+
+    /// ログインの期限切れ(サーバーの 401。サインアウト済み)
+    static var sessionExpiredMessage: String {
+        String(localized: "ログインの期限が切れました。「アカウントとポイント」でもう一度 Apple でサインインしてください。")
+    }
+
+    /// ポイント不足(402)
+    static var insufficientPointsMessage: String {
+        String(localized: "ポイントが足りません。「アカウントとポイント」でポイントを増やしてください。")
+    }
+
+    /// 自分の OpenAI キーが正しくない(OpenAI の 401)
+    static var invalidAPIKeyMessage: String {
+        String(localized: "APIキーが正しくありません。「文字起こしとAI仕上げ」で OpenAI の API キーを確認してください。")
+    }
+
+    /// 認証が無い(ポイントで使う設定ならサインイン、そうでなければ API キーの入力を案内する)
+    static var notConfiguredMessage: String {
+        prefersPoints
+            ? String(localized: "クラウドAIを使うには、「アカウントとポイント」で Apple でサインインしてください。")
+            : String(localized: "OpenAI の API キーが設定されていません。「文字起こしとAI仕上げ」でキーを入力してください。")
+    }
+
+    /// 使える AI が無い(Apple Intelligence が使えず、サインインも API キーも無い)
+    static var noEngineMessage: String {
+        prefersPoints
+            ? String(localized: "この端末では Apple Intelligence が使えません。「アカウントとポイント」で Apple でサインインすると、ポイントで AI を使えます。")
+            : String(localized: "この端末では Apple Intelligence が使えません。「文字起こしとAI仕上げ」で OpenAI の API キーを設定すると使えます。")
+    }
+
     /// サーバーのエラーの code(server/src/index.js)を、端末の言語の文にする。知らない code は nil(サーバーの文を使う)
     static func localizedServerMessage(code: String) -> String? {
         switch code {
         case "google_not_configured":
             return String(localized: "Google の声はまだ使えません。")
         case "unauthorized":
-            return String(localized: "ログインの期限が切れました。「文字起こしの方式」の画面で、もう一度 Apple でサインインしてください。")
+            return sessionExpiredMessage
         case "insufficient_points":
-            return String(localized: "ポイントが足りません。毎日ボーナスを受け取るか、自分の OpenAI キーを使ってください。")
+            return insufficientPointsMessage
         case "upstream_auth":
             return String(localized: "AI のサービスの設定に問題があります(サーバー側)。ポイントは戻しました。時間をおいてお試しください。")
         case "upstream_unreachable":
@@ -432,6 +498,69 @@ enum CloudAIGateway {
             return String(localized: "Apple でのサインインを確認できませんでした。もう一度お試しください。")
         default:
             return nil
+        }
+    }
+}
+
+/// クラウド AI のエラーに対して利用者ができること(画面がボタンと行き先を選ぶのに使う。CloudAIGateway.recovery(for:))
+enum CloudAIRecovery {
+    /// 「アカウントとポイント」で Apple でサインイン
+    case signIn
+    /// 「アカウントとポイント」でポイントを増やす
+    case points
+    /// 「文字起こしとAI仕上げ」で OpenAI の API キーを入力・確認
+    case apiKey
+    /// 案内する操作は無い(通信エラーなど)
+    case none
+}
+
+extension CloudAIGateway {
+    /// エラーから回復手段を決める。知らないエラーは .none
+    static func recovery(for error: Error) -> CloudAIRecovery {
+        // 認証が無いとき(ポイントで使う設定ならサインイン、そうでなければ API キー)
+        let notConfigured: CloudAIRecovery = prefersPoints ? .signIn : .apiKey
+        switch error {
+        case let speech as CloudTextToSpeechError:
+            switch speech {
+            case .notConfigured: return notConfigured
+            case .sessionExpired, .googleNeedsPoints: return .signIn
+            case .insufficientPoints: return .points
+            case .upstreamAuth: return .apiKey
+            case .server: return .none
+            }
+        case let transcription as CloudTranscriptionError:
+            switch transcription {
+            case .missingAPIKey, .invalidAPIKey: return notConfigured
+            // 402 は Video Mania のポイント不足(背景セッションの記録から戻したエラーも status で見分ける)
+            case .server(let status, _): return status == 402 ? .points : .none
+            default: return .none
+            }
+        case let script as ScriptWriterError:
+            switch script {
+            case .noEngine: return notConfigured
+            case .sessionExpired: return .signIn
+            case .insufficientPoints: return .points
+            case .invalidAPIKey: return .apiKey
+            default: return .none
+            }
+        case let polisher as SubtitlePolisherError:
+            switch polisher {
+            case .noEngine, .notConfigured: return notConfigured
+            case .sessionExpired: return .signIn
+            case .insufficientPoints: return .points
+            case .invalidAPIKey: return .apiKey
+            case .failed: return .none
+            }
+        case let account as AccountError:
+            switch account {
+            case .server(_, let status, let code):
+                if code == "unauthorized" || status == 401 { return .signIn }
+                if code == "insufficient_points" || status == 402 { return .points }
+                return .none
+            default: return .none
+            }
+        default:
+            return .none
         }
     }
 }

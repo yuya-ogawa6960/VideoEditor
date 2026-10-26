@@ -195,6 +195,19 @@ struct PreviewView: View {
         ZStack {
             Color.black
             PreviewPlayerLayerView(player: player.player, keepsLastFrame: true)
+            // V1 クリップの端をトリム中は、動かしている端のコマを再生位置の絵の上に重ねる(共有プレイヤーはシークしない)。
+            // アスペクトフィットで全面に、アニメーションなしで出す
+            if let trimFrame = TimelineTrimPreview.shared.image {
+                ZStack {
+                    Color.black
+                    Image(uiImage: trimFrame)
+                        .resizable()
+                        .scaledToFit()
+                }
+                .transition(.identity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
             if let message = player.errorMessage {
                 Text(message)
                     .font(.footnote)

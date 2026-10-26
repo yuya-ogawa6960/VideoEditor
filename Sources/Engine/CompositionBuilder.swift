@@ -65,7 +65,7 @@ enum CompositionBuilder {
     private static let overlayAudioTrackLimit = 4
     private static let narrationTrackLimit = 4
 
-    /// クリップ音声の最大音量(originalVolume × gain の上限)
+    /// クリップ音声の最大音量(originalVolume × gain × クリップ音量 の上限)
     private static let maxClipVolume: Float = 4
 
     /// 速度カーブを等速区間に分ける数
@@ -301,7 +301,7 @@ enum CompositionBuilder {
                 compositionPad(track, to: outEnd)
             }
 
-            // --- クリップ音声(マルチカムでもメインの音声。ゲイン・J/L カット・速度・エフェクトを反映)
+            // --- クリップ音声(マルチカムでもメインの音声。音量・ゲイン・J/L カット・速度・エフェクトを反映)
             if !clip.isMuted && clip.hasAudio {
                 var audioAsset = asset
                 if !clip.audio.effects.isIdentity,
@@ -319,7 +319,8 @@ enum CompositionBuilder {
                     }
                     if let lane = clipLanes[laneIndex] {
                         let gain = clip.audio.gain.isFinite ? max(0, clip.audio.gain) : 1
-                        let volume = min(snapshot.audio.originalVolume * gain, maxClipVolume)
+                        let clipVolume = clip.audio.volume.isFinite ? max(0, clip.audio.volume) : 1
+                        let volume = min(snapshot.audio.originalVolume * gain * clipVolume, maxClipVolume)
                         if clip.speedCurve.enabled || reversedActive {
                             insertSegmentedAudio(plan,
                                                  sourceAudio: sourceAudio,

@@ -30,7 +30,7 @@ private func autoEditStyleDescription(_ style: AutoEditStyle) -> String {
     case .vlog: return String(localized: "重なるトランジションでテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。")
     case .short: return String(localized: "15〜30 秒向け。短いカットをズームでつなぎ、鮮やかな色味にします。")
     case .family: return String(localized: "顔が映っている場面を優先し、やさしい色味でまとめます。")
-    case .howto: return String(localized: "説明している場面を優先し、カットはシンプルに。字幕と相性のよい構成です。")
+    case .howto: return String(localized: "説明している場面を優先し、カットはシンプルに。キャプションと相性のよい構成です。")
     }
 }
 
@@ -47,6 +47,8 @@ struct AutoEditSheetView: View {
 
     @State private var settings = AutoEditSettings()
     @State private var highlights: [HighlightSegment]? = nil
+    /// 見つけた見どころの一覧を開いているか(閉じておくと「作成」が遠くならない)
+    @State private var showsHighlights = false
     @State private var analysis = EditorAnalysisRunner()
     @State private var errorText: String?
     @State private var showBuildConfirm = false
@@ -67,7 +69,9 @@ struct AutoEditSheetView: View {
                     titleSection
                     optionSection
                     highlightSection
-                    buildSection
+                }
+                .safeAreaInset(edge: .bottom) {
+                    buildBar
                 }
                 if let progress = analysis.progress {
                     ClipFXProgressOverlay(progress: progress) {
@@ -85,6 +89,8 @@ struct AutoEditSheetView: View {
                     }
                 }
             }
+            // 作成中はスワイプで閉じられないようにする(閉じたあとに結果がプロジェクトに入らないように)
+            .interactiveDismissDisabled(analysis.isRunning)
             .fileImporter(isPresented: $isBGMImporterPresented,
                           allowedContentTypes: AutoEditSheetView.audioTypes,
                           allowsMultipleSelection: false) { result in
@@ -114,6 +120,10 @@ struct AutoEditSheetView: View {
             if project.audio.bgmURL == nil {
                 settings.useBGMBeats = false
             }
+        }
+        // 閉じたら途中の作成を止める(閉じたあとにプロジェクトを置き換えないように)
+        .onDisappear {
+            analysis.cancel()
         }
     }
 
@@ -178,7 +188,7 @@ struct AutoEditSheetView: View {
         } header: {
             Text("長さ")
         } footer: {
-            Text("元の素材の合計は \(MediaTimeText.precise(sourceTotal)) です。目標より短くするときは、見どころを選んで残します。")
+            Text("素材の合計は \(MediaTimeText.precise(sourceTotal))。目標より短いときは見どころを残します。")
         }
     }
 
@@ -202,7 +212,7 @@ struct AutoEditSheetView: View {
                 Button {
                     isBGMImporterPresented = true
                 } label: {
-                    Label("BGMを選ぶ(ファイル)", systemImage: "music.note.list")
+                    Label("BGMを選ぶ", systemImage: "music.note.list")
                 }
                 Text("BGM を選ぶと、曲のビートに合わせてカットを切り替えられます。")
                     .font(.caption)
@@ -250,15 +260,20 @@ struct AutoEditSheetView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(highlights) { segment in
-                        highlightRow(segment)
+                    // 一覧は閉じておく(開くと長くなるため)
+                    DisclosureGroup(isExpanded: $showsHighlights) {
+                        ForEach(highlights) { segment in
+                            highlightRow(segment)
+                        }
+                    } label: {
+                        Text(String(localized: "\(highlights.count) 件の見どころ"))
                     }
                 }
             }
         } header: {
-            Text("見どころ" + (highlights.map { " (\($0.count))" } ?? ""))
+            Text("見どころ")
         } footer: {
-            Text("音の大きさ・話し声・動き・顔から見どころを点数づけします。探さずに「作成」しても、作成するときに自動で探します。")
+            Text("探さずに「作成」しても自動で探します。")
         }
     }
 
@@ -306,22 +321,28 @@ struct AutoEditSheetView: View {
         return .gray
     }
 
-    private var buildSection: some View {
-        Section {
+    /// 画面下に固定した「作成」(書き出し画面の「書き出す」と同じ形。ExportView.swift)
+    private var buildBar: some View {
+        VStack(spacing: 6) {
             Button {
                 showBuildConfirm = true
             } label: {
-                HStack {
-                    Spacer()
-                    Label("作成", systemImage: "wand.and.stars")
-                        .font(.headline)
-                    Spacer()
-                }
+                Label("作成", systemImage: "wand.and.stars")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
+            .buttonStyle(BrandProminentButtonStyle())
             .disabled(project.isEmpty || analysis.isRunning)
-        } footer: {
-            Text("いまのプロジェクトのクリップから自動で編集を組み立て、プロジェクトを置き換えます。「元に戻す」で戻せます。")
+
+            Text("いまのプロジェクトを置き換えます。「元に戻す」で戻せます。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.bar)
     }
 
     // MARK: 処理
@@ -574,7 +595,9 @@ struct SlideshowSheetView: View {
                     if !project.isEmpty {
                         modeSection
                     }
-                    createSection
+                }
+                .safeAreaInset(edge: .bottom) {
+                    createBar
                 }
                 if let progress = analysis.progress {
                     ClipFXProgressOverlay(progress: progress) {
@@ -592,6 +615,8 @@ struct SlideshowSheetView: View {
                     }
                 }
             }
+            // 作成中はスワイプで閉じられないようにする(閉じたあとに結果がプロジェクトに入らないように)
+            .interactiveDismissDisabled(analysis.isRunning)
             .alert("お知らせ", isPresented: errorIsPresented) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -600,7 +625,15 @@ struct SlideshowSheetView: View {
         }
         .preferredColorScheme(.dark)
         .task {
+            // クリップがあるプロジェクトでは、消さずに後ろへ足すのを既定にする
+            if !project.isEmpty {
+                mode = .append
+            }
             await loadThumbnails()
+        }
+        // 閉じたら途中の作成を止める(閉じたあとにプロジェクトを置き換えないように)
+        .onDisappear {
+            analysis.cancel()
         }
     }
 
@@ -658,7 +691,7 @@ struct SlideshowSheetView: View {
         } header: {
             Text("時間")
         } footer: {
-            Text("全体で約 \(MediaTimeText.precise(estimatedTotal)) になります。写真はズームイン / ズームアウトを交互に繰り返してゆっくり動きます。")
+            Text("全体で約 \(MediaTimeText.precise(estimatedTotal))。写真はゆっくりズームします。")
         }
     }
 
@@ -699,7 +732,7 @@ struct SlideshowSheetView: View {
                     }
                 }
             } else {
-                Text("BGM はまだありません。作成したあと、編集画面の「BGM」から追加できます。")
+                Text("BGM はまだありません。作成後に「BGM・音量」から追加できます。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -720,25 +753,26 @@ struct SlideshowSheetView: View {
             Text("いまのクリップ")
         } footer: {
             Text(mode == .replace
-                 ? String(localized: "いまのクリップ・字幕などを消してスライドショーに置き換えます(「元に戻す」で戻せます)。")
-                 : String(localized: "いまのクリップの後ろにスライドショーの写真を追加します。"))
+                 ? String(localized: "いまのクリップとキャプションを消して置き換えます。「元に戻す」で戻せます。")
+                 : String(localized: "いまのクリップの後ろに追加します。"))
         }
     }
 
-    private var createSection: some View {
-        Section {
-            Button {
-                create()
-            } label: {
-                HStack {
-                    Spacer()
-                    Label("スライドショーを作成", systemImage: "photo.stack")
-                        .font(.headline)
-                    Spacer()
-                }
-            }
-            .disabled(images.isEmpty || analysis.isRunning)
+    /// 画面下に固定した「スライドショーを作成」(書き出し画面の「書き出す」と同じ形。ExportView.swift)
+    private var createBar: some View {
+        Button {
+            create()
+        } label: {
+            Label("スライドショーを作成", systemImage: "photo.stack")
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 44)
         }
+        .buttonStyle(BrandProminentButtonStyle())
+        .disabled(images.isEmpty || analysis.isRunning)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.bar)
     }
 
     // MARK: 処理
@@ -770,7 +804,7 @@ struct SlideshowSheetView: View {
                                                         bgm: bgm)
             if Task.isCancelled { return }
             guard !result.clips.isEmpty else {
-                errorText = String(localized: "写真を選び直してから、もう一度「スライドショーを作成」を押してください(写真を読み込めませんでした)。")
+                errorText = String(localized: "写真を読み込めませんでした。選び直してから、もう一度「スライドショーを作成」を押してください。")
                 return
             }
             history.record(project)

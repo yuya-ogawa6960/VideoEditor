@@ -1402,6 +1402,8 @@ private struct StoredClip: Codable {
     var switches: [StoredSwitch]
     // クリップ音声設定(ClipAudioSettings)。後から追加したので省略可能
     var audioGain: Float?
+    /// クリップ音量(ClipAudioSettings.volume)。さらに後から追加したので省略可能(nil = 1)
+    var audioVolume: Float?
     var audioLeadIn: Double?
     var audioTailOut: Double?
     // 第3弾(すべて省略可能)
@@ -1443,6 +1445,7 @@ private struct StoredClip: Codable {
         }
         switches = c.multicam.switches.map { StoredSwitch(id: $0.id, time: $0.time, angle: $0.angle) }
         audioGain = c.audio.gain
+        audioVolume = c.audio.volume
         audioLeadIn = c.audio.audioLeadIn
         audioTailOut = c.audio.audioTailOut
         audioEffects = StoredAudioEffects(c.audio.effects)
@@ -1489,6 +1492,7 @@ private struct StoredClip: Codable {
         clip.isMuted = isMuted
         var clipAudio = ClipAudioSettings()
         clipAudio.gain = audioGain ?? 1
+        clipAudio.volume = audioVolume ?? 1
         clipAudio.audioLeadIn = audioLeadIn ?? 0
         clipAudio.audioTailOut = audioTailOut ?? 0
         clipAudio.effects = audioEffects?.value ?? AudioEffects()

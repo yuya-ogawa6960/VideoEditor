@@ -118,9 +118,12 @@ struct EditorToolItem: Identifiable {
                        disabledReason: nil, kind: .group(items))
     }
 
+    /// 「その他」グループの ID(最上段ではツールバーの右端に固定して出す)
+    static let moreID = "group-more"
+
     /// 「その他」グループ
     static func more(_ items: [EditorToolItem]) -> EditorToolItem {
-        group(String(localized: "その他"), systemImage: "ellipsis.circle", id: "group-more", items: items)
+        group(String(localized: "その他"), systemImage: "ellipsis.circle", id: moreID, items: items)
     }
 
     /// 列の中の小見出し
@@ -178,6 +181,9 @@ struct EditorToolbar: View {
     var body: some View {
         let state = resolved
         let showsBack = !groupPath.isEmpty || onBack != nil
+        // 最上段では「その他」をスクロールの外(右端)に固定する(項目が多いと画面の外に出て見つからないため)
+        let pinnedMore: EditorToolItem? = groupPath.isEmpty ? state.items.first(where: { $0.id == EditorToolItem.moreID }) : nil
+        let scrolledItems: [EditorToolItem] = pinnedMore == nil ? state.items : state.items.filter { $0.id != EditorToolItem.moreID }
 
         HStack(spacing: 0) {
             if showsBack {
@@ -214,7 +220,7 @@ struct EditorToolbar: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
-                    ForEach(state.items) { item in
+                    ForEach(scrolledItems) { item in
                         cell(item)
                     }
                 }
@@ -224,6 +230,14 @@ struct EditorToolbar: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
             .id(groupPath.joined(separator: "/"))
+
+            if let pinnedMore {
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: 1, height: 32)
+                cell(pinnedMore)
+                    .padding(.horizontal, 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 78)
@@ -546,7 +560,6 @@ enum EditorToolLabel {
         "前回と比較": "前回と\n比較",
         "動画の置き場所": "動画の\n置き場所",
         "全体の仕上げ": "全体の\n仕上げ",
-        "聞きやすくする": "聞きやすく\nする",
         "キーフレーム": "キー\nフレーム",
         "アニメーション": "アニメー\nション",
         "文字・スタイル": "文字・\nスタイル",

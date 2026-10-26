@@ -321,6 +321,8 @@ private struct SubtitleTranslationModifier: ViewModifier {
 
             let result = translatedByID
             await MainActor.run {
+                // シートを閉じた(request = nil)・別の要求に置き換わった後は、字幕を書き換えない
+                guard request?.id == pending.id else { return }
                 var count = 0
                 for i in project.subtitles.indices {
                     if let text = result[project.subtitles[i].id] {
@@ -333,6 +335,8 @@ private struct SubtitleTranslationModifier: ViewModifier {
             }
         } catch {
             await MainActor.run {
+                // 取り消し済み・置き換え済みの要求のエラー(CancellationError など)は、いまの要求を消さない
+                guard request?.id == pending.id else { return }
                 request = nil
                 onFinish(.failure(error))
             }

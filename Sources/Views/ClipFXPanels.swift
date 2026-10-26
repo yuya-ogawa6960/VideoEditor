@@ -120,29 +120,42 @@ struct EditorTransitionPanel: View {
         return max(0.2, min(2, limit))
     }
 
+    /// トランジションを変えると出力の長さが変わるので、字幕・テキストなどが同じ元素材の位置に付いたままになるよう前後で配置を直す
+    private var transition: Binding<ClipTransition> {
+        Binding(get: { clip.transition },
+                set: { newValue in
+                    let layout = project.captureClipLayout()
+                    clip.transition = newValue
+                    project.rippleTimelineItems(from: layout)
+                })
+    }
+
     var body: some View {
+        // 最後のクリップには次のクリップが無いので、種類と長さは変えられない(「全クリップに適用」だけ使える)
+        let isNone = clip.transition.type == .none
         VStack(alignment: .leading, spacing: 14) {
             if isLast {
                 Text("最後のクリップには設定できません")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else {
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: String(localized: "種類"))
-                TransitionTypePicker(selection: $clip.transition.type)
+                TransitionTypePicker(selection: transition.type)
             }
+            .disabled(isLast)
+            .opacity(isLast ? 0.4 : 1)
 
             EditorSliderRow(title: String(localized: "長さ"),
-                            value: $clip.transition.duration,
+                            value: transition.duration,
                             range: 0.2...2.0,
                             display: clipFXSeconds(clip.transition.duration))
-                .disabled(clip.transition.type == .none)
-                .opacity(clip.transition.type == .none ? 0.4 : 1)
+                .disabled(isLast || isNone)
+                .opacity(isLast || isNone ? 0.4 : 1)
 
-            if clip.transition.duration > maxDuration + 0.001 {
+            if !isLast, clip.transition.duration > maxDuration + 0.001 {
                 Text("※ 前後のクリップが短いため、実際には最大 \(clipFXSeconds(maxDuration)) になります")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -150,10 +163,10 @@ struct EditorTransitionPanel: View {
 
             HStack {
                 EditorChip(title: String(localized: "リセット"), isSelected: false) {
-                    clip.transition = ClipTransition()
+                    transition.wrappedValue = ClipTransition()
                 }
-                .disabled(clip.transition.type == .none)
-                .opacity(clip.transition.type == .none ? 0.4 : 1)
+                .disabled(isLast || isNone)
+                .opacity(isLast || isNone ? 0.4 : 1)
                 Spacer()
                 EditorPillButton(title: String(localized: "全クリップに適用"), systemImage: "square.stack.3d.down.right", prominent: true) {
                     showApplyAllConfirm = true
@@ -170,10 +183,12 @@ struct EditorTransitionPanel: View {
                             isPresented: $showApplyAllConfirm,
                             titleVisibility: .visible) {
             Button("全クリップに適用") {
-                let transition = clip.transition
+                let value = clip.transition
+                let layout = project.captureClipLayout()
                 for i in project.clips.indices {
-                    project.clips[i].transition = transition
+                    project.clips[i].transition = value
                 }
+                project.rippleTimelineItems(from: layout)
             }
             Button("キャンセル", role: .cancel) {}
         }
@@ -204,35 +219,75 @@ extension EditorTransitionPanel {
     }
 }
 
+// MARK: - イン / アウトの切り替え(アニメーション・オーバーレイのトランジション共通)
+
+/// 「イン / アウト」のどちらを見せているか
+enum EditorInOutSide: Hashable {
+    case enter
+    case exit
+}
+
+/// 上の「イン / アウト」の切り替え。種類と長さは選んだ側の 1 組だけ見せる
+struct EditorInOutPicker: View {
+    @Binding var side: EditorInOutSide
+
+    var body: some View {
+        Picker("", selection: $side) {
+            Text("イン").tag(EditorInOutSide.enter)
+            Text("アウト").tag(EditorInOutSide.exit)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+}
+
 // MARK: - アニメーション(クリップ)
 
 struct EditorClipAnimationPanel: View {
     @Binding var clip: Clip
+    /// 選んでいる間、イン(アウト)の前後をプレビューで繰り返すために使う(無ければ繰り返さない)
+    var project: EditorProject? = nil
+    var player: PlayerController? = nil
+
+    @State private var side: EditorInOutSide = .enter
+
+    /// いま選んでいる側(イン / アウト)の種類
+    private var type: Binding<ClipAnimationType> {
+        Binding(get: { side == .enter ? clip.animation.inType : clip.animation.outType },
+                set: { newValue in
+                    if side == .enter {
+                        clip.animation.inType = newValue
+                    } else {
+                        clip.animation.outType = newValue
+                    }
+                })
+    }
+
+    /// いま選んでいる側(イン / アウト)の長さ
+    private var duration: Binding<Double> {
+        Binding(get: { side == .enter ? clip.animation.inDuration : clip.animation.outDuration },
+                set: { newValue in
+                    if side == .enter {
+                        clip.animation.inDuration = newValue
+                    } else {
+                        clip.animation.outDuration = newValue
+                    }
+                })
+    }
 
     var body: some View {
+        let isNone = type.wrappedValue == .none
         VStack(alignment: .leading, spacing: 14) {
+            EditorInOutPicker(side: $side)
 
-            VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: String(localized: "始まるとき"))
-                ClipAnimationPicker(selection: Binding(get: { clip.animation.inType }, set: { clip.animation.inType = $0 }), isOut: false)
-                EditorSliderRow(title: String(localized: "始まりの動きの時間"),
-                                value: Binding(get: { clip.animation.inDuration }, set: { clip.animation.inDuration = $0 }),
-                                range: 0.1...2.0,
-                                display: clipFXSeconds(clip.animation.inDuration))
-                    .disabled(clip.animation.inType == .none)
-                    .opacity(clip.animation.inType == .none ? 0.4 : 1)
-            }
+            ClipAnimationPicker(selection: type, isOut: side == .exit)
 
-            VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: String(localized: "終わるとき"))
-                ClipAnimationPicker(selection: Binding(get: { clip.animation.outType }, set: { clip.animation.outType = $0 }), isOut: true)
-                EditorSliderRow(title: String(localized: "終わりの動きの時間"),
-                                value: Binding(get: { clip.animation.outDuration }, set: { clip.animation.outDuration = $0 }),
-                                range: 0.1...2.0,
-                                display: clipFXSeconds(clip.animation.outDuration))
-                    .disabled(clip.animation.outType == .none)
-                    .opacity(clip.animation.outType == .none ? 0.4 : 1)
-            }
+            EditorSliderRow(title: String(localized: "長さ"),
+                            value: duration,
+                            range: 0.1...2.0,
+                            display: clipFXSeconds(duration.wrappedValue))
+                .disabled(isNone)
+                .opacity(isNone ? 0.4 : 1)
 
             HStack {
                 Spacer()
@@ -244,6 +299,31 @@ struct EditorClipAnimationPanel: View {
             }
         }
         .padding(.top, 6)
+        // 選んでいる間は、イン(アウト)の動きの前後をプレビューで繰り返し再生する
+        .onAppear { updateLoop() }
+        .onChange(of: side) { _, _ in updateLoop() }
+        .onChange(of: clip.animation) { _, _ in updateLoop() }
+        .onDisappear { player?.stopLoop() }
+    }
+
+    /// イン: クリップの頭の 0.5 秒前〜動きの 1 秒後 / アウト: 動きの 1 秒前〜クリップの終わりの 0.5 秒後
+    private var loopRange: ClosedRange<Double>? {
+        guard let project, let range = ClipFXTimeline.range(of: clip.id, in: project) else { return nil }
+        if side == .enter {
+            let start = range.lowerBound
+            return max(0, start - 0.5)...(start + clip.animation.inDuration + 1)
+        }
+        let end = range.upperBound
+        return max(0, end - clip.animation.outDuration - 1)...(end + 0.5)
+    }
+
+    private func updateLoop() {
+        guard let player else { return }
+        if let range = loopRange {
+            player.startLoop(range)
+        } else {
+            player.stopLoop()
+        }
     }
 }
 
@@ -257,7 +337,7 @@ struct EditorGeometryPanel: View {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .free: return String(localized: "自由")
+            case .free: return String(localized: "なし")
             case .square: return "1:1"
             case .portrait4x5: return "4:5"
             case .portrait9x16: return "9:16"
@@ -382,6 +462,7 @@ struct EditorGeometryPanel: View {
 // MARK: - 速度カーブ
 
 struct EditorSpeedCurvePanel: View {
+    let project: EditorProject
     @Binding var clip: Clip
 
     private let presets: [(title: String, curve: SpeedCurve)] = [
@@ -391,6 +472,14 @@ struct EditorSpeedCurvePanel: View {
         (String(localized: "始めだけ速く"), SpeedCurve.flashIn),
         (String(localized: "終わりだけ速く"), SpeedCurve.flashOut)
     ]
+
+    /// カーブを変えるとクリップの長さが変わるので、キャプション・テキストなどを同じ素材の位置に付けたまま動かす
+    /// (EditorProject.captureClipLayout / rippleTimelineItems。TimelineRipple.swift)
+    private func setCurve(_ curve: SpeedCurve) {
+        let layout = project.captureClipLayout()
+        clip.speedCurve = curve
+        project.rippleTimelineItems(from: layout)
+    }
 
     private var enabledBinding: Binding<Bool> {
         Binding<Bool>(
@@ -404,7 +493,18 @@ struct EditorSpeedCurvePanel: View {
                     probe.enabled = true
                     curve.points = [0, 0.25, 0.5, 0.75, 1].map { SpeedPoint(position: $0, speed: probe.speed(at: $0)) }
                 }
-                clip.speedCurve = curve
+                setCurve(curve)
+            }
+        )
+    }
+
+    private var pointsBinding: Binding<[SpeedPoint]> {
+        Binding<[SpeedPoint]>(
+            get: { clip.speedCurve.points },
+            set: { newValue in
+                var curve = clip.speedCurve
+                curve.points = newValue
+                setCurve(curve)
             }
         )
     }
@@ -412,7 +512,7 @@ struct EditorSpeedCurvePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Toggle(isOn: enabledBinding) {
-                Label("速度カーブを使う", systemImage: "waveform.path.ecg")
+                Label("タイムリマップを使う", systemImage: "waveform.path.ecg")
                     .font(.subheadline)
             }
             .tint(.accentColor)
@@ -426,7 +526,7 @@ struct EditorSpeedCurvePanel: View {
                                        isSelected: clip.speedCurve.enabled && clip.speedCurve.points == preset.curve.points) {
                                 var curve = preset.curve
                                 curve.smoothSlow = clip.speedCurve.smoothSlow
-                                clip.speedCurve = curve
+                                setCurve(curve)
                             }
                         }
                     }
@@ -435,7 +535,7 @@ struct EditorSpeedCurvePanel: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 EditorSectionTitle(title: String(localized: "速度グラフ"))
-                SpeedCurveGraphView(points: $clip.speedCurve.points, isEnabled: clip.speedCurve.enabled)
+                SpeedCurveGraphView(points: pointsBinding, isEnabled: clip.speedCurve.enabled)
             }
 
             Toggle("スローの部分をなめらかに見せる", isOn: $clip.speedCurve.smoothSlow)
@@ -451,7 +551,7 @@ struct EditorSpeedCurvePanel: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 EditorChip(title: String(localized: "リセット"), isSelected: false) {
-                    clip.speedCurve = SpeedCurve()
+                    setCurve(SpeedCurve())
                 }
                 .disabled(!clip.speedCurve.enabled)
                 .opacity(clip.speedCurve.enabled ? 1 : 0.4)
@@ -595,12 +695,16 @@ struct EditorAudioEffectsPanel: View {
     let url: URL
     let name: String
     @Binding var effects: AudioEffects
+    /// ✕ / 元に戻す で開いたときの状態に戻されたか(restoreCount)を見るため。無ければ閉じるときにそのまま反映する
+    var project: EditorProject? = nil
 
     @State private var draft = AudioEffects()
     @State private var didLoad = false
     @State private var isProcessing = false
     @State private var errorText: String?
     @State private var debounceTask: Task<Void, Never>?
+    /// 開いたときの restoreCount。閉じるときに変わっていたら、戻した状態を下書きで上書きしない
+    @State private var restoreCountAtOpen = 0
 
     private func db(_ value: Double) -> String {
         if abs(value) < 0.05 { return String(localized: "そのまま") }
@@ -610,24 +714,11 @@ struct EditorAudioEffectsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "waveform")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(name)
-                    .font(.subheadline)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if isProcessing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                    Text("処理中…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
+            // 声以外の雑音を消す。いちばん使うので先頭に(「スピーチを強調」からもここが開く)
+            EditorSliderRow(title: String(localized: "スピーチを強調"),
+                            value: $draft.noiseReduction,
+                            range: 0...1,
+                            display: clipFXPercent(draft.noiseReduction))
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: String(localized: "声の変化"))
@@ -649,18 +740,20 @@ struct EditorAudioEffectsPanel: View {
                             value: $draft.pitchSemitones,
                             range: -12...12,
                             display: String(format: "%+.1f", draft.pitchSemitones))
-            EditorSliderRow(title: String(localized: "スピーチを強調(AI)"),
-                            value: $draft.noiseReduction,
-                            range: 0...1,
-                            display: clipFXPercent(draft.noiseReduction))
 
             HStack {
-                if let errorText {
+                if isProcessing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                    Text("処理中…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let errorText {
                     Text(errorText)
                         .font(.caption)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
-                } else {
                 }
                 Spacer()
                 EditorChip(title: String(localized: "リセット"), isSelected: false) {
@@ -675,15 +768,18 @@ struct EditorAudioEffectsPanel: View {
             if !didLoad {
                 didLoad = true
                 draft = effects
+                restoreCountAtOpen = project?.restoreCount ?? 0
             }
         }
         .onChange(of: draft) { _, newValue in
             schedule(newValue)
         }
         .onDisappear {
-            // 閉じたときに未反映の変更があれば、待たずに反映する
             debounceTask?.cancel()
             debounceTask = nil
+            // ✕ / 元に戻す / やり直す で開いたときの状態に戻されていたら、下書きで上書きしない
+            if let project, project.restoreCount != restoreCountAtOpen { return }
+            // 閉じたときに未反映の変更があれば、待たずに反映する
             let pending = draft
             if pending != effects {
                 Task { @MainActor in
@@ -711,15 +807,17 @@ struct EditorAudioEffectsPanel: View {
         }
         isProcessing = true
         errorText = nil
+        defer { isProcessing = false }
         do {
             _ = try await AudioEffectsRenderer.processedURL(for: url, effects: newValue)
+            // 待っている間に ✕ で閉じられた / 次の変更が入ったら、この結果は書かない
+            guard !Task.isCancelled else { return }
             effects = newValue
         } catch is CancellationError {
             // 何もしない
         } catch {
             errorText = String(localized: "音声効果を反映できませんでした。もう一度お試しください(\(error.localizedDescription))")
         }
-        isProcessing = false
     }
 }
 
@@ -813,9 +911,24 @@ struct EditorBeatDetectPanel: View {
             }
         }
         .padding(.top, 6)
+        .onAppear {
+            restoreBeatsFromMarkers()
+        }
         .onDisappear {
             task?.cancel()
         }
+    }
+
+    /// 前に付けたビートマーカーから、分割に使うビート(元素材上の秒)を組み立て直す
+    /// (閉じて開き直しても「ビートの位置で分割」「ビートのマーカーを消す」が使えるように)
+    private func restoreBeatsFromMarkers() {
+        guard beats.isEmpty, let clip, let range = ClipFXTimeline.range(of: clipID, in: project) else { return }
+        let found = project.markers
+            .filter { $0.kind == .beat && $0.time >= range.lowerBound - 0.01 && $0.time <= range.upperBound + 0.01 }
+            .map { clip.sourceTime(atOutputOffset: $0.time - range.lowerBound) }
+        guard !found.isEmpty else { return }
+        beats = found.sorted()
+        bpm = BeatDetector.estimateBPM(onsets: beats)
     }
 
     private func detect() {
@@ -1129,9 +1242,15 @@ struct EditorColorMatchPanel: View {
         project.clips.filter { $0.id != clip.id }
     }
 
+    /// カラーマッチが書く 4 つ(明るさ・コントラスト・彩度・色温度)のどれかが変わっているか
+    private var hasMatch: Bool {
+        let a = clip.filter.adjustments
+        return a.brightness != 0 || a.contrast != 1 || a.saturation != 1 || a.temperature != 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("色合わせ: お手本にするクリップをタップすると、明るさ・彩度・色味をそのクリップに近づけます。")
+            Text("お手本のクリップをタップすると色を近づけます")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1194,17 +1313,21 @@ struct EditorColorMatchPanel: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 } else if selectedReference != nil {
-                    Text("色調整に反映しました。「色調整」でさらに微調整できます。")
+                    Text("カラー補正に反映しました")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                // カラーマッチが書いた 4 つだけ戻す(露出・ハイライトなど、ほかの「カラー補正」はそのまま)
                 EditorChip(title: String(localized: "リセット"), isSelected: false) {
-                    clip.filter.adjustments = ColorAdjustments()
+                    clip.filter.adjustments.brightness = 0
+                    clip.filter.adjustments.contrast = 1
+                    clip.filter.adjustments.saturation = 1
+                    clip.filter.adjustments.temperature = 0
                     selectedReference = nil
                 }
-                .disabled(clip.filter.adjustments.isIdentity)
-                .opacity(clip.filter.adjustments.isIdentity ? 0.4 : 1)
+                .disabled(!hasMatch)
+                .opacity(hasMatch ? 1 : 0.4)
             }
         }
         .padding(.top, 6)
@@ -1214,15 +1337,27 @@ struct EditorColorMatchPanel: View {
         isWorking = true
         errorText = nil
         let source = clip
+        // ✕ / 元に戻す で開いたときの状態に戻されたら(restoreCount が変わる)、戻したクリップに結果を書かない
+        let restoreCountAtStart = project.restoreCount
         Task { @MainActor in
             let referenceImage = await thumbnail(for: reference)
             let sourceImage = await thumbnail(for: source)
+            guard project.restoreCount == restoreCountAtStart else {
+                isWorking = false
+                return
+            }
             guard let referenceImage, let sourceImage else {
                 errorText = String(localized: "映像の色を読み取れませんでした。もう一度お試しください。")
                 isWorking = false
                 return
             }
-            let adjustments = FilterEngine.suggestedAdjustments(toMatch: referenceImage, from: sourceImage)
+            let suggested = FilterEngine.suggestedAdjustments(toMatch: referenceImage, from: sourceImage)
+            // 明るさ・コントラスト・彩度・色温度だけ書く(露出・ハイライト・シャープなど、ほかの「カラー補正」はそのまま)
+            var adjustments = clip.filter.adjustments
+            adjustments.brightness = suggested.brightness
+            adjustments.contrast = suggested.contrast
+            adjustments.saturation = suggested.saturation
+            adjustments.temperature = suggested.temperature
             clip.filter.adjustments = adjustments
             selectedReference = reference.id
             isWorking = false
@@ -1459,16 +1594,23 @@ struct ScopeSheetView: View {
 /// 上の「イン / アウト」で切り替え、種類と長さは 1 組だけ見せる
 struct EditorOverlayTransitionPanel: View {
     @Binding var overlay: OverlayClip
+    /// 選んでいる間、出てくるところ(消えるところ)をプレビューで繰り返すために使う(無ければ繰り返さない)
+    var player: PlayerController? = nil
 
-    private enum Side: Hashable {
-        case enter
-        case exit
-    }
-
-    @State private var side: Side = .enter
+    @State private var side: EditorInOutSide = .enter
 
     /// オーバーレイの長さの半分まで(最大 2 秒。描画の transitionState と同じ上限)
     private var maxDuration: Double { max(0.25, min(2, overlay.duration / 2)) }
+
+    /// イン: 出てくる 0.5 秒前〜切り替わりの 1 秒後 / アウト: 切り替わりの 1 秒前〜消えた 0.5 秒後
+    private var loopRange: ClosedRange<Double> {
+        if side == .enter {
+            let start = overlay.start
+            return max(0, start - 0.5)...(start + min(overlay.transitionIn.duration, maxDuration) + 1)
+        }
+        let end = overlay.end
+        return max(0, end - min(overlay.transitionOut.duration, maxDuration) - 1)...(end + 0.5)
+    }
 
     /// いま選んでいる側(イン / アウト)のトランジション
     private var current: Binding<ClipTransition> {
@@ -1486,12 +1628,7 @@ struct EditorOverlayTransitionPanel: View {
         let transition = current
         let isNone = transition.wrappedValue.type == .none
         VStack(alignment: .leading, spacing: 14) {
-            Picker("", selection: $side) {
-                Text("イン").tag(Side.enter)
-                Text("アウト").tag(Side.exit)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            EditorInOutPicker(side: $side)
 
             TransitionTypePicker(selection: transition.type)
 
@@ -1511,5 +1648,11 @@ struct EditorOverlayTransitionPanel: View {
             }
         }
         .padding(.top, 6)
+        // 選んでいる間は、出てくるところ(消えるところ)をプレビューで繰り返し再生する
+        .onAppear { player?.startLoop(loopRange) }
+        .onChange(of: side) { _, _ in player?.startLoop(loopRange) }
+        .onChange(of: overlay.transitionIn) { _, _ in player?.startLoop(loopRange) }
+        .onChange(of: overlay.transitionOut) { _, _ in player?.startLoop(loopRange) }
+        .onDisappear { player?.stopLoop() }
     }
 }

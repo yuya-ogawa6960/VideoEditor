@@ -203,10 +203,8 @@ struct EditorDocumentaryPanel: View {
                 }
                 .buttonStyle(.plain)
 
-                DocumentaryHint(text: String(localized: "全体の仕上げ: 作品全体の色・黒帯・フェード・BGMの下げ方をまとめて整えます。"))
-
                 HStack(spacing: 8) {
-                    EditorChip(title: String(localized: "リセット(すべてオフ)"),
+                    EditorChip(title: String(localized: "すべてオフ"),
                                isSelected: false) {
                         project.documentary = Self.offStyle
                     }
@@ -219,10 +217,10 @@ struct EditorDocumentaryPanel: View {
                 }
             }
 
-            // 色味(再生位置のコマに色をかけた見本から選ぶ)
+            // 色(再生位置のコマに色をかけた見本から選ぶ)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    DocumentarySectionTitle(title: String(localized: "色味"))
+                    DocumentarySectionTitle(title: String(localized: "色"))
                     Spacer()
                     Button {
                         EditorHaptics.tap()
@@ -235,7 +233,6 @@ struct EditorDocumentaryPanel: View {
                     .foregroundStyle(.secondary)
                     .disabled(isLoadingPreviews)
                 }
-                DocumentaryHint(text: String(localized: "動画全体の色の雰囲気を選びます。見本は再生位置のコマです。"))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(LookPreset.allCases) { preset in
@@ -296,27 +293,17 @@ struct EditorDocumentaryPanel: View {
                         }
                     }
                 }
-                DocumentaryHint(text: String(localized: "黒帯は映画のような横長(2.39:1)にします。フェードは最初と最後の 1.5 秒、つなぎ目の黒は 0.5 秒です。"))
 
+                // ざらつき・四すみは見本(オフ / 弱め / ふつう / 強め)から選ぶ
                 DocumentarySectionTitle(title: String(localized: "フィルムのざらつき"))
                 levelTiles(current: project.documentary.filmGrain, images: previews.grain) { value in
                     project.documentary.filmGrain = value
                 }
-                EditorSliderRow(title: String(localized: "強さ"),
-                                value: $project.documentary.filmGrain,
-                                range: 0...1,
-                                display: percentText(project.documentary.filmGrain))
-                DocumentaryHint(text: String(localized: "昔のフィルムのような細かい粒を加えます。"))
 
                 DocumentarySectionTitle(title: String(localized: "四すみを暗く"))
                 levelTiles(current: project.documentary.vignette, images: previews.vignette) { value in
                     project.documentary.vignette = value
                 }
-                EditorSliderRow(title: String(localized: "強さ"),
-                                value: $project.documentary.vignette,
-                                range: 0...1,
-                                display: percentText(project.documentary.vignette))
-                DocumentaryHint(text: String(localized: "画面のまわりを少し暗くして、中央に目が行くようにします。"))
             }
 
             // 音
@@ -325,15 +312,12 @@ struct EditorDocumentaryPanel: View {
                 Toggle("話している間 BGM を下げる", isOn: $project.documentary.autoDucking)
                     .font(.subheadline)
                     .tint(.accentColor)
-                EditorSliderRow(title: String(localized: "下げたときの BGM の大きさ"),
+                EditorSliderRow(title: String(localized: "下げたときの大きさ"),
                                 value: $project.documentary.duckingLevel,
                                 range: 0.1...0.8,
                                 display: duckingPercent)
                     .disabled(!project.documentary.autoDucking)
                     .opacity(project.documentary.autoDucking ? 1 : 0.4)
-                Text("字幕(話している区間)がある間だけ BGM を下げます。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.top, 6)

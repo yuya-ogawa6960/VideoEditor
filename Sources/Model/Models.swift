@@ -564,6 +564,9 @@ final class EditorProject {
     var markers: [TimelineMarker] = []
     var watermark = WatermarkSettings()
     var cover = CoverSettings()
+    /// restore(_:) で中身を置き換えた回数(元に戻した直後に、開いていたパネルの下書きで上書きしないための印。
+    /// 増やすのは restore(_:) だけ。EditorSelection.swift)
+    var restoreCount = 0
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -716,10 +719,6 @@ final class EditorProject {
         return true
     }
 
-    func applyFilterToAllClips(_ filter: FilterSettings) {
-        for i in clips.indices { clips[i].filter = filter }
-    }
-
     // MARK: 字幕操作
 
     @discardableResult
@@ -847,7 +846,7 @@ extension EditorProject {
             let t = Int(c.time.rounded(.down))
             let h = t / 3600, m = (t % 3600) / 60, s = t % 60
             let stamp = h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
-            lines.append(String(localized: "\(stamp) \(c.name.isEmpty ? "チャプター" : c.name)"))
+            lines.append(String(localized: "\(stamp) \(c.name.isEmpty ? String(localized: "チャプター") : c.name)"))
         }
         return lines.joined(separator: "\n")
     }

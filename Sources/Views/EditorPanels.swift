@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 import Observation
 
 // =====================================================================
@@ -179,7 +180,7 @@ enum EditorPanel: Hashable {
         case .markerKind: return String(localized: "色・種類")
         case .captionTemplate: return String(localized: "キャプションのデザイン")
         case .watermark: return String(localized: "ロゴ・透かし")
-        case .formatKit: return String(localized: "フォーマット")
+        case .formatKit: return String(localized: "パーツ")
         case .textToSpeech: return String(localized: "AI読み上げ")
         case .mask, .overlayMask: return String(localized: "マスク")
         case .autoReframe: return String(localized: "オートリフレーム")
@@ -342,6 +343,9 @@ struct EditorPanelContainer<Content: View>: View {
     let onClose: () -> Void
     @ViewBuilder let content: () -> Content
 
+    /// キーボードが出ている間はヘッダーに「キーボードを閉じる」を出す(パネルの中の入力欄には閉じる手段がないため)
+    @State private var isKeyboardVisible = false
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
@@ -370,6 +374,19 @@ struct EditorPanelContainer<Content: View>: View {
                     .truncationMode(.tail)
                     .padding(.leading, onCancel == nil ? 10 : 0)
                 Spacer(minLength: 4)
+                if isKeyboardVisible {
+                    Button {
+                        EditorHaptics.tap()
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("キーボードを閉じる")
+                }
                 Button {
                     EditorHaptics.tap()
                     onClose()
@@ -385,17 +402,26 @@ struct EditorPanelContainer<Content: View>: View {
             .padding(.horizontal, 6)
             .padding(.top, 2)
 
-            ScrollView(.vertical, showsIndicators: false) {
+            // 中身が切れていることがわかるよう、スクロールバーを出し、開いたときに一度ちらっと見せる
+            ScrollView(.vertical) {
                 content()
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
             }
+            .scrollIndicators(.visible)
+            .scrollIndicatorsFlash(onAppear: true)
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
         .frame(height: height)
         .background(Color(white: 0.11),
                     in: UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14))
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            isKeyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            isKeyboardVisible = false
+        }
     }
 }
 
@@ -494,6 +520,10 @@ struct EditorPillButton: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(prominent ? Color.accentColor : tint.opacity(0.15), in: Capsule())
+                // 見た目はそのままで、押せる範囲だけ上下に広げる(高さ 44pt 相当)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+                .padding(.vertical, -5)
         }
         .buttonStyle(.plain)
     }
@@ -550,6 +580,7 @@ struct EditorSliderRow<Value: BinaryFloatingPoint>: View where Value.Stride: Bin
 // MARK: - 速度
 
 struct EditorSpeedPanel: View {
+    let project: EditorProject
     @Binding var clip: Clip
 
     private let presets: [Double] = [0.25, 0.5, 1, 1.5, 2, 3, 4]
@@ -563,6 +594,13 @@ struct EditorSpeedPanel: View {
         }
     }
 
+    /// 速度を変えるとクリップの長さが変わるので、後ろの字幕・テキスト・オーバーレイなども同じ素材の位置に付いたまま動かす
+    private func setSpeed(_ speed: Double) {
+        let layout = project.captureClipLayout()
+        clip.speed = min(max(speed, 0.25), 4)
+        project.rippleTimelineItems(from: layout)
+    }
+
     /// log2(速度) を -2 ... 2 で操作する(0.25x ... 4x)
     private var logSpeed: Binding<Double> {
         Binding<Double>(
@@ -570,7 +608,7 @@ struct EditorSpeedPanel: View {
             set: { newValue in
                 let raw = pow(2.0, newValue)
                 let rounded = (raw * 20).rounded() / 20
-                clip.speed = min(max(rounded, 0.25), 4)
+                setSpeed(rounded)
             }
         )
     }
@@ -582,7 +620,7 @@ struct EditorSpeedPanel: View {
                     ForEach(presets, id: \.self) { preset in
                         EditorChip(title: label(for: preset),
                                    isSelected: abs(clip.speed - preset) < 0.001) {
-                            clip.speed = preset
+                            setSpeed(preset)
                         }
                     }
                 }
@@ -641,10 +679,18 @@ struct EditorVolumePanel: View {
                     .foregroundStyle(.secondary)
             }
 
-            EditorSliderRow(title: String(localized: "全クリップの音量"),
-                            value: $project.audio.originalVolume,
-                            range: 0...1,
-                            display: "\(Int((project.audio.originalVolume * 100).rounded()))%")
+            // このクリップだけの音量(0〜200%)。全クリップの音量は「BGM・音量」のシートで変える
+            EditorSliderRow(title: String(localized: "ボリューム"),
+                            value: $clip.audio.volume,
+                            range: 0...2,
+                            display: "\(Int((clip.audio.volume * 100).rounded()))%")
+                .disabled(!clip.hasAudio)
+            HStack {
+                Spacer()
+                EditorChip(title: String(localized: "リセット"), isSelected: false) {
+                    clip.audio.volume = 1
+                }
+            }
         }
         .padding(.top, 6)
     }
@@ -660,7 +706,11 @@ struct EditorFilterPanel: View {
         FilterPickerView(filter: $clip.filter,
                          sourceImage: clip.thumbnail,
                          onApplyToAll: {
-                             project.applyFilterToAllClips(clip.filter)
+                             // プリセット・強さ・明るさ・コントラスト・彩度だけを写す(各クリップの HSL・LUT・露出などは残す)
+                             let look = clip.filter
+                             for i in project.clips.indices {
+                                 project.clips[i].filter = FilterPickerView.presetLook(from: look, onto: project.clips[i].filter)
+                             }
                          })
     }
 }
@@ -733,7 +783,7 @@ struct EditorColorAdjustPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("フィルタ: \(clip.filter.preset.displayName)")
+                Text("カラープリセット: \(clip.filter.preset.displayName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -786,6 +836,14 @@ struct EditorColorAdjustPanel: View {
 struct EditorTextEditPanel: View {
     @Binding var cue: SubtitleCue
 
+    private enum Field {
+        case text
+        case translation
+    }
+
+    /// 入力中の欄(見出しの右の「完了」でキーボードを閉じる)
+    @FocusState private var focusedField: Field?
+
     private var translatedBinding: Binding<String> {
         Binding<String>(
             get: { cue.translatedText ?? "" },
@@ -803,28 +861,52 @@ struct EditorTextEditPanel: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("テキスト")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField("字幕を入力", text: $cue.text, axis: .vertical)
+                fieldHeader(String(localized: "テキスト"), field: .text)
+                TextField("キャプションを入力", text: $cue.text, axis: .vertical)
                     .lineLimit(1...3)
+                    .focused($focusedField, equals: .text)
                     .textFieldStyle(.plain)
                     .padding(8)
                     .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("訳文(任意)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                fieldHeader(String(localized: "訳文(任意)"), field: .translation)
                 TextField("Translation", text: translatedBinding, axis: .vertical)
                     .lineLimit(1...3)
+                    .focused($focusedField, equals: .translation)
                     .textFieldStyle(.plain)
                     .padding(8)
                     .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
             }
         }
         .padding(.top, 6)
+    }
+
+    /// 欄の見出し。入力中は右に「完了」(キーボードを閉じる)を出す
+    private func fieldHeader(_ title: String, field: Field) -> some View {
+        HStack {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            if focusedField == field {
+                Button {
+                    focusedField = nil
+                } label: {
+                    Text("完了")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        // 見た目はそのままで、押せる範囲を 44pt に広げる
+                        .padding(.vertical, 14)
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
+                        .padding(.vertical, -14)
+                        .padding(.horizontal, -8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 

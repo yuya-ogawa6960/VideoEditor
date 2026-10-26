@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 // =====================================================================
 // プロジェクト一覧(CapCut のホーム画面に相当)と、一覧 ⇄ 編集画面を切り替えるルート。
-// プロジェクトの書き出し(.videomania パッケージ)/ 読み込みもここから行う(ProjectPackage)。
+// プロジェクトを別の端末に送る(.videomania パッケージ)/ 受け取るのもここから行う(ProjectPackage)。
 // =====================================================================
 
 // MARK: - ルート
@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
 /// アプリのルート。プロジェクトを開いていなければ一覧、開いていれば編集画面(ContentView)
 struct RootView: View {
     @State private var openProjectID: UUID?
+    /// 開いたときの動画の置き場所(閉じるときに変わっていれば、次の「新しいプロジェクト」に使う)
+    @State private var openedMediaMode: ProjectMediaMode = .appCopy
     /// 「ファイル」アプリや AirDrop から開かれた .videomania(一覧が表示されたら読み込む)
     @State private var openedPackageURL: URL?
     @Environment(\.scenePhase) private var scenePhase
@@ -23,6 +25,10 @@ struct RootView: View {
 
             if let projectID = openProjectID {
                 ContentView(projectID: projectID, onClose: {
+                    // 編集画面の「その他」で動画の置き場所を変えていたら、次に作るプロジェクトもそれにする
+                    if let mode = ProjectLibrary.shared.project(id: projectID)?.effectiveMediaMode, mode != openedMediaMode {
+                        NewProjectMediaMode.last = mode
+                    }
                     openProjectID = nil
                     AdsManager.shared.showInterstitial(.projectClosed)
                 })
@@ -30,6 +36,7 @@ struct RootView: View {
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
                 ProjectLibraryView(openedPackageURL: $openedPackageURL, onOpen: { meta in
+                    openedMediaMode = meta.effectiveMediaMode
                     openProjectID = meta.id
                     Analytics.shared.track("project_open")
                 })
@@ -37,7 +44,7 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: openProjectID)
-        // .videomania をタップして開かれたとき。編集中なら、一覧に戻ったときに読み込む
+        // .videomania をタップして開かれたとき。編集中なら、一覧に戻ったときに受け取る
         .onOpenURL { url in
             guard url.isFileURL, url.pathExtension.lowercased() == ProjectPackage.packageExtension else { return }
             openedPackageURL = url
@@ -58,20 +65,31 @@ struct RootView: View {
     }
 }
 
+// MARK: - 新しいプロジェクトの動画の置き場所
+
+/// 「新しいプロジェクト」に使う動画の置き場所。最後に使ったものを覚えておく(初期値はアプリに取り込む)。
+/// 編集画面の「その他」→「動画の置き場所」で変えると、次に作るプロジェクトから使われる
+enum NewProjectMediaMode {
+    private static let key = "project.newMediaMode"
+
+    static var last: ProjectMediaMode {
+        get { ProjectMediaMode(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .appCopy }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
+    }
+}
+
 // MARK: - 一覧
 
 struct ProjectLibraryView: View {
-    /// 「ファイル」アプリなどから開かれた .videomania。読み込みを始めたら nil に戻す
+    /// 「ファイル」アプリなどから開かれた .videomania。受け取りを始めたら nil に戻す
     @Binding var openedPackageURL: URL?
     let onOpen: (ProjectMeta) -> Void
 
-    /// 書き出したプロジェクトのパッケージ(<名前>.videomania)の種類(project.yml の UTExportedTypeDeclarations)
+    /// 送るプロジェクトのパッケージ(<名前>.videomania)の種類(project.yml の UTExportedTypeDeclarations)
     private static let packageType = UTType(exportedAs: "com.yuyaogawa6960.videomania.project", conformingTo: .package)
 
     private let library = ProjectLibrary.shared
 
-    /// 「新しいプロジェクト」で動画の置き場所を選ぶ
-    @State private var isChoosingMediaMode = false
     @State private var renameTarget: ProjectMeta?
     @State private var renameText = ""
     @State private var isRenaming = false
@@ -79,12 +97,13 @@ struct ProjectLibraryView: View {
     @State private var deleteTarget: ProjectMeta?
     @State private var isDeleting = false
 
-    // パッケージの書き出し / 読み込み
+    // パッケージを送る / 受け取る
     @State private var isImporterPresented = false
     @State private var isImporting = false
     @State private var exportingMeta: ProjectMeta?
     @State private var exportProgress: Double = 0
-    @State private var packageShareItem: PackageShareItem?
+    /// 送る準備ができて共有シートを出している間(閉じるまで、ほかの送る・受け取るを止める)
+    @State private var isSharingPackage = false
     @State private var alertTitle = ""
     @State private var alertMessage: String?
 
@@ -171,22 +190,45 @@ struct ProjectLibraryView: View {
                 }
             }
             .navigationTitle("プロジェクト")
-            // 画面の下にバナー広告(読み込めるまでは場所を取らない。BannerAdView.swift)
+            // 画面の下にバナー広告(広告が届く前から同じ高さで場所を取り、届かなければ閉じる。BannerAdView.swift)
             .safeAreaInset(edge: .bottom) {
                 BannerAdSlot()
             }
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isImporterPresented = true
-                    } label: {
-                        Label("プロジェクト読み込み", systemImage: "square.and.arrow.down")
-                            .labelStyle(.titleAndIcon)
-                            .font(.subheadline)
+                ToolbarItem(placement: .topBarLeading) {
+                    // ポイントのサーバーが無いビルド(準備中)では出さない
+                    if AccountService.shared.isAvailable {
+                        NavigationLink {
+                            AccountPointsView()
+                        } label: {
+                            AccountPointsSummaryLabel()
+                                .loadingPointsIfNeeded()
+                                .labelStyle(.titleAndIcon)
+                                .font(.subheadline)
+                        }
+                        .accessibilityLabel("アカウントとポイント")
+                        .accessibilityValue(AccountService.shared.points.map { "\($0)pt" } ?? "")
                     }
-                    .disabled(isImporting || exportingMeta != nil)
-                    .accessibilityLabel("プロジェクト読み込み")
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink {
+                        AppSettingsView()
+                    } label: {
+                        Label("設定", systemImage: "gearshape")
+                    }
+                    .accessibilityLabel("設定")
+                    Menu {
+                        Button {
+                            isImporterPresented = true
+                        } label: {
+                            Label("別の端末から受け取る", systemImage: "square.and.arrow.down")
+                        }
+                        .disabled(isPackageBusy)
+                    } label: {
+                        Label("その他", systemImage: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("その他")
                 }
             }
             .fileImporter(isPresented: $isImporterPresented,
@@ -215,9 +257,6 @@ struct ProjectLibraryView: View {
             }
             .onChange(of: alertMessage) { _, message in
                 if message == nil { scheduleIncomingCheck() }
-            }
-            .sheet(item: $packageShareItem) { item in
-                PackageShareSheet(item: item)
             }
             .alert(alertTitle, isPresented: Binding(
                 get: { alertMessage != nil },
@@ -259,7 +298,7 @@ struct ProjectLibraryView: View {
                 deleteTarget = nil
             }
         } message: {
-            Text("このプロジェクトの編集内容とサムネイルを削除します。元に戻せません。\n(読み込んだ動画や写真のファイルはほかのプロジェクトでも使うため残ります)")
+            Text("編集内容とサムネイルを削除します。元に戻せません。写真アプリの元の動画・写真は消えません。")
         }
     }
 
@@ -271,7 +310,8 @@ struct ProjectLibraryView: View {
 
     private var newProjectButton: some View {
         Button {
-            isChoosingMediaMode = true
+            // 動画の置き場所は最後に使ったもの(編集画面の「その他」で変えられる)
+            createProject(mediaMode: NewProjectMediaMode.last)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "plus")
@@ -286,20 +326,9 @@ struct ProjectLibraryView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("新しいプロジェクト")
-        .confirmationDialog("動画の置き場所", isPresented: $isChoosingMediaMode, titleVisibility: .visible) {
-            Button("写真ライブラリから参照(容量を使わない)") {
-                createProject(mediaMode: .photoLibrary)
-            }
-            Button("アプリに取り込む(写真を消しても安心)") {
-                createProject(mediaMode: .appCopy)
-            }
-            Button("キャンセル", role: .cancel) {}
-        } message: {
-            Text("「写真ライブラリから参照」は動画をコピーしないので iPhone の容量を使いません。ただし写真アプリで動画を消すと、このプロジェクトでも使えなくなります。\n「アプリに取り込む」は動画をアプリ内にコピーします。あとから編集画面の「その他」で変えられます。")
-        }
         .task {
-            // 前に書き出したプロジェクトのパッケージ(素材のコピー入り)と GIF は、もう共有に使わないので消す
-            // (この画面で新しく書き出す前に済むよう、先に行う)
+            // 前に送ったプロジェクトのパッケージ(素材のコピー入り)と GIF は、もう共有に使わないので消す
+            // (この画面で新しく送る前に済むよう、先に行う)
             await Task.detached(priority: .utility) {
                 ProjectPackage.cleanUpExportedPackages()
                 try? FileManager.default.removeItem(at: GIFExporter.outputDirectory)
@@ -333,7 +362,7 @@ struct ProjectLibraryView: View {
             let urls = await MediaDrop.loadFiles(from: providers)
             isLoadingDrop = false
             guard !urls.isEmpty else {
-                alertMessage = String(localized: "動画・写真のデータを取得できませんでした。")
+                showAlert(String(localized: "追加できませんでした"), String(localized: "動画・写真のデータを取得できませんでした。"))
                 return
             }
             createProject(mediaMode: .appCopy, droppedMedia: urls)
@@ -344,7 +373,7 @@ struct ProjectLibraryView: View {
     // MARK: 共有で受け取った動画・写真
 
     /// 共有で受け取った動画・写真があれば「新しいプロジェクトで編集」するか聞く。
-    /// 読み込み・書き出し中やお知らせを出している間は終わってから(onChange で呼び直す)。
+    /// プロジェクトを送る・受け取る途中やお知らせを出している間は終わってから(onChange で呼び直す)。
     /// 広告・シート・ダイアログなどを出している間は、少し待って確かめ直す
     private func checkIncomingMedia() {
         let urls: [URL] = IncomingMediaCenter.shared.pendingURLs
@@ -395,15 +424,15 @@ struct ProjectLibraryView: View {
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
+            // 別の端末で作ったプロジェクト(.videomania)を持っている人のため。右上の「その他」からも開ける
             Button {
                 isImporterPresented = true
             } label: {
-                Label("プロジェクト読み込み", systemImage: "square.and.arrow.down")
+                Text("別の端末からプロジェクトを受け取る")
                     .font(.subheadline)
                     .frame(minHeight: 44)
             }
-            .buttonStyle(.bordered)
-            .disabled(isImporting || exportingMeta != nil)
+            .disabled(isPackageBusy)
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
@@ -465,11 +494,11 @@ struct ProjectLibraryView: View {
         alertMessage = message
     }
 
-    // MARK: パッケージの書き出し / 読み込み
+    // MARK: パッケージを送る / 受け取る
 
-    /// プロジェクトを <名前>.videomania(フォルダ形式)にまとめて共有シートへ
+    /// プロジェクトを <名前>.videomania(フォルダ形式)にまとめて、そのまま共有シートへ
     private func exportPackage(_ meta: ProjectMeta) {
-        guard exportingMeta == nil, !isImporting else { return }
+        guard !isPackageBusy else { return }
         // まとめ書き待ちの保存があれば先に書く
         ProjectStore.flush(projectID: meta.id)
         exportingMeta = meta
@@ -482,11 +511,20 @@ struct ProjectLibraryView: View {
                     }
                 })
                 exportingMeta = nil
-                packageShareItem = PackageShareItem(url: url, name: meta.name)
+                // 共有シート(AirDrop・「ファイル」に保存など)を閉じるまでは、ほかの送る・受け取るを止めておく
+                isSharingPackage = true
+                let presented = PackageShare.present(url) {
+                    isSharingPackage = false
+                }
+                if !presented {
+                    isSharingPackage = false
+                    showAlert(String(localized: "送れませんでした"),
+                              String(localized: "もう一度「別の端末に送る」を押してください。"))
+                }
             } catch {
                 exportingMeta = nil
                 showAlert(String(localized: "送る準備ができませんでした"),
-                          String(localized: "端末の空き容量を確かめて、もう一度「プロジェクト書き出し」を押してください。\n\n詳細: ") + error.localizedDescription)
+                          String(localized: "端末の空き容量を確かめて、もう一度「別の端末に送る」を押してください。\n\n詳細: ") + error.localizedDescription)
             }
         }
     }
@@ -495,7 +533,7 @@ struct ProjectLibraryView: View {
         switch result {
         case .failure(let error):
             showAlert(String(localized: "ファイルを開けませんでした"),
-                      String(localized: "もう一度「プロジェクト読み込み」から選び直してください。\n\n詳細: ") + error.localizedDescription)
+                      String(localized: "もう一度「別の端末から受け取る」から選び直してください。\n\n詳細: ") + error.localizedDescription)
         case .success(let urls):
             guard let url = urls.first else { return }
             importPackage(from: url, removeAfterImport: false)
@@ -515,17 +553,17 @@ struct ProjectLibraryView: View {
                 showAlert(String(localized: "受け取りました"), String(localized: "「\(meta.name)」を一覧に追加しました。タップすると開けます。"))
             } catch {
                 isImporting = false
-                showAlert(String(localized: "受け取れませんでした"), String(localized: "「プロジェクト書き出し」で作ったファイル(名前が .videomania で終わるもの)を選んでください。送る途中で壊れた場合は、送り直してもらってください。\n\n詳細: ") + error.localizedDescription)
+                showAlert(String(localized: "受け取れませんでした"), String(localized: "「別の端末に送る」で作った .videomania のファイルを選んでください。途中で壊れたときは送り直してもらってください。\n\n詳細: ") + error.localizedDescription)
             }
         }
     }
 
-    /// 読み込み・書き出し・共有シートのどれかが進行中
+    /// 受け取り・送る準備・共有シート・落とした素材の受け取りのどれかが進行中
     private var isPackageBusy: Bool {
-        isImporting || exportingMeta != nil || packageShareItem != nil || isLoadingDrop
+        isImporting || exportingMeta != nil || isSharingPackage || isLoadingDrop
     }
 
-    /// 「ファイル」アプリなどから開かれた .videomania を、ほかの読み込み・書き出しが終わっていれば読み込む
+    /// 「ファイル」アプリなどから開かれた .videomania を、ほかの送る・受け取るが終わっていれば受け取る
     private func importOpenedPackageIfReady() {
         guard let url = openedPackageURL, !isPackageBusy else { return }
         openedPackageURL = nil
@@ -546,61 +584,43 @@ struct ProjectLibraryView: View {
 /// 出している間は、共有で受け取った素材の確認を出さない(重ねて出せず、出せなかった確認が残ってしまうため)
 @MainActor
 enum ScreenPresentation {
-    static var isPresentingSomething: Bool {
-        let root = UIApplication.shared.connectedScenes
+    /// キーウインドウのルートの画面
+    static var rootViewController: UIViewController? {
+        UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .first(where: \.isKeyWindow)?
             .rootViewController
-        return root?.presentedViewController != nil
+    }
+
+    static var isPresentingSomething: Bool {
+        rootViewController?.presentedViewController != nil
     }
 }
 
 // MARK: - パッケージ共有
 
-/// 書き出した .videomania の共有シートに渡す項目
-private struct PackageShareItem: Identifiable {
-    let id = UUID()
-    let url: URL
-    let name: String
-}
-
-private struct PackageShareSheet: View {
-    let item: PackageShareItem
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Image(systemName: "shippingbox")
-                    .font(.system(size: 44))
-                    .foregroundStyle(.secondary)
-                Text("「\(item.name)」を送る準備ができました")
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                Text("AirDrop や「ファイル」アプリで別の端末に送ってください。受け取った端末では、プロジェクト一覧の「プロジェクト読み込み」から開けます。素材の動画・写真も一緒に入るため、ファイルは大きめです。\nファイル名: \(item.url.lastPathComponent)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                ShareLink(item: item.url) {
-                    Label("送る・ファイルに保存", systemImage: "square.and.arrow.up")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.borderedProminent)
-            }
-            .padding(24)
-            .navigationTitle("プロジェクト書き出し")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
-                }
-            }
+/// まとめた .videomania を共有シート(AirDrop・「ファイル」に保存など)で別の端末に送る
+@MainActor
+private enum PackageShare {
+    /// いちばん上の画面から共有シートを出す。閉じたら(送っても、やめても)onFinish を 1 回呼ぶ。出せなければ false
+    static func present(_ url: URL, onFinish: @escaping () -> Void) -> Bool {
+        guard var top = ScreenPresentation.rootViewController else { return false }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
         }
-        .presentationDetents([.medium])
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            onFinish()
+        }
+        // iPad ではポップオーバーになるので、出す位置が要る
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = top.view
+            popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        top.present(controller, animated: true)
+        return true
     }
 }
 
@@ -695,7 +715,7 @@ private struct ProjectCardView: View {
             Label("複製", systemImage: "plus.square.on.square")
         }
         Button(action: onExport) {
-            Label("プロジェクト書き出し", systemImage: "shippingbox")
+            Label("別の端末に送る", systemImage: "square.and.arrow.up")
         }
         Button(role: .destructive, action: onDelete) {
             Label("削除", systemImage: "trash")
