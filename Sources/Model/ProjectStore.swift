@@ -1552,6 +1552,9 @@ private struct StoredCue: Codable {
     var words: [StoredWord]?
     /// 原文と訳を 2 行で出す(後から追加したので省略可能)
     var bilingual: Bool?
+    /// 要確認の言葉・「問題なし」(後から追加したので省略可能)
+    var doubtfulWords: [String]?
+    var issueDismissed: Bool?
 
     init(_ c: SubtitleCue) {
         id = c.id
@@ -1561,12 +1564,16 @@ private struct StoredCue: Codable {
         translatedText = c.translatedText
         bilingual = c.bilingual ? true : nil
         words = c.words.isEmpty ? nil : c.words.map { StoredWord(text: $0.text, start: $0.start, end: $0.end) }
+        doubtfulWords = c.doubtfulWords.isEmpty ? nil : c.doubtfulWords
+        issueDismissed = c.issueDismissed ? true : nil
     }
 
     var value: SubtitleCue {
         var cue = SubtitleCue(id: id, start: start, end: end, text: text, translatedText: translatedText)
         cue.words = (words ?? []).map { SubtitleWord(text: $0.text, start: $0.start, end: $0.end) }
         cue.bilingual = bilingual ?? false
+        cue.doubtfulWords = doubtfulWords ?? []
+        cue.issueDismissed = issueDismissed ?? false
         return cue
     }
 }

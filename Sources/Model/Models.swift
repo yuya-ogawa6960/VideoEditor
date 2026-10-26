@@ -360,6 +360,10 @@ struct SubtitleCue: Identifiable, Equatable {
     var words: [SubtitleWord] = []
     /// 原文と訳を 2 行で出す(「英語＋日本語訳」などで作った字幕。全体の表示モードより優先)
     var bilingual: Bool = false
+    /// 音声認識の自信が低かった言葉(要確認。直して文から消えれば出なくなる。CaptionIssues.swift)
+    var doubtfulWords: [String] = []
+    /// 要確認の印を「問題なし」で消した
+    var issueDismissed: Bool = false
 
     var duration: Double { max(0, end - start) }
 

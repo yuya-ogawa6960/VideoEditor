@@ -429,6 +429,8 @@ struct TimelineSpanItem: Identifiable {
     let labelX: CGFloat
     /// 長さ(秒)
     var duration: Double = 0
+    /// 要確認の字幕(赤く出す)
+    var isFlagged: Bool = false
 }
 
 /// 重ね合わせトラック上の 1 要素の配置
@@ -1212,18 +1214,26 @@ struct TimelineSubtitleCapsule: View {
     let visibleWidth: CGFloat
     let height: CGFloat
     let isSelected: Bool
+    /// 要確認の字幕(赤い背景と「!」)
+    var isFlagged: Bool = false
 
     var body: some View {
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(TimelineMetrics.subtitleColor)
-            Text(text.isEmpty ? " " : text)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.85))
-                .lineLimit(1)
-                .padding(.horizontal, 5)
-                .frame(maxWidth: max(0, visibleWidth - labelX), alignment: .leading)
-                .offset(x: labelX)
+                .fill(isFlagged ? Color.red : TimelineMetrics.subtitleColor)
+            HStack(spacing: 3) {
+                if isFlagged {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                Text(text.isEmpty ? " " : text)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isFlagged ? Color.white : Color.black.opacity(0.85))
+            .padding(.horizontal, 5)
+            .frame(maxWidth: max(0, visibleWidth - labelX), alignment: .leading)
+            .offset(x: labelX)
         }
         .frame(width: visibleWidth, height: height, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))

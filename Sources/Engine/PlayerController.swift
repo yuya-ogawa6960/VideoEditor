@@ -99,6 +99,13 @@ final class PlayerController {
                 projected.clips[i].name = ""
             }
         }
+        // 字幕の要確認の印(字幕の一覧・タイムラインだけで使う)
+        if projected.subtitles.contains(where: { !$0.doubtfulWords.isEmpty || $0.issueDismissed }) {
+            for i in projected.subtitles.indices {
+                projected.subtitles[i].doubtfulWords = []
+                projected.subtitles[i].issueDismissed = false
+            }
+        }
         return projected
     }
 

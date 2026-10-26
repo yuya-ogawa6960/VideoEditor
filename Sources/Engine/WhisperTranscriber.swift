@@ -633,7 +633,8 @@ final class WhisperTranscriber {
                     guard !text.isEmpty else { continue }
                     let start = offset + Double(word.start)
                     let end = offset + Double(word.end)
-                    tokens.append(TimedToken(text: text, start: start, end: max(start, end)))
+                    tokens.append(TimedToken(text: text, start: start, end: max(start, end),
+                                             confidence: Double(word.probability)))
                     added += 1
                 }
                 if added == 0 {

@@ -26,11 +26,14 @@ struct TimedToken: Equatable {
     var text: String
     var start: Double
     var end: Double
+    /// 音声認識の自信度(0〜1)。わからなければ nil。低い言葉は字幕の一覧で要確認になる
+    var confidence: Double?
 
-    init(text: String, start: Double, end: Double) {
+    init(text: String, start: Double, end: Double, confidence: Double? = nil) {
         self.text = text
         self.start = start
         self.end = max(start, end)
+        self.confidence = confidence
     }
 
     var duration: Double { max(0, end - start) }

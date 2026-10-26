@@ -16,6 +16,7 @@ final class TranscriptCache: @unchecked Sendable {
         let text: String
         let start: Double
         let end: Double
+        let confidence: Double?
     }
 
     private let lock = NSLock()
@@ -48,7 +49,7 @@ final class TranscriptCache: @unchecked Sendable {
         guard let file = fileURL(for: key),
               let data = try? Data(contentsOf: file),
               let stored = try? JSONDecoder().decode([StoredToken].self, from: data) else { return nil }
-        let tokens = stored.map { TimedToken(text: $0.text, start: $0.start, end: $0.end) }
+        let tokens = stored.map { TimedToken(text: $0.text, start: $0.start, end: $0.end, confidence: $0.confidence) }
         lock.lock()
         memory[key] = tokens
         lock.unlock()
@@ -60,7 +61,7 @@ final class TranscriptCache: @unchecked Sendable {
         memory[key] = tokens
         lock.unlock()
         guard let file = fileURL(for: key) else { return }
-        let stored = tokens.map { StoredToken(text: $0.text, start: $0.start, end: $0.end) }
+        let stored = tokens.map { StoredToken(text: $0.text, start: $0.start, end: $0.end, confidence: $0.confidence) }
         if let data = try? JSONEncoder().encode(stored) {
             try? data.write(to: file, options: .atomic)
         }

@@ -6303,6 +6303,29 @@
         }
       }
     },
+    "「%@」の聞き取りに自信がありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sure about “%@”"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay seguridad sobre «%@»"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem certeza sobre “%@”"
+          }
+        }
+      }
+    },
     "「%@」の長さを読み取れませんでした。": {
       "extractionState": "manual",
       "localizations": {
@@ -10899,6 +10922,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Relaxado"
+          }
+        }
+      }
+    },
+    "よくある誤認識かもしれません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "May be a common misrecognition"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puede ser un error de reconocimiento común"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pode ser um erro de reconhecimento comum"
           }
         }
       }
@@ -27417,6 +27463,29 @@
         }
       }
     },
+    "前の字幕と同じです": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same as the previous caption"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual que el subtítulo anterior"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igual à legenda anterior"
+          }
+        }
+      }
+    },
     "前へ": {
       "extractionState": "manual",
       "localizations": {
@@ -29989,6 +30058,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apresentação de produto"
+          }
+        }
+      }
+    },
+    "問題なし": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looks Fine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Está bien"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Está certo"
           }
         }
       }
@@ -43885,6 +43977,52 @@
         }
       }
     },
+    "表示が短すぎます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown too briefly"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se muestra muy poco tiempo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exibida por pouco tempo"
+          }
+        }
+      }
+    },
+    "表示が速すぎます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too fast to read"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiado rápido para leer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rápida demais para ler"
+          }
+        }
+      }
+    },
     "表示する字幕": {
       "extractionState": "manual",
       "localizations": {
@@ -44111,6 +44249,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Duplicado"
+          }
+        }
+      }
+    },
+    "要確認": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs review"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar"
+          }
+        }
+      }
+    },
+    "要確認 %lld 件": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld need review"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld por revisar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld para revisar"
           }
         }
       }

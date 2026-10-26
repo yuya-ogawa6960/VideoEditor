@@ -962,15 +962,18 @@ struct TimelineView: View {
     private func subtitleItems(width: CGFloat, originX: CGFloat, pps: CGFloat,
                                subtitles: [SubtitleCue]) -> [TimelineSpanItem] {
         var result: [TimelineSpanItem] = []
-        for cue in subtitles {
+        for (index, cue) in subtitles.enumerated() {
             let x = originX + CGFloat(cue.start) * pps
             let w = max(CGFloat(cue.duration) * pps, 6)
             guard let span = TimelineMetrics.visibleSpan(x: x, width: w, viewWidth: width) else { continue }
             let labelX = TimelineMetrics.stickyLabelX(trueX: x, visibleX: span.x,
                                                       visibleWidth: span.width, labelWidth: 24)
+            // 要確認かどうかは、見えている字幕だけ調べる(再生中も毎フレーム描き直すため)
+            let previous: SubtitleCue? = index > 0 ? subtitles[index - 1] : nil
+            let flagged = CaptionIssueCheck.issue(for: cue, previous: previous) != nil
             result.append(TimelineSpanItem(id: cue.id, text: cue.text, screenX: x, width: w,
                                            visibleX: span.x, visibleWidth: span.width, labelX: labelX,
-                                           duration: cue.duration))
+                                           duration: cue.duration, isFlagged: flagged))
         }
         return result
     }
@@ -989,7 +992,8 @@ struct TimelineView: View {
                                         labelX: item.labelX,
                                         visibleWidth: item.visibleWidth,
                                         height: h,
-                                        isSelected: isSel)
+                                        isSelected: isSel,
+                                        isFlagged: item.isFlagged)
                     .offset(x: item.visibleX)
                     .onTapGesture {
                         selection = .subtitle(item.id)

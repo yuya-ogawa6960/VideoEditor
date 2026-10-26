@@ -1149,7 +1149,9 @@ struct SubtitleEditorView: View {
     // MARK: 字幕一覧
 
     private var cueListSection: some View {
-        Section {
+        // 再生中は毎秒何度も描き直すので、要確認の判定はここで 1 回だけ
+        let issues = CaptionIssueCheck.issues(in: project.subtitles)
+        return Section {
             Button {
                 let cue = project.addSubtitle(at: player.currentTime)
                 editingCueID = cue.id
@@ -1184,7 +1186,7 @@ struct SubtitleEditorView: View {
             } else {
                 let highlightedID = currentCueID
                 ForEach(project.subtitles) { cue in
-                    cueRow(cue, isCurrent: cue.id == highlightedID)
+                    cueRow(cue, isCurrent: cue.id == highlightedID, issue: issues[cue.id])
                 }
                 .onDelete { offsets in
                     project.subtitles.remove(atOffsets: offsets)
@@ -1193,6 +1195,16 @@ struct SubtitleEditorView: View {
         } header: {
             HStack {
                 Text("字幕一覧(\(project.subtitles.count))")
+                let issueCount = issues.count
+                if issueCount > 0 {
+                    Label {
+                        Text(verbatim: "\(issueCount)")
+                    } icon: {
+                        Image(systemName: "exclamationmark.circle.fill")
+                    }
+                    .foregroundStyle(.red)
+                        .accessibilityLabel(String(localized: "要確認 \(issueCount) 件"))
+                }
                 Spacer()
                 if !project.subtitles.isEmpty {
                     Menu {
@@ -1274,8 +1286,15 @@ struct SubtitleEditorView: View {
                   message: String(localized: "\(cues.count) 件の字幕に、文字数に応じた単語タイミングを付けました。カラオケ風などのテンプレートで単語ごとに色が変わります。"))
     }
 
-    private func cueRow(_ cue: SubtitleCue, isCurrent: Bool) -> some View {
+    /// issue: 要確認の理由(赤い背景と「!」。CaptionIssues.swift)
+    private func cueRow(_ cue: SubtitleCue, isCurrent: Bool, issue: CaptionIssue?) -> some View {
         HStack(spacing: 8) {
+            if issue != nil {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.red)
+                    .accessibilityLabel("要確認")
+            }
             Button {
                 player.seek(to: cue.start)
             } label: {
@@ -1283,6 +1302,11 @@ struct SubtitleEditorView: View {
                     Text("\(subtitleTimeString(cue.start)) – \(subtitleTimeString(cue.end))")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                    if let issue {
+                        Text(issue.message)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.red)
+                    }
                     Text(cue.text.isEmpty ? String(localized: "(空)") : cue.text)
                         .foregroundStyle(Color.primary)
                         .lineLimit(3)
@@ -1307,7 +1331,30 @@ struct SubtitleEditorView: View {
             .buttonStyle(.borderless)
         }
         .padding(.vertical, 2)
-        .listRowBackground(isCurrent ? Color.accentColor.opacity(0.15) : Color(uiColor: .secondarySystemGroupedBackground))
+        .listRowBackground(issue != nil
+                           ? Color.red.opacity(isCurrent ? 0.32 : 0.22)
+                           : (isCurrent ? Color.accentColor.opacity(0.15) : Color(uiColor: .secondarySystemGroupedBackground)))
+        // 確認して問題なければ、左にスワイプして印を消す
+        .swipeActions(edge: .leading) {
+            if issue != nil {
+                Button {
+                    if let index = project.subtitles.firstIndex(where: { $0.id == cue.id }) {
+                        project.subtitles[index].issueDismissed = true
+                    }
+                } label: {
+                    Label("問題なし", systemImage: "checkmark")
+                }
+                .tint(.green)
+            }
+        }
+        // 独自のスワイプを付けると onDelete の削除が出なくなることがあるので、削除も並べておく
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                project.subtitles.removeAll { $0.id == cue.id }
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
+        }
     }
 
     private func showAlert(title: String, message: String, offersSettings: Bool = false) {

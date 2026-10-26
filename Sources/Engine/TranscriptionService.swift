@@ -139,6 +139,8 @@ private struct TranscriptionWord {
     var text: String
     var start: Double
     var duration: Double
+    /// 音声認識の自信度(0〜1)。わからなければ nil
+    var confidence: Double? = nil
     var end: Double { start + duration }
 }
 
@@ -819,7 +821,8 @@ final class TranscriptionService {
             let timelineTokens = Self.mapToTimeline(sourceTokens ?? [], job: job)
             var segmenter = SubtitleSegmenter(language: jobLanguage, removeFillers: removeFillers)
             segmenter.hardEnd = job.clipTimelineEnd
-            cuesByCaption[jobCaption, default: []].append(contentsOf: segmenter.segment(timelineTokens))
+            let segmented = CaptionIssueCheck.attachDoubtfulWords(segmenter.segment(timelineTokens), tokens: timelineTokens)
+            cuesByCaption[jobCaption, default: []].append(contentsOf: segmented)
 
             // まとめて送った経路は、送信の進捗ですでに 1 まで進めている。
             // Whisper は音声の長さの比で進めている(ピースの完了通知で反映済み)
@@ -868,7 +871,8 @@ final class TranscriptionService {
         let polished = await SubtitlePolisher.polish(fixed, language: language, settings: settings,
                                                      pauseReporter: pauseReporter)
         try checkCancelled()
-        return Self.finalize(CaptionTermDictionary.apply(to: polished))
+        let carried = CaptionIssueCheck.carryDoubtfulWords(from: fixed, to: polished)
+        return Self.finalize(CaptionTermDictionary.apply(to: carried))
     }
 
     // MARK: - 前回のクラウド文字起こしの取り込み
@@ -1125,7 +1129,7 @@ final class TranscriptionService {
             job.clipTimelineStart + clip.outputOffset(atSourceTime: source)
         }
         return tokens.map { token in
-            TimedToken(text: token.text, start: convert(token.start), end: convert(token.end))
+            TimedToken(text: token.text, start: convert(token.start), end: convert(token.end), confidence: token.confidence)
         }
     }
 
@@ -1171,7 +1175,7 @@ final class TranscriptionService {
         let transcriber = SpeechTranscriber(locale: locale,
                                             transcriptionOptions: [],
                                             reportingOptions: [],
-                                            attributeOptions: [.audioTimeRange])
+                                            attributeOptions: [.audioTimeRange, .transcriptionConfidence])
 
         // 言語モデルの確認・導入
         do {
@@ -1231,7 +1235,8 @@ final class TranscriptionService {
             let fileTokens = try await collector.value
             // ファイル先頭 = clip.startTime
             return fileTokens.map { token in
-                TimedToken(text: token.text, start: clip.startTime + token.start, end: clip.startTime + token.end)
+                TimedToken(text: token.text, start: clip.startTime + token.start, end: clip.startTime + token.end,
+                           confidence: token.confidence)
             }
         } catch {
             if isCancelRequested || Task.isCancelled || error is CancellationError { throw CancellationError() }
@@ -1251,7 +1256,8 @@ final class TranscriptionService {
                timeRange.start.seconds.isFinite, timeRange.end.seconds.isFinite {
                 let start = max(0, timeRange.start.seconds)
                 let end = max(start, timeRange.end.seconds)
-                tokens.append(TimedToken(text: pendingPrefix + piece, start: start, end: end))
+                let confidence = run[AttributeScopes.SpeechAttributes.ConfidenceAttribute.self].map { Double($0) }
+                tokens.append(TimedToken(text: pendingPrefix + piece, start: start, end: end, confidence: confidence))
                 pendingPrefix = ""
             } else {
                 // 時刻のない run(句読点・空白など)は前のトークンに付ける
@@ -1293,7 +1299,8 @@ final class TranscriptionService {
             for word in words {
                 let text = word.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { continue }
-                tokens.append(TimedToken(text: text, start: chunk.start + word.start, end: chunk.start + word.end))
+                tokens.append(TimedToken(text: text, start: chunk.start + word.start, end: chunk.start + word.end,
+                                         confidence: word.confidence))
             }
 
             await updateUI(progress: Double(unit + 1) / Double(totalUnits), status: nil)
@@ -1345,7 +1352,8 @@ final class TranscriptionService {
 
     private static func words(from transcription: SFTranscription) -> [TranscriptionWord] {
         transcription.segments.map { segment in
-            TranscriptionWord(text: segment.substring, start: segment.timestamp, duration: segment.duration)
+            TranscriptionWord(text: segment.substring, start: segment.timestamp, duration: segment.duration,
+                              confidence: segment.confidence > 0 ? Double(segment.confidence) : nil)
         }
     }
 
@@ -1367,7 +1375,7 @@ final class TranscriptionService {
         var t = 0.0
         return words.map { word in
             let d = chunkDuration * Double(max(1, word.text.count)) / Double(totalChars)
-            let fixed = TranscriptionWord(text: word.text, start: t, duration: d)
+            let fixed = TranscriptionWord(text: word.text, start: t, duration: d, confidence: word.confidence)
             t += d
             return fixed
         }
