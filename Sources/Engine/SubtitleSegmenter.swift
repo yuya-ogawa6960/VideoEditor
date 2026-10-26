@@ -134,7 +134,8 @@ struct SubtitleSegmenter {
         self.removeFillers = removeFillers
         switch language {
         case .japanese:
-            maxCharacters = 26
+            // 訳しやすいよう 1 字幕 1 文にしたいので、2 行ぶん(16 × 2)まで入れる
+            maxCharacters = 32
             charactersPerSecond = 8
         case .english:
             maxCharacters = 42
@@ -156,19 +157,22 @@ struct SubtitleSegmenter {
         let layout = makeLayout(tokens)
         guard !layout.scalars.isEmpty else { return [] }
 
-        // 文に分割
-        var sentences: [Range<Int>] = []
+        // 文に分割(文末で終わるかも持つ。文の途中の無音で分かれた断片は、あとで同じ文としてつなぐ)
+        var sentences: [Piece] = []
         for range in sentenceRanges(in: layout) {
             sentences.append(contentsOf: hardSplit(range, layout: layout, tokens: tokens))
         }
 
-        // 制限を超える文を文節で分割
-        var pieces: [Range<Int>] = []
+        // 制限を超える文を文節で分割(最後の断片だけが文末)
+        var pieces: [Piece] = []
         for sentence in sentences {
-            pieces.append(contentsOf: softSplit(sentence, layout: layout, depth: 0))
+            let parts = softSplit(sentence.range, layout: layout, depth: 0)
+            for (k, part) in parts.enumerated() {
+                pieces.append(Piece(range: part, endsSentence: k == parts.count - 1 ? sentence.endsSentence : false))
+            }
         }
 
-        // 短い断片を結合
+        // 短い断片を結合(文と文はつながない)
         let merged = mergeShortPieces(pieces, layout: layout)
 
         // キューを作成
@@ -674,9 +678,17 @@ struct SubtitleSegmenter {
         return filled.isEmpty ? [0..<total] : filled
     }
 
-    /// 文末記号・改行・長い無音で強制分割
-    private func hardSplit(_ range: Range<Int>, layout: Layout, tokens: [TimedToken]) -> [Range<Int>] {
-        var result: [Range<Int>] = []
+    /// 分割した断片。endsSentence: 文末で終わる(false は文の途中の無音などで分けたもの)
+    private struct Piece {
+        var range: Range<Int>
+        var endsSentence: Bool
+    }
+
+    /// 文末記号・改行・長い無音で強制分割。
+    /// 日本語は音声認識が句点を付けないことが多いので、「〜です」「〜ます」などで終わり、
+    /// 続く言葉が「と」「が」「けど」などでなければ文末とみなす
+    private func hardSplit(_ range: Range<Int>, layout: Layout, tokens: [TimedToken]) -> [Piece] {
+        var result: [Piece] = []
         let n = range.upperBound
         var lo = range.lowerBound
         var i = range.lowerBound
@@ -693,6 +705,7 @@ struct SubtitleSegmenter {
         while i < n {
             let scalar = layout.scalars[i]
             var breakAfter = false
+            var endsSentence = true
 
             if scalar == "\n" || scalar == "\r" {
                 breakAfter = true
@@ -707,13 +720,20 @@ struct SubtitleSegmenter {
                 }
             }
 
-            // 長い無音(トークン間)
+            // トークンの切れ目: 日本語の文末(句点なし)・長い無音
             if !breakAfter, i + 1 < n {
                 let a = layout.owner[i]
                 let isLastOfToken = a >= 0 && (layout.owner[i + 1] != a)
-                if isLastOfToken, let b = nextOwner(after: i), b != a, b < tokens.count, a < tokens.count,
-                   tokens[b].start - tokens[a].end > longPause {
-                    breakAfter = true
+                if isLastOfToken, let b = nextOwner(after: i), b != a, b < tokens.count, a < tokens.count {
+                    let pause = tokens[b].start - tokens[a].end
+                    if isJapanese,
+                       endsJapaneseSentence(layout: layout, through: i, from: lo, pause: pause, nextText: tokens[b].text) {
+                        breakAfter = true
+                    } else if pause > longPause {
+                        // 長い無音: 区切るが、言いよどみなど文の途中のこともある(あとで同じ文としてつなぐ)
+                        breakAfter = true
+                        endsSentence = false
+                    }
                 }
             }
 
@@ -722,15 +742,50 @@ struct SubtitleSegmenter {
                 while j < n, Self.trailingClosers.contains(layout.scalars[j]) || Self.sentenceEnders.contains(layout.scalars[j]) {
                     j += 1
                 }
-                if j > lo { result.append(lo..<j) }
+                if j > lo { result.append(Piece(range: lo..<j, endsSentence: endsSentence)) }
                 lo = j
                 i = j
             } else {
                 i += 1
             }
         }
-        if lo < n { result.append(lo..<n) }
+        if lo < n { result.append(Piece(range: lo..<n, endsSentence: true)) }
         return result
+    }
+
+    /// 文末の形(句点がないとき)。後ろに「ね」「よ」「か」が付いた形も文末
+    private static let japaneseStrongEndings: [String] = [
+        "ございます", "ます", "ました", "ません", "ましょう", "です", "でした", "でしょう", "ください",
+    ]
+    private static let japaneseEndingParticles: [String] = ["ね", "よ", "よね", "か", "かね", "よな"]
+    /// 少し間があるときだけ文末とみなす形(「出てないね」など)
+    private static let japaneseSoftEndings: [String] = ["ね", "よね", "よ", "かな", "だね", "だよ", "だな"]
+    /// これが続くなら文はまだ終わっていない(「〜ますと」「〜ですが」「〜ですね」など)
+    private static let japaneseContinuations: Set<String> = [
+        "と", "が", "ね", "よ", "か", "な", "し", "わ", "さ", "ぞ", "ぜ", "の", "って", "けど", "から", "ので",
+        "のに", "けれど", "けども", "けれども", "もん", "よね", "かな", "かね", "よな",
+    ]
+    private static let japaneseContinuationPrefixes: [String] = ["と", "が", "けど", "けれど", "から", "ので", "のに", "って", "んで"]
+
+    /// i(含む)までで日本語の文が終わっているか(句点がないとき)。nextText は次のトークン
+    private func endsJapaneseSentence(layout: Layout, through i: Int, from lo: Int, pause: Double,
+                                      nextText: String) -> Bool {
+        let next = nextText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if Self.japaneseContinuations.contains(next)
+            || Self.japaneseContinuationPrefixes.contains(where: { next.hasPrefix($0) }) {
+            return false
+        }
+        let tail = layout.text(of: max(lo, i - 7)..<(i + 1)).trimmingCharacters(in: .whitespaces)
+        for ending in Self.japaneseStrongEndings {
+            if tail.hasSuffix(ending) { return true }
+            for particle in Self.japaneseEndingParticles where tail.hasSuffix(ending + particle) {
+                return true
+            }
+        }
+        if pause >= 0.4, Self.japaneseSoftEndings.contains(where: { tail.hasSuffix($0) }) {
+            return true
+        }
+        return false
     }
 
     /// "Mr." "Dr." "U.S." のような略語か(直前が 3 文字以下の大文字始まりの英字)
@@ -849,23 +904,37 @@ struct SubtitleSegmenter {
 
     // MARK: - 短い断片の結合
 
-    private func mergeShortPieces(_ pieces: [Range<Int>], layout: Layout) -> [Range<Int>] {
-        var merged: [Range<Int>] = []
+    private func mergeShortPieces(_ pieces: [Piece], layout: Layout) -> [Range<Int>] {
+        var merged: [Piece] = []
         for piece in pieces {
-            guard let current = trimmed(piece, layout) else { continue }
+            guard let current = trimmed(piece.range, layout) else { continue }
             if let last = merged.last {
-                let gap = layout.starts[current.lowerBound] - layout.ends[last.upperBound - 1]
-                if (isShort(last, layout) || isShort(current, layout)), gap < mergeGap {
-                    let combined = last.lowerBound..<current.upperBound
-                    if fitsLimits(combined, layout) {
-                        merged[merged.count - 1] = combined
-                        continue
-                    }
+                let gap = layout.starts[current.lowerBound] - layout.ends[last.range.upperBound - 1]
+                let shouldMerge: Bool
+                if !isJapanese {
+                    // 英語などは認識結果に句読点が付くので、これまでどおり短い断片だけつなぐ
+                    shouldMerge = (isShort(last.range, layout) || isShort(current, layout)) && gap < mergeGap
+                } else if last.endsSentence {
+                    // 訳しやすいよう 1 字幕 1 文。文と文は「はい」などのごく短いものだけつなぐ
+                    shouldMerge = (isTiny(last.range, layout) || isTiny(current, layout)) && gap < mergeGap
+                } else {
+                    // 言いよどみなどで文の途中で分かれた断片は、同じ文としてつなぐ
+                    shouldMerge = gap < longPause * 2
+                }
+                let combined = last.range.lowerBound..<current.upperBound
+                if shouldMerge, fitsLimits(combined, layout) {
+                    merged[merged.count - 1] = Piece(range: combined, endsSentence: piece.endsSentence)
+                    continue
                 }
             }
-            merged.append(current)
+            merged.append(Piece(range: current, endsSentence: piece.endsSentence))
         }
-        return merged
+        return merged.map(\.range)
+    }
+
+    /// 「はい」「うん」くらいのごく短い断片
+    private func isTiny(_ range: Range<Int>, _ layout: Layout) -> Bool {
+        characterCount(range, layout) < 4
     }
 
     // MARK: - 仕上げ
