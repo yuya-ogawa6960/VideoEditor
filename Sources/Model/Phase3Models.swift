@@ -425,12 +425,12 @@ enum CaptionTemplate: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .plain: return String(localized: "標準")
-        case .karaoke: return String(localized: "カラオケ(単語が光る)")
-        case .boxPop: return String(localized: "単語ごとに箱がポップ")
-        case .outlineBig: return String(localized: "太い縁取り(大)")
-        case .pillHighlight: return String(localized: "丸い帯でハイライト")
-        case .typewriter: return String(localized: "タイプライター")
+        case .plain: return String(localized: "シンプル")
+        case .karaoke: return String(localized: "カラオケ")
+        case .boxPop: return String(localized: "ポップ")
+        case .outlineBig: return String(localized: "太縁")
+        case .pillHighlight: return String(localized: "マーカー")
+        case .typewriter: return String(localized: "タイプ")
         }
     }
 }

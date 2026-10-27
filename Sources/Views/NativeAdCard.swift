@@ -5,8 +5,16 @@ import GoogleMobileAds
 // =====================================================================
 // ネイティブ広告(AdMob ネイティブアドバンス)のカード。
 // 処理中の画面(書き出し中・字幕の自動作成中)、AI 処理中のカード、書き出し完了画面に出す。
-// 広告が届く前から同じ大きさの枠を取っておく(届いたときに近くのボタンが動いて押し間違えないように)。
+// 作業中のカードでは、広告が届く前から同じ大きさの枠を取っておく(届いたときに近くのボタンが動いて押し間違えないように)。
+// 10 秒たっても届かなければ枠を透明にする(大きさは保つので、ボタンは動かない。灰色の空の箱を残さない)。
+// 完成画面では枠を取らず、届いてから出す(共有ボタンより下に置くので、出ても共有ボタンは動かない)。
+// 行動ボタンはアプリのボタン(緑→青)と見分けられるよう、色を付けない。
 // =====================================================================
+
+/// 広告が届かないとき、枠を透明にするまでの時間
+private let nativeAdPlaceholderTimeout: Duration = .seconds(10)
+/// 広告の行動ボタンの色(アプリのブランド色は使わない)
+private let nativeAdActionColor = UIColor(white: 1, alpha: 0.15)
 
 /// ネイティブ広告を 1 件ずつ先読みして配る
 @MainActor
@@ -102,26 +110,39 @@ extension NativeAdProvider: NativeAdLoaderDelegate {
     }
 }
 
-/// SwiftUI に置くネイティブ広告のカード(高さ 72)。届く前から同じ高さの枠を取る
+/// SwiftUI に置くネイティブ広告のカード(高さ 72)
 struct NativeAdCard: View {
+    /// 届く前から高さ 72 の枠を取るか。false なら届くまで高さ 0(何も出さない)
+    var reservesSpace: Bool = true
+
     @State private var ad: NativeAd?
+    /// 待っても届かなかった(枠を透明にする)
+    @State private var timedOut = false
 
     var body: some View {
-        // 広告が届くまでも同じ大きさの枠を置いておく(.onAppear を呼ばせるため、そして届いたときに下のボタンが動かないため)
+        // Color.clear は .onAppear を呼ばせるため(中身が空だと呼ばれない)
         ZStack {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white.opacity(0.08))
+            Color.clear
+            if ad != nil || (reservesSpace && !timedOut) {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.white.opacity(0.08))
+            }
             if let ad {
                 NativeAdRepresentable(ad: ad)
             }
         }
-        .frame(height: 72)
+        .frame(height: (ad != nil || reservesSpace) ? 72 : 0)
         .frame(maxWidth: .infinity)
         .onAppear {
             guard ad == nil else { return }
             NativeAdProvider.shared.request { received in
                 ad = received
             }
+        }
+        .task {
+            try? await Task.sleep(for: nativeAdPlaceholderTimeout)
+            guard !Task.isCancelled, ad == nil else { return }
+            withAnimation { timedOut = true }
         }
     }
 }
@@ -162,7 +183,7 @@ private struct NativeAdRepresentable: UIViewRepresentable {
         let action = UIButton(type: .system)
         action.titleLabel?.font = .systemFont(ofSize: 12, weight: .bold)
         action.setTitleColor(.white, for: .normal)
-        action.backgroundColor = UIColor(red: 0.12, green: 0.42, blue: 0.78, alpha: 1)
+        action.backgroundColor = nativeAdActionColor
         action.layer.cornerRadius = 12
         action.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
         // 押したときの処理は SDK が行う
@@ -222,15 +243,20 @@ private struct NativeAdRepresentable: UIViewRepresentable {
 // MARK: - 大きめのネイティブ広告(作業中のカードの上)
 
 /// 作業中のカードの上に出す大きめのネイティブ広告(メディア + アイコン + 見出し + ボタン)。幅 300・高さ 196。
-/// 届く前から同じ大きさの枠を取る(入るかどうかの判定と、カードの位置が途中で変わらないように)
+/// 届く前から同じ大きさの枠を取る(入るかどうかの判定と、カードの位置が途中で変わらないように)。
+/// 届かなければ 10 秒で枠を透明にする(大きさは保つ)
 struct NativeAdPanel: View {
     @State private var ad: NativeAd?
+    @State private var timedOut = false
 
     var body: some View {
         // NativeAdCard と同じく、広告が届くまでも同じ大きさの枠を置いて .onAppear を呼ばせる
         ZStack {
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(white: 0.1, opacity: 0.92))
+            Color.clear
+            if ad != nil || !timedOut {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(white: 0.1, opacity: 0.92))
+            }
             if let ad {
                 NativeAdPanelRepresentable(ad: ad)
             }
@@ -241,6 +267,11 @@ struct NativeAdPanel: View {
             NativeAdProvider.shared.request { received in
                 ad = received
             }
+        }
+        .task {
+            try? await Task.sleep(for: nativeAdPlaceholderTimeout)
+            guard !Task.isCancelled, ad == nil else { return }
+            withAnimation { timedOut = true }
         }
     }
 }
@@ -286,7 +317,7 @@ private struct NativeAdPanelRepresentable: UIViewRepresentable {
         let action = UIButton(type: .system)
         action.titleLabel?.font = .systemFont(ofSize: 12, weight: .bold)
         action.setTitleColor(.white, for: .normal)
-        action.backgroundColor = UIColor(red: 0.12, green: 0.42, blue: 0.78, alpha: 1)
+        action.backgroundColor = nativeAdActionColor
         action.layer.cornerRadius = 12
         action.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
         // 押したときの処理は SDK が行う

@@ -23,7 +23,10 @@ import ImageIO
 // 1.5 の追加:
 //   onSelect を渡すと、プレビューのタップで「今の時刻に表示中」のテキスト・ステッカー・
 //   オーバーレイを上にあるものから当たり判定して選ぶ。何も無い所のタップは、
-//   未選択なら再生位置のクリップを選び、選択中なら選択を外す。
+//   選択中なら選択を外し、未選択なら再生/停止する。
+//   onEditSelected を渡すと、選択中のテキスト(ステッカー・モザイク)の枠のタップで編集を開く。
+//   縦長(9:16 前後)の映像では、テキスト・オーバーレイをドラッグしている間だけ
+//   TikTok・リールのボタンや説明文に隠れる範囲(VerticalSafeArea)を薄く重ね、その境目に吸い付ける。
 //   player を渡すと、ドラッグ・ピンチ・回転の間 player.beginInteraction() / endInteraction() で
 //   合成の作り直しを止める(その間は映像が古いままなので、点線の枠に半透明の代わりの絵を描いて動きを見せる)。
 //   初回だけ「ドラッグで移動・2本指で拡大/回転」の案内を出す。
@@ -76,6 +79,8 @@ final class PreviewGestureSession {
     var rotateUnlocked = false
     /// いま吸い付いている角度(nil = 吸い付いていない)。吸い付いた瞬間だけ振動させるために持つ
     var snappedRotation: Double? = nil
+    /// 縦動画の隠れやすい範囲の境目に吸い付いているか
+    var safeEdgeSnapped = false
 
     // ジェスチャーの生の値と、その基準(別のジェスチャーが終わったときに合わせ直す)
     var rawDrag = CGSize.zero
@@ -131,6 +136,8 @@ struct PreviewGestureOverlay: View {
     /// 渡すとプレビューのタップで選択を変える(nil を渡されたら選択解除)。
     /// nil のままならタップは下(プレビューの再生/停止)に通す
     var onSelect: ((EditorSelection?) -> Void)? = nil
+    /// 選択中のテキスト(ステッカー・モザイク)の枠をタップしたときに呼ぶ(文字の編集を開く)
+    var onEditSelected: ((EditorSelection) -> Void)? = nil
 
     @State private var session = PreviewGestureSession()
     /// 範囲選択中の四角(ビュー座標)
@@ -149,6 +156,8 @@ struct PreviewGestureOverlay: View {
     @GestureState private var previewPinchLive = false
     /// ドラッグ中、中心が映像の中央に吸い付いているか(x = 縦線、y = 横線を出す)
     @State private var snapGuide: (x: Bool, y: Bool) = (false, false)
+    /// ドラッグ中の中心が、縦動画で隠れやすい範囲に入っているか
+    @State private var safeAreaWarning = false
     /// 「ドラッグで移動・2本指で拡大/回転」の案内を出し終えたか(初回だけ出す)
     @AppStorage("ux15.previewGestureCoachShown") private var coachShown = false
 
@@ -183,7 +192,8 @@ struct PreviewGestureOverlay: View {
          maskTarget: PreviewMaskTarget? = nil,
          rectSelection: PreviewRectSelection? = nil,
          player: PlayerController? = nil,
-         onSelect: ((EditorSelection?) -> Void)? = nil) {
+         onSelect: ((EditorSelection?) -> Void)? = nil,
+         onEditSelected: ((EditorSelection) -> Void)? = nil) {
         self.project = project
         self.history = history
         self.selection = selection
@@ -191,6 +201,7 @@ struct PreviewGestureOverlay: View {
         self.rectSelection = rectSelection
         self.player = player
         self.onSelect = onSelect
+        self.onEditSelected = onEditSelected
     }
 
     var body: some View {
@@ -204,6 +215,12 @@ struct PreviewGestureOverlay: View {
                 } else {
                     if onSelect != nil {
                         tapCatcher(size: size)
+                    }
+                    if Self.isTallCanvas(size) {
+                        let showsBands = showsSafeArea(size: size)
+                        safeAreaBands(size: size)
+                            .opacity(showsBands ? 1 : 0)
+                            .animation(.easeOut(duration: 0.15), value: showsBands)
                     }
                     snapGuides(size: size)
                     if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
@@ -312,15 +329,12 @@ struct PreviewGestureOverlay: View {
             }
             return
         }
-        // 何も無い所: 選択中なら外す、未選択なら再生位置のクリップを選ぶ
+        // 何も無い所: 選択中なら外す、未選択なら再生/停止
         if selection != nil {
             onSelect(nil)
             return
         }
-        guard let located = project.locate(timelineTime: time),
-              located.index >= 0, located.index < project.clips.count else { return }
-        UISelectionFeedbackGenerator().selectionChanged()
-        onSelect(.clip(project.clips[located.index].id))
+        player?.togglePlay()
     }
 
     /// 今の時刻に表示中のテキスト・ステッカー・オーバーレイを上から順に当たり判定する。
@@ -927,8 +941,9 @@ struct PreviewGestureOverlay: View {
         .gesture(textDragGesture(binding, size: size).updating($gestureLive) { _, state, _ in
             state = true
         })
-        // 選択中の枠のタップは下(再生/停止や選択解除)に通さない
-        .gesture(TapGesture().onEnded { }, including: onSelect != nil ? .gesture : .none)
+        // 選択中の枠のタップは下(再生/停止や選択解除)に通さず、文字の編集を開く
+        .gesture(TapGesture().onEnded { onEditSelected?(.text(clip.id)) },
+                 including: onSelect != nil ? .gesture : .none)
         .rotationEffect(.degrees(placed.rotation))
         .position(x: rect.midX, y: rect.midY)
     }
@@ -1192,6 +1207,70 @@ struct PreviewGestureOverlay: View {
         }
     }
 
+    // MARK: - 縦動画の隠れやすい範囲(TikTok・リールの右のボタン列と下の説明文)
+
+    /// 縦長(9:16 前後)の映像か
+    private static func isTallCanvas(_ size: CGSize) -> Bool {
+        size.width > 0 && size.height >= size.width * 1.6
+    }
+
+    /// テキスト(モザイク以外)かオーバーレイの枠をドラッグしている間だけ出す
+    private func showsSafeArea(size: CGSize) -> Bool {
+        guard gestureLive, Self.isTallCanvas(size) else { return false }
+        if let id = selection?.textID {
+            return project.textClips.first(where: { $0.id == id })?.isMosaic == false
+        }
+        return selection?.overlayID != nil
+    }
+
+    /// 隠れやすい範囲を薄く塗る(中心が入ると少し濃く、黄色寄りにする)
+    private func safeAreaBands(size: CGSize) -> some View {
+        let fill: Color = safeAreaWarning ? Color.yellow.opacity(0.22) : Color.white.opacity(0.10)
+        let top: CGFloat = CGFloat(VerticalSafeArea.topEdge) * size.height
+        let bottom: CGFloat = CGFloat(VerticalSafeArea.bottomEdge) * size.height
+        let right: CGFloat = CGFloat(VerticalSafeArea.rightEdge) * size.width
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(fill)
+                .frame(width: size.width, height: top)
+            Rectangle().fill(fill)
+                .frame(width: max(size.width - right, 0), height: max(bottom - top, 0))
+                .offset(x: right, y: top)
+            Rectangle().fill(fill)
+                .frame(width: size.width, height: max(size.height - bottom, 0))
+                .offset(y: bottom)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    /// 縦長の映像では、隠れやすい範囲の境目から 8 pt 以内に来た中心を境目に吸い付ける。
+    /// 範囲に入った瞬間と吸い付いた瞬間に軽く振動する
+    private func safeAreaAdjusted(_ center: NormalizedPoint, size: CGSize) -> NormalizedPoint {
+        guard session.dragActive, Self.isTallCanvas(size) else { return center }
+        var c = center
+        var snapped = false
+        if abs(CGFloat(c.y - VerticalSafeArea.bottomEdge)) * size.height <= Self.centerSnapDistance {
+            c.y = VerticalSafeArea.bottomEdge
+            snapped = true
+        } else if abs(CGFloat(c.y - VerticalSafeArea.topEdge)) * size.height <= Self.centerSnapDistance {
+            c.y = VerticalSafeArea.topEdge
+            snapped = true
+        }
+        if abs(CGFloat(c.x - VerticalSafeArea.rightEdge)) * size.width <= Self.centerSnapDistance {
+            c.x = VerticalSafeArea.rightEdge
+            snapped = true
+        }
+        let unsafe = VerticalSafeArea.isUnsafe(c)
+        if (snapped && !session.safeEdgeSnapped) || (unsafe && !safeAreaWarning) {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        session.safeEdgeSnapped = snapped
+        if safeAreaWarning != unsafe {
+            safeAreaWarning = unsafe
+        }
+        return c
+    }
+
     // MARK: - 吸い付き(中央の位置・0 / 90 / 180 度)
 
     /// 中央に吸い付いている間の細い線(縦 = x、横 = y)
@@ -1216,6 +1295,7 @@ struct PreviewGestureOverlay: View {
     /// ドラッグの始まりで、すでに中央にある軸は「吸い付き済み」にしておく(始めた瞬間に振動させない)
     private func seedSnapGuides(size: CGSize) {
         let c = session.startCenter
+        session.safeEdgeSnapped = false
         snapGuide = (abs(CGFloat(c.x - 0.5)) * size.width <= Self.centerSnapDistance,
                      abs(CGFloat(c.y - 0.5)) * size.height <= Self.centerSnapDistance)
     }
@@ -1224,11 +1304,15 @@ struct PreviewGestureOverlay: View {
         if snapGuide.x || snapGuide.y {
             snapGuide = (false, false)
         }
+        if safeAreaWarning {
+            safeAreaWarning = false
+        }
     }
 
     /// ドラッグ中、中心が映像の中央(0.5)から 8 pt 以内なら縦・横それぞれ別に吸い付ける。
-    /// 吸い付いている軸は細い線で示し、吸い付いた瞬間に 1 回だけ振動する
-    private func snappedCenter(_ center: NormalizedPoint, size: CGSize) -> NormalizedPoint {
+    /// 吸い付いている軸は細い線で示し、吸い付いた瞬間に 1 回だけ振動する。
+    /// guardsSafeArea のときは縦動画の隠れやすい範囲の境目にも吸い付く
+    private func snappedCenter(_ center: NormalizedPoint, size: CGSize, guardsSafeArea: Bool = true) -> NormalizedPoint {
         guard session.dragActive else { return center }
         var c = center
         let snapX = abs(CGFloat(c.x - 0.5)) * size.width <= Self.centerSnapDistance
@@ -1241,7 +1325,7 @@ struct PreviewGestureOverlay: View {
         if snapGuide.x != snapX || snapGuide.y != snapY {
             snapGuide = (snapX, snapY)
         }
-        return c
+        return guardsSafeArea ? safeAreaAdjusted(c, size: size) : c
     }
 
     /// ちょうど 0 / ±90 / 180 にあるならその角度(吸い付き済みとして扱う)
@@ -1393,7 +1477,8 @@ struct PreviewGestureOverlay: View {
         let d = session.effectiveDrag
         let cx = session.startCenter.x + Double(d.width / max(size.width, 1))
         let cy = session.startCenter.y + Double(d.height / max(size.height, 1))
-        let center = snappedCenter(NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25)), size: size)
+        let center = snappedCenter(NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25)),
+                                   size: size, guardsSafeArea: !clip.isMosaic)
         var scale = min(max(session.startScale * Double(session.effectiveMagnify), 0.2), 6)
         let rotation = rotationWithSnap(start: session.startRotation, delta: session.effectiveRotate)
         if session.keyed != nil, clip.isMosaic {

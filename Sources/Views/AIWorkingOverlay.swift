@@ -88,6 +88,8 @@ struct AIWorkingCard: View {
     let noteIcon: String
     /// カードの中に小さな広告を入れる(上に大きな広告を出せないときだけ)
     let inlineAd: Bool
+    /// 上のコマに「AI が見ています」・赤い点・走査線を付けるか(書き出しでは付けず、作品の形のまま見せる)
+    let showsScanning: Bool
     /// 上に出すコマ(nil なら解析中に AI が見ているコマ)と、その上の札の文
     let peekImage: CGImage?
     let peekLabel: String?
@@ -108,6 +110,7 @@ struct AIWorkingCard: View {
         note = BackgroundWorkNote.analysis
         noteIcon = BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle"
         self.inlineAd = inlineAd
+        showsScanning = true
         peekImage = nil
         peekLabel = nil
         robot = progress.robot
@@ -118,6 +121,7 @@ struct AIWorkingCard: View {
     /// 書き出し・字幕の自動作成など、タイトルと進み具合を直接渡す
     init(title: String, fraction: Double?, detail: String? = nil,
          note: String, noteIcon: String, inlineAd: Bool = true,
+         showsScanning: Bool = true,
          peekImage: CGImage? = nil, peekLabel: String? = nil,
          robot: RobotAnimation = .workshop, secondaryAction: WorkingCardAction? = nil,
          onCancel: (() -> Void)?) {
@@ -127,6 +131,7 @@ struct AIWorkingCard: View {
         self.note = note
         self.noteIcon = noteIcon
         self.inlineAd = inlineAd
+        self.showsScanning = showsScanning
         self.peekImage = peekImage
         self.peekLabel = peekLabel
         self.robot = robot
@@ -137,8 +142,12 @@ struct AIWorkingCard: View {
     var body: some View {
         VStack(spacing: 14) {
             if let frame = peekImage ?? peek.frame {
-                AIScanningFrame(image: frame, label: peekLabel ?? String(localized: "AI が見ています"))
-                    .frame(height: 150)
+                if showsScanning {
+                    AIScanningFrame(image: frame, label: peekLabel ?? String(localized: "AI が見ています"))
+                        .frame(height: 150)
+                } else {
+                    PlainPeekFrame(image: frame)
+                }
             }
             RobotWorkshop(clip: robot)
 
@@ -173,7 +182,8 @@ struct AIWorkingCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if inlineAd {
-                // 届く前から同じ高さ(72)の枠を取るので、広告が届いても下のボタンは動かない(NativeAdCard.swift)
+                // 届く前から同じ高さ(72)の枠を取るので、広告が届いても下のボタンは動かない。
+                // 届かなければ枠は透明になる(高さは保つので、キャンセルの位置は変わらない。NativeAdCard.swift)
                 NativeAdCard()
             }
             Label(note, systemImage: noteIcon)
@@ -270,6 +280,36 @@ struct WorkingCardWithAd<Card: View>: View {
             }
             card(true)
         }
+    }
+}
+
+/// 書き出し中のコマ。切り取らず、作品の形のまま見せる(縦なら縦長の枠)
+struct PlainPeekFrame: View {
+    let image: CGImage
+
+    /// 横向き(高さが足りない)ではカードが画面からはみ出さないよう低くする
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var boxSize: CGSize {
+        let w = CGFloat(image.width)
+        let h = CGFloat(image.height)
+        let maxHeight: CGFloat = verticalSizeClass == .compact ? 110 : 200
+        guard w > 0, h > 0 else { return CGSize(width: 260, height: min(146, maxHeight)) }
+        let aspect = w / h
+        if aspect < 1 {
+            return CGSize(width: maxHeight * aspect, height: maxHeight)
+        }
+        let width = min(260, maxHeight * aspect)
+        return CGSize(width: width, height: width / aspect)
+    }
+
+    var body: some View {
+        let size = boxSize
+        Image(decorative: image, scale: 1)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size.width, height: size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -379,6 +419,9 @@ struct RobotAnimation: Sendable, Equatable {
                                               size: CGSize(width: 292, height: 254), height: 170)
     static let exportComplete = RobotAnimation(prefix: "robot_export_done", frameCount: 30, fps: 12,
                                                size: CGSize(width: 344, height: 318), height: 160, loops: false)
+    /// 書き出し完了の小さい版(完成した動画の下で、完了の文字の横に置く)
+    static let exportCompleteSmall = RobotAnimation(prefix: "robot_export_done", frameCount: 30, fps: 12,
+                                                    size: CGSize(width: 344, height: 318), height: 48, loops: false)
     static let subtitlesComplete = RobotAnimation(prefix: "robot_sub_done", frameCount: 24, fps: 12,
                                                   size: CGSize(width: 235, height: 254), height: 150, loops: false)
 
@@ -479,7 +522,7 @@ struct TranscriptionWorkingOverlay: View {
             Color.black.opacity(0.55)
                 .ignoresSafeArea()
             WorkingCardWithAd { inlineAd in
-                AIWorkingCard(title: String(localized: "字幕を作っています"),
+                AIWorkingCard(title: String(localized: "キャプションを作っています"),
                               fraction: fraction,
                               detail: status.isEmpty ? nil : status,
                               note: BackgroundWorkNote.transcription,

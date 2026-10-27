@@ -26,6 +26,21 @@ enum EditorHaptics {
     }
 }
 
+/// ツールバーのボタンを長押ししたときのメニューの 1 項目
+struct EditorToolMenuEntry: Identifiable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    init(_ title: String, systemImage: String, action: @escaping () -> Void) {
+        self.id = title
+        self.title = title
+        self.systemImage = systemImage
+        self.action = action
+    }
+}
+
 /// ツールバーの 1 ボタン
 struct EditorToolItem: Identifiable {
     enum Kind {
@@ -54,6 +69,8 @@ struct EditorToolItem: Identifiable {
     /// 使えないときにタップすると出す理由
     let disabledReason: String?
     let kind: Kind
+    /// 長押しで出すメニュー(.action の項目だけ。空なら出さない)
+    private(set) var menu: [EditorToolMenuEntry] = []
 
     init(_ title: String, systemImage: String, id: String? = nil, destructive: Bool = false,
          enabled: Bool = true, disabledReason: String? = nil, action: @escaping () -> Void) {
@@ -130,6 +147,13 @@ struct EditorToolItem: Identifiable {
     static func section(_ title: String) -> EditorToolItem {
         EditorToolItem(id: "section-\(title)", title: title, systemImage: "", enabled: true,
                        disabledReason: nil, kind: .section)
+    }
+
+    /// 長押しのメニューを付けたコピー
+    func withMenu(_ entries: [EditorToolMenuEntry]) -> EditorToolItem {
+        var copy = self
+        copy.menu = entries
+        return copy
     }
 
     var isGroup: Bool {
@@ -241,7 +265,13 @@ struct EditorToolbar: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 78)
-        .background(Color(white: 0.07))
+        // 下の動画が透けないよう、黒の上に面の色を重ねる
+        .background {
+            ZStack {
+                Color.black
+                BrandStyle.surface
+            }
+        }
     }
 
     private func goBack() {
@@ -278,13 +308,26 @@ struct EditorToolbar: View {
     private func enabledCell(_ item: EditorToolItem) -> some View {
         switch item.kind {
         case .action(let action):
-            Button {
+            let button = Button {
                 EditorHaptics.tap()
                 action()
             } label: {
                 label(item)
             }
             .buttonStyle(.plain)
+            if item.menu.isEmpty {
+                button
+            } else {
+                button.contextMenu {
+                    ForEach(item.menu) { entry in
+                        Button {
+                            entry.action()
+                        } label: {
+                            Label(entry.title, systemImage: entry.systemImage)
+                        }
+                    }
+                }
+            }
         case .group:
             Button {
                 EditorHaptics.tap()
@@ -373,18 +416,28 @@ struct EditorToolbar: View {
         }
     }
 
+    /// 小見出し。名前が空なら区切り線だけ
+    @ViewBuilder
     private func sectionLabel(_ item: EditorToolItem) -> some View {
-        HStack(spacing: 6) {
+        if item.title.isEmpty {
             Rectangle()
                 .fill(Color.white.opacity(0.2))
                 .frame(width: 1, height: 32)
-            Text(item.title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.55))
-                .fixedSize()
+                .padding(.horizontal, 6)
+                .accessibilityHidden(true)
+        } else {
+            HStack(spacing: 6) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: 1, height: 32)
+                Text(item.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.55))
+                    .fixedSize()
+            }
+            .padding(.horizontal, 6)
+            .accessibilityAddTraits(.isHeader)
         }
-        .padding(.horizontal, 6)
-        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -457,7 +510,12 @@ struct EditorToastView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, toast.canUndo ? 0 : 12)
-        .background(Color(white: 0.18).opacity(0.96), in: Capsule())
+        .background {
+            // 動画の上に出るので、黒で下地を作ってから面の色を重ねる
+            Capsule()
+                .fill(Color.black.opacity(0.92))
+                .overlay(Capsule().fill(BrandStyle.surfaceStrong))
+        }
         .shadow(color: Color.black.opacity(0.4), radius: 8, y: 2)
         .padding(.horizontal, 16)
     }
@@ -509,7 +567,7 @@ struct EditorModeBadge: View {
             .foregroundStyle(Color.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(Capsule().fill(Color.white.opacity(0.18)))
+            .background(Capsule().fill(BrandStyle.surfaceStrong))
             .opacity(isVisible ? 1 : 0)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
@@ -533,7 +591,6 @@ enum EditorToolLabel {
         "カラー補正": "カラー\n補正",
         "カラースコープ": "カラー\nスコープ",
         "HSL セカンダリ": "HSL\nセカンダリ",
-        "LUT を参照": "LUT\nを参照",
         "速度・デュレーション": "速度・\nデュレーション",
         "タイムリマップ": "タイム\nリマップ",
         "ボイスオーバー録音": "ボイスオーバー\n録音",
@@ -566,6 +623,8 @@ enum EditorToolLabel {
         "位置・サイズ": "位置・\nサイズ",
         "表示する時間": "表示する\n時間",
         "逆再生を解除": "逆再生を\n解除",
+        "トリミングを解除": "トリミング\nを解除",
+        "ファイルから追加": "ファイル\nから追加",
         "曲を変更": "曲を\n変更",
         "文字を直す": "文字を\n直す",
         "オーバーレイ": "オーバー\nレイ"

@@ -34,7 +34,7 @@ private struct DocumentaryTextFieldRow: View {
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .padding(8)
-                .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                .background(BrandStyle.surfaceStrong, in: RoundedRectangle(cornerRadius: BrandStyle.Radius.chip))
         }
     }
 }
@@ -69,15 +69,15 @@ private struct DocumentaryListRow: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(isSelected ? Color.white : Color.white.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: 8))
+            .background(isSelected ? Color.white : BrandStyle.surface,
+                        in: RoundedRectangle(cornerRadius: BrandStyle.Radius.chip))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 }
 
-/// 「再生位置に移動」「削除」の 2 ボタン行
+/// 「再生位置から始める」「削除」の 2 ボタン行
 private struct DocumentaryActionRow: View {
     let onMoveToPlayhead: () -> Void
     let onDelete: () -> Void
@@ -88,12 +88,12 @@ private struct DocumentaryActionRow: View {
                 EditorHaptics.tap()
                 onMoveToPlayhead()
             } label: {
-                Label("再生位置に移動", systemImage: "arrow.right.to.line")
+                Label("再生位置から始める", systemImage: "arrow.right.to.line")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.white.opacity(0.12), in: Capsule())
+                    .background(BrandStyle.surfaceStrong, in: Capsule())
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
@@ -199,7 +199,7 @@ struct EditorDocumentaryPanel: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
                     .frame(maxWidth: .infinity)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card))
                 }
                 .buttonStyle(.plain)
 
@@ -283,11 +283,9 @@ struct EditorDocumentaryPanel: View {
                         } preview: {
                             HStack(spacing: 0) {
                                 DocumentaryFrameTile(image: previews.base)
-                                    .frame(width: 28, height: 44)
                                     .clipped()
-                                Color.black.frame(width: 8, height: 44)
+                                Color.black.frame(width: 8)
                                 DocumentaryFrameTile(image: previews.base)
-                                    .frame(width: 28, height: 44)
                                     .clipped()
                             }
                         }
@@ -438,13 +436,13 @@ enum DocumentaryPreviewSource {
     }
 }
 
-/// 見本のタイル(64 × 44 に切り抜いた 1 コマ)
+/// 見本のタイル(1 コマ)。EditorVisualTile の枠(縦長)いっぱいに切り抜く
 private struct DocumentaryFrameTile: View {
     let image: UIImage?
 
     var body: some View {
         ZStack {
-            Color(white: 0.16)
+            BrandStyle.surfaceStrong
             if let image {
                 Image(uiImage: image)
                     .resizable()
@@ -455,7 +453,7 @@ private struct DocumentaryFrameTile: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: 64, height: 44)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
     }
 }

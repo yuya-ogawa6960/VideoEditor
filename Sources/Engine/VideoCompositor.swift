@@ -489,6 +489,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                 frame = image.composited(over: frame)
             }
 
+            // 1.5 モザイク / ぼかし(元の映像だけ。この上に重なるオーバーレイ・文字・キャプションにはかけない)
+            frame = MosaicRenderer.apply(scene.textClips, to: frame, time: seconds, canvasSize: size)
+
             // 2. Bロール / ワイプ / 写真(メイン映像とルックの後、質感・テロップ・字幕・黒帯・フェードの前)
             if !scene.mediaOverlays.isEmpty {
                 frame = OverlayRenderer.draw(scene.mediaOverlays,
@@ -497,9 +500,6 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                                              request: request,
                                              canvasSize: size)
             }
-
-            // 2.5 モザイク / ぼかし(映像とオーバーレイだけにかける。文字や字幕はこの後に重なる)
-            frame = MosaicRenderer.apply(scene.textClips, to: frame, time: seconds, canvasSize: size)
 
             // 3. 周辺減光 → フィルム粒子 → 章タイトル / テロップ
             frame = DocumentaryRenderer.applyTexture(frame, time: seconds, info: documentary, canvasSize: size)

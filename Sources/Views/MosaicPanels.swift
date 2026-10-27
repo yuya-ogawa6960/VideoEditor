@@ -43,17 +43,6 @@ struct EditorMosaicPanel: View {
     var body: some View {
         let shown = shownValue
         VStack(alignment: .leading, spacing: 14) {
-            Text("位置と大きさはプレビューの枠をドラッグ・ピンチで調整")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.white.opacity(0.6))
-                .fixedSize(horizontal: false, vertical: true)
-            if isKeyed {
-                Text("キーフレームがあるので、回転は再生位置での値を変えます")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
             Picker("かけ方", selection: style.kind) {
                 ForEach(MosaicKind.allCases) { kind in
                     Text(kind.displayName).tag(kind)
@@ -72,22 +61,21 @@ struct EditorMosaicPanel: View {
                             value: style.strength,
                             range: 0...1,
                             display: "\(Int((style.wrappedValue.strength * 100).rounded()))%")
-            // 回転はプレビューの枠の上のつまみ(ここでは微調整だけ)
+            // 回転はプレビューの枠の上のつまみか 2 本指。ここは 0° に戻すだけ
             HStack(spacing: 8) {
+                if isKeyed {
+                    Image(systemName: "diamond.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.white.opacity(0.6))
+                }
                 Text(String(localized: "回転 \(Int(shown.rotation.rounded()))°"))
                     .font(.caption)
                     .monospacedDigit()
                 Spacer()
-                EditorChip(title: "-15°", isSelected: false) { rotate(by: -15) }
-                EditorChip(title: "-1°", isSelected: false) { rotate(by: -1) }
-                EditorChip(title: "0°", isSelected: false) { updatePlacement { $0.rotation = 0 } }
-                EditorChip(title: "+1°", isSelected: false) { rotate(by: 1) }
-                EditorChip(title: "+15°", isSelected: false) { rotate(by: 15) }
+                if Int(shown.rotation.rounded()) != 0 {
+                    EditorChip(title: "0°", isSelected: false) { updatePlacement { $0.rotation = 0 } }
+                }
             }
-            Text("回転は枠の上のつまみか 2 本指で")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             Button("リセット") {
                 var reset = MosaicStyle()
@@ -102,11 +90,6 @@ struct EditorMosaicPanel: View {
             .font(.system(size: 14))
             .frame(minHeight: 44)
         }
-    }
-
-    /// 回転を delta 度だけ変える(-180 ... 180 に収める)
-    private func rotate(by delta: Double) {
-        updatePlacement { $0.rotation = Self.normalized($0.rotation + delta) }
     }
 
     /// 大きさ・回転を直す。キーフレームが無ければ基本の値に書く。
@@ -126,13 +109,6 @@ struct EditorMosaicPanel: View {
         // 書く時刻と再生位置がずれないように、再生中なら止める(プレビューの操作と同じ)
         if let player, player.isPlaying { player.pause() }
         clip.keyframes = KeyframeEditing.applying(value, from: start, at: time, to: clip.keyframes)
-    }
-
-    private static func normalized(_ degrees: Double) -> Double {
-        var d = degrees.truncatingRemainder(dividingBy: 360)
-        if d > 180 { d -= 360 }
-        if d < -180 { d += 360 }
-        return d
     }
 }
 

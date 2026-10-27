@@ -7,8 +7,12 @@ import SwiftUI
 // =====================================================================
 
 enum BrandStyle {
-    static let green = Color(red: 0.13, green: 0.58, blue: 0.40)
-    static let blue = Color(red: 0.12, green: 0.42, blue: 0.78)
+    /// 緑・青の数値(ステンドグラスの色の補間に使う)
+    static let greenRGB: (Double, Double, Double) = (0.13, 0.58, 0.40)
+    static let blueRGB: (Double, Double, Double) = (0.12, 0.42, 0.78)
+
+    static let green = Color(red: greenRGB.0, green: greenRGB.1, blue: greenRGB.2)
+    static let blue = Color(red: blueRGB.0, green: blueRGB.1, blue: blueRGB.2)
     static let orange = Color(red: 0.86, green: 0.47, blue: 0.13)
     static let pink = Color(red: 0.76, green: 0.19, blue: 0.33)
     static let coral = Color(red: 0.85, green: 0.33, blue: 0.27)
@@ -17,6 +21,38 @@ enum BrandStyle {
 
     static var gradient: LinearGradient {
         LinearGradient(colors: [green, blue], startPoint: .leading, endPoint: .trailing)
+    }
+}
+
+// MARK: - 角丸・面の色・選んでいる印(アプリ全体でそろえる)
+
+extension BrandStyle {
+    enum Radius {
+        /// チップ・小さいボタン
+        static let chip: CGFloat = 8
+        /// カード・見本タイル・パネル内の箱
+        static let card: CGFloat = 12
+        /// 大きい面
+        static let sheet: CGFloat = 16
+    }
+
+    /// カードやチップの面(暗い背景の上)
+    static let surface = Color.white.opacity(0.08)
+    /// 押せる面・強めの面
+    static let surfaceStrong = Color.white.opacity(0.14)
+}
+
+extension View {
+    /// 選んでいるものの印をアプリ全体でそろえる(白い 2pt の枠)
+    func brandSelected(_ isSelected: Bool, cornerRadius: CGFloat = BrandStyle.Radius.card) -> some View {
+        overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(Color.white, lineWidth: 2)
+                .opacity(isSelected ? 1 : 0)
+                // アニメーションは枠だけにかける(中の文字の太さなどまで動かさない)
+                .animation(.easeOut(duration: 0.15), value: isSelected)
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -212,8 +248,8 @@ struct FacetedBrandBackground: View {
 
     private static func color(x: Double, light: Double) -> Color {
         // 左の緑 → 右の青(ガラスごとの明暗は shades で付ける)
-        let a: (Double, Double, Double) = (0.13, 0.58, 0.40)
-        let b: (Double, Double, Double) = (0.12, 0.42, 0.78)
+        let a = BrandStyle.greenRGB
+        let b = BrandStyle.blueRGB
         let t = min(max(x, 0), 1)
         func channel(_ from: Double, _ to: Double) -> Double {
             min(max((from + (to - from) * t) * light, 0), 1)

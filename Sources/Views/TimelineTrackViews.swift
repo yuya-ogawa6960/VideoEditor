@@ -13,20 +13,20 @@ enum TimelineMetrics {
     /// 目盛り(上段にマーカーの旗、下段に時刻)
     static let rulerHeight: CGFloat = 26
     /// 重ね合わせ(Bロール / ワイプ / 写真)トラック
-    static let overlayHeight: CGFloat = 28
+    static let overlayHeight: CGFloat = 32
     static let videoHeight: CGFloat = 58
     /// 映像クリップの直下に出す J カット / L カットの音声バー用レーン
     static let splitAudioLaneHeight: CGFloat = 4
     /// V1 の下に出す、クリップの音の大きさの波形の段
     static let audioWaveLaneHeight: CGFloat = 26
     /// テキスト・ステッカートラック
-    static let textHeight: CGFloat = 26
+    static let textHeight: CGFloat = 32
     /// 手書きトラック
-    static let drawingHeight: CGFloat = 18
-    static let subtitleHeight: CGFloat = 28
-    static let audioHeight: CGFloat = 28
+    static let drawingHeight: CGFloat = 24
+    static let subtitleHeight: CGFloat = 32
+    static let audioHeight: CGFloat = 32
     /// ナレーショントラック
-    static let narrationHeight: CGFloat = 30
+    static let narrationHeight: CGFloat = 32
     /// 全トラックを並べたときの高さ
     /// (目盛り + 重ね合わせ + 映像 + テキスト + 手書き + 字幕 + BGM + ナレーション = 8 トラック、すき間 7 つ)
     static let totalHeight: CGFloat = topPadding + rulerHeight + overlayHeight + videoHeight + audioWaveLaneHeight + splitAudioLaneHeight
@@ -47,6 +47,10 @@ enum TimelineMetrics {
     static let overlayMaxStackDepth: Int = 3
     /// クリップ間のトランジションのバッジ(円)の直径
     static let transitionBadgeSize: CGFloat = 20
+    /// トランジションの無い切れ目に出す小さなボタンの大きさ
+    static let transitionAddSize: CGFloat = 16
+    /// 切れ目のボタンを指で押せる幅・高さ(隣のクリップが細いときは狭める)
+    static let transitionHitSize: CGFloat = 44
     /// マーカーの旗の高さ・旗竿の太さ・名前の最大幅
     static let markerFlagHeight: CGFloat = 12
     static let markerPoleWidth: CGFloat = 2
@@ -172,6 +176,16 @@ enum TimelineMetrics {
 
     /// テキストの段と段の間(pt)
     static let textLaneGap: CGFloat = 2
+
+    /// 段のタップの判定を上下に広げる量。トラックの上端・下端の段は行間の半分まで(見た目 32pt + 3 + 3 = 38pt)、
+    /// 同じトラックの段どうしは段の間の半分まで。隣のトラック・隣の段の判定とは重ねない。
+    /// row は上から数えた段の番号、rows はそのトラックの段数
+    static func laneHitInsets(row: Int, rows: Int) -> (top: CGFloat, bottom: CGFloat) {
+        let n = max(1, rows)
+        let top: CGFloat = row <= 0 ? trackSpacing / 2 : textLaneGap / 2
+        let bottom: CGFloat = row >= n - 1 ? trackSpacing / 2 : textLaneGap / 2
+        return (top, bottom)
+    }
 
     /// 時間が重なる要素を別の段に振り分ける(開始が早い順に、空いている一番上の段へ)。
     /// spans は (id, 開始, 終了) を元の並び順で渡す(開始が同じなら元の順)
@@ -432,7 +446,8 @@ struct TimelineClipItem: Identifiable {
     let isLifted: Bool
 }
 
-/// クリップ間のトランジションのバッジの配置(id はトランジションを持つ前側のクリップ)
+/// クリップ間の切れ目の配置(id はトランジションを持つ前側のクリップ)。
+/// isActive が false の切れ目には、トランジションを付ける小さなボタンを出す
 struct TimelineTransitionItem: Identifiable {
     let id: UUID
     let centerX: CGFloat
@@ -441,6 +456,29 @@ struct TimelineTransitionItem: Identifiable {
     let endX: CGFloat
     let seconds: Double
     let type: TransitionType
+    var isActive: Bool = true
+    /// 指で押せる幅(前後のクリップが細いときは、クリップのタップを残すため狭める)
+    var hitWidth: CGFloat = TimelineMetrics.transitionBadgeSize
+    /// 後ろ側のクリップ
+    var nextID: UUID? = nil
+}
+
+/// 段のタップの判定を上下に広げる形(見た目の高さは変えない)
+struct TimelineHitShape: Shape {
+    var top: CGFloat
+    var bottom: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX, y: rect.minY - top, width: rect.width, height: rect.height + top + bottom))
+    }
+}
+
+extension View {
+    /// 段のタップの判定を上下に広げる(TimelineMetrics.laneHitInsets)
+    func timelineLaneHitArea(row: Int, rows: Int) -> some View {
+        let insets = TimelineMetrics.laneHitInsets(row: row, rows: rows)
+        return contentShape(TimelineHitShape(top: insets.top, bottom: insets.bottom))
+    }
 }
 
 /// 字幕など、幅を持つ要素の配置
@@ -827,11 +865,32 @@ struct TimelineTransitionBadge: View {
     let type: TransitionType
     let isSelected: Bool
 
+    /// 種類ごとのアイコン(似たものはまとめる)
+    static func iconName(for type: TransitionType) -> String {
+        switch type {
+        case .dissolve: return "circle.lefthalf.filled"
+        case .fadeBlack: return "moon.fill"
+        case .fadeWhite, .flash, .lightLeak: return "sun.max.fill"
+        case .slideLeft, .whipLeft, .coverLeft: return "arrow.left"
+        case .slideRight, .whipRight, .coverRight: return "arrow.right"
+        case .slideUp: return "arrow.up"
+        case .slideDown: return "arrow.down"
+        case .zoomIn, .zoomBlur: return "plus.magnifyingglass"
+        case .zoomOut: return "minus.magnifyingglass"
+        case .wipeLeft, .wipeRight, .wipeUp, .wipeDown, .bars: return "rectangle.split.2x1"
+        case .blur: return "drop.fill"
+        case .irisOpen, .irisClose: return "circle.dashed"
+        case .spin, .swirl: return "arrow.clockwise"
+        case .glitch, .pixelate: return "square.grid.3x3.fill"
+        default: return "arrow.left.arrow.right"
+        }
+    }
+
     var body: some View {
         ZStack {
             Circle()
                 .fill(Color.white)
-            Image(systemName: "arrow.left.arrow.right")
+            Image(systemName: Self.iconName(for: type))
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(Color.black)
         }
@@ -843,6 +902,23 @@ struct TimelineTransitionBadge: View {
         .shadow(color: Color.black.opacity(0.5), radius: 2, x: 0, y: 1)
         .contentShape(Circle())
         .accessibilityLabel("トランジション: \(type.displayName)")
+    }
+}
+
+/// トランジションの無い切れ目に出す小さな白いボタン(縦の線 1 本)
+struct TimelineTransitionAddButton: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color.white.opacity(0.92))
+            .overlay {
+                Capsule()
+                    .fill(Color.black.opacity(0.75))
+                    .frame(width: 2, height: TimelineMetrics.transitionAddSize * 0.5)
+            }
+            .frame(width: TimelineMetrics.transitionAddSize, height: TimelineMetrics.transitionAddSize)
+            .shadow(color: Color.black.opacity(0.5), radius: 2, x: 0, y: 1)
+            .accessibilityLabel("トランジション")
+            .accessibilityAddTraits(.isButton)
     }
 }
 

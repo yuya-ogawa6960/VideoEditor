@@ -219,11 +219,12 @@ enum BackgroundWorkNote {
         return false
     }
 
+    /// 書き出し中のカードの 1 行(iOS 26 より前は、ホームに戻ると止まることだけ伝える)
     static var export: String {
         if canContinueInBackground {
-            return String(localized: "ホームに戻ったり画面をロックしても、\n書き出しは続きます。")
+            return String(localized: "ロックしても続きます")
         }
-        return String(localized: "書き出しが終わるまで、\nこのアプリを開いたままにしてください。\nホームに戻ると約30秒で止まります。\n画面は自動でロックされません。")
+        return String(localized: "ホームに戻ると止まります")
     }
 
     static var transcription: String {

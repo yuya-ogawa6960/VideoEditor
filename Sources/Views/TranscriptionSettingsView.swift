@@ -6,7 +6,7 @@ import UIKit
 //
 // - エンジン(Apple / Whisper / クラウドAI)の選択と説明
 // - Whisper モデルの選択・ダウンロード(進捗)・削除
-// - OpenAI API キー(Keychain 保存、保存後は末尾 4 文字のみ表示。ポイントで使っている間は折りたたむ)
+// - OpenAI API キー(Keychain 保存、保存後は末尾 4 文字のみ表示。いつも「自分の OpenAI キー」に折りたたむ)
 // - AI 仕上げの ON/OFF とエンジン
 // プライバシー・サポート用の情報は「設定」(AppSettingsView)にある。
 //
@@ -21,7 +21,7 @@ struct TranscriptionSettingsView: View {
     // API キー入力
     @State private var keyDraft: String = ""
     @State private var isEditingKey: Bool = false
-    /// ポイントで使っている間、自分のキーの欄を開いているか
+    /// 「自分の OpenAI キー」を開いているか
     @State private var showsOwnKey: Bool = false
     @State private var showsKeyDeleteConfirmation: Bool = false
 
@@ -62,6 +62,14 @@ struct TranscriptionSettingsView: View {
         .navigationTitle("文字起こしとAI仕上げ")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            // Whisper が入っていないビルドでは選べないので、前に選んでいたら Apple に戻す
+            if settings.transcriptionEngine == .whisper, !WhisperTranscriber.isAvailable {
+                settings.transcriptionEngine = .apple
+            }
+            // ポイントのサーバーが無いビルドでクラウドを選んでいて、キーがまだ無いときはキーの欄を開いておく
+            if !account.isAvailable, settings.transcriptionEngine == .cloud, !settings.hasOpenAIKey {
+                showsOwnKey = true
+            }
             refreshModelState()
             cachedTranscriptCount = TranscriptCache.shared.storedCount
             termCount = CaptionTermDictionary.load().count
@@ -139,7 +147,7 @@ struct TranscriptionSettingsView: View {
     private var engineSection: some View {
         Section {
             Picker("方式", selection: $settings.transcriptionEngine) {
-                ForEach(TranscriptionEngine.allCases) { engine in
+                ForEach(availableEngines) { engine in
                     Text(engine.displayName).tag(engine)
                 }
             }
@@ -149,12 +157,6 @@ struct TranscriptionSettingsView: View {
             EngineDescriptionView(engine: settings.transcriptionEngine)
                 .padding(.vertical, 4)
 
-            if settings.transcriptionEngine == .whisper, !WhisperTranscriber.isAvailable {
-                Label("このビルドには Whisper(WhisperKit)が含まれていません。別の方式を選んでください。",
-                      systemImage: "exclamationmark.triangle")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-            }
             if settings.transcriptionEngine == .cloud, !settings.isCloudConfigured {
                 Label(cloudNotConfiguredHint, systemImage: "key")
                     .font(.footnote)
@@ -167,15 +169,20 @@ struct TranscriptionSettingsView: View {
         }
     }
 
+    /// 選べる方式(Whisper が入っていないビルドでは出さない)
+    private var availableEngines: [TranscriptionEngine] {
+        TranscriptionEngine.allCases.filter { $0 != .whisper || WhisperTranscriber.isAvailable }
+    }
+
     /// クラウドAI を選んだのに使えないときの案内(サインイン・ポイントの設定・キーのどれで使えるようになるか)
     private var cloudNotConfiguredHint: String {
         if !account.isAvailable {
-            return String(localized: "クラウドAI を使うには下の API キーを設定してください。")
+            return String(localized: "下の「自分の OpenAI キー」を入れると使えます。")
         }
         if account.isSignedIn {
-            return String(localized: "クラウドAI を使うには「アカウントとポイント」でポイントを使う設定にするか、下に API キーを入れてください。")
+            return String(localized: "「アカウントとポイント」でポイントを使うか、下の「自分の OpenAI キー」を入れてください。")
         }
-        return String(localized: "クラウドAI を使うには、サインインするか下に API キーを入れてください。")
+        return String(localized: "サインインするか、下の「自分の OpenAI キー」を入れてください。")
     }
 
     // MARK: - Whisper
@@ -184,7 +191,7 @@ struct TranscriptionSettingsView: View {
         Section {
             Picker("モデル", selection: $settings.whisperModel) {
                 ForEach(WhisperModelOption.all) { option in
-                    Text("\(option.displayName)(\(option.sizeHint))").tag(option.id)
+                    Text("\(option.displayName) ・ \(option.sizeHint)").tag(option.id)
                 }
             }
 
@@ -243,41 +250,24 @@ struct TranscriptionSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if usesPoints {
-                // ポイントで使っている間、自分のキーの欄は折りたたんでおく(サインイン前・ポイントが使えないビルドではそのまま出す)
-                DisclosureGroup("自分の OpenAI キーを使う", isExpanded: $showsOwnKey) {
-                    ownKeyRows
-                }
-            } else {
+            // 自分のキーはいつも折りたたむ(サインインしてポイントで使う人には要らないため。サインインは上の「アカウントとポイント」)
+            DisclosureGroup("自分の OpenAI キー", isExpanded: $showsOwnKey) {
                 ownKeyRows
             }
         } header: {
-            if usesPoints {
-                Text("クラウドAI")
-            } else {
-                Text("クラウドAI(OpenAI)")
-            }
+            Text("クラウドAI")
         } footer: {
             if usesPoints {
-                Text("音声と字幕テキストはサーバーを通して OpenAI に送られます。")
+                Text("音声とキャプションはサーバーを通して OpenAI に送られます。")
             } else {
-                Text("音声と字幕テキストは OpenAI に送られ、使った分だけ OpenAI から請求されます。")
+                Text("音声とキャプションは OpenAI に送られ、自分のキーでは OpenAI から請求されます。")
             }
         }
     }
 
-    /// 自分の OpenAI キー(説明・入力・変更・削除・取得のリンク)
+    /// 自分の OpenAI キー(入力・変更・削除・取得のリンク)
     @ViewBuilder
     private var ownKeyRows: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("API キーとは")
-                .font(.subheadline.weight(.semibold))
-            Text("OpenAI のサイトの「API keys」で作る、「sk-」で始まる文字列です。使った分だけ OpenAI から請求されます。")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
-
         if settings.hasOpenAIKey, !isEditingKey {
             HStack {
                 Text("API キー")
@@ -322,7 +312,7 @@ struct TranscriptionSettingsView: View {
 
         if let url = URL(string: "https://platform.openai.com/api-keys") {
             Link(destination: url) {
-                Label("API キーを取得(OpenAI)", systemImage: "safari")
+                Label("OpenAI でキーを作る", systemImage: "safari")
             }
         }
     }
@@ -331,7 +321,7 @@ struct TranscriptionSettingsView: View {
 
     private var polishSection: some View {
         Section {
-            Toggle("AI で字幕を仕上げる", isOn: $settings.polishSubtitles)
+            Toggle("AI でキャプションを仕上げる", isOn: $settings.polishSubtitles)
 
             Picker("仕上げに使うAI", selection: $settings.polishEngine) {
                 ForEach(PolishEngine.allCases) { engine in
@@ -340,23 +330,43 @@ struct TranscriptionSettingsView: View {
             }
             .disabled(!settings.polishSubtitles)
 
-            Text(settings.polishEngine.detail)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Text("実際に使われるAI")
-                Spacer()
-                Text(settings.polishSubtitles
-                     ? SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: settings))
-                     : String(localized: "なし"))
+            // お金・ポイントがかかるクラウドだけ説明を残す
+            if settings.polishEngine == .cloud {
+                Text(settings.polishEngine.detail)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            // 選んだものと実際に使うものが違うときだけ出す
+            if let note = polishResolvedNote {
+                Text(note)
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
             }
         } header: {
             Text("AI 仕上げ")
         } footer: {
-            Text("句読点の補正・言いよどみの削除・長い字幕の分割を AI が行います。")
+            Text("句読点・言いよどみ・長いキャプションの分割を AI が直します。")
         }
+    }
+
+    /// 「仕上げに使うAI」と実際に使われる AI が違うときの 1 行(自動のときは何が使われるか)。同じなら nil
+    private var polishResolvedNote: String? {
+        guard settings.polishSubtitles else { return nil }
+        let resolved = SubtitlePolisher.resolveEngine(settings: settings)
+        let expected: SubtitlePolisher.ResolvedEngine?
+        switch settings.polishEngine {
+        case .auto: expected = nil
+        case .onDevice: expected = .onDevice
+        case .cloud: expected = .cloud
+        case .none: expected = SubtitlePolisher.ResolvedEngine.none
+        }
+        if let expected, expected == resolved { return nil }
+        if resolved == .none {
+            return String(localized: "この端末では今は使われません")
+        }
+        let name = SubtitlePolisher.displayName(of: resolved)
+        return String(localized: "\(name) を使います")
     }
 
     // MARK: - 操作
@@ -448,9 +458,6 @@ private struct EngineDescriptionView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(engine.summary)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
             ForEach(engine.pros, id: \.self) { item in
                 Label(item, systemImage: "checkmark.circle")
                     .font(.footnote)

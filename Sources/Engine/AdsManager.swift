@@ -11,6 +11,7 @@ import UserMessagingPlatform
 //     出しすぎないよう、前の広告から minimumInterval 秒あける。
 //     書き出しの開始・完了は書き出し画面(ExportView)だけが出す(裏で終わった書き出しや、許可の確認の上に重ねない)
 //   - ネイティブ: NativeAdCard(処理中の画面・AI 処理中のカード・書き出し完了画面)
+//     完成画面では、ネイティブ広告が届いてから枠を出す(届かないときに空の箱を残さない。共有ボタンは広告より上)
 //   - リワード: 「広告を見て +ポイント」。見終わったら AccountService.claimAdReward() でサーバーに伝える
 //     (本番は AdMob のサーバー側検証(SSV)でサーバーが直接ポイントを足す。userIdentifier に利用者 ID を渡す)
 //   - TestFlight / デバッグでは Google のテスト用広告を出す(自分の本番広告を見たり押したりしないため)

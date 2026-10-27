@@ -24,61 +24,71 @@ fileprivate func subtitleHexString(from color: Color) -> String {
     return String(format: "#%02X%02X%02X", component(r), component(g), component(b))
 }
 
-// MARK: - スタイルプリセット
+// MARK: - デザインの見本
 
-/// 「スタイル」セクションのチップで選ぶプリセット。SubtitleStyle に存在する項目だけを設定する
-fileprivate enum SubtitleStylePreset: String, CaseIterable, Identifiable {
-    case standard, netflix, youtube, cinema, pop
+/// 「デザイン」の見本タイル。1 枚で描き方(テンプレート)と色・大きさ・背景・フォントをまとめて決める。
+/// 位置と表示(原文 / 訳文)は触らない
+fileprivate enum CaptionLook: String, CaseIterable, Identifiable {
+    case bold, karaoke, pop, marker, typewriter, box, yellow, simple
 
     var id: String { rawValue }
 
-    var displayName: String {
+    var title: String {
         switch self {
-        case .standard: return String(localized: "標準")
-        case .netflix: return String(localized: "Netflix風")
-        case .youtube: return String(localized: "YouTube風")
-        case .cinema: return String(localized: "シネマ")
+        case .bold: return String(localized: "太縁")
+        case .karaoke: return String(localized: "カラオケ")
         case .pop: return String(localized: "ポップ")
+        case .marker: return String(localized: "マーカー")
+        case .typewriter: return String(localized: "タイプ")
+        case .box: return String(localized: "ボックス")
+        case .yellow: return String(localized: "イエロー")
+        case .simple: return String(localized: "シンプル")
         }
     }
 
-    var position: SubtitlePosition { .bottom }
+    var template: CaptionTemplate {
+        switch self {
+        case .bold: return .outlineBig
+        case .karaoke: return .karaoke
+        case .pop: return .boxPop
+        case .marker: return .pillHighlight
+        case .typewriter: return .typewriter
+        case .box, .yellow, .simple: return .plain
+        }
+    }
 
     var color: SubtitleColor {
-        switch self {
-        case .pop: return .yellow
-        default: return .white
-        }
+        self == .yellow ? .yellow : .white
     }
 
     var sizeRatio: CGFloat {
         switch self {
-        case .standard: return 0.045
-        case .netflix: return 0.042
-        case .youtube: return 0.05
-        case .cinema: return 0.038
-        case .pop: return 0.055
+        case .bold: return SubtitleStyle.starter.sizeRatio
+        case .karaoke, .pop, .marker, .yellow: return 0.06
+        case .typewriter: return 0.055
+        case .box: return 0.05
+        case .simple: return 0.045
         }
     }
 
-    var hasBackground: Bool {
-        switch self {
-        case .standard, .youtube, .pop: return true
-        case .netflix, .cinema: return false
-        }
+    var hasBackground: Bool { self == .box }
+
+    /// シンプルだけ標準の細い書体。ほかは太字
+    var fontName: String? {
+        self == .simple ? nil : SubtitleStyle.starter.fontName
     }
 
-    /// displayMode は触らず、見た目の項目だけ上書きする
     func apply(to style: inout SubtitleStyle) {
-        style.position = position
+        style.template = template
         style.color = color
         style.sizeRatio = sizeRatio
         style.hasBackground = hasBackground
+        style.fontName = fontName
     }
 
-    /// 現在のスタイルがこのプリセットと一致しているか(チップの選択表示用)
+    /// 今のスタイルがこの見本と同じか(フォントを自分で変えていても同じとみなす)
     func matches(_ style: SubtitleStyle) -> Bool {
-        style.position == position
+        style.template == template
             && style.color == color
             && style.hasBackground == hasBackground
             && abs(style.sizeRatio - sizeRatio) < 0.0005
@@ -176,12 +186,12 @@ struct SubtitleEditorView: View {
 
     /// 文字起こし・翻訳の途中に「閉じる」を押したときの確認
     @State private var isCloseConfirmationPresented: Bool = false
-    /// 操作列で開いているツール(自動作成 / 翻訳 / SRT)
+    /// 操作列で開いているツール(自動作成 / 翻訳 / ファイル)
     @State private var expandedTool: CaptionTool?
-    /// 「スタイル」を開いているか
+    /// 「デザイン」の「細かく調整」を開いているか
     @State private var showsStyle: Bool = false
-    /// 「詳細設定」(テンプレート・ハイライト色・フォント)を開いているか
-    @State private var showsAdvanced: Bool = false
+    /// 翻訳を AI で行う(オンなら SubtitlePolisher.translate、オフなら端末の翻訳)
+    @State private var useAITranslation: Bool = false
     /// Google Fonts を探す画面
     @State private var showsFontBrowser: Bool = false
     /// 開いたときの準備(選んだクリップの既定・翻訳へのスクロール)を 1 回だけ行う
@@ -190,7 +200,6 @@ struct SubtitleEditorView: View {
     // 字幕ファイル(SRT)の書き出し・読み込み
     @State private var exportUseTranslation: Bool = false
     @State private var exportBilingual: Bool = false
-    @State private var exportURL: URL?
     @State private var isImporterPresented: Bool = false
     @State private var pendingImportedCues: [SubtitleCue] = []
     @State private var isImportChoicePresented: Bool = false
@@ -232,9 +241,11 @@ struct SubtitleEditorView: View {
                         if project.subtitles.isEmpty {
                             // キャプションが無いときは「自動で作る」を最初に大きく出す
                             transcriptionSection
+                            designSection
                             cueListSection
                         } else {
-                            // キャプションがあるときは 操作列 → 開いたツール → 一覧
+                            // キャプションがあるときは デザイン → 操作列 → 開いたツール → 一覧
+                            designSection
                             captionToolSection
                             if let tool = expandedTool {
                                 switch tool {
@@ -245,8 +256,10 @@ struct SubtitleEditorView: View {
                             }
                             cueListSection
                         }
-                        styleSection
-                        advancedSection
+                    }
+                    // カラオケなど単語を使う描き方にしたら、単語の時刻が無いキャプションにその場で付ける
+                    .onChange(of: project.subtitleStyle.template) { _, template in
+                        fillMissingWordTimings(for: template)
                     }
                     .onAppear {
                         guard !didPrepareOnAppear else { return }
@@ -348,6 +361,10 @@ struct SubtitleEditorView: View {
                 refreshPendingCloudJobs()
                 // Whisper を使う設定なら、押してから待たないようにモデルを先に読み込んでおく(字幕がまだ無いとき)
                 let settings = AppSettings.shared
+                // Whisper が入っていないビルドでは選べないので、前に選んでいたら Apple に戻す
+                if settings.transcriptionEngine == .whisper, !WhisperTranscriber.isAvailable {
+                    settings.transcriptionEngine = .apple
+                }
                 if settings.transcriptionEngine == .whisper, project.subtitles.isEmpty {
                     WhisperTranscriber.shared.preload(model: settings.whisperModel)
                 }
@@ -377,7 +394,15 @@ struct SubtitleEditorView: View {
                     editStartText = project.subtitles.first(where: { $0.id == newID })?.text
                     return
                 }
-                // 編集から戻った: 変えた言葉がほかの字幕にもあれば、まとめて直すか聞く
+                // 編集から戻った: 「再生位置に追加」で入れて何も書かなかったものは消す
+                if let oldID, let cue = project.subtitles.first(where: { $0.id == oldID }),
+                   cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   (cue.translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    project.removeSubtitle(id: oldID)
+                    editStartText = nil
+                    return
+                }
+                // 変えた言葉がほかの字幕にもあれば、まとめて直すか聞く
                 if let oldID, let before = editStartText,
                    let after = project.subtitles.first(where: { $0.id == oldID })?.text {
                     termReplacement = CaptionTermReplace.suggestion(oldText: before, newText: after,
@@ -391,13 +416,11 @@ struct SubtitleEditorView: View {
                    presenting: termReplacement) { replacement in
                 Button(replacement.confirmTitle) {
                     CaptionTermReplace.apply(replacement, to: project)
-                    exportURL = nil
                     termReplacement = nil
                 }
                 Button(replacement.rememberTitle) {
                     CaptionTermReplace.apply(replacement, to: project)
                     CaptionTermDictionary.add(from: replacement.from, to: replacement.to)
-                    exportURL = nil
                     termReplacement = nil
                 }
                 Button("このままにする", role: .cancel) {}
@@ -420,12 +443,11 @@ struct SubtitleEditorView: View {
                     pendingImportedCues = []
                 }
             }
-            .confirmationDialog("すべてのキャプション(\(project.subtitles.count) 件)を削除しますか?",
+            .confirmationDialog("\(project.subtitles.count) 件のキャプションをすべて削除しますか?",
                                 isPresented: $isDeleteAllPresented,
                                 titleVisibility: .visible) {
                 Button("すべて削除", role: .destructive) {
                     project.subtitles.removeAll()
-                    exportURL = nil
                     appliedShift = 0
                 }
                 Button("キャンセル", role: .cancel) { }
@@ -484,7 +506,7 @@ struct SubtitleEditorView: View {
                           action: .showBoth)
             case .failure(let error):
                 showAlert(title: String(localized: "翻訳できませんでした"),
-                          message: String(localized: "もう一度「翻訳」を押してください。続くときは「AI翻訳」をお試しください。\n\n詳細: ") + error.localizedDescription)
+                          message: String(localized: "もう一度お試しください。続くときは「AIで自然に」をオンにしてください。\n\n詳細: ") + error.localizedDescription)
             }
         })
         .alert(alertTitle, isPresented: Binding(
@@ -508,11 +530,21 @@ struct SubtitleEditorView: View {
 
     // MARK: プレビュー
 
+    /// 縦の動画か(縦はプレビューを大きくして、キャプションの大きさ・縁取りを見比べられるようにする)
+    private var isPortraitCanvas: Bool {
+        let size = player.renderSize
+        return size.height > size.width * 1.1
+    }
+
     private var previewHeader: some View {
-        VStack(spacing: 6) {
+        // 値で渡す(高さを決めるクロージャの中で self を読まない)
+        let portrait = isPortraitCanvas
+        return VStack(spacing: 6) {
             PreviewView(player: player)
                 .frame(maxWidth: .infinity)
-                .frame(height: 220)
+                .containerRelativeFrame(.vertical) { length, _ in
+                    portrait ? max(220, (length * 0.4).rounded()) : 220
+                }
                 .background(Color.black)
             HStack(spacing: 16) {
                 Button {
@@ -586,10 +618,10 @@ struct SubtitleEditorView: View {
                 }
             }
             .disabled(isTranscribing)
-        } header: {
-            Text(isFirstTime ? String(localized: "自動で作る") : String(localized: "自動で作り直す"))
         } footer: {
-            Text(transcriptionFooterText)
+            if project.isEmpty {
+                Text("先に動画を追加")
+            }
         }
         .onChange(of: captionScope) { oldScope, scope in
             if scope == .clip {
@@ -637,13 +669,10 @@ struct SubtitleEditorView: View {
                 .scaledToFit()
                 .frame(width: 48, height: 64)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("自動で作る")
-                    .font(.headline)
-                Text("声を聞き取ってキャプションを自動で作ります。あとから 1 件ずつ直せます。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            Text("声からキャプションを作ります")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
         }
         .padding(.vertical, 6)
     }
@@ -658,18 +687,6 @@ struct SubtitleEditorView: View {
         }
         .buttonStyle(.borderedProminent)
         .disabled(project.isEmpty || isTranslating || isTranscribing)
-    }
-
-    private var transcriptionFooterText: String {
-        let settings = AppSettings.shared
-        let polish = settings.polishSubtitles
-            ? SubtitlePolisher.displayName(of: SubtitlePolisher.resolveEngine(settings: settings))
-            : String(localized: "オフ")
-        var text = String(localized: "今の方式: ") + settings.transcriptionEngine.displayName + String(localized: "。AI仕上げ: ") + polish + "。"
-        if project.isEmpty {
-            text = String(localized: "先に編集画面で動画を追加してください。") + text
-        }
-        return text
     }
 
     /// 文字起こし・翻訳の途中は確認してから閉じる(閉じると止まるため)
@@ -977,41 +994,49 @@ struct SubtitleEditorView: View {
                     Text("翻訳中…")
                         .foregroundStyle(.secondary)
                 }
-            } else if selectedLanguage == .english {
-                Button {
-                    translationRequest = TranslationRequest(source: selectedLanguage, targetIsEnglish: false)
-                } label: {
-                    Label("日本語に翻訳", systemImage: "globe")
-                }
-                .disabled(project.subtitles.isEmpty || isTranscribing)
             } else {
                 Button {
-                    translationRequest = TranslationRequest(source: selectedLanguage, targetIsEnglish: true)
+                    startTranslation()
                 } label: {
-                    Label("英語に翻訳", systemImage: "globe")
+                    Label(selectedLanguage == .english ? String(localized: "日本語に翻訳") : String(localized: "英語に翻訳"),
+                          systemImage: useAITranslation && canUseAITranslation ? "sparkles" : "globe")
                 }
                 .disabled(project.subtitles.isEmpty || isTranscribing)
-            }
 
-            if !isTranslating {
-                Button {
-                    requestAITranslation()
-                } label: {
-                    Label(selectedLanguage == .english ? String(localized: "AIで日本語に翻訳") : String(localized: "AI翻訳"),
-                          systemImage: "sparkles")
+                // AI が使えるときだけ。ポイントを使うときは目安を添える
+                if canUseAITranslation {
+                    Toggle(isOn: $useAITranslation) {
+                        if let points = aiTranslationPoints {
+                            Text("AIで自然に ・ \(points) pt")
+                        } else {
+                            Text("AIで自然に")
+                        }
+                    }
+                    .disabled(isTranscribing)
                 }
-                .disabled(project.subtitles.isEmpty || isTranscribing)
             }
-        } header: {
-            Text("翻訳")
-        } footer: {
-            Text(translationFooterText)
         }
     }
 
-    private var translationFooterText: String {
-        let engine = SubtitlePolisher.displayName(of: aiTranslationEngine)
-        return String(localized: "元の言語は「話している言語」の設定です。AI翻訳: ") + engine
+    /// AI 翻訳が使えるか(Apple Intelligence か、ポイント / API キーのクラウド)
+    private var canUseAITranslation: Bool {
+        aiTranslationEngine != .none
+    }
+
+    /// AI 翻訳でポイントを使うときの目安(ポイントを使わないときは nil)
+    private var aiTranslationPoints: Int? {
+        guard CloudAIGateway.usesPoints, aiTranslationEngine == .cloud, !project.subtitles.isEmpty else { return nil }
+        return SubtitlePolisher.estimatedPoints(lineCount: project.subtitles.count)
+    }
+
+    /// 「英語に翻訳」/「日本語に翻訳」。「AIで自然に」がオンなら AI、オフなら端末の翻訳
+    private func startTranslation() {
+        if useAITranslation, canUseAITranslation {
+            requestAITranslation()
+        } else {
+            translationRequest = TranslationRequest(source: selectedLanguage,
+                                                    targetIsEnglish: selectedLanguage != .english)
+        }
     }
 
     // MARK: AI 翻訳(SubtitlePolisher)
@@ -1052,7 +1077,7 @@ struct SubtitleEditorView: View {
                 // ログインの期限切れ・ポイント不足 → アカウントとポイント、API キー → 文字起こしとAI仕上げ、
                 // 通信エラーなど → ボタン無し(CloudAIGateway.recovery)。理由が無いときはやり直しの案内だけ
                 let title = String(localized: "AI翻訳できませんでした")
-                let retryHint = String(localized: "もう一度「AI翻訳」を押してください。")
+                let retryHint = String(localized: "もう一度お試しください。")
                 if let error = SubtitlePolisher.lastError {
                     presentCloudError(error, title: title, retryHint: retryHint)
                 } else {
@@ -1072,7 +1097,6 @@ struct SubtitleEditorView: View {
                 }
             }
             project.subtitles = updated
-            exportURL = nil
             // 表示モードは書き出しにも効くので勝手に切り替えず、ボタンで選べるようにする
             showAlert(title: String(localized: "AI翻訳しました"),
                       message: String(localized: "\(count) 件のキャプションを翻訳しました。"),
@@ -1105,66 +1129,75 @@ struct SubtitleEditorView: View {
 
     private var subtitleFileSection: some View {
         Section {
-            Toggle("訳文を使う", isOn: $exportUseTranslation)
-                .disabled(!hasAnyTranslation || exportBilingual)
-                .onChange(of: exportUseTranslation) { _, _ in exportURL = nil }
-            Toggle("2言語", isOn: $exportBilingual)
-                .disabled(!hasAnyTranslation)
-                .onChange(of: exportBilingual) { _, _ in exportURL = nil }
-
-            if let url = exportURL {
-                ShareLink(item: url) {
-                    Label("SRTを共有・保存", systemImage: "square.and.arrow.up")
-                }
-                Button {
-                    exportURL = nil
-                } label: {
-                    Label("作り直す", systemImage: "arrow.counterclockwise")
-                }
-                .foregroundStyle(.secondary)
-            } else {
-                Button {
-                    exportSRT()
-                } label: {
-                    Label("SRTを作る", systemImage: "doc.text")
-                }
-                .disabled(project.subtitles.isEmpty)
+            // 訳文があるときだけ
+            if hasAnyTranslation {
+                Toggle("訳文を使う", isOn: $exportUseTranslation)
+                    .disabled(exportBilingual)
+                Toggle("2言語", isOn: $exportBilingual)
             }
+
+            // 押したらファイルを作って、そのまま共有シートを開く
+            Button {
+                exportSRT()
+            } label: {
+                Label("キャプションファイルを書き出す", systemImage: "square.and.arrow.up")
+            }
+            .disabled(project.subtitles.isEmpty)
 
             Button {
                 isImporterPresented = true
             } label: {
-                Label("SRTを読み込む", systemImage: "square.and.arrow.down")
+                Label("ファイルを読み込む", systemImage: "square.and.arrow.down")
             }
             .disabled(isTranscribing || isTranslating)
-        } header: {
-            Text("SRT")
-        } footer: {
-            Text("YouTube などにアップするキャプションのファイルです。SRT / WebVTT を読み込めます。")
         }
     }
 
+    /// SRT を作って共有シートを開く
     private func exportSRT() {
         guard !project.subtitles.isEmpty else { return }
+        let useTranslation = hasAnyTranslation && exportUseTranslation
+        let bilingual = hasAnyTranslation && exportBilingual
         let text = SRTCodec.encode(project.subtitles,
-                                   useTranslation: exportUseTranslation,
-                                   bilingual: exportBilingual)
+                                   useTranslation: useTranslation,
+                                   bilingual: bilingual)
         let baseName = project.clips.first.map { $0.name } ?? "subtitles"
         let suffix: String
-        if exportBilingual {
+        if bilingual {
             suffix = "_ja_en"
-        } else if exportUseTranslation {
+        } else if useTranslation {
             suffix = "_en"
         } else {
             suffix = ""
         }
         let fileName = sanitizedFileName(baseName) + suffix + ".srt"
         do {
-            exportURL = try SRTCodec.writeTemporaryFile(text, fileName: fileName)
+            let url = try SRTCodec.writeTemporaryFile(text, fileName: fileName)
+            if !presentShareSheet(for: url) {
+                showAlert(title: String(localized: "共有シートを開けませんでした"),
+                          message: String(localized: "もう一度お試しください。"))
+            }
         } catch {
-            showAlert(title: String(localized: "SRTを作れませんでした"),
+            showAlert(title: String(localized: "ファイルを作れませんでした"),
                       message: String(localized: "空き容量を確かめて、もう一度お試しください。\n\n詳細: ") + error.localizedDescription)
         }
+    }
+
+    /// いちばん上に出ている画面(このシート)から共有シートを出す。出せなければ false
+    private func presentShareSheet(for url: URL) -> Bool {
+        guard var top = ScreenPresentation.rootViewController else { return false }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        // iPad ではポップオーバーになるので、出す位置が要る
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = top.view
+            popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        top.present(controller, animated: true)
+        return true
     }
 
     private func sanitizedFileName(_ name: String) -> String {
@@ -1204,7 +1237,7 @@ struct SubtitleEditorView: View {
                     isImportChoicePresented = true
                 }
             } catch {
-                showAlert(title: String(localized: "SRTを読み込めませんでした"),
+                showAlert(title: String(localized: "ファイルを読み込めませんでした"),
                           message: String(localized: "SRT か WebVTT のファイルを選んでください。\n\n詳細: ") + error.localizedDescription)
             }
         }
@@ -1220,27 +1253,24 @@ struct SubtitleEditorView: View {
             project.subtitles.append(contentsOf: cues)
         }
         project.sortSubtitles()
-        exportURL = nil
         appliedShift = 0
         let verb = replace ? String(localized: "読み込みました") : String(localized: "追加しました")
         showAlert(title: String(localized: "読み込み完了"), message: String(localized: "\(cues.count) 件のキャプションを") + verb + "。")
     }
 
-    // MARK: スタイル
+    // MARK: デザイン
 
-    private var presetChips: some View {
+    /// 見本タイル(流行りの見た目を 1 列で。押したらすぐプレビューに出る)
+    private var lookTiles: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(SubtitleStylePreset.allCases) { preset in
-                    EditorVisualTile(title: preset.displayName, isSelected: preset.matches(project.subtitleStyle)) {
+                ForEach(CaptionLook.allCases) { look in
+                    EditorVisualTile(title: look.title, isSelected: look.matches(project.subtitleStyle)) {
                         var style = project.subtitleStyle
-                        preset.apply(to: &style)
+                        look.apply(to: &style)
                         project.subtitleStyle = style
                     } preview: {
-                        CaptionLookPreview(color: Color(uiColor: preset.color.uiColor),
-                                           sizeRatio: preset.sizeRatio,
-                                           background: preset.hasBackground,
-                                           position: preset.position)
+                        lookPreview(look)
                     }
                 }
             }
@@ -1248,8 +1278,16 @@ struct SubtitleEditorView: View {
         }
     }
 
-    private var templateChips: some View {
-        CaptionTemplatePicker(selection: $project.subtitleStyle.template)
+    @ViewBuilder
+    private func lookPreview(_ look: CaptionLook) -> some View {
+        if look.template == .plain {
+            CaptionLookPreview(color: Color(uiColor: look.color.uiColor),
+                               sizeRatio: look.sizeRatio,
+                               background: look.hasBackground,
+                               position: .bottom)
+        } else {
+            CaptionTemplatePreview(template: look.template, highlight: highlightColorBinding.wrappedValue)
+        }
     }
 
     private var highlightColorBinding: Binding<Color> {
@@ -1266,25 +1304,54 @@ struct SubtitleEditorView: View {
         )
     }
 
-    private var hasAnyWordTiming: Bool {
-        project.subtitles.contains { !$0.words.isEmpty }
+    /// 強調色を使う描き方か
+    private var usesHighlightColor: Bool {
+        switch project.subtitleStyle.template {
+        case .karaoke, .boxPop, .pillHighlight: return true
+        case .plain, .outlineBig, .typewriter: return false
+        }
     }
 
-    /// 詳細設定(閉じた状態で一覧の下): テンプレート・ハイライト色・フォント
-    private var advancedSection: some View {
+    /// 単語ごとに描くテンプレートにしたとき、単語の時刻が無いキャプションへ文字数に応じた時刻を付ける
+    private func fillMissingWordTimings(for template: CaptionTemplate) {
+        guard template != .plain, template != .outlineBig,
+              project.subtitles.contains(where: { $0.words.isEmpty }) else { return }
+        project.subtitles = SubtitleWordTiming.fillingMissing(project.subtitles)
+    }
+
+    /// 見た目の設定はここだけ: 見本タイル → 細かく調整(位置・文字色・サイズ・背景・フォント・強調色・表示)
+    private var designSection: some View {
         Section {
-            DisclosureGroup(isExpanded: $showsAdvanced) {
+            lookTiles
+
+            DisclosureGroup(isExpanded: $showsStyle) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("テンプレート")
-                    templateChips
-                    if project.subtitleStyle.template != .plain, !project.subtitles.isEmpty, !hasAnyWordTiming {
-                        Text("このテンプレートは単語ごとのタイミングを使います。一覧の「…」から「単語タイミングを作り直す」を押してください。")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
+                    Text("位置")
+                    CaptionPositionPicker(selection: $project.subtitleStyle.position)
                 }
 
-                ColorPicker(String(localized: "ハイライト色"), selection: highlightColorBinding, supportsOpacity: false)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("文字色")
+                    CaptionColorPicker(selection: $project.subtitleStyle.color)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("サイズ")
+                        Spacer()
+                        Text("\(Int((project.subtitleStyle.sizeRatio * 1000).rounded()))")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    // 編集画面のパネル(EditorPanels.swift)と同じ範囲
+                    Slider(value: $project.subtitleStyle.sizeRatio, in: 0.03...0.10)
+                }
+
+                Toggle("背景", isOn: $project.subtitleStyle.hasBackground)
+
+                if usesHighlightColor {
+                    ColorPicker(String(localized: "強調色"), selection: highlightColorBinding, supportsOpacity: false)
+                }
 
                 Picker("フォント", selection: subtitleFontBinding) {
                     ForEach(SubtitleFontCatalog.options(including: project.subtitleStyle.fontName)) { option in
@@ -1301,60 +1368,23 @@ struct SubtitleEditorView: View {
                 } label: {
                     Label("フォントを追加", systemImage: "plus")
                 }
-            } label: {
-                Label("詳細設定", systemImage: "slider.horizontal.3")
-            }
-        } footer: {
-            Text(showsAdvanced
-                 ? String(localized: "ハイライト色は、いま話している言葉に付く色です。")
-                 : String(localized: "テンプレート・ハイライト色・フォント"))
-        }
-    }
 
-    /// スタイル(閉じた状態で一覧の下。プリセットはここにしか無いので残す)
-    private var styleSection: some View {
-        Section {
-            DisclosureGroup(isExpanded: $showsStyle) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("おすすめの見た目")
-                    presetChips
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("位置")
-                    CaptionPositionPicker(selection: $project.subtitleStyle.position)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("文字色")
-                    CaptionColorPicker(selection: $project.subtitleStyle.color)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("文字サイズ")
-                        Spacer()
-                        Text("\(Int((project.subtitleStyle.sizeRatio * 1000).rounded()))")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                // 原文 / 訳文 / 両方は、訳文があるときだけ
+                if hasAnyTranslation {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("表示")
+                        CaptionDisplayModePicker(selection: $project.subtitleStyle.displayMode)
                     }
-                    // 編集画面のパネル(EditorPanels.swift)と同じ範囲
-                    Slider(value: $project.subtitleStyle.sizeRatio, in: 0.03...0.10)
-                }
-
-                Toggle("背景を付ける", isOn: $project.subtitleStyle.hasBackground)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("表示")
-                    CaptionDisplayModePicker(selection: $project.subtitleStyle.displayMode)
                 }
             } label: {
-                Label("スタイル", systemImage: "paintbrush")
+                Label("細かく調整", systemImage: "slider.horizontal.3")
             }
+        } header: {
+            Text("デザイン")
         }
     }
 
-    // MARK: 操作列(自動作成 / 翻訳 / SRT)
+    // MARK: 操作列(自動作成 / 翻訳 / ファイル)
 
     /// 一覧の上に出す操作列。押したツールの設定が、この行のすぐ下に開く
     private var captionToolSection: some View {
@@ -1362,7 +1392,7 @@ struct SubtitleEditorView: View {
             HStack(spacing: 8) {
                 toolChip(.autoCaption, title: String(localized: "自動作成"), systemImage: "waveform")
                 toolChip(.translate, title: String(localized: "翻訳"), systemImage: "globe")
-                toolChip(.file, title: "SRT", systemImage: "doc.text")
+                toolChip(.file, title: String(localized: "ファイル"), systemImage: "doc.text")
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 2)
@@ -1404,18 +1434,19 @@ struct SubtitleEditorView: View {
         let issues = CaptionIssueCheck.issues(in: project.subtitles)
         return Section {
             Button {
-                let cue = project.addSubtitle(at: player.currentTime)
+                // 空で入れて編集を開く(何も書かずに戻ったら消す)
+                let cue = project.addSubtitle(at: player.currentTime, text: "")
                 editingCueID = cue.id
             } label: {
                 Label(project.subtitles.isEmpty ? String(localized: "自分で 1 件ずつ入力する") : String(localized: "再生位置に追加"), systemImage: "plus.bubble")
             }
 
             if project.subtitles.isEmpty {
-                // キャプションがあるときは操作列の「SRT」から読み込む
+                // キャプションがあるときは操作列の「ファイル」から読み込む
                 Button {
                     isImporterPresented = true
                 } label: {
-                    Label("SRTを読み込む", systemImage: "square.and.arrow.down")
+                    Label("ファイルを読み込む", systemImage: "square.and.arrow.down")
                 }
                 .disabled(isTranscribing)
             }
@@ -1455,7 +1486,7 @@ struct SubtitleEditorView: View {
             }
         } header: {
             HStack {
-                Text("一覧(\(project.subtitles.count))")
+                Text("一覧 \(project.subtitles.count)")
                 let issueCount = issues.count
                 if issueCount > 0 {
                     Label {
@@ -1474,11 +1505,6 @@ struct SubtitleEditorView: View {
                             showsShiftTool = true
                         } label: {
                             Label("タイミングを一括ずらす", systemImage: "arrow.left.and.right")
-                        }
-                        Button {
-                            regenerateWordTimings()
-                        } label: {
-                            Label("単語タイミングを作り直す", systemImage: "textformat.abc.dottedunderline")
                         }
                         Button(role: .destructive) {
                             isDeleteAllPresented = true
@@ -1532,19 +1558,6 @@ struct SubtitleEditorView: View {
         project.subtitles = cues
         project.sortSubtitles()
         appliedShift += effective
-        exportURL = nil
-    }
-
-    /// 全字幕に、文字数に比例した単語タイミングを付け直す(カラオケ風テンプレート用)
-    private func regenerateWordTimings() {
-        guard !project.subtitles.isEmpty else { return }
-        var cues = project.subtitles
-        for i in cues.indices {
-            cues[i].words = SubtitleWordTiming.distribute(cue: cues[i])
-        }
-        project.subtitles = cues
-        showAlert(title: String(localized: "単語タイミングを更新しました"),
-                  message: String(localized: "\(cues.count) 件に、文字数に応じた単語タイミングを付けました。"))
     }
 
     /// この行と次の行を 1 件にする(時刻は前の開始〜後の終了。単語タイミングは両方をつなぐ)
@@ -1571,7 +1584,6 @@ struct SubtitleEditorView: View {
         }
         project.subtitles[i] = merged
         project.subtitles.remove(at: i + 1)
-        exportURL = nil
     }
 
     /// 2 つの文をつなぐ(英数字の境目だけ空白を入れる)
@@ -1605,8 +1617,8 @@ struct SubtitleEditorView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.red)
                     }
-                    Text(cue.text.isEmpty ? String(localized: "(空)") : cue.text)
-                        .foregroundStyle(Color.primary)
+                    Text(cue.text.isEmpty ? String(localized: "テキストなし") : cue.text)
+                        .foregroundStyle(cue.text.isEmpty ? Color.secondary : Color.primary)
                         .lineLimit(3)
                     if let translated = cue.translatedText, !translated.isEmpty {
                         Text(translated)
@@ -1702,7 +1714,7 @@ struct SubtitleCueEditView: View {
     private func editor(_ cue: Binding<SubtitleCue>) -> some View {
         Form {
             Section {
-                TextField("キャプションのテキスト", text: cue.text, selection: $textSelection, axis: .vertical)
+                TextField("テキストを入力", text: cue.text, selection: $textSelection, axis: .vertical)
                     .lineLimit(1...6)
                     .onChange(of: textSelection) { _, selection in
                         if let selection { lastSelection = selection }
@@ -1720,7 +1732,7 @@ struct SubtitleCueEditView: View {
             }
 
             Section {
-                TextField("翻訳(任意)", text: Binding(
+                TextField("訳文", text: Binding(
                     get: { cue.wrappedValue.translatedText ?? "" },
                     set: { newValue in
                         var c = cue.wrappedValue
@@ -1743,8 +1755,9 @@ struct SubtitleCueEditView: View {
                     }
                     .buttonStyle(.borderless)
                     Spacer()
-                    Button("ここへ移動") {
+                    Button("ここを再生") {
                         player.seek(to: cue.wrappedValue.start)
+                        player.play()
                     }
                     .buttonStyle(.borderless)
                 }
@@ -1758,8 +1771,10 @@ struct SubtitleCueEditView: View {
                     }
                     .buttonStyle(.borderless)
                     Spacer()
-                    Button("ここへ移動") {
-                        player.seek(to: max(cue.wrappedValue.start, cue.wrappedValue.end - 0.1))
+                    Button("ここを再生") {
+                        // 終わりの少し前から流して、切れ目を耳で確かめる
+                        player.seek(to: max(cue.wrappedValue.start, cue.wrappedValue.end - 1))
+                        player.play()
                     }
                     .buttonStyle(.borderless)
                 }
@@ -1998,15 +2013,15 @@ enum SubtitleFontCatalog {
     }
 
     static let builtIn: [Option] = [
-        Option(id: "", label: String(localized: "ヒラギノ角ゴ W3(標準・映画字幕風)")),
-        Option(id: "HiraginoSans-W6", label: String(localized: "ヒラギノ角ゴ W6(太め)")),
-        Option(id: "HiraMinProN-W3", label: String(localized: "ヒラギノ明朝 W3(上品)")),
+        Option(id: "", label: String(localized: "ヒラギノ角ゴ W3")),
+        Option(id: "HiraginoSans-W6", label: String(localized: "ヒラギノ角ゴ W6")),
+        Option(id: "HiraMinProN-W3", label: String(localized: "ヒラギノ明朝 W3")),
         Option(id: "HiraMinProN-W6", label: String(localized: "ヒラギノ明朝 W6")),
         Option(id: "HiraMaruProN-W4", label: String(localized: "ヒラギノ丸ゴ W4")),
-        Option(id: "Noteworthy-Bold", label: String(localized: "Noteworthy(ノート風)")),
-        Option(id: "BradleyHandITCTT-Bold", label: String(localized: "Bradley Hand(手書き風)")),
-        Option(id: "Chalkduster", label: String(localized: "Chalkduster(チョーク)")),
-        Option(id: "MarkerFelt-Wide", label: String(localized: "Marker Felt(マーカー)")),
+        Option(id: "Noteworthy-Bold", label: "Noteworthy"),
+        Option(id: "BradleyHandITCTT-Bold", label: "Bradley Hand"),
+        Option(id: "Chalkduster", label: "Chalkduster"),
+        Option(id: "MarkerFelt-Wide", label: "Marker Felt"),
         Option(id: "AvenirNext-Bold", label: "Avenir Next Bold"),
         Option(id: "Futura-Bold", label: "Futura Bold")
     ]
@@ -2017,7 +2032,7 @@ enum SubtitleFontCatalog {
         var result = builtIn + BundledFonts.all.map { Option(id: $0.name, label: $0.label) }
         var known = Set(result.map { $0.id })
         for name in MediaTools.storedFontNames() where !known.contains(name) {
-            result.append(Option(id: name, label: GoogleFontsService.displayName(forPostScript: name) ?? String(localized: "\(name)(読み込み)")))
+            result.append(Option(id: name, label: GoogleFontsService.displayName(forPostScript: name) ?? name))
             known.insert(name)
         }
         if let current, !current.isEmpty, !known.contains(current) {

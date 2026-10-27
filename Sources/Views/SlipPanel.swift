@@ -51,7 +51,7 @@ struct EditorSlipPanel: View {
                 let windowWidth = max(6, CGFloat(length / total) * w)
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.12))
+                        .fill(BrandStyle.surfaceStrong)
                     RoundedRectangle(cornerRadius: 6)
                         .fill(BrandStyle.gradient)
                         .frame(width: windowWidth)
@@ -122,7 +122,7 @@ struct EditorSlipPanel: View {
     private func frameTile(image: UIImage?, title: String, time: Double) -> some View {
         VStack(spacing: 4) {
             ZStack {
-                Color(white: 0.16)
+                BrandStyle.surfaceStrong
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill()
                 } else {
@@ -130,7 +130,7 @@ struct EditorSlipPanel: View {
                 }
             }
             .frame(width: 112, height: 72)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous))
             Text("\(title) \(clipFXSeconds(time))")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -149,7 +149,7 @@ struct EditorSlipPanel: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 7)
-                .background(Color.white.opacity(0.12), in: Capsule())
+                .background(BrandStyle.surfaceStrong, in: Capsule())
         }
         .buttonStyle(.plain)
     }

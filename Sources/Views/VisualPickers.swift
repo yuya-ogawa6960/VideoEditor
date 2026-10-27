@@ -2,8 +2,20 @@ import SwiftUI
 
 // =====================================================================
 // 種類を「動く見本」で選ぶ部品(トランジション・アニメーション・字幕デザイン)。
-// 見本は TimelineView で 1.6 秒ごとに繰り返す小さなアニメーション。
+// 見本は縦長(ショートの画面)。動くのは選んでいるタイルだけで、ほかは途中の 1 コマで止める。
 // =====================================================================
+
+/// 見本タイルの中の絵を動かすか(タイルが選ばれているときだけ true)
+private struct VisualTileAnimatingKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var visualTileAnimating: Bool {
+        get { self[VisualTileAnimatingKey.self] }
+        set { self[VisualTileAnimatingKey.self] = newValue }
+    }
+}
 
 /// 見本 + 名前のタイル
 struct EditorVisualTile<Preview: View>: View {
@@ -19,21 +31,23 @@ struct EditorVisualTile<Preview: View>: View {
         } label: {
             VStack(spacing: 4) {
                 preview()
-                    .frame(width: 64, height: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .environment(\.visualTileAnimating, isSelected)
+                    .frame(width: 42, height: 70)
+                    .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(isSelected ? BrandStyle.coral : Color.white.opacity(0.15),
-                                    lineWidth: isSelected ? 2.5 : 1)
+                        RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
                     )
+                    .brandSelected(isSelected)
                 Text(title)
-                    .font(.system(size: 10, weight: isSelected ? .bold : .regular))
-                    .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.75))
+                    .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                    .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.7))
                     .lineLimit(2)
+                    .minimumScaleFactor(0.8)
                     .multilineTextAlignment(.center)
-                    .frame(width: 72, height: 26, alignment: .top)
+                    .frame(width: 62, height: 28, alignment: .top)
             }
-            .frame(minWidth: 72, minHeight: 80)
+            .frame(minWidth: 62, minHeight: 102)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -42,26 +56,34 @@ struct EditorVisualTile<Preview: View>: View {
     }
 }
 
-/// 0 → 1 を繰り返す進み具合(最後に少し止まる)
+/// 0 → 1 を繰り返す進み具合(最後に少し止まる)。止めるときは途中の 1 コマを見せる
 private struct LoopingProgress<Content: View>: View {
     var period: Double = 1.6
     @ViewBuilder let content: (Double) -> Content
+    @Environment(\.visualTileAnimating) private var isAnimating
+
+    /// 止めているときに見せる進み具合
+    private static var stillProgress: Double { 0.6 }
 
     var body: some View {
-        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            let phase = (t.truncatingRemainder(dividingBy: period)) / period
-            // 0 ... 0.15 は始めの状態で止める、0.15 ... 0.8 で動く、0.8 ... 1 は終わりの状態で止める
-            let raw = (phase - 0.15) / 0.65
-            let p = min(max(raw, 0), 1)
-            content(p * p * (3 - 2 * p))
+        if isAnimating {
+            SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                let phase = (t.truncatingRemainder(dividingBy: period)) / period
+                // 0 ... 0.15 は始めの状態で止める、0.15 ... 0.8 で動く、0.8 ... 1 は終わりの状態で止める
+                let raw = (phase - 0.15) / 0.65
+                let p = min(max(raw, 0), 1)
+                content(p * p * (3 - 2 * p))
+            }
+        } else {
+            content(Self.stillProgress)
         }
     }
 }
 
-private let previewA = LinearGradient(colors: [Color(red: 0.86, green: 0.47, blue: 0.13), Color(red: 0.76, green: 0.19, blue: 0.33)],
+private let previewA = LinearGradient(colors: [BrandStyle.orange, BrandStyle.pink],
                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-private let previewB = LinearGradient(colors: [Color(red: 0.16, green: 0.45, blue: 0.75), Color(red: 0.10, green: 0.66, blue: 0.62)],
+private let previewB = LinearGradient(colors: [BrandStyle.blue, Color(red: 0.10, green: 0.66, blue: 0.62)],
                                       startPoint: .topLeading, endPoint: .bottomTrailing)
 
 private struct PreviewPanel: View {
@@ -326,7 +348,8 @@ struct ClipAnimationPicker: View {
 struct TextAnimationPreview: View {
     let type: TextAnimationType
     let isOut: Bool
-    private let sample = String(localized: "Aa字幕")
+    /// 文字の見本(言語に関係なく同じ)
+    private let sample = "Abc"
 
     var body: some View {
         GeometryReader { geo in
@@ -352,7 +375,7 @@ struct TextAnimationPreview: View {
 
     private func label(_ s: String) -> some View {
         Text(s)
-            .font(.system(size: 14, weight: .bold))
+            .font(.system(size: 12, weight: .bold))
             .foregroundStyle(Color.white)
             .fixedSize()
     }
@@ -372,8 +395,8 @@ struct TextAnimationPreview: View {
         case .wordByWord:
             HStack(spacing: 3) {
                 label("Aa").opacity(p > 0.05 ? 1 : 0)
-                label(String(localized: "字")).opacity(p > 0.4 ? 1 : 0)
-                label(String(localized: "幕")).opacity(p > 0.75 ? 1 : 0)
+                label("Bb").opacity(p > 0.4 ? 1 : 0)
+                label("Cc").opacity(p > 0.75 ? 1 : 0)
             }
         }
     }
@@ -413,7 +436,8 @@ struct CaptionTemplatePreview: View {
                 VStack {
                     Spacer()
                     caption(p: p)
-                        .padding(.bottom, 5)
+                        .multilineTextAlignment(.center)
+                        .padding(.bottom, 14)
                 }
             }
         }
@@ -424,59 +448,64 @@ struct CaptionTemplatePreview: View {
         min(words.count - 1, Int(p * Double(words.count)))
     }
 
+    /// 縦の画面に合わせて 2 行に並べる(1 行目に 1 語、2 行目に 2 語)
+    private func twoLines<Word: View>(spacing: CGFloat = 1, @ViewBuilder _ word: (Int) -> Word) -> some View {
+        VStack(spacing: 1) {
+            word(0)
+            HStack(spacing: spacing) {
+                word(1)
+                word(2)
+            }
+        }
+    }
+
     @ViewBuilder
     private func caption(p: Double) -> some View {
-        let size: CGFloat = 10
+        let size: CGFloat = 9
         switch template {
         case .plain:
-            Text(words.joined())
+            Text(words[0] + "\n" + words[1] + words[2])
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(.white)
                 .shadow(color: .black, radius: 1)
         case .karaoke:
-            HStack(spacing: 1) {
-                ForEach(0..<words.count, id: \.self) { i in
-                    Text(words[i])
-                        .font(.system(size: size, weight: .bold))
-                        .foregroundStyle(i <= activeIndex(p) ? highlight : Color.white)
-                }
+            twoLines { i in
+                Text(words[i])
+                    .font(.system(size: size, weight: .bold))
+                    .foregroundStyle(i <= activeIndex(p) ? highlight : Color.white)
             }
             .shadow(color: .black, radius: 1)
         case .boxPop:
-            HStack(spacing: 1) {
-                ForEach(0..<words.count, id: \.self) { i in
-                    let active = i == activeIndex(p)
-                    Text(words[i])
-                        .font(.system(size: size, weight: .bold))
-                        .foregroundStyle(active ? Color.black : Color.white)
-                        .padding(.horizontal, 2)
-                        .background(active ? highlight : Color.clear, in: RoundedRectangle(cornerRadius: 2))
-                        .scaleEffect(active ? 1.15 : 1)
-                }
+            twoLines { i in
+                let active = i == activeIndex(p)
+                Text(words[i])
+                    .font(.system(size: size, weight: .bold))
+                    .foregroundStyle(active ? Color.black : Color.white)
+                    .padding(.horizontal, 1)
+                    .background(active ? highlight : Color.clear, in: RoundedRectangle(cornerRadius: 2))
+                    .scaleEffect(active ? 1.15 : 1)
             }
         case .outlineBig:
-            Text("いい天気")
-                .font(.system(size: 14, weight: .black))
+            Text(words[1] + "\n" + words[2])
+                .font(.system(size: 13, weight: .black))
                 .foregroundStyle(.white)
                 .shadow(color: .black, radius: 0, x: 1, y: 1)
                 .shadow(color: .black, radius: 0, x: -1, y: -1)
                 .shadow(color: .black, radius: 0, x: 1, y: -1)
                 .shadow(color: .black, radius: 0, x: -1, y: 1)
         case .pillHighlight:
-            HStack(spacing: 1) {
-                ForEach(0..<words.count, id: \.self) { i in
-                    let active = i == activeIndex(p)
-                    Text(words[i])
-                        .font(.system(size: size, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 3)
-                        .padding(.vertical, 1)
-                        .background(active ? highlight.opacity(0.85) : Color.clear, in: Capsule())
-                }
+            twoLines(spacing: 0) { i in
+                let active = i == activeIndex(p)
+                Text(words[i])
+                    .font(.system(size: size, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 1)
+                    .background(active ? highlight.opacity(0.85) : Color.clear, in: Capsule())
             }
             .shadow(color: .black.opacity(0.6), radius: 1)
         case .typewriter:
-            let full = words.joined()
+            let full = words[0] + "\n" + words[1] + words[2]
             Text(String(full.prefix(max(1, Int((Double(full.count) * p).rounded(.up))))))
                 .font(.system(size: size, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.white)
@@ -505,9 +534,9 @@ struct CaptionTemplatePicker: View {
     }
 }
 
-// MARK: - 字幕の見た目(色・大きさ・背景・位置・原文/訳文)
+// MARK: - キャプションの見た目(色・大きさ・背景・位置・原文/訳文)
 
-/// 字幕の見た目の見本(小さな画面に「今日はいい天気」を出す)
+/// キャプションの見た目の見本(縦の画面に「今日はいい天気」を出す)
 struct CaptionLookPreview: View {
     var color: Color = .white
     /// 文字の大きさ(sizeRatio。0.02 ... 0.08)
@@ -533,7 +562,8 @@ struct CaptionLookPreview: View {
                             line("Nice weather today", size: fontSize * 0.85)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, position == .center ? 0 : h * 0.12)
                     if position != .bottom { Spacer(minLength: 0) }
                 }
             }
@@ -545,7 +575,7 @@ struct CaptionLookPreview: View {
             .font(.system(size: size, weight: .semibold))
             .foregroundStyle(color)
             .lineLimit(1)
-            .minimumScaleFactor(0.5)
+            .minimumScaleFactor(0.4)
             .padding(.horizontal, background ? 3 : 0)
             .background(background ? Color.black.opacity(0.6) : Color.clear, in: RoundedRectangle(cornerRadius: 2))
             .shadow(color: background ? .clear : .black.opacity(0.8), radius: 1)
@@ -622,7 +652,7 @@ struct AutoEditStylePreview: View {
                                    startPoint: .top, endPoint: .bottom)
                         .frame(height: h * 0.62)
                     Text("第1章")
-                        .font(.system(size: 9, weight: .medium, design: .serif))
+                        .font(.system(size: 10, weight: .medium, design: .serif))
                         .foregroundStyle(.white.opacity(0.9))
                 case .vlog:
                     // 暖かい色味 + 手書き風の日付
@@ -654,7 +684,7 @@ struct AutoEditStylePreview: View {
                     Color(red: 0.9, green: 0.92, blue: 0.95)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("STEP 1")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 3)
                             .background(Color(red: 0.2, green: 0.5, blue: 0.9), in: RoundedRectangle(cornerRadius: 2))

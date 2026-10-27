@@ -58,14 +58,22 @@ struct CoverMakerView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                previewArea
-                Form {
-                    backgroundSection
-                    textSection
-                    cardSection
-                    fontSection
-                    outputSection
+            GeometryReader { geo in
+                VStack(spacing: 0) {
+                    // 画面の高さの半分ほどを使って大きく見せる(横向き・キーボード表示中でも下の設定が見えるように割合で決める)
+                    previewArea(maxHeight: max(120, geo.size.height * 0.5))
+                    Form {
+                        Group {
+                            backgroundSection
+                            textSection
+                            cardSection
+                            fontSection
+                            outputSection
+                        }
+                        .listRowBackground(Color(white: 0.11))
+                    }
+                    .scrollContentBackground(.hidden)
+                    .background(Color(white: 0.07))
                 }
             }
             .navigationTitle("サムネイル")
@@ -115,6 +123,7 @@ struct CoverMakerView: View {
                 Text(alertMessage ?? "")
             }
         }
+        .preferredColorScheme(.dark)
     }
 
     // MARK: - プレビュー
@@ -127,7 +136,7 @@ struct CoverMakerView: View {
         return size.height > 0 ? size.width / size.height : 16.0 / 9.0
     }
 
-    private var previewArea: some View {
+    private func previewArea(maxHeight: CGFloat) -> some View {
         ZStack {
             Color.black
             if let preview {
@@ -138,13 +147,9 @@ struct CoverMakerView: View {
                 ProgressView()
                     .tint(.white)
             } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 32))
-                    Text("動画を追加するか、写真を選んでください")
-                        .font(.footnote)
-                }
-                .foregroundStyle(Color.white.opacity(0.7))
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 32))
+                    .foregroundStyle(Color.white.opacity(0.7))
             }
             cardGuide
             if isRendering, preview != nil {
@@ -174,7 +179,7 @@ struct CoverMakerView: View {
         }
         .aspectRatio(previewAspect, contentMode: .fit)
         .frame(maxWidth: .infinity)
-        .frame(maxHeight: 320)
+        .frame(maxHeight: maxHeight)
         .overlay {
             dragOverlay
         }
@@ -245,19 +250,8 @@ struct CoverMakerView: View {
                     .disabled(project.isEmpty)
                 }
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("コマの時刻")
-                        Spacer()
-                        Text(MediaTimeText.precise(project.cover.frameTime))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $project.cover.frameTime, in: 0...max(duration, 0.01))
-                        .disabled(project.isEmpty)
-                    if !stripThumbnails.isEmpty {
-                        thumbnailStrip
-                    }
+                if !stripThumbnails.isEmpty {
+                    thumbnailStrip
                 }
             }
 
@@ -266,8 +260,6 @@ struct CoverMakerView: View {
             }
         } header: {
             Text("背景")
-        } footer: {
-            Text("動画の 1 コマ、または写真ライブラリの写真を背景にします。")
         }
     }
 
@@ -285,14 +277,15 @@ struct CoverMakerView: View {
                                     .scaledToFill()
                             }
                         }
-                        .frame(width: width / CGFloat(stripCount), height: 44)
+                        .frame(width: width / CGFloat(stripCount), height: 56)
                         .clipped()
                     }
                 }
                 Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(width: 2, height: 48)
-                    .offset(x: indicatorX(width: width) - 1)
+                    .fill(Color.white)
+                    .frame(width: 3, height: 60)
+                    .shadow(color: .black.opacity(0.5), radius: 1)
+                    .offset(x: min(max(indicatorX(width: width) - 1.5, 0), width - 3))
             }
             .contentShape(Rectangle())
             .gesture(
@@ -303,8 +296,19 @@ struct CoverMakerView: View {
                     }
             )
         }
-        .frame(height: 48)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .frame(height: 60)
+        .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous))
+        .accessibilityElement()
+        .accessibilityLabel("コマ")
+        .accessibilityValue(MediaTimeText.precise(project.cover.frameTime))
+        .accessibilityAdjustableAction { direction in
+            let step = duration / Double(stripCount)
+            switch direction {
+            case .increment: project.cover.frameTime = min(duration, project.cover.frameTime + step)
+            case .decrement: project.cover.frameTime = max(0, project.cover.frameTime - step)
+            @unknown default: break
+            }
+        }
     }
 
     private func indicatorX(width: CGFloat) -> CGFloat {
@@ -317,13 +321,11 @@ struct CoverMakerView: View {
 
     private var textSection: some View {
         Section {
-            TextField("タイトル(例: 夏の旅行 Vlog)", text: $project.cover.title)
-            TextField("メモ(改行で箇条書き)", text: $project.cover.memoText, axis: .vertical)
+            TextField("タイトル", text: $project.cover.title)
+            TextField("メモ", text: $project.cover.memoText, axis: .vertical)
                 .lineLimit(2...6)
         } header: {
             Text("文字")
-        } footer: {
-            Text("タイトルは画面の左上に大きく、メモはカードの中に表示されます。")
         }
     }
 
@@ -349,16 +351,18 @@ struct CoverMakerView: View {
                                         .font(.subheadline.weight(selected ? .semibold : .regular))
                                 }
                                 .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Capsule().fill(selected ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
-                                )
-                                .foregroundStyle(selected ? Color.white : Color.primary)
+                                .padding(.vertical, 7)
+                                .background(BrandStyle.surface,
+                                            in: RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous))
+                                .brandSelected(selected, cornerRadius: BrandStyle.Radius.chip)
+                                .foregroundStyle(Color.white)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityAddTraits(selected ? .isSelected : [])
                         }
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 3)
+                    .padding(.horizontal, 1)
                 }
             }
 
@@ -384,24 +388,9 @@ struct CoverMakerView: View {
                 Slider(value: $project.cover.memoRotation, in: -20...20, step: 1)
             }
 
-            HStack {
-                Button("位置を中央に") {
-                    project.cover.memoCenter = NormalizedPoint(x: 0.5, y: 0.5)
-                }
-                .buttonStyle(.borderless)
-                Spacer()
-                Button("右側に") {
-                    project.cover.memoCenter = NormalizedPoint(x: 0.72, y: 0.5)
-                    project.cover.memoRotation = -4
-                }
-                .buttonStyle(.borderless)
-            }
-
-            Toggle("動画と同じ色味(フィルタ)にする", isOn: $project.cover.applyLook)
+            Toggle("動画と同じ色味", isOn: $project.cover.applyLook)
         } header: {
-            Text("メモ風カード")
-        } footer: {
-            Text("カードはプレビューを指でドラッグして動かせます。")
+            Text("カード")
         }
     }
 
@@ -474,8 +463,6 @@ struct CoverMakerView: View {
             .disabled(preview == nil)
         } header: {
             Text("保存・共有")
-        } footer: {
-            Text("書き出しの画面比率で、幅 \(Int(outputWidth)) px の JPEG を作ります。")
         }
     }
 
@@ -524,7 +511,7 @@ struct CoverMakerView: View {
                 renderError = nil
             } catch {
                 if Task.isCancelled || generation != renderGeneration { return }
-                renderError = String(localized: "プレビューを作れませんでした。背景のコマや写真を選び直してください。(詳細: ") + error.localizedDescription + ")"
+                renderError = String(localized: "プレビューを作れませんでした。背景のコマや写真を選び直してください。")
             }
             isRendering = false
         }
@@ -582,7 +569,7 @@ struct CoverMakerView: View {
                     project.cover.imageURL = picked.url
                 } else {
                     showAlert(title: String(localized: "写真を読み込めませんでした"),
-                              message: String(localized: "別の写真を選んでください(この写真は読み込めない形式です)。"))
+                              message: String(localized: "この写真は読み込めません。別の写真を選んでください。"))
                 }
             } catch {
                 showAlert(title: String(localized: "写真を読み込めませんでした"),

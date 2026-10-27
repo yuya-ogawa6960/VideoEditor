@@ -3,7 +3,8 @@ import Observation
 
 // =====================================================================
 // 書き出しプリセット(ユーザー保存)。Documents/presets.json に保存する。
-// 組み込みプリセット(builtIns)はファイルには保存せず、常に先頭に並ぶ。
+// 組み込みプリセット(builtIns)はファイルには保存しない。書き出し画面のチップには出さない(画質は書き出し画面のタイルで選ぶ)。
+// プリセットは画質まわりだけを変え、比率と収め方(aspect / scaling)は上書きしない(比率は編集画面と新規作成で決める)。
 // 保存形式は ProjectStore.swift の StoredCanvas / StoredSubtitleStyle / StoredDocumentary を使う。
 // 呼び出しはメインスレッドから(@Observable の更新のため)。書き込みは裏で行う。
 // =====================================================================
@@ -71,8 +72,8 @@ final class PresetStore {
     static let builtIns: [ExportPreset] = [
         makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000001", name: "YouTube 4K30",
                     aspect: .landscape16x9, scaling: .fit, resolution: .uhd4k, quality: .high, frameRate: 30),
-        makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000002", name: String(localized: "ショート 9:16 1080p30 軽量"),
-                    aspect: .portrait9x16, scaling: .fitBlur, resolution: .fhd1080, quality: .small, frameRate: 30),
+        makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000002", name: String(localized: "ショート 9:16 1080p30"),
+                    aspect: .portrait9x16, scaling: .fitBlur, resolution: .fhd1080, quality: .high, frameRate: 30),
         makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000003", name: "Instagram 4:5",
                     aspect: .portrait4x5, scaling: .fitBlur, resolution: .fhd1080, quality: .standard, frameRate: 30),
         makeBuiltIn(id: "B1A7C2E0-0001-4000-8000-000000000004", name: String(localized: "長尺 高画質"),
@@ -135,9 +136,9 @@ final class PresetStore {
         write()
     }
 
-    /// プリセットの内容をプロジェクトに反映する(字幕スタイル・演出は含まれているときだけ)
+    /// プリセットの内容をプロジェクトに反映する(比率と収め方はプロジェクトのまま。字幕スタイル・演出は含まれているときだけ)
     func apply(_ preset: ExportPreset, to project: EditorProject) {
-        project.canvas = preset.canvas
+        project.canvas = Self.keepingLayout(preset.canvas, of: project.canvas)
         if let style = preset.subtitleStyle {
             project.subtitleStyle = style
         }
@@ -146,9 +147,17 @@ final class PresetStore {
         }
     }
 
-    /// 出力設定がこのプリセットと一致しているか(選択表示用)
+    /// 出力設定がこのプリセットと一致しているか(選択表示用。比率と収め方は比べない)
     func matches(_ preset: ExportPreset, canvas: CanvasSettings) -> Bool {
-        preset.canvas == canvas
+        Self.keepingLayout(preset.canvas, of: canvas) == canvas
+    }
+
+    /// preset の設定に、current の比率と収め方を残したもの
+    static func keepingLayout(_ preset: CanvasSettings, of current: CanvasSettings) -> CanvasSettings {
+        var c = preset
+        c.aspect = current.aspect
+        c.scaling = current.scaling
+        return c
     }
 
     // MARK: - 読み込み / 書き込み

@@ -39,7 +39,7 @@ enum ScriptWriterError: LocalizedError {
         case .emptyTopic:
             return String(localized: "台本のテーマを入力してください")
         case .noSubtitles:
-            return String(localized: "字幕がありません。先に文字起こしをしてください")
+            return String(localized: "キャプションがありません。先に文字起こしをしてください")
         case .invalidResponse:
             return String(localized: "AI の応答を読み取れませんでした。もう一度お試しください")
         case .sessionExpired:

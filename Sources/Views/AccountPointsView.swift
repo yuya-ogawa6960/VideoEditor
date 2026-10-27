@@ -285,6 +285,12 @@ enum AccountPrices {
 /// 一覧・設定に置く 1 行(残りのポイント、またはサインイン)。押すと「アカウントとポイント」の画面へ
 struct AccountPointsSummaryLabel: View {
     @State private var account = AccountService.shared
+    /// サインイン前は文字を出さず星のアイコンだけにする(一覧の左上。登録が要るように見せない)
+    private let iconOnlyWhenSignedOut: Bool
+
+    init(iconOnlyWhenSignedOut: Bool = false) {
+        self.iconOnlyWhenSignedOut = iconOnlyWhenSignedOut
+    }
 
     var body: some View {
         if account.isSignedIn, let points = account.points {
@@ -297,6 +303,11 @@ struct AccountPointsSummaryLabel: View {
             }
         } else if account.isSignedIn {
             Label("ポイント", systemImage: "star.circle.fill")
+        } else if iconOnlyWhenSignedOut {
+            Image(systemName: "star.circle")
+                .font(.title3)
+                .foregroundStyle(BrandStyle.coral)
+                .accessibilityLabel("サインイン")
         } else {
             Label("サインイン", systemImage: "person.crop.circle")
         }

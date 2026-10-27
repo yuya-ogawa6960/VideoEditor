@@ -13,7 +13,10 @@ import NaturalLanguage
 //   outlineBig    太い縁取り・大きめ
 //   pillHighlight 現在の単語の後ろに丸い帯
 //   typewriter    文字が順に現れる(単語タイミングがあればそれに合わせ、無ければ cue の長さから)
-// 単語タイミング(cue.words)が無いテンプレートは plain と同じ描画になる。
+// 単語タイミング(cue.words)が無いときは、karaoke・boxPop・pillHighlight は文字数に比例した時刻を
+// その場で作って使う(SubtitleWordTiming.distribute。結果はキャッシュ)。
+// 配置: 縦の画面(高さが幅の 1.2 倍より大きい)では、上下を SNS のボタン・説明文にかからない高さにし、
+// 横幅も右のボタン列を避けて狭める(PacingAnalyzer の VerticalSafeArea とそろえる)。
 // 描画結果は「表示状態」(何単語目まで、など)ごとにキャッシュするので、毎フレームの再描画は起きない。
 //
 // 改行(全テンプレート共通、breakText):
@@ -115,10 +118,18 @@ enum SubtitleRenderer {
         let template = style.template
         guard template != .plain, template != .outlineBig else { return state }
 
+        // 単語の時刻が無いキャプションでも、単語ごとのテンプレートが効くように時刻を作る
+        var sourceWords = words
+        if sourceWords.isEmpty,
+           template == .karaoke || template == .boxPop || template == .pillHighlight,
+           cueEnd > cueStart, !originalText.isEmpty {
+            sourceWords = fallbackWords(text: originalText, start: cueStart, end: cueEnd)
+        }
+
         let first = lines[0]
         // lines と同じ整形(改行の除去・末尾の「。」の省略)をしてから比べる
         let original = strippingFinalPeriod(flattened(originalText))
-        var usableWords = words.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+        var usableWords = sourceWords.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
         // 最後の単語の末尾の「。」も表示しない
         if var last = usableWords.last {
             last.text = strippingFinalPeriod(last.text)
@@ -181,6 +192,30 @@ enum SubtitleRenderer {
             }
             return state
         }
+    }
+
+    // MARK: - 単語の時刻の補い
+
+    private final class WordsBox {
+        let words: [SubtitleWord]
+        init(_ words: [SubtitleWord]) { self.words = words }
+    }
+
+    /// 毎フレーム呼ばれるので、作った時刻は文と区間ごとに取っておく
+    private static let fallbackWordsCache: NSCache<NSString, WordsBox> = {
+        let c = NSCache<NSString, WordsBox>()
+        c.countLimit = 300
+        return c
+    }()
+
+    private static func fallbackWords(text: String, start: Double, end: Double) -> [SubtitleWord] {
+        let key = "\(text)|\(start)|\(end)" as NSString
+        if let cached = fallbackWordsCache.object(forKey: key) {
+            return cached.words
+        }
+        let words = SubtitleWordTiming.distribute(text: text, start: start, end: end)
+        fallbackWordsCache.setObject(WordsBox(words), forKey: key)
+        return words
     }
 
     // MARK: - 内部
@@ -581,8 +616,10 @@ enum SubtitleRenderer {
         let useWords = !state.words.isEmpty
         let wordStarts: [Int] = useWords ? wordOffsets(state.words, in: lines[0]) : []
         let allowedStarts: Set<Int>? = useWords ? Set(wordStarts.filter { $0 > 0 }) : nil
+        // 縦の画面は右のボタン列にかからないよう、横幅を少し狭める
+        let isPortrait = canvasH > canvasW * 1.2
         let plan = makePlan(lines: lines, baseFontSize: baseFontSize, style: style, useWords: useWords,
-                            allowedStarts: allowedStarts, maxBoxWidth: canvasW * 0.9)
+                            allowedStarts: allowedStarts, maxBoxWidth: canvasW * (isPortrait ? 0.8 : 0.9))
         let fontSize = plan.fontSize
         let font = plan.font
         let restFont = plan.restFont
@@ -767,17 +804,19 @@ enum SubtitleRenderer {
         guard let cgImage = uiImage.cgImage else { return nil }
         let ciImage = CIImage(cgImage: cgImage)
 
-        // 配置(CoreImage 座標: 原点は左下)
-        let margin = (canvasH * 0.07).rounded()
+        // 配置(CoreImage 座標: 原点は左下)。
+        // 縦の画面では、下は説明文(下から約 20%)の上、上はタブ(上から約 8%)の下に置く
+        let bottomMargin = (canvasH * (isPortrait ? 0.24 : 0.07)).rounded()
+        let topMargin = (canvasH * (isPortrait ? 0.11 : 0.07)).rounded()
         let x = ((canvasW - imageWidth) / 2).rounded()
         let y: CGFloat
         switch style.position {
         case .top:
-            y = canvasH - margin - imageHeight
+            y = canvasH - topMargin - imageHeight
         case .center:
             y = ((canvasH - imageHeight) / 2).rounded()
         case .bottom:
-            y = margin
+            y = bottomMargin
         }
         return ciImage.transformed(by: CGAffineTransform(translationX: x, y: y))
     }

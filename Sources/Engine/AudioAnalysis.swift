@@ -410,10 +410,11 @@ enum AudioAnalysis {
 
     // MARK: 無音カット後に残す範囲
 
-    /// クリップのトリミング範囲から無音を取り除いた「残す」元素材範囲(時刻順、各 0.3 秒以上)。
+    /// クリップのトリミング範囲から無音を取り除いた「残す」元素材範囲(時刻順、各 minimumKeep 秒以上)。
     /// 音声のないクリップや無音が見つからない場合はトリミング範囲そのものを 1 件返す。
     static func keptRanges(for clip: Clip, thresholdDB: Float = -40, minimumDuration: Double = 0.6,
-                           padding: Double = 0.15) async throws -> [(start: Double, end: Double)] {
+                           padding: Double = 0.15,
+                           minimumKeep: Double = 0.3) async throws -> [(start: Double, end: Double)] {
         let rangeStart = clip.startTime
         let rangeEnd = clip.endTime
         guard rangeEnd > rangeStart else { return [] }
@@ -422,14 +423,14 @@ enum AudioAnalysis {
         let silences = try await detectSilence(in: clip.url, start: rangeStart, end: rangeEnd,
                                                thresholdDB: thresholdDB, minimumDuration: minimumDuration,
                                                padding: padding)
-        return keptRanges(from: rangeStart, to: rangeEnd, removing: silences)
+        return keptRanges(from: rangeStart, to: rangeEnd, removing: silences, minimumKeep: minimumKeep)
     }
 
     /// [from, to] から無音区間を除いた残り(純粋関数)。
-    /// 無音と無音に挟まれた 0.3 秒未満の断片(ノイズなど)は無音とみなして捨てる。
+    /// 無音と無音に挟まれた minimumKeep 秒未満の断片(ノイズなど)は無音とみなして捨てる。
     static func keptRanges(from rangeStart: Double, to rangeEnd: Double,
-                           removing silences: [SilenceRange]) -> [(start: Double, end: Double)] {
-        let minimumKeep = 0.3
+                           removing silences: [SilenceRange],
+                           minimumKeep: Double = 0.3) -> [(start: Double, end: Double)] {
         guard !silences.isEmpty else {
             return rangeEnd - rangeStart > 0 ? [(start: rangeStart, end: rangeEnd)] : []
         }
@@ -452,5 +453,50 @@ enum AudioAnalysis {
             return [(start: rangeStart, end: rangeEnd)]
         }
         return kept
+    }
+}
+
+// MARK: - 無音カットのテンポ
+
+/// 無音カットの詰め方。短い間まで切るほど、前後に残す余白(padding)も小さくする
+/// (余白が無音の長さより大きいと、何も切れなくなるため)
+enum SilenceCutPace: String, CaseIterable, Identifiable {
+    case normal, snappy, tight
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .normal: return String(localized: "ふつう")
+        case .snappy: return String(localized: "テンポよく")
+        case .tight: return String(localized: "ぎりぎり")
+        }
+    }
+
+    /// この長さ以上の無音を切る(秒)
+    var minimumDuration: Double {
+        switch self {
+        case .normal: return 0.6
+        case .snappy: return 0.35
+        case .tight: return 0.2
+        }
+    }
+
+    /// 話し声の前後に残す余白(秒)
+    var padding: Double {
+        switch self {
+        case .normal: return 0.15
+        case .snappy: return 0.08
+        case .tight: return 0.04
+        }
+    }
+
+    /// 無音に挟まれた、この長さ未満の音は捨てる(秒)。短い間まで切るときは短い返事も残す
+    var minimumKeep: Double {
+        switch self {
+        case .normal: return 0.3
+        case .snappy: return 0.2
+        case .tight: return 0.15
+        }
     }
 }

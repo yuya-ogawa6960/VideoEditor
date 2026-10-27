@@ -269,7 +269,7 @@ struct EditorOverlayPlacementPanel: View {
     }
 }
 
-// MARK: - ケン・バーンズ
+// MARK: - ズーム・パン(Ken Burns)
 
 struct EditorOverlayKenBurnsPanel: View {
     @Binding var overlay: OverlayClip
@@ -345,55 +345,40 @@ struct EditorOverlayKenBurnsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
 
-            Toggle(isOn: $overlay.kenBurns.enabled) {
-                Label("Ken Burns", systemImage: "arrow.up.left.and.arrow.down.right")
-                    .font(.subheadline)
-            }
-            .tint(.accentColor)
-
-            VStack(alignment: .leading, spacing: 6) {
-                OverlaySectionTitle(title: String(localized: "動き"))
+            // 4 つ並ぶので、狭い幅(横並び・横向き)では横にスクロールできるようにする
+            ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    EditorChip(title: String(localized: "なし"), isSelected: !overlay.kenBurns.enabled) {
+                        overlay.kenBurns.enabled = false
+                    }
                     ForEach(Motion.allCases) { candidate in
                         EditorChip(title: candidate.title,
                                    isSelected: motion == candidate && overlay.kenBurns.enabled) {
-                            let keep = intensity
+                            let keep = overlay.kenBurns.enabled ? intensity : 1
                             motion = candidate
                             apply(candidate, intensity: keep < 0.1 ? 1 : keep)
                         }
                     }
-                    Spacer()
                 }
             }
-            .disabled(!overlay.kenBurns.enabled)
-            .opacity(overlay.kenBurns.enabled ? 1 : 0.4)
 
-            EditorSliderRow(title: String(localized: "強さ"),
-                            value: intensityBinding,
-                            range: 0.1...1,
-                            display: overlayPercentText(intensity))
-                .disabled(!overlay.kenBurns.enabled)
-                .opacity(overlay.kenBurns.enabled ? 1 : 0.4)
+            if overlay.kenBurns.enabled {
+                EditorSliderRow(title: String(localized: "強さ"),
+                                value: intensityBinding,
+                                range: 0.1...1,
+                                display: overlayPercentText(intensity))
 
-            OverlayResetRow {
-                apply(motion, intensity: 1)
+                OverlayResetRow {
+                    apply(motion, intensity: 1)
+                }
             }
-            .disabled(!overlay.kenBurns.enabled)
-            .opacity(overlay.kenBurns.enabled ? 1 : 0.4)
-
-            let note: String = overlay.isImage
-                ? String(localized: "写真が \(overlaySecondsText(overlay.duration)) かけてゆっくり動きます。")
-                : String(localized: "動画にも使えます(ゆっくり拡大したり、横に動いたりします)。")
-            Text(verbatim: note)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .padding(.top, 6)
         .onAppear {
             motion = Self.inferMotion(from: overlay.kenBurns)
         }
         .onChange(of: overlay.kenBurns.enabled) { _, enabled in
-            // オンにしたとき動きがなければ、選択中の動きを適用する
+            // ほかの所からオンにされて動きがないときは、選択中の動きを入れる
             if enabled, overlay.kenBurns.startCrop == overlay.kenBurns.endCrop {
                 apply(motion, intensity: 1)
             }

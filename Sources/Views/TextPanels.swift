@@ -330,10 +330,6 @@ struct EditorStickerPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("タップで再生位置に 3 秒追加")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
             LazyVGrid(columns: columns, spacing: 6) {
                 ForEach(Self.emojis, id: \.self) { emoji in
                     Button {
@@ -438,6 +434,16 @@ struct EditorTextStylePanel: View {
             }
         }
         .padding(.top, 6)
+        .onAppear {
+            // 追加したばかり(文字が初期の「テキスト」のまま)のときだけ、すぐ打てるように入力欄を選ぶ。
+            // 既存のテキストを開いたときは、キーボードで画面を隠さない
+            guard !text.isSticker, tab == .text, text.text == String(localized: "テキスト") else { return }
+            Task { @MainActor in
+                // パネルが出きってからでないとフォーカスが入らないことがある
+                try? await Task.sleep(for: .milliseconds(350))
+                textFocused = true
+            }
+        }
     }
 
     /// 文字の入力。入力中は右上の「完了」でキーボードを閉じられる
@@ -498,14 +504,17 @@ struct EditorTextStylePanel: View {
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: String(localized: "デザイン"))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(TextTemplate.allCases) { template in
-                            EditorChip(title: template.displayName, isSelected: text.template == template) {
+                    HStack(spacing: 6) {
+                        ForEach(TextTemplatePreview.order) { template in
+                            EditorVisualTile(title: template.displayName, isSelected: text.template == template) {
                                 text.template = template
                                 text.style = TextStyle.preset(template)
+                            } preview: {
+                                TextTemplatePreview(template: template)
                             }
                         }
                     }
+                    .padding(.vertical, 2)
                 }
             }
 
@@ -763,6 +772,11 @@ struct EditorTextPlacementPanel: View {
         return KeyframeInterpolator.value(at: keyTime, keyframes: text.keyframes, fallback: baseValue)
     }
 
+    /// キーフレームで動いている値の見出しに ◆ を付ける
+    private func keyed(_ title: String) -> String {
+        isKeyed ? "◆ " + title : title
+    }
+
     private var isDefault: Bool {
         let shown = shownValue
         return shown.center == NormalizedPoint(x: 0.5, y: 0.5) && shown.scale == 1 && shown.rotation == 0
@@ -772,14 +786,6 @@ struct EditorTextPlacementPanel: View {
     var body: some View {
         let shown = shownValue
         VStack(alignment: .leading, spacing: 14) {
-            Text("プレビューの枠をドラッグ・ピンチ・2 本指で回転")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if isKeyed {
-                TextPanelHint(text: String(localized: "キーフレームがあるので、位置・大きさ・回転は再生位置での値を変えます"))
-            }
-
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: String(localized: "位置"))
                 HStack(spacing: 8) {
@@ -793,19 +799,19 @@ struct EditorTextPlacementPanel: View {
                 }
             }
 
-            EditorSliderRow(title: String(localized: "横位置"),
+            EditorSliderRow(title: keyed(String(localized: "横位置")),
                             value: placementBinding(\.center.x),
                             range: 0...1,
                             display: textPanelPercent(shown.center.x))
-            EditorSliderRow(title: String(localized: "縦位置"),
+            EditorSliderRow(title: keyed(String(localized: "縦位置")),
                             value: placementBinding(\.center.y),
                             range: 0...1,
                             display: textPanelPercent(shown.center.y))
-            EditorSliderRow(title: String(localized: "大きさ"),
+            EditorSliderRow(title: keyed(String(localized: "大きさ")),
                             value: placementBinding(\.scale),
                             range: 0.2...4,
                             display: String(format: "%.2fx", shown.scale))
-            EditorSliderRow(title: String(localized: "回転"),
+            EditorSliderRow(title: keyed(String(localized: "回転")),
                             value: placementBinding(\.rotation),
                             range: -180...180,
                             display: String(format: "%.0f°", shown.rotation))
@@ -1141,11 +1147,6 @@ struct EditorDrawingToolsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("プレビューをなぞって描き、完了で再生位置に 3 秒表示")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
             VStack(alignment: .leading, spacing: 4) {
                 EditorSectionTitle(title: String(localized: "色"))
                 DrawingColorChips(colorHex: $colorHex)
@@ -1272,7 +1273,7 @@ struct EditorDrawingTimingPanel: View {
                             display: textPanelSeconds(drawing.revealDuration))
 
             HStack {
-                EditorPillButton(title: String(localized: "再生位置に移動"), systemImage: "arrow.right.to.line") {
+                EditorPillButton(title: String(localized: "再生位置から始める"), systemImage: "arrow.right.to.line") {
                     drawing.start = max(0, player.currentTime)
                 }
                 Spacer()
@@ -1305,10 +1306,10 @@ struct EditorMarkerNamePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                Image(systemName: "flag.fill")
+                Image(systemName: EditorMarkerKindPanel.icon(marker.kind))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("マーカー(\(marker.kind.displayName))")
+                Text(marker.kind.displayName)
                     .font(.subheadline)
                 Spacer(minLength: 0)
                 Text(MediaTimeText.precise(marker.time))
@@ -1320,28 +1321,32 @@ struct EditorMarkerNamePanel: View {
             EditorTextFieldRow(title: String(localized: "名前"), placeholder: marker.kind == .chapter ? String(localized: "例: オープニング") : String(localized: "メモ"), text: $marker.name)
 
             HStack(spacing: 10) {
-                EditorPillButton(title: String(localized: "再生位置に移動"), systemImage: "arrow.right.to.line") {
+                EditorPillButton(title: String(localized: "再生位置へ移す"), systemImage: "arrow.right.to.line") {
                     marker.time = max(0, player.currentTime)
                     project.sortMarkers()
                 }
-                EditorPillButton(title: copied ? String(localized: "コピーしました") : String(localized: "チャプター一覧をコピー"), systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = project.chapterListText()
-                    copied = true
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        copied = false
+                if marker.kind == .chapter {
+                    EditorPillButton(title: copied ? String(localized: "コピーしました") : String(localized: "チャプター一覧をコピー"), systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = project.chapterListText()
+                        copied = true
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            copied = false
+                        }
                     }
                 }
                 Spacer()
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                EditorSectionTitle(title: String(localized: "チャプター一覧(YouTube の概要欄用)"))
-                Text(chapterPreview)
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if marker.kind == .chapter {
+                VStack(alignment: .leading, spacing: 4) {
+                    EditorSectionTitle(title: String(localized: "チャプター一覧"))
+                    Text(chapterPreview)
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(.top, 6)
@@ -1351,31 +1356,44 @@ struct EditorMarkerNamePanel: View {
 struct EditorMarkerKindPanel: View {
     @Binding var marker: TimelineMarker
 
-    private func description(_ kind: MarkerKind) -> String {
+    static func icon(_ kind: MarkerKind) -> String {
         switch kind {
-        case .note: return String(localized: "自分用のメモです。書き出した動画には映りません。")
-        case .chapter: return String(localized: "YouTube の区切り(チャプター)に使います。「チャプター一覧をコピー」で概要欄に貼る文章を作れます。")
-        case .beat: return String(localized: "「ビートに合わせる」で付く、音楽の拍のマーカーです。")
+        case .note: return "note.text"
+        case .chapter: return "list.number"
+        case .beat: return "metronome"
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: String(localized: "種類"))
-                HStack(spacing: 8) {
-                    ForEach(MarkerKind.allCases) { kind in
-                        EditorChip(title: kind.displayName, isSelected: marker.kind == kind) {
-                            marker.kind = kind
-                        }
+            HStack(spacing: 8) {
+                ForEach(MarkerKind.allCases) { kind in
+                    let selected = marker.kind == kind
+                    Button {
+                        EditorHaptics.tap()
+                        marker.kind = kind
+                    } label: {
+                        Label(kind.displayName, systemImage: Self.icon(kind))
+                            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                            .lineLimit(1)
+                            .fixedSize()
+                            .foregroundStyle(selected ? Color.black : Color.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(selected ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                            .padding(.vertical, 7)
+                            .contentShape(Rectangle())
+                            .padding(.vertical, -7)
                     }
-                    Spacer()
+                    .buttonStyle(.plain)
                 }
+                Spacer()
             }
-            Text(description(marker.kind))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if marker.kind == .note {
+                Text("書き出しには映りません")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.top, 6)
     }
@@ -1798,6 +1816,8 @@ struct EditorTextToSpeechPanel: View {
     @State private var recovery: CloudAIRecovery = .none
     @State private var showsAccount = false
     @State private var resultText: String?
+    /// 声の追加のしかたを出している
+    @State private var showsVoiceHelp = false
 
     private var choice: TTSVoiceChoice {
         if let cloudVoice { return .cloud(cloudVoice) }
@@ -1820,6 +1840,20 @@ struct EditorTextToSpeechPanel: View {
         if let cloudVoice { return cloudVoice.displayName }
         guard let voiceID, let voice = voices.first(where: { $0.id == voiceID }) else { return String(localized: "標準の声") }
         return voice.name
+    }
+
+    /// クラウドの声で使う見込みのポイント(1000 文字ごとに 1pt)。自分の OpenAI キーや端末の声なら nil
+    private var estimatedPoints: Int? {
+        // Google の声はポイントでだけ使える(TextToSpeech の googleNeedsPoints)
+        guard let cloudVoice, cloudVoice.isGoogle || CloudAIGateway.prefersPoints else { return nil }
+        let count = text.trimmingCharacters(in: .whitespacesAndNewlines).count
+        return max(1, (count + 999) / 1000)
+    }
+
+    private var renderTitle: String {
+        if isRendering { return String(localized: "作成中…") }
+        if let points = estimatedPoints { return String(localized: "読み上げて追加 ・ \(points)pt") }
+        return String(localized: "読み上げて追加")
     }
 
     private var canRender: Bool {
@@ -1853,7 +1887,7 @@ struct EditorTextToSpeechPanel: View {
                         } else {
                             Image(systemName: "waveform.badge.plus")
                         }
-                        Text(isRendering ? String(localized: "作成中…") : String(localized: "読み上げて追加"))
+                        Text(renderTitle)
                     }
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
@@ -1879,10 +1913,6 @@ struct EditorTextToSpeechPanel: View {
                     Label(resultText, systemImage: "checkmark.circle.fill")
                         .font(.caption)
                         .foregroundStyle(.green)
-                } else {
-                    Text("再生位置にナレーションとして追加します。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -1923,6 +1953,8 @@ struct EditorTextToSpeechPanel: View {
                         ForEach(voices, id: \.id) { voice in
                             Button(voice.name) { voiceID = voice.id }
                         }
+                        Divider()
+                        Button(String(localized: "声を追加する"), systemImage: "plus") { showsVoiceHelp = true }
                     } else {
                         ForEach(cloudVoice?.isGoogle == true ? CloudVoice.googleVoices : CloudVoice.openAIVoices) { voice in
                             Button(voice.displayName) { cloudVoice = voice }
@@ -1945,34 +1977,33 @@ struct EditorTextToSpeechPanel: View {
                 }
             }
             HStack(spacing: 8) {
-                EditorChip(title: String(localized: "端末の声"), isSelected: cloudVoice == nil) {
+                EditorChip(title: String(localized: "標準"), isSelected: cloudVoice == nil) {
                     cloudVoice = nil
                 }
-                EditorChip(title: "OpenAI", isSelected: cloudVoice.map { !$0.isGoogle } ?? false) {
+                EditorChip(title: String(localized: "AIボイス"), isSelected: cloudVoice.map { !$0.isGoogle } ?? false) {
                     if cloudVoice == nil || cloudVoice?.isGoogle == true { cloudVoice = .alloy }
                 }
-                EditorChip(title: "Google", isSelected: cloudVoice?.isGoogle ?? false) {
+                EditorChip(title: String(localized: "AIボイス 日本語"), isSelected: cloudVoice?.isGoogle ?? false) {
                     if cloudVoice?.isGoogle != true { cloudVoice = .googleAoede }
                 }
                 Spacer()
             }
             if cloudVoice == nil {
                 if !personalVoiceAuthorized && !TextToSpeech.personalVoiceDenied {
-                    EditorPillButton(title: String(localized: "自分の声を使う(パーソナルボイス)"), systemImage: "person.wave.2") {
+                    EditorPillButton(title: String(localized: "自分の声を使う"), systemImage: "person.wave.2") {
                         Task { @MainActor in
                             personalVoiceAuthorized = await TextToSpeech.requestPersonalVoice()
                             reloadVoices()
                         }
                     }
                 }
-                TextPanelHint(text: String(localized: "声を増やす: iPhone の「設定」→「アクセシビリティ」→「読み上げコンテンツ」→「声」で、高品質の声をダウンロードするとここに並びます。「パーソナルボイス」で作った自分の声も使えます。"))
-            } else if cloudVoice?.isGoogle == true {
-                TextPanelHint(text: String(localized: "Google の声は日本語向けです。1000 文字ごとにポイントを使います。"))
-            } else {
-                EditorTextFieldRow(title: String(localized: "話し方の指示(任意)"),
-                                   placeholder: String(localized: "例: 元気に、ゆっくり落ち着いて、ささやくように"),
+                if showsVoiceHelp {
+                    TextPanelHint(text: String(localized: "設定 › アクセシビリティ › 読み上げコンテンツ › 声"))
+                }
+            } else if cloudVoice?.isGoogle != true {
+                EditorTextFieldRow(title: String(localized: "話し方"),
+                                   placeholder: String(localized: "例: 元気に、ささやくように"),
                                    text: $instructions)
-                TextPanelHint(text: String(localized: "クラウドの声は 1000 文字ごとにポイントを使います(自分の OpenAI キーならその料金)。日本語・英語ほか多くの言語を話せます。"))
             }
         }
     }
@@ -2098,24 +2129,13 @@ struct EditorTextToSpeechPanel: View {
 struct EditorCaptionTemplatePanel: View {
     @Bindable var project: EditorProject
 
-    private var hasWordTimings: Bool {
-        project.subtitles.contains(where: { !$0.words.isEmpty })
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             CaptionTemplatePicker(selection: $project.subtitleStyle.template)
 
-            EditorColorRow(title: String(localized: "話している言葉の色"), color: EditorColorHex.binding($project.subtitleStyle.highlightColorHex))
+            EditorColorRow(title: String(localized: "強調色"), color: EditorColorHex.binding($project.subtitleStyle.highlightColorHex))
 
             EditorFontPickerRow(title: "フォント", fontName: $project.subtitleStyle.fontName)
-
-            if project.subtitleStyle.template != .plain && !hasWordTimings {
-                Text("「キャプションを作成」で作ったキャプションにだけ効きます")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
         .padding(.top, 6)
     }
@@ -2138,5 +2158,52 @@ struct EditorOverlayOpacityPanel: View {
                 .frame(minWidth: 44, alignment: .trailing)
         }
         .padding(.top, 20)
+    }
+}
+
+// MARK: - テキストのデザインの見本
+
+/// テキストのデザインを小さな画面に「Aa」で見せる(TextStyle.preset の色・縁・背景をざっくり再現)
+struct TextTemplatePreview: View {
+    let template: TextTemplate
+
+    /// ショートでよく使うものを前に
+    static let order: [TextTemplate] = [
+        .bigImpact, .headline, .caption, .neon, .handwritten, .plain, .subtitleBox, .newsBar, .quote, .minimalSerif
+    ]
+
+    var body: some View {
+        let style = TextStyle.preset(template)
+        let fill = EditorColorHex.color(style.colorHex)
+        let stroke = style.strokeColorHex.map { EditorColorHex.color($0, fallback: .black) }
+        let fontSize: CGFloat = template == .bigImpact ? 20 : (style.sizeRatio >= 0.07 ? 17 : 14)
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.32, green: 0.42, blue: 0.55), Color(red: 0.16, green: 0.2, blue: 0.26)],
+                           startPoint: .top, endPoint: .bottom)
+            Text("Aa")
+                .font(previewFont(style, size: fontSize))
+                .foregroundStyle(fill)
+                .shadow(color: stroke ?? .clear, radius: 0, x: 1, y: 1)
+                .shadow(color: stroke ?? .clear, radius: 0, x: -1, y: -1)
+                .shadow(color: stroke ?? .clear, radius: 0, x: 1, y: -1)
+                .shadow(color: stroke ?? .clear, radius: 0, x: -1, y: 1)
+                .shadow(color: template == .neon ? fill : (style.shadow.enabled && stroke == nil && style.backgroundColorHex == nil ? .black.opacity(0.6) : .clear),
+                        radius: template == .neon ? 4 : 1)
+                .padding(.horizontal, style.backgroundColorHex == nil ? 0 : 6)
+                .padding(.vertical, style.backgroundColorHex == nil ? 0 : 2)
+                .background {
+                    if let bg = style.backgroundColorHex {
+                        RoundedRectangle(cornerRadius: CGFloat(style.backgroundCornerRadius) * 10)
+                            .fill(EditorColorHex.color(bg, fallback: .black).opacity(style.backgroundOpacity))
+                    }
+                }
+        }
+    }
+
+    private func previewFont(_ style: TextStyle, size: CGFloat) -> Font {
+        if let name = style.fontName {
+            return .custom(name, size: size)
+        }
+        return .system(size: size, weight: style.bold ? .heavy : .regular)
     }
 }

@@ -6,7 +6,7 @@ import SwiftUI
 // - アカウントとポイント(AccountPointsView)
 // - 文字起こしとAI仕上げ(TranscriptionSettingsView)、用語の登録、読み方の登録
 // - プライバシーと広告(使い方の統計・広告の同意の見直し。AdPrivacySection)
-// - サポート用の情報(ロック中の継続・バックグラウンド送信・広告の状態)
+// - サポート用の情報(ロック中の継続・バックグラウンド送信・広告の状態)。デバッグ・TestFlight のビルドだけ
 // プロジェクトを開かなくても、広告の同意や統計の送信を変えられるようにここに置く。
 // =====================================================================
 
@@ -54,18 +54,26 @@ struct AppSettingsView: View {
                 }
             }
             AdPrivacySection()
-            diagnosticsSection
+            // 開発・テスト用の情報なので、製品版では出さない
+            if Self.showsDiagnosticsSection {
+                diagnosticsSection
+            }
         }
         .navigationTitle("設定")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             termCount = CaptionTermDictionary.load().count
             readingCount = ReadingDictionary.load().count
-            refreshDiagnostics()
+            if Self.showsDiagnosticsSection {
+                refreshDiagnostics()
+            }
         }
     }
 
     // MARK: - サポート用の情報
+
+    /// デバッグビルドか TestFlight(テスト広告を出すビルドと同じ判定)
+    private static var showsDiagnosticsSection: Bool { AdsManager.usesTestAds }
 
     private var diagnosticsSection: some View {
         Section {
@@ -80,8 +88,6 @@ struct AppSettingsView: View {
                     Label("情報を更新", systemImage: "arrow.clockwise")
                 }
             }
-        } footer: {
-            Text("うまく動かないときに、この内容を伝えてください。")
         }
     }
 

@@ -24,15 +24,8 @@ private func autoEditSeconds(_ value: Double) -> String {
     return String(localized: "\(Int(value.rounded())) 秒")
 }
 
-private func autoEditStyleDescription(_ style: AutoEditStyle) -> String {
-    switch style {
-    case .documentary: return String(localized: "落ち着いたテンポ。黒へのフェードや重なるトランジション、ドキュメンタリー風の色味。話している場面を優先します。")
-    case .vlog: return String(localized: "重なるトランジションでテンポよく。暖かいシネマ調の色味。BGM のビートに合わせて切り替えます。")
-    case .short: return String(localized: "15〜30 秒向け。短いカットをズームでつなぎ、鮮やかな色味にします。")
-    case .family: return String(localized: "顔が映っている場面を優先し、やさしい色味でまとめます。")
-    case .howto: return String(localized: "説明している場面を優先し、カットはシンプルに。キャプションと相性のよい構成です。")
-    }
-}
+/// BGM に選べる音声ファイルの種類
+private let autoEditAudioTypes: [UTType] = [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
 
 // MARK: - おまかせ編集
 
@@ -45,19 +38,35 @@ struct AutoEditSheetView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var settings = AutoEditSettings()
+    /// 初期値はショート向け(30 秒・テンポよく)
+    @State private var settings: AutoEditSettings = {
+        var s = AutoEditSettings()
+        s.style = .short
+        s.targetDuration = 30
+        return s
+    }()
     @State private var highlights: [HighlightSegment]? = nil
-    /// 見つけた見どころの一覧を開いているか(閉じておくと「作成」が遠くならない)
+    /// タイトル・オプション・見どころをまとめた「詳細」を開いているか
+    @State private var showsMore = false
+    /// 見つけた見どころの一覧を開いているか(閉じておくと長くならない)
     @State private var showsHighlights = false
     @State private var analysis = EditorAnalysisRunner()
     @State private var errorText: String?
     @State private var showBuildConfirm = false
     @State private var isBGMImporterPresented = false
 
-    private static let audioTypes: [UTType] = [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
-    private let durationOptions: [Double] = [0, 15, 30, 60, 180, 300, 600, 1200, 1800]
-
     private var sourceTotal: Double { project.totalDuration }
+
+    /// 縦の作品か(書き出しの大きさで見る)
+    private var isVerticalProject: Bool {
+        let size = CompositionBuilder.renderSize(for: project.snapshot(), purpose: .export)
+        return size.height > size.width
+    }
+
+    /// 長さの選択肢。縦の作品はショートの長さだけ。0 = 全部使う
+    private var durationOptions: [Double] {
+        isVerticalProject ? [15, 30, 60, 0] : [15, 30, 60, 180, 600, 1800, 0]
+    }
 
     var body: some View {
         NavigationStack {
@@ -66,9 +75,7 @@ struct AutoEditSheetView: View {
                     styleSection
                     lengthSection
                     bgmSection
-                    titleSection
-                    optionSection
-                    highlightSection
+                    moreSection
                 }
                 .safeAreaInset(edge: .bottom) {
                     buildBar
@@ -92,19 +99,19 @@ struct AutoEditSheetView: View {
             // 作成中はスワイプで閉じられないようにする(閉じたあとに結果がプロジェクトに入らないように)
             .interactiveDismissDisabled(analysis.isRunning)
             .fileImporter(isPresented: $isBGMImporterPresented,
-                          allowedContentTypes: AutoEditSheetView.audioTypes,
+                          allowedContentTypes: autoEditAudioTypes,
                           allowsMultipleSelection: false) { result in
                 handleBGMImport(result)
             }
-            .confirmationDialog("いまのプロジェクトを自動編集で作り直しますか?",
+            .confirmationDialog("いまのプロジェクトを作り直しますか?",
                                 isPresented: $showBuildConfirm,
                                 titleVisibility: .visible) {
-                Button("作成する") {
+                Button("動画を作る") {
                     build()
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("クリップの並びや長さ、トランジション、色味などが置き換わります。「元に戻す」で戻せます。")
+                Text("クリップの並びや色味が置き換わります。「元に戻す」で戻せます。")
             }
             .alert("お知らせ", isPresented: errorIsPresented) {
                 Button("OK", role: .cancel) {}
@@ -150,11 +157,9 @@ struct AutoEditSheetView: View {
                         }
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
             }
-            Text(autoEditStyleDescription(settings.style))
-                .font(.caption)
-                .foregroundStyle(.secondary)
         } header: {
             Text("スタイル")
         }
@@ -173,22 +178,10 @@ struct AutoEditSheetView: View {
                 }
                 .padding(.vertical, 2)
             }
-            if settings.targetDuration > 0 {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("目標の長さ")
-                        Spacer()
-                        Text(autoEditSeconds(settings.targetDuration))
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: $settings.targetDuration, in: 10...1800, step: 10)
-                }
-            }
         } header: {
             Text("長さ")
         } footer: {
-            Text("素材の合計は \(MediaTimeText.precise(sourceTotal))。目標より短いときは見どころを残します。")
+            Text("素材 \(MediaTimeText.precise(sourceTotal))")
         }
     }
 
@@ -214,66 +207,51 @@ struct AutoEditSheetView: View {
                 } label: {
                     Label("BGMを選ぶ", systemImage: "music.note.list")
                 }
-                Text("BGM を選ぶと、曲のビートに合わせてカットを切り替えられます。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         } header: {
             Text("BGM")
         }
     }
 
-    private var titleSection: some View {
+    /// タイトル・オプション・見どころ(ふだんは畳んでおく)
+    private var moreSection: some View {
         Section {
-            Toggle("最初にタイトルを入れる", isOn: $settings.addTitleCard)
-            if settings.addTitleCard {
-                TextField("タイトル", text: $settings.titleText)
-            }
-        } header: {
-            Text("タイトル")
-        }
-    }
+            DisclosureGroup(isExpanded: $showsMore) {
+                Toggle("最初にタイトルを入れる", isOn: $settings.addTitleCard)
+                if settings.addTitleCard {
+                    TextField("タイトル", text: $settings.titleText)
+                }
+                Toggle("トランジションを入れる", isOn: $settings.addTransitions)
+                Toggle("スタイルに合った色味にする", isOn: $settings.applyLook)
+                Toggle("顔が映っている場面を優先", isOn: $settings.preferFaces)
+                Toggle("話している場面を優先", isOn: $settings.preferSpeech)
 
-    private var optionSection: some View {
-        Section {
-            Toggle("トランジションを入れる", isOn: $settings.addTransitions)
-            Toggle("スタイルに合った色味にする", isOn: $settings.applyLook)
-            Toggle("顔が映っている場面を優先", isOn: $settings.preferFaces)
-            Toggle("話している場面を優先", isOn: $settings.preferSpeech)
-        } header: {
-            Text("オプション")
-        }
-    }
+                Button {
+                    analyzeHighlights()
+                } label: {
+                    Label(highlights == nil ? String(localized: "見どころを探す") : String(localized: "もう一度探す"), systemImage: "sparkle.magnifyingglass")
+                }
+                .disabled(project.isEmpty || analysis.isRunning)
 
-    private var highlightSection: some View {
-        Section {
-            Button {
-                analyzeHighlights()
-            } label: {
-                Label(highlights == nil ? String(localized: "見どころを探す") : String(localized: "もう一度探す"), systemImage: "sparkle.magnifyingglass")
-            }
-            .disabled(project.isEmpty || analysis.isRunning)
-
-            if let highlights {
-                if highlights.isEmpty {
-                    Text("見どころを見つけられませんでした。「作成」では全体から均等に選びます。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    // 一覧は閉じておく(開くと長くなるため)
-                    DisclosureGroup(isExpanded: $showsHighlights) {
-                        ForEach(highlights) { segment in
-                            highlightRow(segment)
+                if let highlights {
+                    if highlights.isEmpty {
+                        Text("見どころは見つかりませんでした")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        // 一覧は閉じておく(開くと長くなるため)。行を押すとその場面へ移る
+                        DisclosureGroup(isExpanded: $showsHighlights) {
+                            ForEach(highlights) { segment in
+                                highlightRow(segment)
+                            }
+                        } label: {
+                            Text(String(localized: "\(highlights.count) 件の見どころ"))
                         }
-                    } label: {
-                        Text(String(localized: "\(highlights.count) 件の見どころ"))
                     }
                 }
+            } label: {
+                Text("詳細")
             }
-        } header: {
-            Text("見どころ")
-        } footer: {
-            Text("探さずに「作成」しても自動で探します。")
         }
     }
 
@@ -321,24 +299,17 @@ struct AutoEditSheetView: View {
         return .gray
     }
 
-    /// 画面下に固定した「作成」(書き出し画面の「書き出す」と同じ形。ExportView.swift)
+    /// 画面下に固定した「動画を作る」(書き出し画面の「書き出す」と同じ形。ExportView.swift)
     private var buildBar: some View {
-        VStack(spacing: 6) {
-            Button {
-                showBuildConfirm = true
-            } label: {
-                Label("作成", systemImage: "wand.and.stars")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(BrandProminentButtonStyle())
-            .disabled(project.isEmpty || analysis.isRunning)
-
-            Text("いまのプロジェクトを置き換えます。「元に戻す」で戻せます。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        Button {
+            showBuildConfirm = true
+        } label: {
+            Label("動画を作る", systemImage: "wand.and.stars")
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 44)
         }
+        .buttonStyle(BrandProminentButtonStyle())
+        .disabled(project.isEmpty || analysis.isRunning)
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 8)
@@ -385,7 +356,7 @@ struct AutoEditSheetView: View {
             if Task.isCancelled { return }
             highlights = found.sorted { $0.start < $1.start }
         } onError: { error in
-            errorText = String(localized: "見どころを探せませんでした。このまま「作成」を押すと、全体から均等に選んで作ります。\n\n詳細: ") + error.localizedDescription
+            errorText = String(localized: "見どころを探せませんでした。このまま「動画を作る」を押すと、全体から均等に選んで作ります。\n\n詳細: ") + error.localizedDescription
         }
     }
 
@@ -406,7 +377,7 @@ struct AutoEditSheetView: View {
             dismiss()
             onApplied()
         } onError: { error in
-            errorText = String(localized: "もう一度「作成」を押してください。続くときは、目標の長さを変えるかクリップを減らしてお試しください。\n\n詳細: ") + error.localizedDescription
+            errorText = String(localized: "もう一度「動画を作る」を押してください。続くときは、長さを変えるかクリップを減らしてお試しください。\n\n詳細: ") + error.localizedDescription
         }
     }
 }
@@ -435,12 +406,7 @@ struct EditorAutoEditTemplatePanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("いまのクリップから、決まった型でワンタップで編集します。長さに合わせて見どころを選び、トランジションと色味も整えます。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
+        VStack(alignment: .leading, spacing: 10) {
             if project.isEmpty {
                 Text("クリップを追加してから使えます。")
                     .font(.caption)
@@ -477,7 +443,7 @@ struct EditorAutoEditTemplatePanel: View {
                 pending = nil
             }
         } message: {
-            Text("クリップの並びや長さ、トランジション、色味が置き換わります。「元に戻す」で戻せます。")
+            Text("クリップの並びや色味が置き換わります。「元に戻す」で戻せます。")
         }
     }
 
@@ -491,29 +457,23 @@ struct EditorAutoEditTemplatePanel: View {
     }
 
     private func templateRow(_ template: AutoEditor.Template) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(template.name)
-                        .font(.subheadline.weight(.semibold))
-                    Text(template.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(summary(template))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                EditorPillButton(title: String(localized: "適用"), systemImage: "wand.and.stars", prominent: true) {
-                    pending = template
-                }
-                .disabled(analysis.isRunning)
-                .opacity(analysis.isRunning ? 0.5 : 1)
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(template.name)
+                    .font(.subheadline.weight(.semibold))
+                Text(summary(template))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            Spacer(minLength: 8)
+            EditorPillButton(title: String(localized: "適用"), systemImage: "wand.and.stars", prominent: true) {
+                pending = template
+            }
+            .disabled(analysis.isRunning)
+            .opacity(analysis.isRunning ? 0.5 : 1)
         }
         .padding(10)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .background(BrandStyle.surface, in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
     }
 
     private func apply(_ template: AutoEditor.Template) {
@@ -539,7 +499,7 @@ struct EditorAutoEditTemplatePanel: View {
             history.record(project)
             project.restore(result)
             player.seek(to: 0)
-            message = String(localized: "「\(name)」を適用しました。「元に戻す」で戻せます。")
+            message = String(localized: "「\(name)」を適用しました")
             onApplied()
         } onError: { error in
             errorText = String(localized: "もう一度「適用」を押してください。続くときは別のテンプレートをお試しください。\n\n詳細: ") + error.localizedDescription
@@ -575,6 +535,10 @@ struct SlideshowSheetView: View {
         return s
     }()
     @State private var useProjectBGM = true
+    /// この画面で選んだ BGM(プロジェクトに BGM がないとき)
+    @State private var pickedBGM: URL?
+    @State private var pickedBGMName: String?
+    @State private var isBGMImporterPresented = false
     @State private var mode: Mode = .replace
     @State private var analysis = EditorAnalysisRunner()
     @State private var errorText: String?
@@ -617,6 +581,11 @@ struct SlideshowSheetView: View {
             }
             // 作成中はスワイプで閉じられないようにする(閉じたあとに結果がプロジェクトに入らないように)
             .interactiveDismissDisabled(analysis.isRunning)
+            .fileImporter(isPresented: $isBGMImporterPresented,
+                          allowedContentTypes: autoEditAudioTypes,
+                          allowsMultipleSelection: false) { result in
+                handleBGMImport(result)
+            }
             .alert("お知らせ", isPresented: errorIsPresented) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -664,14 +633,14 @@ struct SlideshowSheetView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .frame(width: 48, height: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
                     }
                 }
                 .padding(.vertical, 4)
             }
         } header: {
-            Text("写真(\(images.count) 枚)")
+            Text("写真 \(images.count) 枚")
         }
     }
 
@@ -691,7 +660,7 @@ struct SlideshowSheetView: View {
         } header: {
             Text("時間")
         } footer: {
-            Text("全体で約 \(MediaTimeText.precise(estimatedTotal))。写真はゆっくりズームします。")
+            Text("全体 約 \(MediaTimeText.precise(estimatedTotal))")
         }
     }
 
@@ -707,7 +676,8 @@ struct SlideshowSheetView: View {
                         }
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
             }
             Toggle("スタイルに合った色味にする", isOn: $settings.applyLook)
             Toggle("最初にタイトルを入れる", isOn: $settings.addTitleCard)
@@ -731,10 +701,34 @@ struct SlideshowSheetView: View {
                             .lineLimit(1)
                     }
                 }
+            } else if let name = pickedBGMName, pickedBGM != nil {
+                HStack(spacing: 10) {
+                    Image(systemName: "music.note")
+                        .foregroundStyle(Color.accentColor)
+                    Text(name)
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        pickedBGM = nil
+                        pickedBGMName = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("BGMを外す")
+                }
+                Button {
+                    isBGMImporterPresented = true
+                } label: {
+                    Label("別の曲に変更", systemImage: "arrow.triangle.2.circlepath")
+                }
             } else {
-                Text("BGM はまだありません。作成後に「BGM・音量」から追加できます。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Button {
+                    isBGMImporterPresented = true
+                } label: {
+                    Label("BGMを選ぶ", systemImage: "music.note.list")
+                }
             }
         } header: {
             Text("BGM")
@@ -752,9 +746,9 @@ struct SlideshowSheetView: View {
         } header: {
             Text("いまのクリップ")
         } footer: {
-            Text(mode == .replace
-                 ? String(localized: "いまのクリップとキャプションを消して置き換えます。「元に戻す」で戻せます。")
-                 : String(localized: "いまのクリップの後ろに追加します。"))
+            if mode == .replace {
+                Text("いまのクリップとキャプションは消えます。「元に戻す」で戻せます。")
+            }
         }
     }
 
@@ -777,6 +771,25 @@ struct SlideshowSheetView: View {
 
     // MARK: 処理
 
+    private func handleBGMImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            errorText = String(localized: "もう一度「BGMを選ぶ」から曲を選び直してください。\n\n詳細: ") + error.localizedDescription
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                pickedBGM = try MediaStore.importExternalFile(url)
+                pickedBGMName = url.deletingPathExtension().lastPathComponent
+            } catch {
+                errorText = String(localized: "端末の空き容量を確かめて、もう一度曲を選んでください(Apple Music の曲は使えません)。\n\n詳細: ") + error.localizedDescription
+            }
+        }
+    }
+
     @MainActor
     private func loadThumbnails() async {
         for url in images.prefix(40) {
@@ -794,15 +807,29 @@ struct SlideshowSheetView: View {
         let urls = images
         let seconds = perImageSeconds
         let chosenSettings = settings
-        let bgm: URL? = useProjectBGM ? project.audio.bgmURL : nil
+        let bgm: URL?
+        var bgmName: String? = nil
+        if project.audio.bgmURL != nil {
+            bgm = useProjectBGM ? project.audio.bgmURL : nil
+        } else {
+            bgm = pickedBGM
+            bgmName = pickedBGMName
+        }
+        let chosenBGMName = bgmName
         let chosenMode = mode
+        // 置き換えるときも、いまの画面比率と書き出し設定を引き継ぐ(空のプロジェクトなら縦 9:16)
+        let canvas: CanvasSettings? = project.isEmpty ? nil : project.canvas
         player.pause()
         analysis.run(title: String(localized: "スライドショーを作成中"), indeterminate: true) { _ in
-            let result = try await AutoEditor.slideshow(images: urls,
+            var result = try await AutoEditor.slideshow(images: urls,
                                                         perImageSeconds: seconds,
                                                         settings: chosenSettings,
-                                                        bgm: bgm)
+                                                        bgm: bgm,
+                                                        canvas: canvas)
             if Task.isCancelled { return }
+            if let chosenBGMName, result.audio.bgmURL != nil {
+                result.audio.bgmName = chosenBGMName
+            }
             guard !result.clips.isEmpty else {
                 errorText = String(localized: "写真を読み込めませんでした。選び直してから、もう一度「スライドショーを作成」を押してください。")
                 return

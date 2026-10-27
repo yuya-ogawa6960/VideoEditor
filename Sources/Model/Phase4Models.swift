@@ -158,7 +158,7 @@ enum AutoEditStyle: String, CaseIterable, Identifiable {
         switch self {
         case .documentary: return String(localized: "ドキュメンタリー")
         case .vlog: return String(localized: "Vlog・旅行")
-        case .short: return String(localized: "ショート(テンポ重視)")
+        case .short: return String(localized: "ショート")
         case .family: return String(localized: "家族の記録")
         case .howto: return String(localized: "解説・紹介")
         }

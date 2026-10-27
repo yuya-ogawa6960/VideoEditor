@@ -3,7 +3,7 @@ import SwiftUI
 // =====================================================================
 // 書き出しが終わったときの、ひとことの感想(使い勝手の計測)。
 // 「使いやすかった / 迷った」を 1 タップで聞き、迷ったときだけ理由を選んでもらう(任意)。
-// しつこくならないよう、1 回目と 3 回に 1 回、前に答えてから 7 日以上あいたときだけ出す。
+// 初めての書き出しの喜びをじゃましないよう、2 回目から 3 回に 1 回(2・5・8…回目)、前に答えてから 7 日以上あいたときだけ出す。
 // 送るのは評価と理由の種類だけ(使い方の統計と同じく匿名・設定で止められる)。
 // =====================================================================
 
@@ -24,7 +24,7 @@ enum ExportFeedback {
         let defaults = UserDefaults.standard
         guard Analytics.shared.isEnabled else { return false }
         let count = defaults.integer(forKey: countKey)
-        guard count >= 1, count == 1 || count % 3 == 1 else { return false }
+        guard count >= 2, count % 3 == 2 else { return false }
         guard defaults.integer(forKey: askedAtCountKey) != count else { return false }
         let answeredAt = defaults.double(forKey: answeredAtKey)
         if answeredAt > 0, Date().timeIntervalSince1970 - answeredAt < interval { return false }
@@ -55,7 +55,7 @@ struct ExportFeedbackCard: View {
     }
 
     private let reasons: [FeedbackReason] = [
-        FeedbackReason(key: "captions", title: String(localized: "字幕")),
+        FeedbackReason(key: "captions", title: String(localized: "キャプション")),
         FeedbackReason(key: "editing", title: String(localized: "編集")),
         FeedbackReason(key: "export", title: String(localized: "書き出し")),
         FeedbackReason(key: "slow", title: String(localized: "動作が重い")),

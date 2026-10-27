@@ -1,81 +1,67 @@
 import SwiftUI
 import Observation
 import UIKit
+import AVFoundation
 
-// MARK: - プリセット(使いみち別)
+// MARK: - 画質のプリセット
 
+/// 書き出し画面で選ぶ画質。比率は編集画面と新規作成で決めるので、ここでは変えない
 fileprivate enum ExportViewPreset: String, CaseIterable, Identifiable {
-    case snsShort, youtube, longHigh, uhd4k
+    case sns, uhd4k, light
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .snsShort: return String(localized: "SNS 縦動画")
-        case .youtube: return String(localized: "YouTube 横動画")
-        case .longHigh: return String(localized: "高画質で保存")
-        case .uhd4k: return String(localized: "4K 最高画質")
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .snsShort: return String(localized: "TikTok・Instagram・ショート向け。縦長で軽め")
-        case .youtube: return String(localized: "横長のふつうの動画。画質と大きさのバランスが良い")
-        case .longHigh: return String(localized: "元の形のまま高画質。保存用や長い動画に")
-        case .uhd4k: return String(localized: "細かいところまでくっきり。ファイルは大きめ")
+        case .sns: return String(localized: "SNS")
+        case .uhd4k: return String(localized: "4K")
+        case .light: return String(localized: "軽量")
         }
     }
 
     var systemImage: String {
         switch self {
-        case .snsShort: return "iphone"
-        case .youtube: return "play.rectangle"
-        case .longHigh: return "film"
+        case .sns: return "paperplane.fill"
         case .uhd4k: return "sparkles.tv"
-        }
-    }
-
-    var aspect: CanvasAspect {
-        switch self {
-        case .snsShort: return .portrait9x16
-        case .youtube: return .landscape16x9
-        case .longHigh, .uhd4k: return .original
+        case .light: return "leaf.fill"
         }
     }
 
     var resolution: ResolutionCap {
         switch self {
         case .uhd4k: return .uhd4k
-        default: return .fhd1080
+        case .sns, .light: return .fhd1080
         }
     }
 
     var quality: ExportQuality {
         switch self {
-        case .snsShort: return .small
-        case .youtube: return .standard
-        case .longHigh, .uhd4k: return .high
+        case .sns, .uhd4k: return .high
+        case .light: return .small
         }
     }
 
     var frameRate: Int { 30 }
 
-    /// 現在のキャンバス設定に適用(スケーリングはユーザーの選択を維持)
+    /// 画質だけを変える(比率・収め方・コーデックなどはそのまま。ビットレートは自動に戻す)
     func apply(to canvas: CanvasSettings) -> CanvasSettings {
         var c = canvas
-        c.aspect = aspect
         c.resolution = resolution
         c.quality = quality
         c.frameRate = frameRate
+        c.bitrateMbps = nil
         return c
     }
 
     func matches(_ canvas: CanvasSettings) -> Bool {
-        canvas.aspect == aspect && canvas.resolution == resolution
-            && canvas.quality == quality && canvas.frameRate == frameRate
+        canvas.resolution == resolution && canvas.quality == quality
+            && canvas.frameRate == frameRate && canvas.bitrateMbps == nil
     }
 }
+
+/// 表の行の色(編集画面の暗いパネルとそろえる)
+fileprivate let exportFormBackground = Color(white: 0.07)
+fileprivate let exportRowBackground = Color(white: 0.11)
 
 /// 秒 → "h:mm:ss" / "m:ss"
 fileprivate func exportDurationString(_ seconds: Double) -> String {
@@ -124,8 +110,7 @@ struct ExportView: View {
     /// 「詳細設定」を開いているか
     @State private var showAdvanced: Bool = false
 
-    // 縦横同時 / 比較
-    @State private var dualExport: Bool = false
+    // 比較
     @State private var compareTarget: ExportRecord?
     @State private var comparePlayer: PlayerController?
     /// 履歴から消そうとしている書き出し(ファイルも消えるので、確認してから消す)
@@ -184,6 +169,7 @@ struct ExportView: View {
                               note: BackgroundWorkNote.export,
                               noteIcon: BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle",
                               inlineAd: inlineAd,
+                              showsScanning: false,
                               onCancel: { exporter.cancel() })
             }
         }
@@ -193,8 +179,8 @@ struct ExportView: View {
         NavigationStack {
             Form {
                 resultSection
-                presetSection
                 summarySection
+                presetSection
                 advancedToggleSection
                 if showAdvanced {
                     savedPresetSection
@@ -205,6 +191,8 @@ struct ExportView: View {
                 moreSection
                 historySection
             }
+            .scrollContentBackground(.hidden)
+            .background(exportFormBackground)
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 0) {
                     bottomBar
@@ -230,6 +218,7 @@ struct ExportView: View {
                             })
             }
             .onAppear {
+                applyRecommendedPresetIfNeeded()
                 recomputeEstimate()
             }
             .onDisappear {
@@ -280,148 +269,105 @@ struct ExportView: View {
         }
     }
 
-    // MARK: プリセット(使いみち)
+    // MARK: 画質
 
-    /// 素材の向きから選ぶおすすめ(縦の素材なら SNS、横なら YouTube)
-    private var recommendedPreset: ExportViewPreset {
-        switch project.canvas.aspect {
-        case .portrait9x16, .portrait4x5:
-            return .snsShort
-        case .landscape16x9:
-            return .youtube
-        default:
-            break
-        }
-        if let size = project.clips.first?.displaySize, size.width > 0, size.height > 0 {
-            return size.height > size.width ? .snsShort : .youtube
-        }
-        return .snsShort
+    /// 開いたとき、画質(解像度・画質・fps・ビットレート)が作ったときの初期値のままなら、
+    /// SNS 向けの画質にそろえる(比率には触らない)。詳細設定で解像度や画質を選んだプロジェクトは変えない
+    private func applyRecommendedPresetIfNeeded() {
+        guard !exporter.isRunning else { return }
+        let canvas = project.canvas
+        let defaults = CanvasSettings()
+        guard canvas.resolution == defaults.resolution, canvas.quality == defaults.quality,
+              canvas.frameRate == defaults.frameRate, canvas.bitrateMbps == nil else { return }
+        guard !ExportViewPreset.allCases.contains(where: { $0.matches(canvas) }) else { return }
+        project.canvas = ExportViewPreset.sns.apply(to: canvas)
     }
 
     private var presetSection: some View {
-        let recommended = recommendedPreset
-        return Section {
-            ForEach(ExportViewPreset.allCases) { preset in
-                presetRow(preset, isRecommended: preset == recommended)
+        Section {
+            HStack(spacing: 10) {
+                ForEach(ExportViewPreset.allCases) { preset in
+                    presetTile(preset)
+                }
             }
-        } header: {
-            Text("どこで使いますか?")
+            .padding(.vertical, 4)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         } footer: {
             if !ExportViewPreset.allCases.contains(where: { $0.matches(project.canvas) }) {
-                Text("いまは「詳細設定」で決めた設定で書き出します。上から選ぶと、その使いみちに合わせて設定し直します。")
+                Text("詳細設定の値で書き出します")
             }
         }
     }
 
-    private func presetRow(_ preset: ExportViewPreset, isRecommended: Bool) -> some View {
+    private func presetTile(_ preset: ExportViewPreset) -> some View {
         let selected = preset.matches(project.canvas)
         return Button {
+            EditorHaptics.tap()
             project.canvas = preset.apply(to: project.canvas)
         } label: {
-            HStack(spacing: 12) {
+            VStack(spacing: 8) {
                 Image(systemName: preset.systemImage)
-                    .font(.title3)
-                    .frame(width: 30)
-                    .foregroundStyle(Color.accentColor)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(preset.title)
-                            .font(.body.weight(selected ? .semibold : .regular))
-                            .foregroundStyle(Color.primary)
-                        if isRecommended {
-                            Text("おすすめ")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(Color.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.orange))
-                        }
-                    }
-                    Text(preset.detail)
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
-                }
-                Spacer()
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.5))
+                    .font(.title2)
+                    .foregroundStyle(selected ? Color.white : Color.secondary)
+                Text(preset.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(selected ? Color.white : Color.primary)
             }
-            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: 76)
+            .background(selected ? BrandStyle.surfaceStrong : BrandStyle.surface,
+                        in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card))
+            .brandSelected(selected)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(exporter.isRunning)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
-    // MARK: ひとことまとめ(サイズ・長さ・空き容量)
-
-    private var orientationWord: String {
-        let size = outputSize
-        if size.width > size.height { return String(localized: "横") }
-        if size.width < size.height { return String(localized: "縦") }
-        return String(localized: "正方形")
-    }
+    // MARK: 作品の見本・長さ・大きさ
 
     private var outputSize: CGSize {
         CompositionBuilder.renderSize(for: project.snapshot(), purpose: .export)
     }
 
-    private var summaryLine: String {
+    /// 出力の幅 / 高さ
+    private var outputAspect: CGFloat {
         let size = outputSize
-        let w = Int(size.width.rounded())
-        let h = Int(size.height.rounded())
-        var text = orientationWord + String(localized: " \(w)×\(h)・長さ ") + exportDurationString(timelineDuration)
+        guard size.width > 0, size.height > 0 else { return 9.0 / 16.0 }
+        return size.width / size.height
+    }
+
+    private var summaryLine: String {
+        var text = exportDurationString(timelineDuration)
         if let estimate {
-            let bytes: Int64 = dualExport ? estimate.estimatedOutputBytes * 2 : estimate.estimatedOutputBytes
-            text += String(localized: "・約 ") + StorageEstimator.formatBytes(bytes)
+            text += String(localized: "・約 ") + StorageEstimator.formatBytes(estimate.estimatedOutputBytes)
         }
         return text
     }
 
     private var summarySection: some View {
         Section {
-            Label(summaryLine, systemImage: "film.stack")
-                .font(.subheadline)
-
-            if let estimate {
-                if estimate.canExport && dualStorageOK {
-                    Label("空き容量は足りています(空き " + StorageEstimator.formatBytes(estimate.availableBytes) + ")",
-                          systemImage: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color.green)
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("空き容量が足りません", systemImage: "xmark.octagon.fill")
-                            .foregroundStyle(Color.red)
-                        Text(shortfallText(estimate))
-                            .font(.caption)
-                            .foregroundStyle(Color.red)
-                    }
-                }
-            } else {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("容量を計算中…")
-                        .font(.caption)
+            // 書き終わったあとは、上の完成した動画を見せるので出さない
+            if exporter.isRunning || exporter.state != .finished {
+                VStack(spacing: 10) {
+                    ExportPosterView(project: project, aspect: outputAspect)
+                    Text(summaryLine)
+                        .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
             }
-
-            Toggle("写真アプリにも保存", isOn: $saveToPhotos)
+            Toggle("写真に保存", isOn: $saveToPhotos)
                 .disabled(exporter.isRunning)
-        } header: {
-            Text("書き出す内容")
         }
+        .listRowBackground(exportRowBackground)
     }
 
     private func shortfallText(_ estimate: StorageEstimate) -> String {
-        let need: Int64
-        if dualExport {
-            need = max(0, estimate.requiredBytes * 2 - estimate.availableBytes)
-        } else {
-            need = estimate.shortfallBytes
-        }
-        return String(localized: "不要な写真・動画・アプリを削除して、あと ") + StorageEstimator.formatBytes(need) + String(localized: " 空けてください。画質を下げる(「SNS」を選ぶなど)と小さくなります。")
+        String(localized: "空き容量が足りません。あと ") + StorageEstimator.formatBytes(estimate.shortfallBytes)
+            + String(localized: " 空けるか「軽量」を選んでください")
     }
 
     // MARK: 詳細設定
@@ -445,11 +391,8 @@ struct ExportView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-        } footer: {
-            if !showAdvanced {
-                Text("画面比率・解像度・画質・コーデックを自分で決めるときに開きます。")
-            }
         }
+        .listRowBackground(exportRowBackground)
     }
 
     private var savedPresetSection: some View {
@@ -457,23 +400,13 @@ struct ExportView: View {
             ExportPresetBar(project: project, isDisabled: exporter.isRunning)
         } header: {
             Text("保存した設定")
-        } footer: {
-            Text("よく使う設定を保存して呼び出せます(長押しで名前変更・削除)。")
         }
+        .listRowBackground(exportRowBackground)
     }
 
+    /// 比率と収め方は編集画面で決めるので、ここでは解像度と画質だけ
     private var customSection: some View {
         Section {
-            Picker("画面比率", selection: $project.canvas.aspect) {
-                ForEach(CanvasAspect.allCases) { a in
-                    Text(a.displayName).tag(a)
-                }
-            }
-            Picker("形が合わないとき", selection: $project.canvas.scaling) {
-                ForEach(ScalingMode.allCases) { s in
-                    Text(s.displayName).tag(s)
-                }
-            }
             Picker("解像度", selection: $project.canvas.resolution) {
                 ForEach(ResolutionCap.allCases) { r in
                     Text(r.displayName).tag(r)
@@ -485,10 +418,9 @@ struct ExportView: View {
                 }
             }
         } header: {
-            Text("画面と画質")
-        } footer: {
-            Text("「形が合わないとき」は、素材と画面比率が違うときの収め方です。")
+            Text("画質")
         }
+        .listRowBackground(exportRowBackground)
         .disabled(exporter.isRunning)
     }
 
@@ -561,7 +493,7 @@ struct ExportView: View {
                     .foregroundStyle(.secondary)
                 }
             } else {
-                LabeledContent("ビットレート", value: String(localized: "自動(約 \(autoBitrateMbps) Mbps)"))
+                LabeledContent("ビットレート", value: String(localized: "自動・約 \(autoBitrateMbps) Mbps"))
             }
 
             Picker("音質", selection: $project.canvas.audioBitrateKbps) {
@@ -578,7 +510,7 @@ struct ExportView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                Text("MP4 はほとんどの機器・サービスで使えます。迷ったら MP4。")
+                Text("迷ったら MP4")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -591,7 +523,7 @@ struct ExportView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                Text("ふつうは 30。動きの速い映像は 60 でなめらかになります(ファイルは大きめ)。")
+                Text("ふつうは 30。動きが速いなら 60")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -600,12 +532,11 @@ struct ExportView: View {
             // 合成(VideoCompositor)が 8bit SDR のため、HDR の印だけ付いた SDR の映像になってしまう。
             // 本当の HDR 合成ができるまで、ExportManager でも preserveHDR を常にオフにして書き出す
 
-            Toggle("字幕を映像に入れる", isOn: $project.canvas.burnInSubtitles)
+            Toggle("キャプションを映像に入れる", isOn: $project.canvas.burnInSubtitles)
         } header: {
             Text("ファイルの細かい設定")
-        } footer: {
-            Text("コーデックは迷ったら「自動」。HEVC は小さく高画質、H.264 は古い機器でも再生できます。")
         }
+        .listRowBackground(exportRowBackground)
         .disabled(exporter.isRunning)
         .onChange(of: project.canvas.codec) { _, codec in
             if codec == .h264, project.canvas.preserveHDR {
@@ -622,7 +553,7 @@ struct ExportView: View {
         case ..<288: word = String(localized: "高音質")
         default: word = String(localized: "最高音質")
         }
-        return word + "(\(kbps) kbps)"
+        return word + " \(kbps) kbps"
     }
 
     // MARK: 情報
@@ -635,13 +566,14 @@ struct ExportView: View {
             LabeledContent("長さ", value: exportDurationString(timelineDuration))
             LabeledContent("クリップ数", value: "\(snapshot.clips.count)")
             if let estimate {
-                LabeledContent("ファイルの大きさ(目安)", value: StorageEstimator.formatBytes(estimate.estimatedOutputBytes))
+                LabeledContent("ファイルの大きさ", value: StorageEstimator.formatBytes(estimate.estimatedOutputBytes))
                 LabeledContent("作業に必要な空き", value: StorageEstimator.formatBytes(estimate.requiredBytes))
                 LabeledContent("いまの空き容量", value: StorageEstimator.formatBytes(estimate.availableBytes))
             }
         } header: {
-            Text("書き出す内容のくわしい情報")
+            Text("くわしい情報")
         }
+        .listRowBackground(exportRowBackground)
     }
 
     // MARK: その他の書き出し・履歴
@@ -651,15 +583,11 @@ struct ExportView: View {
             NavigationLink {
                 extrasPage
             } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Label("その他の書き出し", systemImage: "ellipsis.circle")
-                    Text(dualExport ? String(localized: "縦横を同時に書き出す: オン") : String(localized: "縦横同時・音声だけ・GIF・チャプター一覧"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(minHeight: 44, alignment: .leading)
+                Label("その他の書き出し", systemImage: "ellipsis.circle")
+                    .frame(minHeight: 44, alignment: .leading)
             }
         }
+        .listRowBackground(exportRowBackground)
     }
 
     private var extrasPage: some View {
@@ -668,26 +596,18 @@ struct ExportView: View {
                 Section {
                     runningLine
                 }
+                .listRowBackground(exportRowBackground)
             }
             packSection
             extrasSection
         }
+        .scrollContentBackground(.hidden)
+        .background(exportFormBackground)
         .navigationTitle("その他の書き出し")
         .navigationBarTitleDisplayMode(.inline)
     }
 
     // MARK: 下の書き出しボタン(常に表示)
-
-    private var exportButtonTitle: String {
-        let base = dualExport ? String(localized: "縦横を同時に書き出す") : String(localized: "書き出す")
-        var parts: [String] = []
-        if let estimate {
-            let bytes: Int64 = dualExport ? estimate.estimatedOutputBytes * 2 : estimate.estimatedOutputBytes
-            parts.append(String(localized: "約 ") + StorageEstimator.formatBytes(bytes))
-        }
-        parts.append(saveToPhotos ? String(localized: "写真に保存") : String(localized: "ファイルのみ"))
-        return base + "(" + parts.joined(separator: "・") + ")"
-    }
 
     private var bottomBar: some View {
         VStack(spacing: 6) {
@@ -697,10 +617,9 @@ struct ExportView: View {
                 Button {
                     startExport()
                 } label: {
-                    Text(exportButtonTitle)
+                    Text("書き出す")
                         .font(.headline)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(BrandProminentButtonStyle())
@@ -728,24 +647,17 @@ struct ExportView: View {
         return total.isFinite ? max(0, total) : 0
     }
 
-    /// 縦横同時のときは 2 本分の空き容量が必要
-    private var dualStorageOK: Bool {
-        guard dualExport, let estimate else { return true }
-        return estimate.availableBytes >= estimate.requiredBytes * 2
-    }
-
     private var disabledReason: String? {
-        if project.isEmpty { return String(localized: "編集画面で動画を追加すると書き出せます。") }
+        if project.isEmpty { return String(localized: "動画を追加すると書き出せます") }
         if exporter.isRunning { return nil }
-        if let estimate, !estimate.canExport { return String(localized: "空き容量を増やすか、画質を下げると書き出せます。") }
-        if !dualStorageOK { return String(localized: "縦横同時は 2 本分の空きが必要です。空きを増やすか「その他の書き出し」でオフにしてください。") }
+        if let estimate, !estimate.canExport { return shortfallText(estimate) }
         return nil
     }
 
     private var canStart: Bool {
         guard !project.isEmpty, !exporter.isRunning else { return false }
         guard let estimate else { return false }
-        return estimate.canExport && dualStorageOK
+        return estimate.canExport
     }
 
     /// 直前の出力が動画か(音声のみ書き出しのときは「写真に保存」を出さない)
@@ -773,74 +685,57 @@ struct ExportView: View {
             case .finished, .failed, .cancelled:
                 Section {
                     resultView
-                    if exporter.state == .finished {
-                        ExportFeedbackCard()
-                        NativeAdCard()
-                    }
                 }
+                .listRowBackground(exportRowBackground)
             default:
                 EmptyView()
             }
         }
     }
 
+    private var finishedText: String {
+        if exporter.savedToPhotos { return String(localized: "保存しました") }
+        return lastOutputIsVideo ? String(localized: "できました") : String(localized: "音声ができました")
+    }
+
     @ViewBuilder
     private var resultView: some View {
         switch exporter.state {
         case .finished:
-            VStack(alignment: .leading, spacing: 10) {
-                // リールを掲げて紙吹雪でバンザイ(1 回だけ再生して最後の姿勢で止まる)
-                RobotWorkshop(clip: .exportComplete)
-                Label(exporter.savedToPhotos ? String(localized: "書き出して、写真アプリに保存しました")
-                      : (lastOutputIsVideo ? String(localized: "書き出しが終わりました") : String(localized: "音声の書き出しが終わりました")),
-                      systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(Color.green)
+            VStack(spacing: 14) {
+                // 完成した動画を大きく見せる(音声だけのときはロボットのバンザイ)
+                if let url = exporter.lastOutputURL, lastOutputIsVideo {
+                    FinishedVideoPreview(url: url)
+                } else {
+                    RobotWorkshop(clip: .exportComplete)
+                }
+                HStack(spacing: 6) {
+                    if lastOutputIsVideo {
+                        RobotWorkshop(clip: .exportCompleteSmall)
+                            .frame(width: 52)
+                    }
+                    Label(finishedText, systemImage: "checkmark.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(Color.green)
+                }
                 if !exporter.savedToPhotos && lastOutputIsVideo {
-                    if let photoError = exporter.photoSaveError {
-                        // 「写真アプリにも保存」がオンだったのに保存できなかった(許可していない・空き容量など)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("写真に保存できませんでした", systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(Color.orange)
-                            Text(photoError)
-                                .font(.caption)
-                                .foregroundStyle(Color.orange)
-                            if exporter.photoSaveNeedsPermission {
-                                Button {
-                                    openSystemSettings()
-                                } label: {
-                                    Label("設定を開く", systemImage: "gear")
-                                }
-                                .buttonStyle(.borderless)
-                                .frame(minHeight: 44)
-                            }
-                        }
-                    }
-                    Button {
-                        saveToPhotosLibrary()
-                    } label: {
-                        if isSavingToPhotos {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                Text("保存中…")
-                            }
-                        } else {
-                            Label(exporter.photoSaveError == nil ? String(localized: "写真に保存") : String(localized: "もう一度写真に保存"),
-                                  systemImage: "photo.on.rectangle")
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                    .frame(minHeight: 44)
-                    .disabled(isSavingToPhotos || exporter.lastOutputURL == nil)
+                    photoSaveFallback
                 }
                 if let url = exporter.lastOutputURL {
                     ShareLink(item: url) {
-                        Label("送る・ファイルに保存", systemImage: "square.and.arrow.up")
+                        Label("共有", systemImage: "square.and.arrow.up")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, minHeight: 50)
                     }
-                    .buttonStyle(.borderless)
-                    .frame(minHeight: 44)
+                    .buttonStyle(BrandProminentButtonStyle())
                 }
+                // 感想と広告は共有ボタンより下。広告は届いてから場所を取る(届かなければ何も出さない)
+                ExportFeedbackCard()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                NativeAdCard(reservesSpace: false)
             }
-            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         case .failed(let message):
             VStack(alignment: .leading, spacing: 6) {
                 Label("書き出せませんでした", systemImage: "exclamationmark.triangle.fill")
@@ -853,10 +748,51 @@ struct ExportView: View {
             }
             .padding(.vertical, 4)
         case .cancelled:
-            Text("書き出しを止めました。もう一度書き出すときは下のボタンを押してください。")
+            Text("止めました")
                 .foregroundStyle(.secondary)
         default:
             EmptyView()
+        }
+    }
+
+    /// 「写真に保存」がオフだった・保存できなかったときの、保存し直すボタン
+    private var photoSaveFallback: some View {
+        VStack(spacing: 4) {
+            if let photoError = exporter.photoSaveError {
+                // 「写真に保存」がオンだったのに保存できなかった(許可していない・空き容量など)
+                Label("写真に保存できませんでした", systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.orange)
+                Text(photoError)
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+                    .multilineTextAlignment(.center)
+                if exporter.photoSaveNeedsPermission {
+                    Button {
+                        openSystemSettings()
+                    } label: {
+                        Label("設定を開く", systemImage: "gear")
+                    }
+                    .buttonStyle(.borderless)
+                    .frame(minHeight: 44)
+                }
+            }
+            Button {
+                saveToPhotosLibrary()
+            } label: {
+                if isSavingToPhotos {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("保存中…")
+                    }
+                } else {
+                    Label(exporter.photoSaveError == nil ? String(localized: "写真に保存") : String(localized: "もう一度写真に保存"),
+                          systemImage: "photo.on.rectangle")
+                }
+            }
+            .buttonStyle(.borderless)
+            .frame(minHeight: 44)
+            .disabled(isSavingToPhotos || exporter.lastOutputURL == nil)
         }
     }
 
@@ -885,11 +821,7 @@ struct ExportView: View {
         guard canStart else { return }
         let snapshot = project.snapshot()
         let wantsPhotos = saveToPhotos
-        if dualExport {
-            exporter.startDual(snapshot: snapshot, saveToPhotos: wantsPhotos)
-        } else {
-            exporter.start(snapshot: snapshot, saveToPhotos: wantsPhotos)
-        }
+        exporter.start(snapshot: snapshot, saveToPhotos: wantsPhotos)
         // 書き出しは広告の間も続く。初回は通知・写真の許可の確認(ExportManager が開始時に聞く)が出ることがあるので、
         // 出るかもしれないときは全画面広告を出さない(システムの確認の上に重ねない)
         Task { @MainActor in
@@ -976,23 +908,30 @@ struct ExportView: View {
         return text
     }
 
-    /// 1 回で、横動画・縦動画・サムネ・字幕ファイル・チャプター一覧をまとめて作る
+    /// キャプションファイル・チャプター一覧は、中身があるときだけ数える
+    private var packHasSelection: Bool {
+        packLandscape || packPortrait || packCover
+            || (packSRT && !project.subtitles.isEmpty) || (packChapters && hasChapters)
+    }
+
+    /// 1 回で、縦動画・横動画・サムネ・キャプションファイル・チャプター一覧をまとめて作る(縦横を同時に作るのもここ)
     private var packSection: some View {
         Section {
-            Toggle("横 16:9(YouTube)", isOn: $packLandscape)
-            Toggle("縦 9:16(ショート・リール・TikTok)", isOn: $packPortrait)
-            Toggle("サムネ画像(JPEG 1280×720)", isOn: $packCover)
-            Toggle("字幕ファイル(SRT)", isOn: $packSRT)
-                .disabled(project.subtitles.isEmpty)
-            Toggle("チャプター一覧(テキスト)", isOn: $packChapters)
-                .disabled(!hasChapters)
+            Toggle("縦 9:16", isOn: $packPortrait)
+            Toggle("横 16:9", isOn: $packLandscape)
+            Toggle("サムネ", isOn: $packCover)
+            if !project.subtitles.isEmpty {
+                Toggle("キャプションファイル", isOn: $packSRT)
+            }
+            if hasChapters {
+                Toggle("チャプター一覧", isOn: $packChapters)
+            }
             Button {
                 makePack()
             } label: {
                 Label("SNS パックを作る", systemImage: "shippingbox")
             }
-            .disabled(project.isEmpty || exporter.isRunning
-                      || (!packLandscape && !packPortrait && !packCover && !packSRT && !packChapters))
+            .disabled(project.isEmpty || exporter.isRunning || !packHasSelection)
             if let packMessage {
                 Text(packMessage)
                     .font(.caption)
@@ -1000,14 +939,13 @@ struct ExportView: View {
             }
             if !packFiles.isEmpty {
                 ShareLink(items: packFiles) {
-                    Label("サムネ・字幕・チャプターを送る", systemImage: "square.and.arrow.up")
+                    Label("ファイルを送る", systemImage: "square.and.arrow.up")
                 }
             }
         } header: {
-            Text("SNS パック(まとめて書き出し)")
-        } footer: {
-            Text("横動画・縦動画・サムネ・字幕ファイル・チャプター一覧をまとめて作ります。")
+            Text("SNS パック")
         }
+        .listRowBackground(exportRowBackground)
     }
 
     private func makePack() {
@@ -1018,6 +956,23 @@ struct ExportView: View {
         let landscape = packLandscape
         let portrait = packPortrait
         let save = saveToPhotos
+        // サムネは選んだ向きごとに作る。動画を選んでいなければ、いまの作品の向きで 1 枚
+        var coverSizes: [(name: String, size: CGSize)] = []
+        if portrait { coverSizes.append((name: "thumbnail_vertical.jpg", size: CGSize(width: 1080, height: 1920))) }
+        if landscape { coverSizes.append((name: "thumbnail.jpg", size: CGSize(width: 1280, height: 720))) }
+        if coverSizes.isEmpty {
+            let size = outputAspect < 1 ? CGSize(width: 1080, height: 1920) : CGSize(width: 1280, height: 720)
+            coverSizes.append((name: "thumbnail.jpg", size: size))
+        }
+        let covers = coverSizes
+        // 縦と横の両方を作るときは 2 本分の空きが要る
+        recomputeEstimate()
+        let videoCount: Int64 = (landscape ? 1 : 0) + (portrait ? 1 : 0)
+        if videoCount > 0, let estimate, estimate.availableBytes < estimate.requiredBytes * videoCount {
+            let need = max(0, estimate.requiredBytes * videoCount - estimate.availableBytes)
+            packMessage = String(localized: "空き容量が足りません。あと ") + StorageEstimator.formatBytes(need) + String(localized: " 空けてください")
+            return
+        }
         packFiles = []
         packMessage = String(localized: "作成中…")
         Task { @MainActor in
@@ -1030,12 +985,14 @@ struct ExportView: View {
                     .appendingPathComponent("Pack_\(formatter.string(from: Date()))", isDirectory: true)
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 if wantCover {
-                    let image = try await CoverRenderer.render(snapshot: snapshot, cover: snapshot.cover,
-                                                               size: CGSize(width: 1280, height: 720))
-                    if let data = image.jpegData(compressionQuality: 0.9) {
-                        let url = dir.appendingPathComponent("thumbnail.jpg")
-                        try data.write(to: url, options: .atomic)
-                        files.append(url)
+                    for cover in covers {
+                        let image = try await CoverRenderer.render(snapshot: snapshot, cover: snapshot.cover,
+                                                                   size: cover.size)
+                        if let data = image.jpegData(compressionQuality: 0.9) {
+                            let url = dir.appendingPathComponent(cover.name)
+                            try data.write(to: url, options: .atomic)
+                            files.append(url)
+                        }
                     }
                 }
                 if wantSRT {
@@ -1077,13 +1034,10 @@ struct ExportView: View {
 
     private var extrasSection: some View {
         Section {
-            Toggle("縦横を同時に書き出す", isOn: $dualExport)
-                .disabled(exporter.isRunning)
-
             Button {
                 exporter.startAudioOnly(snapshot: project.snapshot())
             } label: {
-                Label("音声だけ書き出す(m4a)", systemImage: "waveform")
+                Label("音声だけ書き出す", systemImage: "waveform")
             }
             .disabled(project.isEmpty || exporter.isRunning)
 
@@ -1118,11 +1072,8 @@ struct ExportView: View {
                     Label("書き出した音声を送る・保存", systemImage: "square.and.arrow.up")
                 }
             }
-        } header: {
-            Text("その他の書き出し")
-        } footer: {
-            Text("縦横同時は横 16:9 と縦 9:16 を続けて作り、空き容量は 2 本分必要です。")
         }
+        .listRowBackground(exportRowBackground)
     }
 
     @ViewBuilder
@@ -1274,13 +1225,11 @@ struct ExportView: View {
 
     // MARK: 書き出し履歴
 
+    /// 1 本目を書き出すまでは出さない。消すときは確認ダイアログで注意を出す
+    @ViewBuilder
     private var historySection: some View {
-        Section {
-            if exporter.history.isEmpty {
-                Text("まだ書き出した動画はありません。書き出すとここに並び、送ったり「前回と比較」したりできます。")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            } else {
+        if !exporter.history.isEmpty {
+            Section {
                 ForEach(exporter.history) { record in
                     historyRow(record)
                 }
@@ -1289,11 +1238,10 @@ struct ExportView: View {
                     let records = exporter.history
                     historyToDelete = offsets.filter { $0 < records.count }.map { records[$0] }
                 }
+            } header: {
+                Text("書き出した動画")
             }
-        } header: {
-            Text("書き出した動画")
-        } footer: {
-            Text("新しい 20 本まで残ります。左にスワイプで削除(書き出したファイルも消えます。写真アプリに保存したものは残ります)。")
+            .listRowBackground(exportRowBackground)
         }
     }
 
@@ -1312,7 +1260,7 @@ struct ExportView: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 20) {
                 ShareLink(item: record.url) {
-                    Label("送る", systemImage: "square.and.arrow.up")
+                    Label("共有", systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.borderless)
                 .frame(minHeight: 44)
@@ -1336,5 +1284,127 @@ struct ExportView: View {
             comparePlayer = PlayerController()
         }
         compareTarget = record
+    }
+}
+
+// MARK: - 書き出す前の見本(作品の形のまま、最初のコマ)
+
+private struct ExportPosterView: View {
+    let project: EditorProject
+    /// 出力の幅 / 高さ
+    let aspect: CGFloat
+
+    @State private var image: UIImage?
+
+    private var boxSize: CGSize {
+        let a = max(aspect, 0.1)
+        if a < 1 {
+            return CGSize(width: 220 * a, height: 220)
+        }
+        let width = min(280, 200 * a)
+        return CGSize(width: width, height: width / a)
+    }
+
+    var body: some View {
+        let size = boxSize
+        RoundedRectangle(cornerRadius: BrandStyle.Radius.card)
+            .fill(BrandStyle.surface)
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: "film")
+                        .font(.title)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.card))
+            .accessibilityHidden(true)
+            .task(id: project.clips.first?.id) {
+                await load()
+            }
+    }
+
+    private func load() async {
+        guard let location = project.locate(timelineTime: 0), location.index < project.clips.count else {
+            image = nil
+            return
+        }
+        let clip = project.clips[location.index]
+        image = await DocumentaryPreviewSource.frame(clip: clip, sourceTime: location.sourceTime)
+    }
+}
+
+// MARK: - 完成した動画(くり返し再生。タップで音のオン / オフ)
+
+private struct FinishedVideoPreview: View {
+    let url: URL
+
+    @State private var player: AVQueuePlayer?
+    @State private var looper: AVPlayerLooper?
+    /// 幅 / 高さ(読み込むまでは縦)
+    @State private var aspect: CGFloat = 9.0 / 16.0
+    @State private var isMuted = true
+
+    private var boxSize: CGSize {
+        let a = max(aspect, 0.1)
+        if a < 1 {
+            return CGSize(width: 320 * a, height: 320)
+        }
+        let width: CGFloat = 300
+        return CGSize(width: width, height: width / a)
+    }
+
+    var body: some View {
+        let size = boxSize
+        ZStack(alignment: .bottomTrailing) {
+            Color.black
+            if let player {
+                PreviewPlayerLayerView(player: player)
+            }
+            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(Color.black.opacity(0.5), in: Circle())
+                .padding(8)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.card))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isMuted.toggle()
+            player?.isMuted = isMuted
+        }
+        .accessibilityElement()
+        .accessibilityLabel(isMuted ? Text("音を出す") : Text("音を消す"))
+        .accessibilityAddTraits(.isButton)
+        .frame(maxWidth: .infinity)
+        .task(id: url) {
+            await load()
+        }
+        .onAppear { player?.play() }
+        .onDisappear { player?.pause() }
+    }
+
+    private func load() async {
+        player?.pause()
+        let asset = AVURLAsset(url: url)
+        if let track = try? await asset.loadTracks(withMediaType: .video).first,
+           let info = try? await track.load(.naturalSize, .preferredTransform) {
+            let rect = CGRect(origin: .zero, size: info.0).applying(info.1)
+            let w = abs(rect.width)
+            let h = abs(rect.height)
+            if w > 0, h > 0 { aspect = w / h }
+        }
+        guard !Task.isCancelled else { return }
+        let queue = AVQueuePlayer()
+        queue.isMuted = isMuted
+        looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(asset: asset))
+        player = queue
+        queue.play()
     }
 }

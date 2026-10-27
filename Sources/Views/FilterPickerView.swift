@@ -37,51 +37,71 @@ struct FilterPickerView: View {
         VStack(alignment: .leading, spacing: 12) {
             presetStrip
 
+            // 数字は「強さ」が 0〜100、ほかは真ん中を 0 にした -100〜+100 にそろえる。名前をダブルタップで初期値に戻す
             sliderRow(title: String(localized: "強さ"),
                       value: $filter.intensity,
                       range: 0...1,
-                      display: String(format: "%.0f%%", filter.intensity * 100))
+                      display: "\(Int((filter.intensity * 100).rounded()))",
+                      defaultValue: 1)
                 .disabled(filter.preset == .none)
 
             sliderRow(title: String(localized: "明るさ"),
                       value: $filter.adjustments.brightness,
                       range: -0.5...0.5,
-                      display: String(format: "%+.2f", filter.adjustments.brightness))
+                      display: Self.signed(filter.adjustments.brightness * 200),
+                      defaultValue: 0)
 
             sliderRow(title: String(localized: "コントラスト"),
                       value: $filter.adjustments.contrast,
                       range: 0.5...1.5,
-                      display: String(format: "%.2f", filter.adjustments.contrast))
+                      display: Self.signed((filter.adjustments.contrast - 1) * 200),
+                      defaultValue: 1)
 
             sliderRow(title: String(localized: "彩度"),
                       value: $filter.adjustments.saturation,
                       range: 0...2,
-                      display: String(format: "%.2f", filter.adjustments.saturation))
+                      display: Self.signed((filter.adjustments.saturation - 1) * 100),
+                      defaultValue: 1)
 
-            HStack {
+            HStack(spacing: 10) {
                 Button {
-                    filter = Self.presetLook(from: FilterSettings(), onto: filter)
+                    EditorHaptics.tap()
+                    showApplyAllConfirm = true
                 } label: {
-                    Label("リセット", systemImage: "arrow.counterclockwise")
+                    Label("全クリップに適用", systemImage: "square.stack.3d.down.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(BrandStyle.surfaceStrong,
+                                    in: RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous))
                 }
-                .buttonStyle(.bordered)
-                .disabled(isPresetLookDefault)
+                .buttonStyle(.plain)
 
                 Spacer()
 
                 Button {
-                    showApplyAllConfirm = true
+                    EditorHaptics.tap()
+                    filter = Self.presetLook(from: FilterSettings(), onto: filter)
                 } label: {
-                    Label("全クリップに適用", systemImage: "square.stack.3d.down.right")
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.white)
+                        .frame(width: 36, height: 32)
+                        .background(BrandStyle.surface,
+                                    in: RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
+                .opacity(isPresetLookDefault ? 0.35 : 1)
+                .disabled(isPresetLookDefault)
+                .accessibilityLabel("リセット")
             }
         }
         .padding(.vertical, 4)
         .task(id: sourceKey) {
             await generateThumbnails()
         }
-        .confirmationDialog("このフィルタ設定をすべてのクリップに適用しますか?",
+        .confirmationDialog("すべてのクリップに適用しますか?",
                             isPresented: $showApplyAllConfirm,
                             titleVisibility: .visible) {
             Button("全クリップに適用") { onApplyToAll() }
@@ -128,23 +148,27 @@ struct FilterPickerView: View {
                     }
                 }
             }
-            .frame(width: 64, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.yellow : Color.clear, lineWidth: 3)
-            )
+            .frame(width: 52, height: 80)
+            .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
+            .brandSelected(isSelected)
             Text(preset.displayName)
-                .font(.caption2)
-                .foregroundStyle(isSelected ? Color.yellow : Color.primary)
+                .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.7))
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
-        .frame(width: 70)
+        .frame(width: 60)
         .contentShape(Rectangle())
     }
 
+    /// -100〜+100 の表記(0 は符号なし)
+    private static func signed(_ value: Double) -> String {
+        let n = Int(value.rounded())
+        return n > 0 ? "+\(n)" : "\(n)"
+    }
+
     private func sliderRow(title: String, value: Binding<Double>, range: ClosedRange<Double>,
-                           display: String) -> some View {
+                           display: String, defaultValue: Double) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(title)
@@ -154,6 +178,11 @@ struct FilterPickerView: View {
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                EditorHaptics.tap()
+                value.wrappedValue = defaultValue
             }
             Slider(value: value, in: range)
         }

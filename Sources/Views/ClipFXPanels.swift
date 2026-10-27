@@ -1012,7 +1012,7 @@ struct EditorBeatDetectPanel: View {
                 }
             }
         }
-        message = count > 0 ? String(localized: "\(count) か所でスプリットしました。") : String(localized: "スプリットできる位置がありませんでした。")
+        message = count > 0 ? String(localized: "\(count) か所で分割しました") : String(localized: "分割できる位置がありませんでした")
     }
 }
 
@@ -1147,7 +1147,7 @@ struct EditorLUTPanel: View {
         VStack(alignment: .leading, spacing: 14) {
 
             VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: String(localized: "読み込んだ色"))
+                EditorSectionTitle(title: "LUT")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         EditorChip(title: String(localized: "なし"), isSelected: clip.filter.lutFileName == nil) {
@@ -1161,11 +1161,6 @@ struct EditorLUTPanel: View {
                         }
                     }
                 }
-                if names.isEmpty {
-                    Text("LUT がありません")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
 
             EditorSliderRow(title: String(localized: "強さ"),
@@ -1176,7 +1171,7 @@ struct EditorLUTPanel: View {
                 .opacity(clip.filter.lutFileName == nil ? 0.4 : 1)
 
             HStack {
-                EditorPillButton(title: String(localized: "ファイル(.cube)を読み込む"), systemImage: "square.and.arrow.down") {
+                EditorPillButton(title: String(localized: ".cube を読み込む"), systemImage: "square.and.arrow.down") {
                     showImporter = true
                 }
                 Spacer()
@@ -1214,10 +1209,10 @@ struct EditorLUTPanel: View {
                     if clip.filter.lutIntensity <= 0 { clip.filter.lutIntensity = 1 }
                     errorText = nil
                 } catch {
-                    errorText = String(localized: "色の設定ファイルを読み込めませんでした。.cube ファイルか確認してください(\(error.localizedDescription))")
+                    errorText = String(localized: "LUT を読み込めませんでした: \(error.localizedDescription)")
                 }
             case .failure(let error):
-                errorText = String(localized: "色の設定ファイルを読み込めませんでした。もう一度お試しください(\(error.localizedDescription))")
+                errorText = String(localized: "LUT を読み込めませんでした: \(error.localizedDescription)")
             }
         }
     }
@@ -1280,15 +1275,12 @@ struct EditorColorMatchPanel: View {
                                         }
                                     }
                                     .frame(width: 72, height: 72)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(selectedReference == candidate.id ? Color.yellow : Color.clear, lineWidth: 3)
-                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.chip))
+                                    .brandSelected(selectedReference == candidate.id, cornerRadius: BrandStyle.Radius.chip)
                                     Text(candidate.name)
                                         .font(.caption2)
                                         .lineLimit(1)
-                                        .foregroundStyle(selectedReference == candidate.id ? Color.yellow : Color.white)
+                                        .foregroundStyle(selectedReference == candidate.id ? Color.white : Color.white.opacity(0.7))
                                 }
                                 .frame(width: 78)
                             }
@@ -1462,7 +1454,7 @@ struct ScopeSheetView: View {
 
     private var histogramSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("明るさの分布(左が暗い、右が明るい)")
+            Text("ヒストグラム")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Canvas { context, size in
@@ -1478,12 +1470,21 @@ struct ScopeSheetView: View {
             }
             .frame(height: 120)
             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            // 軸の目盛り: 左が暗い、右が明るい
+            HStack {
+                Image(systemName: "moon.fill")
+                Spacer()
+                Image(systemName: "sun.max.fill")
+            }
+            .font(.system(size: 9))
+            .foregroundStyle(.secondary)
+            .accessibilityHidden(true)
         }
     }
 
     private var waveformSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("場所ごとの明るさ(横: 画面の左右、縦: 明るさ)")
+            Text("波形")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Canvas { context, size in
@@ -1511,12 +1512,24 @@ struct ScopeSheetView: View {
             }
             .frame(height: 140)
             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            // 軸の目盛り: 上が明るい、下が暗い
+            .overlay(alignment: .leading) {
+                VStack {
+                    Image(systemName: "sun.max.fill")
+                    Spacer()
+                    Image(systemName: "moon.fill")
+                }
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .padding(4)
+                .accessibilityHidden(true)
+            }
         }
     }
 
     private var meansSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("色の平均(赤・緑・青)")
+            Text("RGB 平均")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {

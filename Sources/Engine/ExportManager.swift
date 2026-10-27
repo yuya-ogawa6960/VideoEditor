@@ -32,6 +32,7 @@ import Observation
 //     その時間内に終わらないので、時間切れ(expirationHandler)で書き出しを安全に中断し、
 //     `.failed("バックグラウンドの時間制限で中断しました。…")` にする(クラッシュさせない)。
 //     中途半端な mp4 は再生できないため削除するが、progress は中断時点の値を残す。
+//     このときは裏へ回った時点でローカル通知「書き出しが止まります / アプリに戻ってください」を出す。
 // =====================================================================
 
 /// ExportManager が投げるエラー
@@ -120,6 +121,8 @@ final class ExportManager {
     @ObservationIgnored private var jobsCompleted = 0
     @ObservationIgnored private var jobsTotal = 1
     @ObservationIgnored private var didRequestNotificationAuthorization = false
+    /// 書き出し中にアプリが裏へ回ったときの通知(継続処理が無いときだけ「戻って」と知らせる)
+    @ObservationIgnored private var enterBackgroundObserver: NSObjectProtocol?
     /// 続けて書き出す予定(縦横同時)
     @ObservationIgnored private var queuedJobs: [ExportJob] = []
     /// 状態表示の先頭に付ける「(1/2 横 16:9)」など
@@ -935,6 +938,23 @@ final class ExportManager {
             ExportManager.shared.backgroundTimeExpired()
         }
         backgroundTaskID = (identifier == .invalid) ? nil : identifier
+        if enterBackgroundObserver == nil {
+            enterBackgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+                                                                             object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    ExportManager.shared.warnLeavingWithoutContinuedProcessing()
+                }
+            }
+        }
+    }
+
+    /// 継続処理(iOS 26+)が動いていないと、裏では約 30 秒で書き出しが止まる。その前に戻るよう知らせる
+    @MainActor
+    private func warnLeavingWithoutContinuedProcessing() {
+        guard isRunning, !cancelRequested else { return }
+        guard !(continuedHandle?.isActive ?? false) else { return }
+        Self.postLocalNotification(title: String(localized: "書き出しが止まります"),
+                                   body: String(localized: "アプリに戻ってください"))
     }
 
     /// beginBackgroundTask の時間切れ(メインスレッドで呼ばれる)
@@ -960,6 +980,10 @@ final class ExportManager {
 
     @MainActor
     private func endBackgroundWork(success: Bool) {
+        if let observer = enterBackgroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            enterBackgroundObserver = nil
+        }
         if let handle = continuedHandle {
             continuedHandle = nil
             handle.finish(success: success)

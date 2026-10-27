@@ -30,6 +30,21 @@ import SoundAnalysis
 // テキストの表示時間・縦動画の安全な範囲・長さと比率・カットの頻度・終わり方・サムネ)を点検する。
 // =====================================================================
 
+/// 縦動画で TikTok・リール・ショートのボタンや説明文に隠れやすい範囲(中心の位置、左上原点の 0...1)。
+/// 編集チェックとプレビューの薄い表示で同じ値を使う
+enum VerticalSafeArea {
+    /// これより下は説明文に隠れる
+    static let bottomEdge = 0.8
+    /// これより右はボタン列に隠れる
+    static let rightEdge = 0.85
+    /// これより上は上のタブに隠れる
+    static let topEdge = 0.08
+
+    static func isUnsafe(_ center: NormalizedPoint) -> Bool {
+        center.y > bottomEdge || center.x > rightEdge || center.y < topEdge
+    }
+}
+
 enum PacingLevel: Int, Comparable {
     case good = 0
     case loose = 1
@@ -638,11 +653,11 @@ enum PacingAnalyzer {
             let ratio: Double = Double(covered) / Double(speechSeconds)
             if ratio < 0.5 {
                 let missing = Int(((1 - ratio) * 100).rounded())
-                checks.append(EditingCheck(level: .dull, title: String(localized: "字幕"),
-                                           detail: "話している所の \(missing)% に字幕がありません。SNS では音を出さずに見る人が多いので、字幕があると最後まで見てもらいやすくなります。",
-                                           fix: .openCaptions, fixTitle: String(localized: "字幕を作る")))
+                checks.append(EditingCheck(level: .dull, title: String(localized: "キャプション"),
+                                           detail: String(localized: "話している所の \(missing)% にキャプションがありません。SNS では音を出さずに見る人が多いので、キャプションがあると最後まで見てもらいやすくなります。"),
+                                           fix: .openCaptions, fixTitle: String(localized: "キャプションを作る")))
             } else {
-                checks.append(EditingCheck(level: .good, title: String(localized: "字幕"), detail: String(localized: "話している所にほぼ字幕が付いています。")))
+                checks.append(EditingCheck(level: .good, title: String(localized: "キャプション"), detail: String(localized: "話している所にほぼキャプションが付いています。")))
             }
         }
 
@@ -671,15 +686,11 @@ enum PacingAnalyzer {
 
         // 6. 縦動画の安全な範囲(下や右のボタン・説明文に隠れる)
         if vertical {
-            let unsafe = snapshot.textClips.filter { !$0.isMosaic && ($0.center.y > 0.8 || $0.center.x > 0.85 || $0.center.y < 0.08) }
+            let unsafe = snapshot.textClips.filter { !$0.isMosaic && VerticalSafeArea.isUnsafe($0.center) }
             if let firstUnsafe = unsafe.min(by: { $0.start < $1.start }) {
                 checks.append(EditingCheck(level: .loose, title: String(localized: "縦動画の安全な範囲"),
                                            detail: String(localized: "\(unsafe.count) 個のテキストが画面の端にあり、TikTok・リール・ショートのボタンや説明文に隠れる可能性があります。少し内側に寄せましょう。"),
                                            fix: .seek(firstUnsafe.start), fixTitle: String(localized: "見る")))
-            }
-            if snapshot.subtitleStyle.position == .bottom, !snapshot.subtitles.isEmpty {
-                checks.append(EditingCheck(level: .loose, title: String(localized: "縦動画の字幕の位置"),
-                                           detail: String(localized: "縦動画で字幕がいちばん下にあると、説明文に隠れることがあります。「中央」寄りがおすすめです。")))
             }
         }
 
@@ -799,12 +810,12 @@ enum PacingAnalyzer {
                 return lines.count > 2 || longest > (japanese ? 26 : 42)
             }
             if let first = longCues.min(by: { $0.start < $1.start }) {
-                checks.append(EditingCheck(level: .loose, title: String(localized: "字幕の長さ"),
-                                           detail: String(localized: "\(longCues.count) 枚の字幕が長すぎます(目安: 1 行 26 文字・2 行まで)。読み切れないので、文を分けるか短くしましょう。"),
+                checks.append(EditingCheck(level: .loose, title: String(localized: "キャプションの長さ"),
+                                           detail: String(localized: "\(longCues.count) 枚のキャプションが長すぎます(目安: 1 行 26 文字・2 行まで)。読み切れないので、文を分けるか短くしましょう。"),
                                            fix: .seek(first.start), fixTitle: String(localized: "最初の 1 つを見る")))
             } else if subtitleCues(snapshot).count >= 5 {
-                checks.append(EditingCheck(level: .good, title: String(localized: "字幕の長さ"),
-                                           detail: String(localized: "字幕は読み切れる長さに収まっています。")))
+                checks.append(EditingCheck(level: .good, title: String(localized: "キャプションの長さ"),
+                                           detail: String(localized: "キャプションは読み切れる長さに収まっています。")))
             }
         }
 
@@ -855,7 +866,7 @@ enum PacingAnalyzer {
             let chapters = snapshot.markers.filter { $0.kind == .chapter }
             if chapters.count < 3 {
                 checks.append(EditingCheck(level: .loose, title: String(localized: "チャプター"),
-                                           detail: String(localized: "8 分を超える動画にチャプターが \(chapters.count) 個しかありません。YouTube では 3 つ以上(最初は 0:00、各 10 秒以上)あると目次が出て、見たい所へ飛べます。字幕があれば AI が構成案を作ります。"),
+                                           detail: String(localized: "8 分を超える動画にチャプターが \(chapters.count) 個しかありません。YouTube では 3 つ以上(最初は 0:00、各 10 秒以上)あると目次が出て、見たい所へ飛べます。キャプションがあれば AI が構成案を作ります。"),
                                            fix: .openScriptWriter, fixTitle: String(localized: "構成案を作る")))
             } else {
                 checks.append(EditingCheck(level: .good, title: String(localized: "チャプター"),

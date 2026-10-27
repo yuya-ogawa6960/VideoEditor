@@ -162,8 +162,8 @@ private func maskPanelPercent(_ value: Double) -> String {
 /// マスクの形・大きさ・ぼかし・回転・反転。中心はスライダーとプレビュー上のドラッグの両方で変えられる
 struct EditorMaskControls: View {
     @Binding var mask: MaskSettings
-    /// 形の下に出す補足(プレビュー操作の説明など)
-    let note: String
+    /// 形の下に出す短い補足(無ければ出さない)
+    var note: String? = nil
 
     private var widthBinding: Binding<Double> {
         Binding<Double>(get: { mask.width }, set: { mask.width = $0 })
@@ -215,6 +215,11 @@ struct EditorMaskControls: View {
             }
 
             if mask.isActive {
+                if let note {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 Group {
                     if !isBand {
@@ -296,8 +301,7 @@ struct EditorClipMaskPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorMaskControls(mask: maskBinding,
-                               note: String(localized: "プレビューの点線の形をドラッグで移動、ピンチで大きさ、2 本指で回転できます。形の外側は黒になります。"))
+            EditorMaskControls(mask: maskBinding)
         }
         .padding(.top, 6)
     }
@@ -315,7 +319,7 @@ struct EditorOverlayMaskPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             EditorMaskControls(mask: maskBinding,
-                               note: String(localized: "位置と大きさは、重ねた素材の枠の中で決まります。プレビューの点線の形をドラッグで移動、ピンチで大きさ、2 本指で回転できます。形の外側は透明になり、下の映像が見えます。"))
+                               note: String(localized: "形の外は透明になります"))
         }
         .padding(.top, 6)
     }
@@ -343,13 +347,11 @@ struct EditorAutoReframePanel: View {
         Binding<Double>(get: { clip.reframe.zoom }, set: { clip.reframe.zoom = $0 })
     }
 
-    /// 効くかどうかの説明。合成(VideoCompositor.reframeCrop)と同じ条件:
+    /// 効くかどうか。合成(VideoCompositor.reframeCrop)と同じ条件:
     /// 「埋める」か、画面と(回転・クロップ後の)映像の縦横比が 2% より違うとき
-    private var canvasNote: String {
+    private var isEffective: Bool {
         let snapshot = project.snapshot()
-        if snapshot.canvas.scaling == .fill {
-            return String(localized: "「埋める」のため、切り出す位置が人物を追いかけます")
-        }
+        if snapshot.canvas.scaling == .fill { return true }
         let canvas = CompositionBuilder.renderSize(for: snapshot, purpose: .preview)
         var size = clip.displaySize
         if clip.geometry.rotationQuarterTurns % 2 == 1 {
@@ -357,76 +359,69 @@ struct EditorAutoReframePanel: View {
         }
         size.width *= CGFloat(clip.geometry.crop.width)
         size.height *= CGFloat(clip.geometry.crop.height)
-        guard size.width > 0, size.height > 0, canvas.width > 0, canvas.height > 0 else {
-            return String(localized: "画面と映像の比率が違うときに効きます")
-        }
+        guard size.width > 0, size.height > 0, canvas.width > 0, canvas.height > 0 else { return true }
         let canvasAspect = canvas.width / canvas.height
         let imageAspect = size.width / size.height
-        if abs(canvasAspect - imageAspect) / imageAspect > 0.02 {
-            return String(localized: "画面と映像の比率が違うため効きます")
-        }
-        return String(localized: "画面と映像の比率が同じため効きません。「比率」で「埋める」にすると効きます")
+        return abs(canvasAspect - imageAspect) / imageAspect > 0.02
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
 
             if clip.isStill {
-                Text("静止画クリップでは使えません。")
+                Text("静止画では使えません")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
                 HStack(spacing: 10) {
-                    EditorPillButton(title: hasTrack ? String(localized: "もう一度調べる") : String(localized: "人物を探す"),
+                    EditorPillButton(title: hasTrack ? String(localized: "もう一度合わせる") : String(localized: "人物に合わせる"),
                                      systemImage: "person.crop.rectangle",
                                      prominent: true) {
                         analyze()
                     }
                     .disabled(analysis.isRunning)
                     .opacity(analysis.isRunning ? 0.5 : 1)
+                    Spacer()
                     if hasTrack {
-                        Text("調べた場面 \(clip.reframe.samples.count) か所")
+                        // 合わせる前と見比べるためのオン / オフ
+                        Toggle(isOn: enabledBinding) {
+                            Image(systemName: "person.and.background.dotted")
+                                .font(.subheadline)
+                        }
+                        .fixedSize()
+                        .tint(.accentColor)
+                        .accessibilityLabel(String(localized: "オートリフレーム"))
+                    }
+                }
+
+                if !isEffective {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.circle")
                             .font(.caption)
-                            .monospacedDigit()
+                            .foregroundStyle(.orange)
+                        Text("同じ比率のため動きません")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        // 元のままの比率なら縦にして拡大、比率を決めてあれば拡大だけ
+                        EditorChip(title: project.canvas.aspect == .original ? String(localized: "縦にする") : String(localized: "拡大にする"),
+                                   isSelected: false) {
+                            if project.canvas.aspect == .original { project.canvas.aspect = .portrait9x16 }
+                            project.canvas.scaling = .fill
+                        }
                     }
-                    Spacer()
                 }
 
-                Toggle(isOn: enabledBinding) {
-                    Label("オートリフレーム", systemImage: "person.and.background.dotted")
-                        .font(.subheadline)
+                if hasTrack {
+                    EditorSliderRow(title: String(localized: "なめらかさ"),
+                                    value: smoothingBinding,
+                                    range: 0...1,
+                                    display: maskPanelPercent(clip.reframe.smoothing))
+                    EditorSliderRow(title: String(localized: "ズーム"),
+                                    value: zoomBinding,
+                                    range: 1...2,
+                                    display: String(format: "%.2fx", clip.reframe.zoom))
                 }
-                .tint(.accentColor)
-                .disabled(!hasTrack)
-                .opacity(hasTrack ? 1 : 0.4)
-
-                EditorSliderRow(title: String(localized: "なめらかさ"),
-                                value: smoothingBinding,
-                                range: 0...1,
-                                display: maskPanelPercent(clip.reframe.smoothing))
-                    .disabled(!hasTrack)
-                    .opacity(hasTrack ? 1 : 0.4)
-                EditorSliderRow(title: String(localized: "ズーム"),
-                                value: zoomBinding,
-                                range: 1...2,
-                                display: String(format: "%.2fx", clip.reframe.zoom))
-                    .disabled(!hasTrack)
-                    .opacity(hasTrack ? 1 : 0.4)
-                HStack {
-                    Spacer()
-                    EditorChip(title: String(localized: "リセット"), isSelected: false) {
-                        clip.reframe.smoothing = 0.7
-                        clip.reframe.zoom = 1
-                    }
-                    .disabled(!hasTrack)
-                    .opacity(hasTrack ? 1 : 0.4)
-                }
-
-                Text(canvasNote)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
 
                 if let errorText {
                     Text(errorText)
@@ -440,14 +435,14 @@ struct EditorAutoReframePanel: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                HStack {
-                    Spacer()
-                    EditorChip(title: String(localized: "調べた結果を消す"), isSelected: false) {
-                        clip.reframe = ReframeTrack()
-                        message = nil
+                if hasTrack {
+                    HStack {
+                        Spacer()
+                        EditorChip(title: String(localized: "リセット"), isSelected: false) {
+                            clip.reframe = ReframeTrack()
+                            message = nil
+                        }
                     }
-                    .disabled(clip.reframe.samples.isEmpty)
-                    .opacity(clip.reframe.samples.isEmpty ? 0.4 : 1)
                 }
             }
         }
@@ -467,12 +462,12 @@ struct EditorAutoReframePanel: View {
             merged.zoom = clip.reframe.zoom
             clip.reframe = merged
             if track.samples.count < 2 {
-                message = String(localized: "人物や顔を見つけられませんでした。別のクリップでお試しください。")
+                message = String(localized: "人物が見つかりませんでした")
             } else {
-                message = String(localized: "人物の位置を \(track.samples.count) か所で調べました。再生して確認してください。")
+                message = nil
             }
         } onError: { error in
-            errorText = String(localized: "調べられませんでした。もう一度お試しください(\(error.localizedDescription))")
+            errorText = String(localized: "調べられませんでした: \(error.localizedDescription)")
         }
     }
 }
@@ -602,7 +597,7 @@ struct EditorStabilizePanel: View {
                 message = String(localized: "調べ終わりました。再生して揺れの減り方を確認してください。")
             }
         } onError: { error in
-            errorText = String(localized: "調べられませんでした。もう一度お試しください(\(error.localizedDescription))")
+            errorText = String(localized: "調べられませんでした: \(error.localizedDescription)")
         }
     }
 }
@@ -694,7 +689,7 @@ struct EditorParallaxControls: View {
             if let hasDepth {
                 if hasDepth {
                 } else {
-                    Text("この写真には奥行きの情報がないため、Ken Burnsで代わりに動かします。")
+                    Text("奥行きがない写真のため、ズーム・パンで動かします")
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
@@ -794,14 +789,8 @@ struct EditorOverlayParallaxPanel: View {
                 EditorParallaxControls(parallax: parallaxBinding,
                                        imageURL: overlay.url,
                                        durationSeconds: overlay.duration)
-                if overlay.kenBurns.enabled {
-                    Text("「Ken Burns」もオンです。「3Dズーム」をオンにすると、こちらの動きが優先されます。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             } else {
-                Text("「3Dズーム」は重ねた写真でのみ使えます。")
+                Text("重ねた写真で使えます")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

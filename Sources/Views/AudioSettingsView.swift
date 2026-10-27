@@ -67,11 +67,23 @@ struct AudioSettingsView: View {
                 }
                 .disabled(isImporting)
             } else {
+                // 曲が無いときは、いちばん目立つ大きなボタンにする
                 Button {
                     isImporterPresented = true
                 } label: {
-                    Label("BGMを選ぶ", systemImage: "music.note.list")
+                    HStack(spacing: 10) {
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 20, weight: .semibold))
+                        Text("曲を選ぶ")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(BrandStyle.coral, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .disabled(isImporting)
             }
 
@@ -83,12 +95,13 @@ struct AudioSettingsView: View {
                 }
             }
 
-            Toggle("最後の2秒をフェードアウト", isOn: $project.audio.bgmFadeOut)
-                .disabled(project.audio.bgmURL == nil)
+            if project.audio.bgmURL != nil {
+                Toggle("最後の2秒をフェードアウト", isOn: $project.audio.bgmFadeOut)
+            }
         } header: {
             Text("BGM")
         } footer: {
-            Text("DRM保護された Apple Music の曲は使えません。BGMは動画の長さに合わせてループします。")
+            Text("Apple Music の曲は使えません")
         }
     }
 
@@ -132,7 +145,7 @@ struct AudioSettingsView: View {
     private func handleImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            errorMessage = String(localized: "もう一度「BGMを選ぶ」から曲を選び直してください。\n\n詳細: ") + error.localizedDescription
+            errorMessage = String(localized: "もう一度「曲を選ぶ」から選び直してください。\n\n詳細: ") + error.localizedDescription
         case .success(let urls):
             guard let url = urls.first else { return }
             isImporting = true

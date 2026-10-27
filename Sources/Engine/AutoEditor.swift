@@ -47,6 +47,27 @@ enum AutoEditor {
     }
 
     static let templates: [Template] = [
+        Template(id: "short15",
+                 name: String(localized: "ショート15秒"),
+                 description: String(localized: "いちばん動きのある 15 秒。ビートに合わせた短いカット、鮮やかな色。"),
+                 settings: AutoEditSettings(style: .short, targetDuration: 15, useBGMBeats: true,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: false, preferSpeech: false),
+                 kind: nil),
+        Template(id: "talkShort30",
+                 name: String(localized: "トーク系ショート30秒"),
+                 description: String(localized: "話している場面を文の切れ目で拾って 30 秒。顔が映る場面を優先。"),
+                 settings: AutoEditSettings(style: .short, targetDuration: 30, useBGMBeats: false,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: true, preferSpeech: true),
+                 kind: nil),
+        Template(id: "vlogShort30",
+                 name: String(localized: "Vlogショート30秒"),
+                 description: String(localized: "動きのある場面をビートに合わせて 30 秒。暖かい色味。"),
+                 settings: AutoEditSettings(style: .vlog, targetDuration: 30, useBGMBeats: true,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: true, preferSpeech: false),
+                 kind: nil),
         Template(id: "documentary60",
                  name: String(localized: "ドキュメンタリー60秒"),
                  description: String(localized: "会話と表情を中心に 60 秒へ。ディゾルブと黒へのフェード、落ち着いた色味。"),
@@ -60,13 +81,6 @@ enum AutoEditor {
                  settings: AutoEditSettings(style: .vlog, targetDuration: 90, useBGMBeats: true,
                                             addTitleCard: true, titleText: "", addTransitions: true,
                                             applyLook: true, preferFaces: true, preferSpeech: false),
-                 kind: nil),
-        Template(id: "short15",
-                 name: String(localized: "ショート15秒"),
-                 description: String(localized: "いちばん動きのある 15 秒。ビートに合わせた短いカット、鮮やかな色。"),
-                 settings: AutoEditSettings(style: .short, targetDuration: 15, useBGMBeats: true,
-                                            addTitleCard: false, titleText: "", addTransitions: true,
-                                            applyLook: true, preferFaces: false, preferSpeech: false),
                  kind: nil),
         Template(id: "family",
                  name: String(localized: "家族の1日"),
@@ -282,8 +296,9 @@ enum AutoEditor {
 
     // MARK: - スライドショー
 
+    /// canvas: 引き継ぐ画面比率と書き出し設定。nil なら縦 9:16
     static func slideshow(images: [URL], perImageSeconds: Double, settings: AutoEditSettings,
-                          bgm: URL?) async throws -> ProjectSnapshot {
+                          bgm: URL?, canvas: CanvasSettings? = nil) async throws -> ProjectSnapshot {
         guard !images.isEmpty else { throw AutoEditorError.noImages }
         let perSafe: Double = perImageSeconds.isFinite ? perImageSeconds : 4
         let per = min(30, max(1, perSafe))
@@ -359,12 +374,19 @@ enum AutoEditor {
         if settings.addTitleCard {
             titleCards.append(makeTitleCard(settings: settings))
         }
+        let resolvedCanvas: CanvasSettings = canvas ?? {
+            var c = CanvasSettings()
+            c.aspect = .portrait9x16
+            // 横の写真も切らずに、背景をぼかして縦の画面に収める
+            c.scaling = .fitBlur
+            return c
+        }()
 
         return ProjectSnapshot(clips: clips,
                                subtitles: [],
-                               subtitleStyle: SubtitleStyle(),
+                               subtitleStyle: SubtitleStyle.starter,
                                audio: audio,
-                               canvas: CanvasSettings(),
+                               canvas: resolvedCanvas,
                                documentary: documentary,
                                titleCards: titleCards,
                                lowerThirds: [],

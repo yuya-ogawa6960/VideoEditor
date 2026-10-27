@@ -15,7 +15,7 @@ enum SRTCodecError: LocalizedError {
         case .empty:
             return String(localized: "ファイルが空です。")
         case .noCuesFound:
-            return String(localized: "字幕が見つかりませんでした。SRT 形式(番号・時間・テキスト)のファイルを選んでください。")
+            return String(localized: "キャプションが見つかりませんでした。SRT 形式(番号・時間・テキスト)のファイルを選んでください。")
         case .invalidEncoding:
             return String(localized: "ファイルの文字コードを読み取れませんでした。UTF-8 で保存されたファイルを選んでください。")
         }

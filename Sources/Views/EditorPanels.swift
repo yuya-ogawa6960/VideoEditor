@@ -138,7 +138,7 @@ enum EditorPanel: Hashable {
         case .volume: return String(localized: "ボリューム")
         case .filter: return String(localized: "カラープリセット")
         case .textEdit: return String(localized: "文字を直す")
-        case .subtitleStyle: return String(localized: "キャプションのスタイル")
+        case .subtitleStyle: return String(localized: "キャプションのデザイン")
         case .aspect: return String(localized: "比率")
         case .bgmVolume: return String(localized: "BGM の音量")
         case .documentary: return String(localized: "全体の仕上げ")
@@ -147,7 +147,7 @@ enum EditorPanel: Hashable {
         case .jlCut: return String(localized: "J/Lカット")
         case .colorAdjust: return String(localized: "カラー補正")
         case .overlayPlacement: return String(localized: "位置・サイズ")
-        case .overlayKenBurns: return "Ken Burns"
+        case .overlayKenBurns: return String(localized: "ズーム・パン")
         case .overlayVolume: return String(localized: "ボリューム")
         case .overlaySpeed: return String(localized: "速度・デュレーション")
         case .overlayFilter: return String(localized: "カラープリセット")
@@ -161,7 +161,7 @@ enum EditorPanel: Hashable {
         case .audioEffects: return String(localized: "オーディオエフェクト")
         case .beatDetect: return String(localized: "ビートに合わせる")
         case .hsl: return String(localized: "HSL セカンダリ")
-        case .lut: return String(localized: "LUT を参照")
+        case .lut: return String(localized: "LUT")
         case .colorMatch: return String(localized: "カラーマッチ")
         case .textStyle: return String(localized: "文字・スタイル")
         case .textAnimation: return String(localized: "アニメーション")
@@ -257,13 +257,17 @@ enum EditorPanel: Hashable {
         case .mosaic: return 300
         case .pacing: return 340
         case .overlayOpacity: return 170
+        // キャプションのデザイン(テンプレート・色・サイズ・位置・フォントを 1 つにまとめた)
+        case .subtitleStyle, .captionTemplate: return 360
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
-             .overlayKeyframes, .watermark, .textToSpeech, .sticker, .captionTemplate,
+             .overlayKeyframes, .watermark, .textToSpeech, .sticker,
              .autoReframe, .enhance: return 320
         case .transition, .overlayTransition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
              .narrationEffects, .drawingStyle, .drawingCanvas,
              .stabilize, .parallax, .overlayParallax, .textTracking, .overlayTracking: return 280
-        case .speed, .volume, .textEdit, .subtitleStyle, .aspect, .bgmVolume, .overlayVolume,
+        // 比率: 比率のタイル + 収め方の見本(高さ約 102)が切れずに見える高さ
+        case .aspect: return 280
+        case .speed, .volume, .textEdit, .bgmVolume, .overlayVolume,
              .overlaySpeed, .narrationVolume, .overlayBlend, .drawingTiming, .markerName, .markerKind:
             return 220
         }
@@ -414,8 +418,12 @@ struct EditorPanelContainer<Content: View>: View {
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
         .frame(height: height)
-        .background(Color(white: 0.11),
-                    in: UnevenRoundedRectangle(topLeadingRadius: 14, topTrailingRadius: 14))
+        .background(BrandStyle.surfaceStrong,
+                    in: UnevenRoundedRectangle(topLeadingRadius: BrandStyle.Radius.sheet,
+                                               topTrailingRadius: BrandStyle.Radius.sheet))
+        .background(Color.black,
+                    in: UnevenRoundedRectangle(topLeadingRadius: BrandStyle.Radius.sheet,
+                                               topTrailingRadius: BrandStyle.Radius.sheet))
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
         }
@@ -443,7 +451,9 @@ struct EditorChip: View {
                 .foregroundStyle(isSelected ? Color.black : Color.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(isSelected ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                // 選んでいるものは白く塗る(チップは小さいので枠だけだと見分けにくい)。角丸はアプリ共通
+                .background(isSelected ? Color.white : BrandStyle.surfaceStrong,
+                            in: RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous))
                 // 見た目はそのままで、押せる範囲だけ上下に広げる(高さ 44pt 相当)
                 .padding(.vertical, 7)
                 .contentShape(Rectangle())
@@ -910,15 +920,17 @@ struct EditorTextEditPanel: View {
     }
 }
 
-// MARK: - 字幕スタイル(全字幕共通)
+// MARK: - キャプションのデザイン(全キャプション共通)
 
+/// テンプレート → 色 → サイズ → 位置 → フォントの順に 1 つのパネルにまとめる
+/// (前は「スタイル」と「デザイン」の 2 つの入口に分かれていた)
 struct EditorSubtitleStylePanel: View {
     @Bindable var project: EditorProject
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            row(String(localized: "位置")) {
-                CaptionPositionPicker(selection: $project.subtitleStyle.position)
+            row(String(localized: "テンプレート")) {
+                CaptionTemplatePicker(selection: $project.subtitleStyle.template)
             }
 
             row(String(localized: "色")) {
@@ -933,10 +945,12 @@ struct EditorSubtitleStylePanel: View {
                                 .fill(color.color)
                                 .frame(width: 28, height: 28)
                                 .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1))
+                                // 選んでいる印はアプリ共通(白い 2pt の輪)
                                 .overlay(
                                     Circle()
-                                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
+                                        .strokeBorder(Color.white, lineWidth: 2)
                                         .padding(-4)
+                                        .opacity(isSelected ? 1 : 0)
                                 )
                                 // 見た目はそのままで、押せる範囲を 44pt に広げる
                                 .frame(width: 44, height: 44)
@@ -945,11 +959,14 @@ struct EditorSubtitleStylePanel: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(color.displayName)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                     Spacer()
                 }
                 .padding(.vertical, 4)
             }
+
+            EditorColorRow(title: String(localized: "強調色"), color: EditorColorHex.binding($project.subtitleStyle.highlightColorHex))
 
             EditorSliderRow(title: String(localized: "文字サイズ"),
                             value: $project.subtitleStyle.sizeRatio,
@@ -960,9 +977,15 @@ struct EditorSubtitleStylePanel: View {
                 .font(.subheadline)
                 .tint(.accentColor)
 
+            row(String(localized: "位置")) {
+                CaptionPositionPicker(selection: $project.subtitleStyle.position)
+            }
+
             row(String(localized: "表示")) {
                 CaptionDisplayModePicker(selection: $project.subtitleStyle.displayMode)
             }
+
+            EditorFontPickerRow(title: String(localized: "フォント"), fontName: $project.subtitleStyle.fontName)
         }
         .padding(.top, 6)
     }
@@ -982,9 +1005,30 @@ struct EditorSubtitleStylePanel: View {
 struct EditorAspectPanel: View {
     @Bindable var project: EditorProject
 
-    private func shortName(_ aspect: CanvasAspect) -> String {
+    /// 使いみちの名前
+    static func useName(_ aspect: CanvasAspect) -> String {
         switch aspect {
         case .original: return String(localized: "元のまま")
+        case .portrait9x16: return String(localized: "TikTok・リール・ショート")
+        case .landscape16x9: return "YouTube"
+        case .square: return String(localized: "正方形")
+        case .portrait4x5: return String(localized: "投稿")
+        }
+    }
+
+    static func useIcon(_ aspect: CanvasAspect) -> String? {
+        switch aspect {
+        case .original: return "film"
+        case .portrait9x16: return "iphone"
+        case .landscape16x9: return "play.rectangle.fill"
+        case .square: return nil
+        case .portrait4x5: return "photo"
+        }
+    }
+
+    private func ratioText(_ aspect: CanvasAspect) -> String? {
+        switch aspect {
+        case .original: return nil
         case .portrait9x16: return "9:16"
         case .landscape16x9: return "16:9"
         case .square: return "1:1"
@@ -992,46 +1036,126 @@ struct EditorAspectPanel: View {
         }
     }
 
+    static func scalingName(_ mode: ScalingMode) -> String {
+        switch mode {
+        case .fit: return String(localized: "黒帯")
+        case .fitBlur: return String(localized: "ぼかし")
+        case .fill: return String(localized: "拡大")
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("画面比率")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(CanvasAspect.allCases) { aspect in
-                            EditorChip(title: shortName(aspect),
-                                       isSelected: project.canvas.aspect == aspect) {
-                                project.canvas.aspect = aspect
-                            }
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(CanvasAspect.allCases) { aspect in
+                        aspectTile(aspect)
                     }
                 }
-                Text(project.canvas.aspect.displayName)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                .padding(.vertical, 2)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("はみ出し / 余白の扱い")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(ScalingMode.allCases) { mode in
-                            EditorChip(title: mode.displayName,
-                                       isSelected: project.canvas.scaling == mode) {
-                                project.canvas.scaling = mode
-                            }
+                EditorSectionTitle(title: String(localized: "収め方"))
+                HStack(spacing: 6) {
+                    ForEach(ScalingMode.allCases) { mode in
+                        EditorVisualTile(title: Self.scalingName(mode), isSelected: project.canvas.scaling == mode) {
+                            project.canvas.scaling = mode
+                        } preview: {
+                            ScalingModePreview(mode: mode)
                         }
                     }
+                    Spacer(minLength: 0)
                 }
                 .disabled(project.canvas.aspect == .original)
                 .opacity(project.canvas.aspect == .original ? 0.4 : 1)
             }
         }
         .padding(.top, 6)
+    }
+
+    /// 縦横比どおりの小さな枠 + 使いみちの名前
+    private func aspectTile(_ aspect: CanvasAspect) -> some View {
+        let selected = project.canvas.aspect == aspect
+        let ratio = aspect.ratio ?? (16.0 / 9.0)
+        let boxHeight: CGFloat = 40
+        let boxWidth: CGFloat = min(56, boxHeight * ratio)
+        let height: CGFloat = boxWidth / ratio
+        return Button {
+            EditorHaptics.tap()
+            project.canvas.aspect = aspect
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(style: aspect == .original
+                                      ? StrokeStyle(lineWidth: 1.5, dash: [3, 2])
+                                      : StrokeStyle(lineWidth: 1.5))
+                        .foregroundStyle(selected ? Color.white : Color.white.opacity(0.55))
+                        .background(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(selected ? Color.white.opacity(0.18) : Color.white.opacity(0.06)))
+                        .frame(width: boxWidth, height: height)
+                    VStack(spacing: 1) {
+                        if let icon = Self.useIcon(aspect) {
+                            Image(systemName: icon)
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        if let ratioText = ratioText(aspect) {
+                            Text(ratioText)
+                                .font(.system(size: 8, weight: .semibold))
+                                .monospacedDigit()
+                        }
+                    }
+                    .foregroundStyle(selected ? Color.white : Color.white.opacity(0.7))
+                }
+                .frame(height: 44)
+                Text(Self.useName(aspect))
+                    .font(.system(size: 11, weight: selected ? .bold : .regular))
+                    .foregroundStyle(selected ? Color.white : Color.white.opacity(0.75))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(minWidth: 64, minHeight: 80)
+            .background(selected ? BrandStyle.surface : Color.clear,
+                        in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
+            .brandSelected(selected)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Self.useName(aspect))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// 収め方の見本(縦の画面に横の映像を入れたとき)
+private struct ScalingModePreview: View {
+    let mode: ScalingMode
+
+    private let content = LinearGradient(colors: [Color(red: 0.86, green: 0.47, blue: 0.13), Color(red: 0.76, green: 0.19, blue: 0.33)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing)
+
+    /// 横長(16:9)の映像。EditorVisualTile の縦長の枠(42x70)の幅に合わせる
+    private var strip: some View {
+        Rectangle().fill(content).aspectRatio(16.0 / 9.0, contentMode: .fit)
+    }
+
+    var body: some View {
+        ZStack {
+            switch mode {
+            case .fit:
+                Color.black
+                strip
+            case .fitBlur:
+                Rectangle().fill(content).scaleEffect(1.6).blur(radius: 6).opacity(0.7)
+                strip
+            case .fill:
+                Rectangle().fill(content)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
     }
 }
 

@@ -16,6 +16,8 @@ struct RootView: View {
     @State private var openedMediaMode: ProjectMediaMode = .appCopy
     /// 「ファイル」アプリや AirDrop から開かれた .videomania(一覧が表示されたら読み込む)
     @State private var openedPackageURL: URL?
+    /// 「新しいプロジェクト」で作って開いたプロジェクト。何も入れずに閉じたら一覧から消す
+    @State private var freshProjectID: UUID?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -24,19 +26,30 @@ struct RootView: View {
                 .ignoresSafeArea()
 
             if let projectID = openProjectID {
-                ContentView(projectID: projectID, onClose: {
+                ContentView(projectID: projectID, onClose: { wasImporting in
                     // 編集画面の「その他」で動画の置き場所を変えていたら、次に作るプロジェクトもそれにする
                     if let mode = ProjectLibrary.shared.project(id: projectID)?.effectiveMediaMode, mode != openedMediaMode {
                         NewProjectMediaMode.last = mode
                     }
+                    let wasFresh: Bool = freshProjectID == projectID
+                    freshProjectID = nil
                     openProjectID = nil
-                    AdsManager.shared.showInterstitial(.projectClosed)
+                    if wasFresh, Self.isUntouched(projectID) {
+                        // 空のまま戻ったプロジェクトは残さず、広告も出さない。
+                        // ただし動画・写真の取り込み中に閉じたものは、まだ中身が書き込まれていないだけなので消さない
+                        if !wasImporting {
+                            ProjectLibrary.shared.delete(id: projectID)
+                        }
+                    } else {
+                        AdsManager.shared.showInterstitial(.projectClosed)
+                    }
                 })
                 .id(projectID)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                ProjectLibraryView(openedPackageURL: $openedPackageURL, onOpen: { meta in
+                ProjectLibraryView(openedPackageURL: $openedPackageURL, onOpen: { meta, isFresh in
                     openedMediaMode = meta.effectiveMediaMode
+                    freshProjectID = isFresh ? meta.id : nil
                     openProjectID = meta.id
                     Analytics.shared.track("project_open")
                 })
@@ -63,6 +76,34 @@ struct RootView: View {
             }
         }
     }
+
+    /// クリップも、ほかの要素(キャプション・テキスト・BGM など)も入っていない。
+    /// 写真ライブラリの動画を読み込み中のもの(保存ファイルに参照がある)は空とみなさない
+    private static func isUntouched(_ projectID: UUID) -> Bool {
+        if let meta = ProjectLibrary.shared.project(id: projectID), meta.clipCount > 0 { return false }
+        guard ProjectStore.photoReferences(projectID: projectID).isEmpty else { return false }
+        guard let s = ProjectStore.load(projectID: projectID) else { return true }
+        return s.clips.isEmpty && s.subtitles.isEmpty && s.titleCards.isEmpty && s.lowerThirds.isEmpty
+            && s.overlays.isEmpty && s.narration.isEmpty && s.textClips.isEmpty && s.drawings.isEmpty
+            && s.markers.isEmpty && s.audio.bgmURL == nil
+    }
+}
+
+// MARK: - 新しいプロジェクトの比率
+
+/// 「新しいプロジェクト」で選ぶ比率。最後に選んだものを覚えておく(初期値は 9:16)
+enum NewProjectAspect {
+    private static let key = "project.newAspect"
+    static let choices: [CanvasAspect] = [.portrait9x16, .landscape16x9, .square]
+
+    static var last: CanvasAspect {
+        get {
+            let saved: CanvasAspect? = CanvasAspect(rawValue: UserDefaults.standard.string(forKey: key) ?? "")
+            if let saved, choices.contains(saved) { return saved }
+            return .portrait9x16
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
+    }
 }
 
 // MARK: - 新しいプロジェクトの動画の置き場所
@@ -83,7 +124,8 @@ enum NewProjectMediaMode {
 struct ProjectLibraryView: View {
     /// 「ファイル」アプリなどから開かれた .videomania。受け取りを始めたら nil に戻す
     @Binding var openedPackageURL: URL?
-    let onOpen: (ProjectMeta) -> Void
+    /// 2 つ目は「新しいプロジェクト」で作ったばかりか(空のまま閉じたら消す)
+    let onOpen: (ProjectMeta, Bool) -> Void
 
     /// 送るプロジェクトのパッケージ(<名前>.videomania)の種類(project.yml の UTExportedTypeDeclarations)
     private static let packageType = UTType(exportedAs: "com.yuyaogawa6960.videomania.project", conformingTo: .package)
@@ -121,12 +163,17 @@ struct ProjectLibraryView: View {
     @State private var incomingCheckTask: Task<Void, Never>?
     @State private var incomingCheckAttempts = 0
 
+    /// 「新しいプロジェクト」の比率を選ぶシート
+    @State private var showAspectPicker = false
+    /// シートで選んだ比率(閉じ終わってから作って開く)
+    @State private var pickedAspect: CanvasAspect?
+
+    /// iPhone の縦では 2 列。横向き・iPad では列を増やす(縦長のカードが画面より高くならないように)
     private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
+        GridItem(.adaptive(minimum: 160), spacing: 12)
     ]
 
-    init(openedPackageURL: Binding<URL?>, onOpen: @escaping (ProjectMeta) -> Void) {
+    init(openedPackageURL: Binding<URL?>, onOpen: @escaping (ProjectMeta, Bool) -> Void) {
         self._openedPackageURL = openedPackageURL
         self.onOpen = onOpen
     }
@@ -135,11 +182,11 @@ struct ProjectLibraryView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
-                    newProjectButton
-
                     if library.projects.isEmpty {
                         emptyHint
                     } else {
+                        newProjectButton
+
                         HStack(alignment: .firstTextBaseline) {
                             Text("最近のプロジェクト")
                                 .font(.headline)
@@ -156,15 +203,25 @@ struct ProjectLibraryView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 32)
                 // ほかのお知らせ(ScrollView・NavigationStack に付けたもの)と別の View に付ける
-                .alert("共有で受け取った動画・写真が \(incomingPromptCount)件あります", isPresented: $showIncomingPrompt) {
-                    Button("新しいプロジェクトで編集") {
+                .alert("\(incomingPromptCount)件を編集しますか?", isPresented: $showIncomingPrompt) {
+                    Button("新しく作る") {
                         createProject(mediaMode: .appCopy, importingIncomingMedia: true)
                     }
                     Button("あとで", role: .cancel) {
                         Self.postponedIncomingURLs = IncomingMediaCenter.shared.pendingURLs
                     }
-                } message: {
-                    Text("今あるプロジェクトに追加するときは「あとで」を選んでから、そのプロジェクトを開いてください。")
+                }
+            }
+            .sheet(isPresented: $showAspectPicker, onDismiss: {
+                // シートが閉じ終わってから開く(閉じる途中で画面を切り替えない)
+                guard let aspect = pickedAspect else { return }
+                pickedAspect = nil
+                createProject(mediaMode: NewProjectMediaMode.last, aspect: aspect)
+            }) {
+                NewProjectAspectSheet(selected: NewProjectAspect.last) { aspect in
+                    NewProjectAspect.last = aspect
+                    pickedAspect = aspect
+                    showAspectPicker = false
                 }
             }
             .background(Color.black.ignoresSafeArea())
@@ -202,7 +259,8 @@ struct ProjectLibraryView: View {
                         NavigationLink {
                             AccountPointsView()
                         } label: {
-                            AccountPointsSummaryLabel()
+                            // サインイン前は星のアイコンだけ(登録が要るように見せない)
+                            AccountPointsSummaryLabel(iconOnlyWhenSignedOut: true)
                                 .loadingPointsIfNeeded()
                                 .labelStyle(.titleAndIcon)
                                 .font(.subheadline)
@@ -284,8 +342,6 @@ struct ProjectLibraryView: View {
                 }
                 renameTarget = nil
             }
-        } message: {
-            Text("新しいプロジェクト名を入力してください。")
         }
         .confirmationDialog(deleteTitle, isPresented: $isDeleting, titleVisibility: .visible) {
             Button("削除", role: .destructive) {
@@ -298,7 +354,7 @@ struct ProjectLibraryView: View {
                 deleteTarget = nil
             }
         } message: {
-            Text("編集内容とサムネイルを削除します。元に戻せません。写真アプリの元の動画・写真は消えません。")
+            Text("元に戻せません。元の動画は消えません。")
         }
     }
 
@@ -310,8 +366,9 @@ struct ProjectLibraryView: View {
 
     private var newProjectButton: some View {
         Button {
-            // 動画の置き場所は最後に使ったもの(編集画面の「その他」で変えられる)
-            createProject(mediaMode: NewProjectMediaMode.last)
+            // 比率を選んでから作る(動画の置き場所は最後に使ったもの。編集画面の「その他」で変えられる)
+            guard !isPackageBusy else { return }
+            showAspectPicker = true
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "plus")
@@ -340,18 +397,28 @@ struct ProjectLibraryView: View {
         }
     }
 
-    /// importingIncomingMedia: 共有で受け取った動画・写真を編集するために作る(開いた編集画面が聞かずに取り込む)
+    /// importingIncomingMedia: 共有で受け取った動画・写真を編集するために作る(開いた編集画面が聞かずに取り込む)。
+    /// aspect: 「新しいプロジェクト」で選んだ比率(縦はぼかし背景で収める)。このときだけ、空のまま閉じたら消す
     private func createProject(mediaMode: ProjectMediaMode, importingIncomingMedia: Bool = false,
-                               droppedMedia: [URL]? = nil) {
+                               droppedMedia: [URL]? = nil, aspect: CanvasAspect? = nil) {
         Analytics.shared.track("project_create", ["media": String(describing: mediaMode)])
         let meta = library.create(mediaMode: mediaMode)
+        if let aspect {
+            var snapshot: ProjectSnapshot = EditorProject().snapshot()
+            snapshot.canvas.aspect = aspect
+            if aspect == .portrait9x16 {
+                snapshot.canvas.scaling = .fitBlur
+            }
+            ProjectStore.saveNow(snapshot, projectID: meta.id)
+        }
         if importingIncomingMedia {
             IncomingMediaCenter.shared.autoImportProjectID = meta.id
         }
         if let droppedMedia {
             DroppedMediaHandoff.set(droppedMedia, for: meta.id)
         }
-        onOpen(meta)
+        let isFresh: Bool = aspect != nil && !importingIncomingMedia && droppedMedia == nil
+        onOpen(meta, isFresh)
     }
 
     /// ほかのアプリから落とした動画・写真で新しいプロジェクトを作る(素材はアプリ内にコピーする)
@@ -406,37 +473,19 @@ struct ProjectLibraryView: View {
         }
     }
 
+    /// 0 件のとき: ロボットと一言、そのすぐ下に「新しいプロジェクト」(別の端末から受け取るのは右上の「その他」)
     private var emptyHint: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             // カメラの横で手を振って誘うロボット(AIWorkingOverlay.swift)
             RobotWorkshop(clip: .emptyProjects)
-            Text("まだプロジェクトがありません")
-                .font(.headline)
+            Text("最初の動画を作ろう")
+                .font(.title3.weight(.bold))
                 .foregroundStyle(.white)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("1. 上の「新しいプロジェクト」を押す")
-                Text("2. 「動画・写真を追加」で素材を選ぶ")
-                Text("3. 編集して「書き出し」で写真アプリに保存")
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            Text("編集内容は自動で保存されるので、途中でやめても大丈夫です。")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-            // 別の端末で作ったプロジェクト(.videomania)を持っている人のため。右上の「その他」からも開ける
-            Button {
-                isImporterPresented = true
-            } label: {
-                Text("別の端末からプロジェクトを受け取る")
-                    .font(.subheadline)
-                    .frame(minHeight: 44)
-            }
-            .disabled(isPackageBusy)
-            .padding(.top, 4)
+            newProjectButton
+                .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
+        .padding(.vertical, 32)
     }
 
     private var grid: some View {
@@ -444,7 +493,7 @@ struct ProjectLibraryView: View {
             ForEach(library.projects) { meta in
                 ProjectCardView(meta: meta,
                                 thumbnailRevision: library.thumbnailRevision,
-                                onOpen: { onOpen(meta) },
+                                onOpen: { onOpen(meta, false) },
                                 onRename: { beginRename(meta) },
                                 onDuplicate: { _ = library.duplicate(id: meta.id) },
                                 onExport: { exportPackage(meta) },
@@ -624,6 +673,77 @@ private enum PackageShare {
     }
 }
 
+// MARK: - 比率を選ぶシート
+
+/// 「新しいプロジェクト」を押したときの 9:16 / 16:9 / 1:1(大きなアイコン 3 つを 1 行で)
+private struct NewProjectAspectSheet: View {
+    let selected: CanvasAspect
+    let onPick: (CanvasAspect) -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(NewProjectAspect.choices) { aspect in
+                Button {
+                    onPick(aspect)
+                } label: {
+                    tile(aspect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Self.accessibilityName(aspect))
+                .accessibilityAddTraits(aspect == selected ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .presentationDetents([.height(190)])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(Color(white: 0.08))
+        .preferredColorScheme(.dark)
+    }
+
+    private func tile(_ aspect: CanvasAspect) -> some View {
+        let isSelected: Bool = aspect == selected
+        return VStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(isSelected ? AnyShapeStyle(BrandStyle.gradient) : AnyShapeStyle(Color.white.opacity(0.18)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(Color.white.opacity(isSelected ? 0.9 : 0.6), lineWidth: 2)
+                )
+                .aspectRatio(aspect.ratio ?? 1, contentMode: .fit)
+                .frame(width: 60, height: 60)
+            Text(verbatim: Self.ratioText(aspect))
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 120)
+        .background(BrandStyle.surface, in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
+        .brandSelected(isSelected)
+        .contentShape(Rectangle())
+    }
+
+    private static func ratioText(_ aspect: CanvasAspect) -> String {
+        switch aspect {
+        case .portrait9x16: return "9:16"
+        case .landscape16x9: return "16:9"
+        case .square: return "1:1"
+        case .portrait4x5: return "4:5"
+        case .original: return ""
+        }
+    }
+
+    private static func accessibilityName(_ aspect: CanvasAspect) -> String {
+        switch aspect {
+        case .portrait9x16: return String(localized: "縦 9:16")
+        case .landscape16x9: return String(localized: "横 16:9")
+        case .square: return String(localized: "正方形 1:1")
+        case .portrait4x5: return String(localized: "縦 4:5")
+        case .original: return String(localized: "元のまま")
+        }
+    }
+}
+
 // MARK: - カード
 
 private struct ProjectCardView: View {
@@ -638,8 +758,9 @@ private struct ProjectCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button(action: onOpen) {
+                // 縦の動画が切れないよう縦長(横の動画は左右が切れる)
                 ProjectThumbnailView(projectID: meta.id, reloadKey: reloadKey)
-                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(alignment: .bottomTrailing) {
                         durationBadge

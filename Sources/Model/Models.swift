@@ -347,6 +347,17 @@ struct SubtitleStyle: Equatable {
     var highlightColorHex: String = "#FFD54A"
     /// nil = システムフォント
     var fontName: String? = nil
+
+    /// 新しいプロジェクトのキャプション: 太字・白・太い縁取り・大きめ。
+    /// 縦の動画では、SNS のボタンや説明文にかからない高さに出る(SubtitleRenderer の配置)。
+    /// 保存済みのプロジェクトや、項目が欠けた古いデータの補い(SubtitleStyle())は今までの値のまま
+    static let starter: SubtitleStyle = {
+        var style = SubtitleStyle()
+        style.sizeRatio = 0.06
+        style.template = .outlineBig
+        style.fontName = "HiraginoSans-W6"
+        return style
+    }()
 }
 
 /// 字幕1件(出力タイムライン上の秒)
@@ -407,10 +418,10 @@ enum CanvasAspect: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .original: return String(localized: "元のまま")
-        case .portrait9x16: return String(localized: "9:16 縦(ショート/リール)")
-        case .landscape16x9: return String(localized: "16:9 横(YouTube)")
+        case .portrait9x16: return String(localized: "9:16 縦")
+        case .landscape16x9: return String(localized: "16:9 横")
         case .square: return String(localized: "1:1 正方形")
-        case .portrait4x5: return String(localized: "4:5 縦(投稿)")
+        case .portrait4x5: return String(localized: "4:5 縦")
         }
     }
     /// 幅 / 高さ。original は nil
@@ -430,9 +441,9 @@ enum ScalingMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .fit: return String(localized: "収める(黒帯)")
-        case .fitBlur: return String(localized: "収める(ぼかし背景)")
-        case .fill: return String(localized: "埋める(クロップ)")
+        case .fit: return String(localized: "黒帯")
+        case .fitBlur: return String(localized: "ぼかし")
+        case .fill: return String(localized: "拡大")
         }
     }
 }
@@ -464,7 +475,7 @@ enum ExportQuality: String, CaseIterable, Identifiable {
         switch self {
         case .high: return String(localized: "高画質")
         case .standard: return String(localized: "標準")
-        case .small: return String(localized: "軽量(SNS向け)")
+        case .small: return String(localized: "軽量")
         }
     }
     /// 1080p 相当でのおおよその映像ビットレート(bps)。解像度に比例して換算する
@@ -546,7 +557,7 @@ struct ProjectSnapshot: Equatable {
 final class EditorProject {
     var clips: [Clip] = []
     var subtitles: [SubtitleCue] = []
-    var subtitleStyle = SubtitleStyle()
+    var subtitleStyle = SubtitleStyle.starter
     var audio = AudioSettings()
     var canvas = CanvasSettings()
     var documentary = DocumentaryStyle()
@@ -722,7 +733,7 @@ final class EditorProject {
     // MARK: 字幕操作
 
     @discardableResult
-    func addSubtitle(at time: Double, duration: Double = 3, text: String = String(localized: "新しい字幕")) -> SubtitleCue {
+    func addSubtitle(at time: Double, duration: Double = 3, text: String = String(localized: "テキストを入力")) -> SubtitleCue {
         let start = max(0, time)
         let cue = SubtitleCue(start: start, end: start + duration, text: text)
         subtitles.append(cue)

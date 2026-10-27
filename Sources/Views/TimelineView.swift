@@ -33,6 +33,8 @@ struct TimelineView: View {
     let timeline: TimelineState
     @Binding var selection: EditorSelection?
     let onAdd: (TimelineAddKind) -> Void
+    /// クリップの切れ目のボタン・バッジをタップしたとき(前側のクリップの ID)。nil ならクリップを選ぶだけ
+    var onTransition: ((UUID) -> Void)? = nil
 
     /// 全トラックを並べたときの高さ(互換用の固定値。画面側は preferredHeight(for:) を使う)
     static let totalHeight: CGFloat = TimelineMetrics.totalHeight
@@ -74,13 +76,15 @@ struct TimelineView: View {
 
     init(project: EditorProject, player: PlayerController, history: EditorHistory,
          timeline: TimelineState, selection: Binding<EditorSelection?>,
-         onAdd: @escaping (TimelineAddKind) -> Void = { _ in }) {
+         onAdd: @escaping (TimelineAddKind) -> Void = { _ in },
+         onTransition: ((UUID) -> Void)? = nil) {
         self.project = project
         self.player = player
         self.history = history
         self.timeline = timeline
         self._selection = selection
         self.onAdd = onAdd
+        self.onTransition = onTransition
     }
 
     /// ジェスチャー管理(変更しても再描画しない)
@@ -578,6 +582,7 @@ struct TimelineView: View {
                                    visibleWidth: item.visibleWidth,
                                    height: h,
                                    isSelected: isSel)
+                    .timelineLaneHitArea(row: laneCount - 1 - item.depth, rows: laneCount)
                     .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
                         if tapStopsMomentum() { return }
@@ -663,8 +668,8 @@ struct TimelineView: View {
                 }
             }
 
-            // このクリップから次のクリップへのトランジション(重なりの中央にバッジ)
-            if reorderClipID == nil, i + 1 < clips.count, clip.transition.isActive {
+            // このクリップから次のクリップへの切れ目(重なりの中央にバッジ。トランジションが無ければ小さなボタン)
+            if reorderClipID == nil, i + 1 < clips.count {
                 let next: TimelineClipRange = i + 1 < ranges.count ? ranges[i + 1] : TimelineClipRange(start: t, end: t)
                 var endA = range.end
                 var startB = next.start
@@ -676,9 +681,16 @@ struct TimelineView: View {
                 let x0 = originX + CGFloat(min(endA, startB)) * pps
                 let x1 = originX + CGFloat(max(endA, startB)) * pps
                 if cx.isFinite, x0.isFinite, x1.isFinite, x1 > -margin, x0 < width + margin {
+                    // 前後のクリップの細い方の半分まで(クリップ本体のタップ・長押しを残す)
+                    let narrower: CGFloat = min(CGFloat(range.duration), CGFloat(next.duration)) * pps
+                    let hitW: CGFloat = min(TimelineMetrics.transitionHitSize,
+                                            max(TimelineMetrics.transitionBadgeSize, narrower * 0.5))
                     transitions.append(TimelineTransitionItem(id: clip.id, centerX: cx, startX: x0, endX: x1,
                                                               seconds: max(0, endA - startB),
-                                                              type: clip.transition.type))
+                                                              type: clip.transition.type,
+                                                              isActive: clip.transition.isActive,
+                                                              hitWidth: hitW,
+                                                              nextID: clips[i + 1].id))
                 }
             }
 
@@ -814,20 +826,38 @@ struct TimelineView: View {
             }
 
             ForEach(transitions) { item in
-                let bandW = max(4, item.endX - item.startX)
-                TimelineTransitionRange(seconds: item.seconds, isSelected: item.id == selectedClipID)
-                    .frame(width: bandW, height: h)
-                    .offset(x: item.centerX - bandW / 2)
-                    .allowsHitTesting(false)
-                    .zIndex(14)
-                TimelineTransitionBadge(type: item.type, isSelected: item.id == selectedClipID)
-                    .frame(width: badge, height: badge)
-                    .offset(x: item.centerX - badge / 2, y: (h - badge) / 2)
-                    .onTapGesture {
-                        if tapStopsMomentum() { return }
-                        selection = .clip(item.id)
-                    }
-                    .zIndex(15)
+                // 選択中のクリップの両端はトリムハンドルが受けるので、押せる範囲を広げない
+                let nearSelected: Bool = selectedItem != nil
+                    && (item.id == selectedClipID || item.nextID == selectedClipID)
+                let hitW: CGFloat = nearSelected ? badge : item.hitWidth
+                let hitH: CGFloat = nearSelected ? badge : min(TimelineMetrics.transitionHitSize, h)
+                if item.isActive {
+                    let bandW = max(4, item.endX - item.startX)
+                    TimelineTransitionRange(seconds: item.seconds, isSelected: item.id == selectedClipID)
+                        .frame(width: bandW, height: h)
+                        .offset(x: item.centerX - bandW / 2)
+                        .allowsHitTesting(false)
+                        .zIndex(14)
+                    TimelineTransitionBadge(type: item.type, isSelected: item.id == selectedClipID)
+                        .frame(width: badge, height: badge)
+                        .frame(width: hitW, height: hitH)
+                        .contentShape(Rectangle())
+                        .offset(x: item.centerX - hitW / 2, y: (h - hitH) / 2)
+                        .onTapGesture {
+                            transitionTapped(item.id)
+                        }
+                        .allowsHitTesting(!isMulti)
+                        .zIndex(15)
+                } else if !nearSelected && !isMulti {
+                    TimelineTransitionAddButton()
+                        .frame(width: hitW, height: hitH)
+                        .contentShape(Rectangle())
+                        .offset(x: item.centerX - hitW / 2, y: (h - hitH) / 2)
+                        .onTapGesture {
+                            transitionTapped(item.id)
+                        }
+                        .zIndex(15)
+                }
             }
 
             if let sel = selectedItem {
@@ -839,6 +869,13 @@ struct TimelineView: View {
             }
         }
         .frame(width: width, height: h + waveLane + lane, alignment: .topLeading)
+    }
+
+    /// 切れ目のボタン・バッジ: トランジションの設定を直接開く(前側のクリップを選んでから)
+    private func transitionTapped(_ clipID: UUID) {
+        if tapStopsMomentum() { return }
+        selection = .clip(clipID)
+        onTransition?(clipID)
     }
 
     // MARK: - テキスト・ステッカートラック
@@ -881,6 +918,7 @@ struct TimelineView: View {
                                 visibleWidth: item.visibleWidth,
                                 height: h,
                                 isSelected: isSel)
+                    .timelineLaneHitArea(row: laneCount - 1 - (lanes[item.id] ?? 0), rows: laneCount)
                     .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
                         if tapStopsMomentum() { return }
@@ -942,6 +980,7 @@ struct TimelineView: View {
                                    visibleWidth: item.visibleWidth,
                                    height: h,
                                    isSelected: isSel)
+                    .timelineLaneHitArea(row: 0, rows: 1)
                     .offset(x: item.visibleX)
                     .onTapGesture {
                         if tapStopsMomentum() { return }
@@ -999,6 +1038,7 @@ struct TimelineView: View {
                                         height: h,
                                         isSelected: isSel,
                                         isFlagged: item.isFlagged)
+                    .timelineLaneHitArea(row: 0, rows: 1)
                     .offset(x: item.visibleX)
                     .onTapGesture {
                         if tapStopsMomentum() { return }
@@ -1044,6 +1084,7 @@ struct TimelineView: View {
                                  waveformURL: audio.bgmURL,
                                  visibleStartTime: visibleStart,
                                  visibleEndTime: visibleEnd)
+                    .timelineLaneHitArea(row: 0, rows: 1)
                     .offset(x: span.x)
                     .onTapGesture {
                         if tapStopsMomentum() { return }
@@ -1095,6 +1136,7 @@ struct TimelineView: View {
                                      labelX: item.labelX,
                                      height: h,
                                      isSelected: isSel)
+                    .timelineLaneHitArea(row: lanes[item.id] ?? 0, rows: laneCount)
                     .offset(x: item.visibleX, y: laneY)
                     .onTapGesture {
                         if tapStopsMomentum() { return }

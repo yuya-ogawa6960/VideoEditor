@@ -3,24 +3,16 @@ import Observation
 
 // =====================================================================
 // 書き出しプリセット(PresetStore)の UI。
-// - ExportPresetBar: 横スクロールのチップ(組み込み + ユーザー保存)と「現在の設定を保存」
+// - ExportPresetBar: 横スクロールのチップ(ユーザーが保存したものだけ)と、最後に「設定を保存」
 // - PresetSaveSheet: 名前と含める項目を選んで PresetStore.shared.save(...) を呼ぶ
 // ExportView から使う。PresetStore 本体は Sources/Model/PresetStore.swift(別担当)。
 // =====================================================================
 
 // MARK: - 表示用ヘルパー
 
-/// キャンバス設定を 1 行で表す(例: 16:9・4K・30fps)
+/// プリセットの中身を 1 行で表す(例: 4K・30fps・高画質)。比率はプリセットで変えないので出さない
 func exportPresetDetailText(_ canvas: CanvasSettings) -> String {
-    let aspect: String
-    switch canvas.aspect {
-    case .original: aspect = String(localized: "元のまま")
-    case .portrait9x16: aspect = "9:16"
-    case .landscape16x9: aspect = "16:9"
-    case .square: aspect = "1:1"
-    case .portrait4x5: aspect = "4:5"
-    }
-    return "\(aspect)・\(canvas.resolution.displayName)・\(canvas.frameRate)fps・\(canvas.quality.displayName)"
+    "\(canvas.resolution.displayName)・\(canvas.frameRate)fps・\(canvas.quality.displayName)"
 }
 
 // MARK: - プリセットバー
@@ -42,24 +34,13 @@ struct ExportPresetBar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                saveChip
-
-                ForEach(PresetStore.builtIns) { preset in
-                    PresetChipView(preset: preset, isSelected: matches(preset), isUserPreset: false) {
-                        store.apply(preset, to: project)
-                    }
-                }
-
-                if !store.presets.isEmpty {
-                    Divider()
-                        .frame(height: 28)
-                }
-
+                // 組み込みのプリセットは出さない(画質は上のタイルで選ぶ)。自分で保存したものだけ
                 ForEach(store.presets) { preset in
                     PresetChipView(preset: preset, isSelected: matches(preset), isUserPreset: true) {
                         store.apply(preset, to: project)
                     }
                     .contextMenu {
+                        Text(exportPresetDetailText(preset.canvas))
                         Button {
                             beginRename(preset)
                         } label: {
@@ -73,6 +54,8 @@ struct ExportPresetBar: View {
                         }
                     }
                 }
+
+                saveChip
             }
             .padding(.vertical, 2)
         }
@@ -116,7 +99,7 @@ struct ExportPresetBar: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "plus.circle.fill")
-                Text("現在の設定を保存")
+                Text("設定を保存")
             }
             .font(.subheadline.weight(.semibold))
             .padding(.horizontal, 12)
@@ -128,7 +111,7 @@ struct ExportPresetBar: View {
     }
 
     private func matches(_ preset: ExportPreset) -> Bool {
-        project.canvas == preset.canvas
+        store.matches(preset, canvas: project.canvas)
     }
 
     private func beginRename(_ preset: ExportPreset) {
@@ -147,28 +130,19 @@ struct PresetChipView: View {
     let action: () -> Void
 
     var body: some View {
+        // 名前だけ。中身は長押しのメニューで見せる
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    if isUserPreset {
-                        Image(systemName: "person.crop.circle")
-                            .font(.caption2)
-                    }
-                    Text(preset.name)
-                        .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                        .lineLimit(1)
-                }
-                Text(exportPresetDetailText(preset.canvas))
-                    .font(.caption2)
-                    .lineLimit(1)
-                    .opacity(0.8)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                Capsule().fill(isSelected ? Color.accentColor : Color(uiColor: .tertiarySystemFill))
-            )
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            Text(preset.name)
+                .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous)
+                        .fill(BrandStyle.surface)
+                )
+                .brandSelected(isSelected, cornerRadius: BrandStyle.Radius.chip)
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(preset.name)
@@ -201,27 +175,28 @@ struct PresetSaveSheet: View {
                 } header: {
                     Text("名前")
                 }
+                .listRowBackground(Color(white: 0.11))
 
                 Section {
-                    LabeledContent("画面比率", value: project.canvas.aspect.displayName)
-                    LabeledContent("はみ出し・余白", value: project.canvas.scaling.displayName)
                     LabeledContent("解像度", value: project.canvas.resolution.displayName)
                     LabeledContent("画質", value: project.canvas.quality.displayName)
                     LabeledContent("フレームレート", value: "\(project.canvas.frameRate) fps")
                     LabeledContent("コーデック", value: project.canvas.codec.displayName)
                     LabeledContent("ファイル形式", value: project.canvas.fileFormat.displayName)
                 } header: {
-                    Text("保存される出力設定")
+                    Text("保存する設定")
                 }
+                .listRowBackground(Color(white: 0.11))
 
                 Section {
-                    Toggle("字幕スタイルも含める", isOn: $includeSubtitleStyle)
+                    Toggle("キャプションのスタイルも含める", isOn: $includeSubtitleStyle)
                     Toggle("ドキュメンタリー風の設定も含める", isOn: $includeDocumentary)
-                } footer: {
-                    Text("含めた項目は、プリセットを選んだときにプロジェクトへまとめて適用されます。")
                 }
+                .listRowBackground(Color(white: 0.11))
             }
-            .navigationTitle("現在の設定を保存")
+            .scrollContentBackground(.hidden)
+            .background(Color(white: 0.07))
+            .navigationTitle("設定を保存")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
