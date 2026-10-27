@@ -28,7 +28,7 @@ import Photos
 
 enum ProjectStore {
     static var projectsDirectory: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let docs = StorageLocations.applicationSupport
         let dir = docs.appendingPathComponent("Projects", isDirectory: true)
         if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

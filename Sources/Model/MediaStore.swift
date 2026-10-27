@@ -28,9 +28,9 @@ enum MediaStoreError: LocalizedError {
 // MARK: - 素材の保存・読み込み
 
 enum MediaStore {
-    /// Documents/Media(必要に応じて作成)
+    /// Application Support/Media(必要に応じて作成)
     static var mediaDirectory: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let docs = StorageLocations.applicationSupport
         let dir = docs.appendingPathComponent("Media", isDirectory: true)
         if !FileManager.default.fileExists(atPath: dir.path) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

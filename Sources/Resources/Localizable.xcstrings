@@ -15158,6 +15158,29 @@
         }
       }
     },
+    "アカウント ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account ID"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID de cuenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ID da conta"
+          }
+        }
+      }
+    },
     "アカウントとポイント": {
       "extractionState": "manual",
       "localizations": {

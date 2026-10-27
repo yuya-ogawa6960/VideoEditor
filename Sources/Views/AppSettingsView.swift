@@ -79,6 +79,8 @@ struct AppSettingsView: View {
         Section {
             DisclosureGroup("サポート用の情報", isExpanded: $showsDiagnostics) {
                 diagnosticRow(title: String(localized: "実行時のバンドル ID"), value: diagnosticBundleID, monospaced: true)
+                // TestFlight で広告のポイントを受け取るには、この ID をサーバーの TEST_AD_USERS に入れる
+                diagnosticRow(title: String(localized: "アカウント ID"), value: AccountService.shared.userID ?? "", monospaced: true)
                 diagnosticRow(title: String(localized: "ロック中の継続"), value: diagnosticContinued, monospaced: false)
                 diagnosticRow(title: String(localized: "バックグラウンド送信(クラウドAI)"), value: diagnosticUploads, monospaced: false)
                 diagnosticRow(title: String(localized: "広告の状態"), value: diagnosticAds, monospaced: true)

@@ -4,6 +4,7 @@
 #   CLOUDFLARE_ACCOUNT_ID  … Cloudflare のアカウント ID
 #   OPENAI_API_KEY         … サーバーが使う OpenAI のキー
 #   GOOGLE_TTS_API_KEY     … Google の読み上げ(Text-to-Speech API)のキー。なければ Google の声は使えない
+#   TEST_AD_USERS          … TestFlight でテスト広告のポイントを受け取れるアカウント ID(カンマ区切り。なくてもよい)
 # セッションの署名用の秘密(SESSION_SECRET)は、まだなければここで作ってサーバーに保存する。
 name: Deploy server
 
@@ -26,6 +27,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY }}
       STATS_TOKEN: ${{ secrets.STATS_TOKEN }}
+      TEST_AD_USERS: ${{ secrets.TEST_AD_USERS }}
     defaults:
       run:
         working-directory: server
@@ -112,6 +114,11 @@ jobs:
           # 利用状況ページ(/stats?token=…)の合言葉。GitHub の secret STATS_TOKEN を設定したときだけ
           if [ -n "$STATS_TOKEN" ]; then
             printf '%s' "$STATS_TOKEN" | tr -d '\r\n' | npx wrangler secret put STATS_TOKEN
+          fi
+          # TestFlight でテスト広告のポイントを受け取れるアカウント(アプリの 設定 → サポート用の情報 → アカウント ID)。
+          # 設定しないと、テスト版でも広告のポイントは付かない(本番の広告は SSV で付く)
+          if [ -n "$TEST_AD_USERS" ]; then
+            printf '%s' "$TEST_AD_USERS" | tr -d '[:space:]' | npx wrangler secret put TEST_AD_USERS
           fi
 
       - name: Show URL

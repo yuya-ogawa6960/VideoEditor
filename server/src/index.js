@@ -11,12 +11,12 @@
 
 const POINTS = {
   signup: 100,            // はじめてのサインイン
-  daily: 20,              // 毎日ボーナス(日本時間で 1 日 1 回)
+  daily: 10,              // 毎日ボーナス(日本時間で 1 日 1 回)
   transcribePerMinute: 10, // クラウド文字起こし 1 分
   chat: 20,               // 字幕の整え・翻訳・台本など 1 回
   speechPerThousandChars: 50, // クラウドの声(読み上げ)1000 文字あたり(原価が文字起こしより高いため)
   adReward: 10,           // リワード広告 1 回
-  adRewardDailyLimit: 5,  // リワード広告の 1 日の上限(日本時間)
+  adRewardDailyLimit: 3,  // リワード広告の 1 日の上限(日本時間)
 };
 const SPEECH_MODEL = "gpt-4o-mini-tts";
 // Google の読み上げ(日本語)。キー(GOOGLE_TTS_API_KEY)は GitHub の secret から入れる
@@ -266,10 +266,17 @@ async function grantAdReward(env, userID, transactionID, source) {
   return true;
 }
 
+/** TestFlight でテスト広告のポイントを受け取ってよいアカウント(GitHub の secret TEST_AD_USERS。カンマ区切りの ID) */
+function testAdUsers(env) {
+  return new Set(String(env.TEST_AD_USERS || "").split(",").map((s) => s.trim()).filter(Boolean));
+}
+
 /** アプリが「最後まで見た」と伝える。テスト期間(ALLOW_CLIENT_AD_CLAIM=1)だけここで付与し、本番は SSV を待つ */
 async function adClaim(request, user, env) {
-  // TestFlight のテスト広告は SSV が来ないので、その場合だけアプリの申告で足す(1 日の上限あり)
-  const clientGrant = env.ALLOW_CLIENT_AD_CLAIM === "1" || request.headers.get("x-vm-test-build") === "1";
+  // TestFlight のテスト広告は SSV が来ないので、その場合だけアプリの申告で足す(1 日の上限あり)。
+  // 「テスト版です」の目印は誰でも付けられるので、TEST_AD_USERS に名前のあるアカウントだけ認める
+  const testBuild = request.headers.get("x-vm-test-build") === "1" && testAdUsers(env).has(user.id);
+  const clientGrant = env.ALLOW_CLIENT_AD_CLAIM === "1" || testBuild;
   let granted = false;
   if (clientGrant) {
     granted = await grantAdReward(env, user.id, "client:" + crypto.randomUUID(), "client");
@@ -535,7 +542,7 @@ const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <h2>よくある質問</h2>
 <p><b>書き出しが途中で止まる</b><br>iPhone の空き容量を確認し、書き出し中はアプリを開いたままにするか、iOS 26 以降ではロック画面の表示を止めずにお待ちください。</p>
 <p><b>字幕が作れない</b><br>「設定」→「Video Mania」で「音声認識」を許可してください。BGM だけの動画では字幕は作られません。</p>
-<p><b>ポイントについて</b><br>はじめてのサインインで 100 ポイント、毎日 20 ポイント、広告を見て 1 日 5 回まで 10 ポイントずつもらえます。</p>
+<p><b>ポイントについて</b><br>はじめてのサインインで 100 ポイント、毎日 10 ポイント、広告を見て 1 日 3 回まで 10 ポイントずつもらえます。</p>
 <p><b>アカウントの削除</b><br>アプリの「文字起こしの方式」画面の「アカウントを削除」から行えます。</p>
 <h2>お問い合わせ</h2>
 <p>アプリ内の TestFlight / App Store のフィードバック、または App Store のアプリページの「デベロッパの Web サイト」からご連絡ください。</p>

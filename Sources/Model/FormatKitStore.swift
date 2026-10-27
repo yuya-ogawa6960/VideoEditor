@@ -66,7 +66,7 @@ final class FormatKitStore {
     private let queue = DispatchQueue(label: "FormatKitStore.write", qos: .utility)
 
     static var fileURL: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let docs = StorageLocations.applicationSupport
         return docs.appendingPathComponent("formats.json")
     }
 
