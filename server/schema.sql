@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,            -- Apple でサインインの sub(利用者ごとに固定の ID)
   points INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
-  last_daily TEXT                 -- 毎日ボーナスを最後に受け取った日(日本時間 YYYY-MM-DD)
+  last_daily TEXT,                -- 毎日ボーナスを最後に受け取った日(日本時間 YYYY-MM-DD)
+  apple_refresh_token TEXT        -- Apple のトークン(アカウント削除時に失効させる)。既存の DB には index.js が ALTER TABLE で足す
 );
 
 CREATE TABLE IF NOT EXISTS ledger (
@@ -44,3 +45,15 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS events_created ON events (created_at);
 CREATE INDEX IF NOT EXISTS events_name_created ON events (name, created_at);
+
+-- 問い合わせ(/support のフォーム → POST /v1/contact。ip_hash は IP のハッシュで、1 日の件数の制限に使う)
+CREATE TABLE IF NOT EXISTS contacts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,             -- question / bug / ai_report / ad_report / data_deletion
+  message TEXT NOT NULL,
+  email TEXT,                     -- 返信先(任意)
+  created_at TEXT NOT NULL,
+  ip_hash TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS contacts_ip_created ON contacts (ip_hash, created_at);

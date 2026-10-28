@@ -5,6 +5,11 @@
 #   OPENAI_API_KEY         … サーバーが使う OpenAI のキー
 #   GOOGLE_TTS_API_KEY     … Google の読み上げ(Text-to-Speech API)のキー。なければ Google の声は使えない
 #   TEST_AD_USERS          … TestFlight でテスト広告のポイントを受け取れるアカウント ID(カンマ区切り。なくてもよい)
+#   APPLE_TEAM_ID          … Apple Developer の Team ID(10 文字)
+#   APPLE_SIWA_KEY_ID      … Apple Developer → Keys で「Sign in with Apple」を有効にして作った鍵の Key ID
+#   APPLE_SIWA_KEY_P8      … その鍵の .p8 ファイルの中身(BEGIN/END の行ごと貼る)
+#     3 つそろうと、アカウント削除のときに Apple のトークンを失効させる(iPhone の「Apple でサインイン」一覧から消える)。
+#     なくてもサインイン・削除は動く(失効だけしない)
 # セッションの署名用の秘密(SESSION_SECRET)は、まだなければここで作ってサーバーに保存する。
 name: Deploy server
 
@@ -28,6 +33,9 @@ jobs:
       GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY }}
       STATS_TOKEN: ${{ secrets.STATS_TOKEN }}
       TEST_AD_USERS: ${{ secrets.TEST_AD_USERS }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_SIWA_KEY_ID: ${{ secrets.APPLE_SIWA_KEY_ID }}
+      APPLE_SIWA_KEY_P8: ${{ secrets.APPLE_SIWA_KEY_P8 }}
     defaults:
       run:
         working-directory: server
@@ -119,6 +127,17 @@ jobs:
           # 設定しないと、テスト版でも広告のポイントは付かない(本番の広告は SSV で付く)
           if [ -n "$TEST_AD_USERS" ]; then
             printf '%s' "$TEST_AD_USERS" | tr -d '[:space:]' | npx wrangler secret put TEST_AD_USERS
+          fi
+          # Apple のトークン失効用(Sign in with Apple の鍵)。3 つの GitHub secret を設定したときだけ。
+          # .p8 は改行を含むのでそのまま渡す(ID は空白・改行を除く)
+          if [ -n "$APPLE_TEAM_ID" ]; then
+            printf '%s' "$APPLE_TEAM_ID" | tr -d '[:space:]' | npx wrangler secret put APPLE_TEAM_ID
+          fi
+          if [ -n "$APPLE_SIWA_KEY_ID" ]; then
+            printf '%s' "$APPLE_SIWA_KEY_ID" | tr -d '[:space:]' | npx wrangler secret put APPLE_SIWA_KEY_ID
+          fi
+          if [ -n "$APPLE_SIWA_KEY_P8" ]; then
+            printf '%s' "$APPLE_SIWA_KEY_P8" | npx wrangler secret put APPLE_SIWA_KEY_P8
           fi
 
       - name: Show URL

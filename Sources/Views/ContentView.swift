@@ -26,7 +26,7 @@ struct ContentView: View {
     /// 上部バーからプロジェクト名を変更する
     @State private var isRenamingProject = false
     @State private var projectNameDraft = ""
-    /// 「その他」→「動画の置き場所」
+    /// 「設定」→「動画の置き場所」
     @State private var isChoosingMediaMode = false
     /// 🔍 機能を探す
     @State private var isSearchingTools = false
@@ -70,6 +70,8 @@ struct ContentView: View {
     private var isLargeWindow: Bool {
         horizontalSizeClass == .regular && verticalSizeClass == .regular
     }
+    /// iPhone Duo を開いたとき、下のツールを右の列(時刻などが出る列)に縦に並べる(アプリの設定・ツールバーの「設定」から切り替え)
+    @AppStorage("editor.toolbarOnSide") private var toolbarOnSide = false
     @State private var showClearProjectConfirm = false
     /// 無音カットのテンポを選ぶ
     @State private var showSilenceCutConfirm = false
@@ -778,6 +780,12 @@ struct ContentView: View {
             // iPhone Duo を開いた横持ちなど、高さに余裕がある画面ではそのぶん大きく映る)
             let previewMax: CGFloat = fullHeight
             let panelMax: CGFloat = max(160, fullHeight * 0.38)
+            // iPhone Duo を開いたときにツールを右の列へ(パネルを開いている間は下にパネルが出るので、列は出さない)
+            let sideToolbar: Bool = isLargeWindow && toolbarOnSide && !panelOpen
+            // 右の列の幅: 時刻・電池などが出る右端のセーフエリアと同じ幅(狭いときは 72pt)
+            let sideWidth: CGFloat = max(72, geo.safeAreaInsets.trailing)
+            // 右の列の高さ: 再生ボタンの行 + タイムライン(プレビューの下から画面の下まで)
+            let sideHeight: CGFloat = 44 + (frozenTimelineHeight ?? TimelineView.preferredHeight(for: project))
 
             VStack(spacing: 0) {
                 previewArea
@@ -806,41 +814,25 @@ struct ContentView: View {
                                        onUndo: { undoFromButton() })
                             .padding(.horizontal, 12)
                             .frame(height: 44)
+                    } else if sideToolbar {
+                        // 右の列にツール: 再生ボタンの行とタイムラインの右に、同じ高さの縦の列を置く。
+                        // 行ごと右端のセーフエリア(時刻などが出る列)まで広げ、列をその上に重ねる
+                        HStack(spacing: 0) {
+                            VStack(spacing: 0) {
+                                transportAndTimeline
+                            }
+                            sideToolbarColumn
+                                .frame(width: sideWidth, height: sideHeight)
+                        }
+                        .ignoresSafeArea(.container, edges: .trailing)
                     } else {
-                        EditorTransportRow(player: player,
-                                           canUndo: history.canUndo,
-                                           canRedo: history.canRedo,
-                                           onUndo: { undoFromButton() },
-                                           onRedo: { redoFromButton() })
-                            .padding(.horizontal, 16)
-                            .frame(height: 44)
-
-                        TimelineView(project: project, player: player, history: history,
-                                     timeline: timeline, selection: $selection,
-                                     onAdd: { kind in handleTimelineAdd(kind) },
-                                     onTransition: { clipID in
-                                         // 切れ目のボタンからトランジションの設定を直接開く
-                                         guard activePanel == nil else { return }
-                                         openPanel(.transition(clipID))
-                                     })
-                            // クリップを動かしている間は高さを変えない(終わったら新しい高さへ)
-                            .frame(height: frozenTimelineHeight ?? TimelineView.preferredHeight(for: project))
-                            // 右側(iPhone Duo のたて持ちで時刻などが出る列)の下までタイムラインを伸ばす
-                            .ignoresSafeArea(.container, edges: .trailing)
-                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { timelineWidth = $0 }
-                            // ほかのアプリから落とした動画・写真は、落とした位置のクリップの切れ目に差し込む
-                            .onDrop(of: MediaDrop.types, isTargeted: $timelineDropTargeted) { providers, location in
-                                handleTimelineDrop(providers, at: location)
-                            }
-                            .overlay {
-                                if timelineDropTargeted, canAcceptDrop {
-                                    MediaDropHighlight(title: String(localized: "クリップとして追加"))
-                                }
-                            }
+                        transportAndTimeline
                     }
                 }
 
-                bottomArea(maxPanelHeight: panelMax)
+                if !sideToolbar {
+                    bottomArea(maxPanelHeight: panelMax)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             // クリップを動かし始めたら、そのときの高さでタイムラインを固定する。終わったら新しい高さへなめらかに戻す
@@ -870,6 +862,57 @@ struct ContentView: View {
             Button(replacement.rememberTitle) { applyTermReplacement(replacement, remember: true) }
             Button("このままにする", role: .cancel) {}
         }
+    }
+
+    /// 再生ボタンの行とタイムライン(パネルを開いていないとき)
+    @ViewBuilder
+    private var transportAndTimeline: some View {
+        EditorTransportRow(player: player,
+                           canUndo: history.canUndo,
+                           canRedo: history.canRedo,
+                           onUndo: { undoFromButton() },
+                           onRedo: { redoFromButton() })
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+
+        TimelineView(project: project, player: player, history: history,
+                     timeline: timeline, selection: $selection,
+                     onAdd: { kind in handleTimelineAdd(kind) },
+                     onTransition: { clipID in
+                         // 切れ目のボタンからトランジションの設定を直接開く
+                         guard activePanel == nil else { return }
+                         openPanel(.transition(clipID))
+                     })
+            // クリップを動かしている間は高さを変えない(終わったら新しい高さへ)
+            .frame(height: frozenTimelineHeight ?? TimelineView.preferredHeight(for: project))
+            // 右側(iPhone Duo のたて持ちで時刻などが出る列)の下までタイムラインを伸ばす
+            .ignoresSafeArea(.container, edges: .trailing)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { timelineWidth = $0 }
+            // ほかのアプリから落とした動画・写真は、落とした位置のクリップの切れ目に差し込む
+            .onDrop(of: MediaDrop.types, isTargeted: $timelineDropTargeted) { providers, location in
+                handleTimelineDrop(providers, at: location)
+            }
+            .overlay {
+                if timelineDropTargeted, canAcceptDrop {
+                    MediaDropHighlight(title: String(localized: "クリップとして追加"))
+                }
+            }
+    }
+
+    /// iPhone Duo を開いたときの右の列のツール(下のツールバーと同じ項目を縦に並べる)
+    private var sideToolbarColumn: some View {
+        toolConfirmationDialogs(
+            EditorToolbar(items: toolbarItems,
+                          onBack: backAction,
+                          onDisabledTap: { reason in showToast(reason, style: .warning) },
+                          groupPath: $toolbarGroupPath,
+                          pickerItems: $pickerItems,
+                          overlayPickerItems: $overlayPickerItems,
+                          replacePickerItem: $replacePickerItem,
+                          extractAudioPickerItem: $extractAudioPickerItem,
+                          slideshowPickerItems: $slideshowPickerItems,
+                          axis: .vertical)
+        )
     }
 
     /// remember: 用語として登録し、次の文字起こしからも自動で直す
@@ -943,6 +986,10 @@ struct ContentView: View {
     // MARK: - 下部(ツールバー or パネル)
 
     private func bottomArea(maxPanelHeight: CGFloat) -> some View {
+        toolConfirmationDialogs(bottomAreaContent(maxPanelHeight: maxPanelHeight))
+    }
+
+    private func bottomAreaContent(maxPanelHeight: CGFloat) -> some View {
         ZStack(alignment: .bottom) {
             if let panel = activePanel {
                 let cancelAction: (() -> Void)? = panel.supportsCancel ? { cancelPanel(panel) } : nil
@@ -975,6 +1022,11 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.22), value: activePanel)
+    }
+
+    /// ツールバーから開く確認(オートパンチイン・無音カット)。下のツールバーと、Duo のときの右の列の両方に付ける
+    private func toolConfirmationDialogs<Content: View>(_ content: Content) -> some View {
+        content
         // 選んでいるクリップがあればそのクリップだけ、なければ全クリップに入れる
         .confirmationDialog("オートパンチイン",
                             isPresented: $showPunchInDialog,
@@ -1689,6 +1741,8 @@ struct ContentView: View {
         items.append(EditorToolItem.group(String(localized: "エフェクト"), systemImage: "sparkles", id: "group-effects",
                                           items: effectGroupItems))
         items.append(EditorToolItem.more(rootMoreItems))
+        // 「その他」の右隣に固定(ツールバーが分けて出す)
+        items.append(EditorToolItem.settings(rootSettingsItems))
         return items
     }
 
@@ -1754,13 +1808,10 @@ struct ContentView: View {
         return items
     }
 
-    /// 全体: 比率 / 全体の仕上げ / ロゴ・透かし / ラウドネスを自動一致 / 無音部分を削除
+    /// 全体: 全体の仕上げ / ロゴ・透かし / ラウドネスを自動一致 / 無音部分を削除(比率は「設定」へ移した)
     private var wholeGroupItems: [EditorToolItem] {
         let hasNarration = !project.narration.isEmpty
         var items: [EditorToolItem] = []
-        items.append(EditorToolItem(String(localized: "比率"), systemImage: "aspectratio") {
-            openPanel(.aspect)
-        })
         items.append(EditorToolItem(String(localized: "全体の仕上げ"), systemImage: "film.stack") {
             openPanel(.documentary)
         })
@@ -1889,7 +1940,7 @@ struct ContentView: View {
         body(clipID)
     }
 
-    /// ルートの「その他」
+    /// ルートの「その他」: ファイルから追加 / マーカー / パーツ / サムネ / 前回と比較(設定の類いは「設定」グループ)
     private var rootMoreItems: [EditorToolItem] {
         var items: [EditorToolItem] = []
         // Google ドライブ・iCloud Drive など(「動画・写真を追加」の長押しと同じ)
@@ -1914,10 +1965,26 @@ struct ContentView: View {
             activePanel = nil
             activeSheet = .compare
         })
-        items.append(EditorToolItem.section(String(localized: "設定")))
+        return items
+    }
+
+    /// ルートの「設定」(「その他」の右隣に固定): 比率 / 動画の置き場所 / (Duo のとき)ツールの置き場所 / このプロジェクトを空にする
+    private var rootSettingsItems: [EditorToolItem] {
+        var items: [EditorToolItem] = []
+        items.append(EditorToolItem(String(localized: "比率"), systemImage: "aspectratio") {
+            openPanel(.aspect)
+        })
         items.append(EditorToolItem(String(localized: "動画の置き場所"), systemImage: mediaMode == .photoLibrary ? "photo.on.rectangle" : "internaldrive") {
             isChoosingMediaMode = true
         })
+        // iPhone Duo を開いたときだけ: 下のツールを右の列に置く / 下に戻す(設定の「Duo を開いたときはツールを右に」と同じ)
+        if isLargeWindow {
+            items.append(EditorToolItem(toolbarOnSide ? String(localized: "ツールを下に戻す") : String(localized: "ツールを右に置く"),
+                                        systemImage: toolbarOnSide ? "rectangle.bottomthird.inset.filled" : "sidebar.trailing",
+                                        id: "toolbar-side") {
+                toolbarOnSide.toggle()
+            })
+        }
         items.append(EditorToolItem(String(localized: "このプロジェクトを空にする"), systemImage: "trash", destructive: true) {
             showClearProjectConfirm = true
         })

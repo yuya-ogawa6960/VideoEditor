@@ -7,25 +7,25 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集する動画を選ぶために写真ライブラリを使用します。"
+            "value": "動画や写真を読み込み、写真アプリで消された動画を確かめるために使います。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The photo library is used to choose videos to edit."
+            "value": "Used to load videos and photos, and to check for videos deleted in the Photos app."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La fototeca se usa para elegir los videos que vas a editar."
+            "value": "Se usa para cargar videos y fotos y comprobar si hay videos eliminados en la app Fotos."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A biblioteca de fotos é usada para escolher os vídeos a editar."
+            "value": "Usado para carregar vídeos e fotos e verificar vídeos apagados no app Fotos."
           }
         }
       }

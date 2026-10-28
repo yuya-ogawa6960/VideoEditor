@@ -18,8 +18,9 @@ struct TimelineRowPlacement: Identifiable {
 /// 中央に固定された白い再生位置の下を、トラックが横にスクロールする。
 /// スクロール位置 = 時刻 × pointsPerSecond(ScrollView は使わず、ドラッグ + 慣性を自前で処理)。
 ///
-/// トラック(上から): 目盛り(+ マーカーの旗) / 重ね合わせ(Bロール・ワイプ・写真) /
-/// 映像(+ J/L カットの音声バー、クリップ間のトランジションのバッジ) / テキスト・ステッカー / 手書き /
+/// トラック(上から): 目盛り(+ マーカーの旗) / テキスト・ステッカー / 手書き / 重ね合わせ(Bロール・ワイプ・写真) /
+/// モザイク(FX。V1 の映像だけにかかるので V1 の直上) /
+/// 映像(+ J/L カットの音声バー、クリップ間のトランジションのバッジ) /
 /// 字幕 / BGM / ナレーション / 「+ 追加」行
 /// 中身の無いトラックは表示せず、「+ 追加」行のメニューから追加する。
 /// 行が多いとき(maxVisibleRows 超)は縦にドラッグしてスクロールする。
@@ -57,11 +58,12 @@ struct TimelineView: View {
 
     private static func visibleTracks(for project: EditorProject) -> [TimelineTrackKind] {
         TimelineMetrics.visibleTracks(overlayLanes: TimelineMetrics.overlayLaneCount(project.overlays),
-                                      textLanes: TimelineMetrics.textLaneCount(project.textClips),
+                                      textLanes: TimelineMetrics.textLaneCount(TimelineMetrics.textOnlyClips(project.textClips)),
                                       hasDrawings: !project.drawings.isEmpty,
                                       hasSubtitles: !project.subtitles.isEmpty,
                                       hasBGM: project.audio.bgmURL != nil,
-                                      narrationLanes: TimelineMetrics.narrationLaneCount(project.narration))
+                                      narrationLanes: TimelineMetrics.narrationLaneCount(project.narration),
+                                      mosaicLanes: TimelineMetrics.mosaicLaneCount(project.textClips))
     }
 
     static func rowPlacements(_ rows: [TimelineTrackKind]) -> [TimelineRowPlacement] {
@@ -301,7 +303,7 @@ struct TimelineView: View {
         switch kind {
         case .video: laneHeight = TimelineMetrics.videoHeight
         case .overlay: laneHeight = TimelineMetrics.overlayHeight
-        case .text: laneHeight = TimelineMetrics.textHeight
+        case .text, .mosaic: laneHeight = TimelineMetrics.textHeight
         case .narration: laneHeight = TimelineMetrics.narrationHeight
         default: laneHeight = kind.height
         }
@@ -337,7 +339,11 @@ struct TimelineView: View {
         case .video:
             videoTrack(width: width, originX: originX, pps: pps, ranges: f.ranges, total: f.total)
         case .text:
-            textTrack(width: width, originX: originX, pps: pps, textClips: f.snapshot.textClips)
+            textTrack(width: width, originX: originX, pps: pps,
+                      textClips: TimelineMetrics.textOnlyClips(f.snapshot.textClips), mosaic: false)
+        case .mosaic:
+            textTrack(width: width, originX: originX, pps: pps,
+                      textClips: TimelineMetrics.mosaicClips(f.snapshot.textClips), mosaic: true)
         case .drawing:
             drawingTrack(width: width, originX: originX, pps: pps, drawings: f.snapshot.drawings)
         case .subtitle:
@@ -733,7 +739,7 @@ struct TimelineView: View {
                             ranges: [TimelineClipRange], total: Double) -> some View {
         let h = TimelineMetrics.videoHeight
         let lane = TimelineMetrics.splitAudioLaneHeight
-        let waveLane = TimelineMetrics.audioWaveLaneHeight
+        let waveH = TimelineMetrics.audioWaveOverlayHeight
         let badge = TimelineMetrics.transitionBadgeSize
         let layout = clipItems(width: width, originX: originX, pps: pps, ranges: ranges)
         let items = layout.items
@@ -812,16 +818,16 @@ struct TimelineView: View {
                     .zIndex(item.isLifted ? 10 : (item.id == selectedClipID ? 1 : 0))
             }
 
-            // V1 の下: クリップの音の大きさの波形
-            TimelineClipAudioLane(items: items, pointsPerSecond: pps, height: waveLane)
-                .frame(width: width, height: waveLane, alignment: .topLeading)
-                .offset(y: h)
+            // サムネイルの下部に重ねる、クリップの音の大きさの波形(別の段にせず、プレビューを広く保つ)
+            TimelineClipAudioLane(items: items, pointsPerSecond: pps, height: waveH)
+                .frame(width: width, height: waveH, alignment: .topLeading)
+                .offset(y: h - waveH)
                 .zIndex(4)
 
             if !splitBars.isEmpty {
                 TimelineSplitAudioLane(bars: splitBars)
                     .frame(width: width, height: lane)
-                    .offset(y: h + waveLane)
+                    .offset(y: h)
                     .zIndex(5)
             }
 
@@ -868,7 +874,7 @@ struct TimelineView: View {
                                trailing: clipTrimGesture(clipID: sel.id, leading: false))
             }
         }
-        .frame(width: width, height: h + waveLane + lane, alignment: .topLeading)
+        .frame(width: width, height: h + lane, alignment: .topLeading)
     }
 
     /// 切れ目のボタン・バッジ: トランジションの設定を直接開く(前側のクリップを選んでから)
@@ -895,14 +901,20 @@ struct TimelineView: View {
         return result
     }
 
+    /// テキスト・ステッカー行(mosaic = false)と、モザイク(FX)行(mosaic = true)の両方をこの 1 つで描く。
+    /// textClips には行に出す部品だけ(モザイク以外 / モザイクだけ)を渡し、段もその中だけで決める
     private func textTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
-                           textClips: [TextClip]) -> some View {
+                           textClips: [TextClip], mosaic: Bool) -> some View {
         let h = TimelineMetrics.textHeight
         let items = textItems(width: width, originX: originX, pps: pps, textClips: textClips)
-        let selectedID: UUID? = selection?.textID
+        // 選択中の部品がこの行の物でなければ(モザイクをテキスト行で、など)選択枠は出さない
+        let selectedID: UUID? = selection?.textID.flatMap { id in
+            textClips.contains(where: { $0.id == id }) ? id : nil
+        }
         let selectedItem: TimelineTextItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
-        // 時間が重なるテキストは別の段に並べる(ドラッグ中は固定)
-        let lanes: [UUID: Int] = frozenLanes?.textLanes ?? TimelineMetrics.textLanes(textClips)
+        // 時間が重なるテキストは別の段に並べる(ドラッグ中は固定)。モザイクはモザイクどうしだけで段を決める
+        let frozen: [UUID: Int]? = mosaic ? frozenLanes?.mosaicLanes : frozenLanes?.textLanes
+        let lanes: [UUID: Int] = frozen ?? TimelineMetrics.textLanes(textClips)
         let laneCount: Int = (lanes.values.max() ?? 0) + 1
         let trackHeight: CGFloat = TimelineMetrics.textTrackHeight(lanes: laneCount)
         let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
@@ -1534,7 +1546,8 @@ struct TimelineView: View {
     private func freezeLanes() {
         let snapshot = project.snapshot()
         frozenLanes = TimelineFrozenLanes(rows: TimelineMetrics.visibleTracks(for: snapshot),
-                                          textLanes: TimelineMetrics.textLanes(snapshot.textClips),
+                                          textLanes: TimelineMetrics.textLanes(TimelineMetrics.textOnlyClips(snapshot.textClips)),
+                                          mosaicLanes: TimelineMetrics.mosaicLanes(snapshot.textClips),
                                           overlayLanes: TimelineMetrics.overlayLanes(snapshot.overlays),
                                           narrationLanes: TimelineMetrics.narrationLanes(snapshot.narration))
     }

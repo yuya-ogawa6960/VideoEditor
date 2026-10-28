@@ -3,7 +3,7 @@ import SwiftUI
 /// 「設定」のプライバシーと広告: 使い方の統計のオン・オフと、広告の同意の見直し(必要な地域だけ)
 struct AdPrivacySection: View {
     @State private var ads = AdsManager.shared
-    @AppStorage(Analytics.enabledKey) private var analyticsEnabled = true
+    @AppStorage(Analytics.enabledKey) private var analyticsEnabled = false
 
     var body: some View {
         Section {
@@ -12,6 +12,12 @@ struct AdPrivacySection: View {
                 Button("広告の同意を変更") {
                     Task { await AdsManager.shared.presentPrivacyOptions() }
                 }
+            }
+            Link(destination: CloudAIGateway.privacyPolicyURL) {
+                Label("プライバシーポリシー", systemImage: "hand.raised")
+            }
+            Link(destination: CloudAIGateway.supportURL) {
+                Label("サポート", systemImage: "questionmark.circle")
             }
         } header: {
             Text("プライバシーと広告")

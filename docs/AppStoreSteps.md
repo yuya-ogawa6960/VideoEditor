@@ -9,6 +9,7 @@
 |---|---|---|---|
 | 1 | 「ビルドして」で 1.12.69 を作る | ここ（Claude） | 必須 |
 | 2 | テスト用のアカウント ID を登録 | iPhone と GitHub | 任意 |
+| 2-2 | Apple でサインインの鍵を登録 | Apple Developer と GitHub | 必須 |
 | 3 | 広告ポイントの確認用 URL を登録 | AdMob | 必須 |
 | 4 | アプリの基本情報 | App Store Connect | 必須 |
 | 5 | プライバシーの表示 | App Store Connect | 必須 |
@@ -24,15 +25,16 @@
 ここで「ビルドして」と送ってください。審査前の修正が入ったビルドが TestFlight に届きます。
 審査にはこの 1.12.69（またはそれより新しいビルド）を出します。
 
-## 2. テスト用のアカウント ID を登録（任意）
+## 2. テスト用のアカウント ID を登録（ふつうは不要）
 
-TestFlight 版で「広告を見てポイント」を試したいときだけ必要です。やらなくても申請には関係ありません。
+TestFlight 版と審査中のアプリは、Apple が署名した「テスト版で動いている」証明をサーバーに送るので、広告のポイントは自動で付きます。
+この手順は、その証明が取れない端末でだけ必要です。やらなくても申請には関係ありません。
 
 **iPhone で ID を調べる**
 1. TestFlight から 1.12.69 を入れて開きます。
 2. プロジェクト一覧の左上の星のアイコンを押し、「Apple でサインイン」をします（済んでいれば不要）。
 3. 一覧に戻り、右上の歯車（設定）を押します。
-4. いちばん下の「サポート用の情報」を開きます。
+4. いちばん下の「バージョン」の行を 5 回タップすると、「サポート用の情報」が出るので開きます。
 5. 「アカウント ID」の英数字を長押しして、コピーします。
 
 **GitHub に登録する**
@@ -43,6 +45,29 @@ TestFlight 版で「広告を見てポイント」を試したいときだけ必
    - 何人か入れるときは、ID をカンマ（,）で区切ります。
 5. 上の「Actions」タブ → 左の「Deploy server」→ 右の「Run workflow」→ もう一度「Run workflow」を押します。
 6. 1〜2 分で緑のチェックが付けば終わりです。
+
+## 2-2. Apple でサインインの鍵を登録（アカウント削除のため）
+
+アカウントを削除したとき、Apple 側のサインインも解除するための鍵です。Apple が「サインイン機能のあるアプリはこれを行う」と案内しているので、申請前に済ませます。
+
+**Apple Developer で鍵を作る**
+1. https://developer.apple.com/account/resources/authkeys/list を開きます。
+2. 「+」を押し、名前に `Video Mania Sign in` と入れます。
+3. 「Sign in with Apple」にチェックを入れ、「Configure」で Primary App ID に `com.yuyaogawa6960.videomania` を選び、「Save」→「Continue」→「Register」を押します。
+4. 「Download」で `.p8` ファイルをダウンロードします。一度しかダウンロードできないので、なくさないでください。
+5. 画面の「Key ID」（10 文字）を控えます。
+
+**GitHub に登録する**
+1. https://github.com/yuya-ogawa6960/VideoEditor の「Settings」→「Secrets and variables」→「Actions」を開きます。
+2. 「New repository secret」で次の 3 つを作ります。
+
+| Name | Secret |
+|---|---|
+| `APPLE_SIWA_KEY_ID` | 控えた Key ID |
+| `APPLE_SIWA_KEY_P8` | `.p8` ファイルをメモ帳で開いて、中身をすべて貼り付け |
+| `APPLE_TEAM_ID` | `779F5Z8KQX` |
+
+3. 「Actions」→「Deploy server」→「Run workflow」で反映します。
 
 ## 3. 広告ポイントの確認用 URL を登録（AdMob）
 
@@ -57,6 +82,10 @@ TestFlight 版で「広告を見てポイント」を試したいときだけ必
    https://videomania-api.yuya-ogawa0906.workers.dev/v1/ads/ssv
    ```
 6. 「URL を確認」を押して、問題がないことを確かめてから「保存」を押します。
+
+**広告の内容の上限も合わせる（年齢 4+ 向け）**
+1. 左の「アプリ」→「Video Mania」→「アプリの設定」を開きます。
+2. 「広告コンテンツのレーティング」で「G」を選んで保存します。アプリ側でも同じ上限を設定済みですが、管理画面も合わせておきます。
 
 ## 4. アプリの基本情報（App Store Connect）
 

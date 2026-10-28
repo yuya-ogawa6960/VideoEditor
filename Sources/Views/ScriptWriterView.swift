@@ -90,7 +90,17 @@ struct ScriptWriterSheetView: View {
 
     /// ポイントで AI を使うか(Apple Intelligence で作るときはポイントを使わないので、目安は出さない。SubtitleEditorView の AI翻訳と同じ判定)
     private var usesPointsForAI: Bool {
-        CloudAIGateway.usesPoints && ScriptWriter.resolveExplicitEngine(settings: AppSettings.shared) == .cloud
+        CloudAIGateway.usesPoints && usesCloudAI
+    }
+
+    /// 文章を OpenAI に送るか(ポイント・自分のキーのどちらでも)
+    private var usesCloudAI: Bool {
+        ScriptWriter.resolveExplicitEngine(settings: AppSettings.shared) == .cloud
+    }
+
+    /// Google の声が使えるか(サーバーの設定。AccountService.googleVoicesAvailable)
+    private var googleVoicesAvailable: Bool {
+        AccountService.shared.googleVoicesAvailable
     }
 
     private var trimmedTopic: String {
@@ -233,6 +243,9 @@ struct ScriptWriterSheetView: View {
         if usesPointsForAI {
             parts.append(String(localized: "約 \(SubtitlePolisher.estimatedPoints(lineCount: 1)) pt を使います。"))
         }
+        if usesCloudAI {
+            parts.append(String(localized: "文章を OpenAI に送ります。"))
+        }
         return parts.joined(separator: "\n")
     }
 
@@ -329,27 +342,50 @@ struct ScriptWriterSheetView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            // AI の結果(台本・構成案)に問題があったときの報告先(CloudAIGateway.supportURL)
+            if !lines.isEmpty || infoText != nil {
+                Button {
+                    UIApplication.shared.open(CloudAIGateway.supportURL)
+                } label: {
+                    Label("問題を報告", systemImage: "exclamationmark.bubble")
+                        .font(.caption)
+                }
+            }
         } footer: {
             Text("構成案はチャプターのマーカーとして追加します。")
         }
     }
 
+    /// OpenAI に送るときは、初回だけ送り先の確認(CloudAIGateway.ensureConsent)。Apple Intelligence なら聞かない
+    @MainActor
+    private func confirmCloudConsent() async -> Bool {
+        guard usesCloudAI else { return true }
+        return await CloudAIGateway.ensureConsent()
+    }
+
     /// 台本があるときは上書きの確認、ポイントで使うときは目安を見せてから作る
     private func requestWrite() {
         guard !trimmedTopic.isEmpty else { return }
-        if !lines.isEmpty || usesPointsForAI {
-            pendingAction = .write
-        } else {
-            write()
+        Task { @MainActor in
+            guard await confirmCloudConsent() else { return }
+            if !lines.isEmpty || usesPointsForAI {
+                pendingAction = .write
+            } else {
+                write()
+            }
         }
     }
 
     private func requestOutline() {
         guard !project.subtitles.isEmpty else { return }
-        if usesPointsForAI {
-            pendingAction = .outline
-        } else {
-            outline()
+        Task { @MainActor in
+            guard await confirmCloudConsent() else { return }
+            if usesPointsForAI {
+                pendingAction = .outline
+            } else {
+                outline()
+            }
         }
     }
 
@@ -472,9 +508,12 @@ struct ScriptWriterSheetView: View {
                             Button(voice.displayName) { cloudVoice = voice }
                         }
                     }
-                    Section(String(localized: "クラウドの声(Google・日本語)")) {
-                        ForEach(CloudVoice.googleVoices) { voice in
-                            Button(voice.displayName) { cloudVoice = voice }
+                    // Google の声はサーバーで使える設定のときだけ(TextPanels の読み上げと同じ)
+                    if googleVoicesAvailable {
+                        Section(String(localized: "クラウドの声(Google・日本語)")) {
+                            ForEach(CloudVoice.googleVoices) { voice in
+                                Button(voice.displayName) { cloudVoice = voice }
+                            }
                         }
                     }
                 } label: {
@@ -536,10 +575,21 @@ struct ScriptWriterSheetView: View {
         }
     }
 
+    /// クラウドの声(OpenAI / Google)に送る前の、初回だけの確認(CloudAIGateway.ensureConsent)を済ませてから作る
     private func insertNarration() {
         let items = nonEmptyLines
         guard !items.isEmpty else { return }
         let chosenChoice: TTSVoiceChoice = cloudVoice.map { .cloud($0) } ?? .device(voiceID)
+        Task { @MainActor in
+            if chosenChoice.isCloud {
+                guard await CloudAIGateway.ensureConsent() else { return }
+            }
+            startNarrationInsert(items: items, choice: chosenChoice)
+        }
+    }
+
+    private func startNarrationInsert(items: [ScriptLine], choice chosenChoice: TTSVoiceChoice) {
+        guard !items.isEmpty, !analysis.isRunning else { return }
         let chosenRate = rate
         let chosenPitch = pitch
         errorText = nil
@@ -719,6 +769,12 @@ struct ScriptWriterSheetView: View {
     /// エラーを原因に合ったボタン付きで出す
     /// (ログインの期限切れ・ポイント不足 → アカウントとポイント、API キー → 文字起こしとAI仕上げ。AccountService.swift の CloudAIGateway.recovery)
     private func presentError(_ error: Error, retryHint: String) {
+        // moderation が止めた内容(ScriptWriter.swift)は、やり直しの案内を付けずそのまま
+        if error is CloudAIModerationError {
+            errorRecovery = .none
+            errorText = error.localizedDescription
+            return
+        }
         let recovery = CloudAIGateway.recovery(for: error)
         errorRecovery = recovery
         switch recovery {

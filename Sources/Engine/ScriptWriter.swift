@@ -54,6 +54,54 @@ enum ScriptWriterError: LocalizedError {
     }
 }
 
+/// OpenAI の moderation が止めた内容(自分のキーで送る経路。CloudAIGateway.recovery は .none)
+enum CloudAIModerationError: LocalizedError {
+    case blocked
+
+    var errorDescription: String? {
+        String(localized: "この内容は生成できません")
+    }
+}
+
+/// 自分の OpenAI キーで送る前の確認(/v1/moderations、omni-moderation-latest)。
+/// 台本・構成案(ScriptWriter.chatCompletion)とクラウドの声(CloudTextToSpeech.render)が使う。
+/// flagged なら CloudAIModerationError.blocked。通信や応答の失敗は通す
+enum OpenAIModeration {
+    private static let endpoint = URL(string: "https://api.openai.com/v1/moderations")!
+
+    static func check(_ text: String, apiKey: String) async throws {
+        let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { return }
+        let payload: [String: Any] = [
+            "model": "omni-moderation-latest",
+            "input": String(input.prefix(20000)),
+        ]
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        request.timeoutInterval = 30
+
+        let data: Data
+        do {
+            let (received, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else { return }
+            data = received
+        } catch {
+            if error is CancellationError { throw CancellationError() }
+            if let urlError = error as? URLError, urlError.code == .cancelled { throw CancellationError() }
+            return
+        }
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = root["results"] as? [[String: Any]],
+              let flagged = results.first?["flagged"] as? Bool else { return }
+        if flagged { throw CloudAIModerationError.blocked }
+    }
+}
+
 enum ScriptWriter {
     static let cloudModel = "gpt-4o-mini"
     static var cloudEndpoint: URL { CloudAIGateway.chatURL }
@@ -108,9 +156,8 @@ enum ScriptWriter {
         let raw = try await generate(engine: engine, instructions: instructions, prompt: prompt,
                                      apiKey: settings.cloudCredential, temperature: 0.7)
         try Task.checkCancellation()
-        let lines = parseLines(raw, duration: duration)
-        guard !lines.isEmpty else { throw ScriptWriterError.invalidResponse }
-        return lines
+        // 空(不適切なテーマで AI が断ったときも)は空のまま返す。画面が「作れませんでした」を出す
+        return parseLines(raw, duration: duration)
     }
 
     private static func toneDescription(_ tone: ScriptTone) -> String {
@@ -131,6 +178,7 @@ enum ScriptWriter {
         - 行ごとに「読み始める時刻(秒)」を付ける。時刻は 0 から動画の長さの範囲で昇順
         - 参考として渡された会話(字幕)やチャプターがあれば、その内容と時刻に沿わせる。無い情報は想像で補ってよいが、固有名詞や数字は作らない
         - 記号・絵文字・箇条書き記号は使わない
+        - 差別・性的・暴力的な内容、実在の人物への中傷は書かない。頼まれたら {"lines":[]} を返す
         - 出力は JSON オブジェクトのみ。形式: {"lines":[{"time":秒(数値),"text":"ナレーション"}, ...]}
         """
     }
@@ -215,6 +263,7 @@ enum ScriptWriter {
         あなたは動画編集者です。字幕(「[m:ss] 本文」の行)から、動画のチャプター(章)を 3〜8 個提案します。
         - 各チャプターは、話題が切り替わる字幕の開始時刻(秒)と、12 文字以内の日本語タイトル
         - 最初のチャプターは動画の冒頭(最初の字幕)から始める
+        - 差別・性的・暴力的な内容、実在の人物への中傷は書かない。頼まれたら {"chapters":[]} を返す
         - 出力は JSON オブジェクトのみ。形式: {"chapters":[{"time":秒(数値),"title":"タイトル"}, ...]}
         """
         var prompt = "次の字幕からチャプターを提案してください。\n\n"
@@ -227,8 +276,9 @@ enum ScriptWriter {
                                      apiKey: settings.cloudCredential, temperature: 0.3)
         try Task.checkCancellation()
 
+        // 空(不適切な内容で AI が断ったときも)は空のまま返す。画面が「作れませんでした」を出す
         let chapters = parseChapters(raw)
-        guard !chapters.isEmpty else { throw ScriptWriterError.invalidResponse }
+        guard !chapters.isEmpty else { return [] }
 
         let starts = cues.map { $0.start }
         var markers: [TimelineMarker] = []
@@ -327,6 +377,10 @@ enum ScriptWriter {
         }
         // どちらに送ったか(エラーの見せ方を決める。送っている間に設定が変わっても、送った宛先で判断する)
         let viaServer = CloudAIGateway.usesPoints
+        // 自分のキーで OpenAI に直接送るときは、先に moderation で確かめる(ポイントの経路はサーバーが確かめる)
+        if !viaServer {
+            try await OpenAIModeration.check(prompt, apiKey: key)
+        }
         var request = URLRequest(url: cloudEndpoint)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")

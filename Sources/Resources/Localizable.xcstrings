@@ -484,6 +484,29 @@
         }
       }
     },
+    "%@(%@)をダウンロードします": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download %@ (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se descargará %@ (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (%@) será baixado"
+          }
+        }
+      }
+    },
     "%@(最高品質)": {
       "extractionState": "manual",
       "localizations": {
@@ -4693,6 +4716,29 @@
         }
       }
     },
+    "Apple の音声認識で作る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Apple Speech Recognition"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar el reconocimiento de voz de Apple"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar o reconhecimento de voz da Apple"
+          }
+        }
+      }
+    },
     "Apple 音声認識": {
       "extractionState": "manual",
       "localizations": {
@@ -5402,6 +5448,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Músicas do Apple Music protegidas por DRM não podem ser usadas. A música repete para acompanhar a duração do vídeo."
+          }
+        }
+      }
+    },
+    "Duo を開いたときはツールを右に": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tools on the right when Duo is open"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas a la derecha con el Duo abierto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas à direita com o Duo aberto"
           }
         }
       }
@@ -7729,6 +7798,29 @@
         }
       }
     },
+    "Whisper のモデルをダウンロードします": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download the Whisper model"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se descargará el modelo Whisper"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O modelo Whisper será baixado"
+          }
+        }
+      }
+    },
     "Whisper の準備は裏で続け、次から使います。": {
       "extractionState": "manual",
       "localizations": {
@@ -8024,6 +8116,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Carregando o modelo Whisper…"
+          }
+        }
+      }
+    },
+    "Wi-Fi 推奨。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi recommended."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se recomienda Wi-Fi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wi-Fi recomendado."
           }
         }
       }
@@ -11915,6 +12030,29 @@
         }
       }
     },
+    "この内容は生成できません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This content can't be generated"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este contenido no se puede generar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este conteúdo não pode ser gerado"
+          }
+        }
+      }
+    },
     "この写真には奥行きの情報がないため、Ken Burnsで代わりに動かします。": {
       "extractionState": "manual",
       "localizations": {
@@ -13130,6 +13268,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Quais recursos são usados, com um ID aleatório por aparelho, é enviado para melhorar o app. Vídeos, textos e nomes não são enviados."
+          }
+        }
+      }
+    },
+    "どの機能を使ったかだけを、匿名で送ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only which features you used is sent, anonymously."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se envía, de forma anónima, qué funciones usaste."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só é enviado, de forma anônima, quais recursos você usou."
           }
         }
       }
@@ -15223,6 +15384,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Excluir conta"
+          }
+        }
+      }
+    },
+    "アカウントを削除しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account deleted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta eliminada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conta excluída"
           }
         }
       }
@@ -17964,6 +18148,29 @@
         }
       }
     },
+    "クラウド AI に送ります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends to cloud AI"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se enviará a la IA en la nube"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Será enviado para a IA na nuvem"
+          }
+        }
+      }
+    },
     "クラウド AI の使い方": {
       "extractionState": "manual",
       "localizations": {
@@ -19639,6 +19846,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Faça login para usar a IA na nuvem (transcrição de alta precisão, limpeza de legendas, tradução, roteiros) com pontos, mesmo sem sua própria chave da OpenAI. Você ganha 100 pontos no primeiro login e 20 pontos por dia."
+          }
+        }
+      }
+    },
+    "サポート": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Support"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soporte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suporte"
           }
         }
       }
@@ -21575,6 +21805,29 @@
         }
       }
     },
+    "ダウンロード": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descargar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixar"
+          }
+        }
+      }
+    },
     "ダウンロードしたファイルを保存できませんでした。もう一度お試しください。": {
       "extractionState": "manual",
       "localizations": {
@@ -22008,6 +22261,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Lista de capítulos copiada. Cole em uma descrição do YouTube ou similar."
+          }
+        }
+      }
+    },
+    "ツールを下に戻す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move tools back to bottom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a poner las herramientas abajo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar as ferramentas para baixo"
+          }
+        }
+      }
+    },
+    "ツールを右に置く": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put tools on the right"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poner las herramientas a la derecha"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colocar as ferramentas à direita"
           }
         }
       }
@@ -23595,6 +23894,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Barras"
+          }
+        }
+      }
+    },
+    "バージョン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versión"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versão"
           }
         }
       }
@@ -25715,6 +26037,29 @@
         }
       }
     },
+    "プライバシーポリシー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy Policy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Política de privacidad"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Política de Privacidade"
+          }
+        }
+      }
+    },
     "プリセット %lld": {
       "extractionState": "manual",
       "localizations": {
@@ -26888,6 +27233,29 @@
         }
       }
     },
+    "ポイントと記録はサーバーから消えました。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your points and history have been removed from the server."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus puntos y tu historial se eliminaron del servidor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus pontos e histórico foram removidos do servidor."
+          }
+        }
+      }
+    },
     "ポイントのサーバーがまだ用意されていません。": {
       "extractionState": "manual",
       "localizations": {
@@ -26907,6 +27275,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "O servidor de pontos ainda não está pronto."
+          }
+        }
+      }
+    },
+    "ポイントの反映を確認中です。しばらくして残高を更新してください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirming your points. Refresh the balance in a moment"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmando tus puntos. Actualiza el saldo en un momento"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmando seus pontos. Atualize o saldo daqui a pouco"
+          }
+        }
+      }
+    },
+    "ポイントは無料です。購入はできません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Points are free. They can't be purchased."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los puntos son gratis. No se pueden comprar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os pontos são gratuitos. Não é possível comprá-los."
           }
         }
       }
@@ -31116,6 +31530,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Enviar estatísticas de uso (anônimas)"
+          }
+        }
+      }
+    },
+    "使い方の統計を送信しますか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send usage statistics?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Enviar estadísticas de uso?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar estatísticas de uso?"
           }
         }
       }
@@ -38457,6 +38894,29 @@
         }
       }
     },
+    "名前やメールアドレスは受け取りません。クラウド AI を使うとき、音声と文章は OpenAI(Google の声は Google)に送られます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We don't collect your name or email address. When you use cloud AI, audio and text are sent to OpenAI (Google voices go to Google)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recibimos tu nombre ni tu correo electrónico. Al usar la IA en la nube, el audio y el texto se envían a OpenAI (las voces de Google, a Google)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não recebemos seu nome nem seu e-mail. Ao usar a IA na nuvem, o áudio e o texto são enviados à OpenAI (vozes do Google vão para o Google)."
+          }
+        }
+      }
+    },
     "名前を変更": {
       "extractionState": "manual",
       "localizations": {
@@ -38568,6 +39028,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Está certo"
+          }
+        }
+      }
+    },
+    "問題を報告": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Report a Problem"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informar de un problema"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relatar um problema"
           }
         }
       }
@@ -44157,6 +44640,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Transcrevendo…"
+          }
+        }
+      }
+    },
+    "文章を OpenAI に送ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text is sent to OpenAI."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El texto se envía a OpenAI."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O texto é enviado à OpenAI."
           }
         }
       }
@@ -51521,6 +52027,29 @@
         }
       }
     },
+    "約 %lld pt を使います。文章を OpenAI に送ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses about %lld pt. Text is sent to OpenAI."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa unos %lld pt. El texto se envía a OpenAI."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa cerca de %lld pt. O texto é enviado à OpenAI."
+          }
+        }
+      }
+    },
     "約1.6GB": {
       "extractionState": "manual",
       "localizations": {
@@ -58674,6 +59203,52 @@
         }
       }
     },
+    "送信しない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Send"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No enviar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não enviar"
+          }
+        }
+      }
+    },
+    "送信する": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar"
+          }
+        }
+      }
+    },
     "送信できる音声がありません。": {
       "extractionState": "manual",
       "localizations": {
@@ -61660,6 +62235,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "O áudio e o texto das legendas são enviados à OpenAI pelo servidor."
+          }
+        }
+      }
+    },
+    "音声と文章を OpenAI(Google の声は Google)に送ります。送った内容は保存されません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio and text are sent to OpenAI (Google voices go to Google). Nothing you send is stored."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El audio y el texto se envían a OpenAI (las voces de Google, a Google). Lo que envías no se guarda."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O áudio e o texto são enviados à OpenAI (vozes do Google vão para o Google). O que você envia não é armazenado."
           }
         }
       }

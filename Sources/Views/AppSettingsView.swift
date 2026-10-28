@@ -21,6 +21,11 @@ struct AppSettingsView: View {
     @State private var diagnosticUploads: String = ""
     @State private var diagnosticAds: String = ""
     @State private var showsDiagnostics: Bool = false
+    /// バージョンの行を 5 回タップすると、サポート用の情報を出す(製品版では隠しておく)
+    @State private var versionTaps: Int = 0
+    @State private var revealsDiagnostics: Bool = false
+    /// iPhone Duo を開いたとき、編集画面のツールを右の列(時刻などが出る列)に縦に並べる(編集画面の「設定」からも切り替えられる)
+    @AppStorage("editor.toolbarOnSide") private var toolbarOnSide = false
 
     init() {}
 
@@ -53,9 +58,27 @@ struct AppSettingsView: View {
                     }
                 }
             }
+            Section {
+                Toggle("Duo を開いたときはツールを右に", isOn: $toolbarOnSide)
+            }
             AdPrivacySection()
-            // 開発・テスト用の情報なので、製品版では出さない
-            if Self.showsDiagnosticsSection {
+            Section {
+                Button {
+                    versionTaps += 1
+                    if versionTaps >= 5 {
+                        revealsDiagnostics = true
+                        refreshDiagnostics()
+                    }
+                } label: {
+                    LabeledContent("バージョン") {
+                        Text(verbatim: Self.versionText)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            // 開発・テスト用の情報。審査員にも見えないよう、バージョンを 5 回タップしたときだけ出す
+            if showsDiagnosticsSection {
                 diagnosticsSection
             }
         }
@@ -64,16 +87,18 @@ struct AppSettingsView: View {
         .onAppear {
             termCount = CaptionTermDictionary.load().count
             readingCount = ReadingDictionary.load().count
-            if Self.showsDiagnosticsSection {
-                refreshDiagnostics()
-            }
         }
     }
 
     // MARK: - サポート用の情報
 
-    /// デバッグビルドか TestFlight(テスト広告を出すビルドと同じ判定)
-    private static var showsDiagnosticsSection: Bool { AdsManager.usesTestAds }
+    private static var versionText: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        return build.isEmpty ? short : "\(short) (\(build))"
+    }
+
+    private var showsDiagnosticsSection: Bool { revealsDiagnostics }
 
     private var diagnosticsSection: some View {
         Section {

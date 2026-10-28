@@ -230,6 +230,11 @@ enum CloudTextToSpeech {
         if voice.isGoogle, !viaServer { throw CloudTextToSpeechError.googleNeedsPoints }
         let credential = CloudAIGateway.credential
         guard !credential.isEmpty else { throw CloudTextToSpeechError.notConfigured }
+        // 自分のキーで OpenAI に直接送るときは、先に moderation で確かめる(ScriptWriter.swift の OpenAIModeration。ポイントの経路はサーバーが確かめる)
+        if !viaServer {
+            let spoken = [trimmed, instructions ?? ""].joined(separator: "\n")
+            try await OpenAIModeration.check(spoken, apiKey: credential)
+        }
 
         var body: [String: Any] = [
             "model": "gpt-4o-mini-tts",

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import AuthenticationServices
+import StoreKit
 import UIKit
 
 // =====================================================================
@@ -80,6 +81,9 @@ final class AccountService {
     }
     /// サーバー上の利用者 ID(リワード広告のサーバー側検証に渡す)
     private(set) var userID: String?
+    /// テスト版(TestFlight・App Review)の証明。Apple が署名した AppTransaction を、テスト広告のポイントを
+    /// 受け取るときにサーバーへ送る(サーバーは署名と environment を確かめる。本番版の証明では付かない)
+    private var appTransactionJWS: String?
     /// 今日すでに広告でもらった回数 / 1 日の上限 / 1 回のポイント
     private(set) var adRewardsToday = 0
     private(set) var adRewardLimit = 0
@@ -91,6 +95,8 @@ final class AccountService {
     /// 毎日ボーナス / 広告のポイントを受け取っている途中か(ボタンを無効にして、二度押しで 409 の赤い文が出ないように)
     private(set) var isClaimingDaily = false
     private(set) var isClaimingAd = false
+    /// Google の声(クラウドの読み上げ)がサーバーで使えるか(/v1/me の googleTTS。わかるまでは true)
+    private(set) var googleVoicesAvailable: Bool = true
     var lastError: String?
 
     /// クラウド AI をどちらで使うか
@@ -170,21 +176,34 @@ final class AccountService {
                 lastError = String(localized: "Apple のサインイン情報を読めませんでした。")
                 return
             }
-            isWorking = true
-            defer { isWorking = false }
-            do {
-                let body = try JSONSerialization.data(withJSONObject: ["identityToken": identityToken])
-                let json = try await request("v1/auth/apple", method: "POST", body: body, authorized: false)
-                guard let token = json["token"] as? String else { throw AccountError.invalidResponse }
-                setToken(token)
-                // 起動時・前面に戻ったときに、Apple でのサインインがやめられていないかを確かめるため
-                _ = KeychainStore.set(credential.user, for: Self.appleUserIDKey)
-                points = json["points"] as? Int
-                dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
-                source = .points
-            } catch {
-                lastError = error.localizedDescription
+            // 認可コード(5 分で失効)。サーバーが Apple の refresh_token に替えて保存し、アカウント削除のときに失効させる
+            let authorizationCode = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
+            await signIn(identityToken: identityToken, appleUserID: credential.user, authorizationCode: authorizationCode)
+        }
+    }
+
+    /// Apple の identityToken(と認可コード)をサーバーに送り、セッショントークンを受け取る
+    @MainActor
+    func signIn(identityToken: String, appleUserID: String, authorizationCode: String? = nil) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            var payload: [String: Any] = ["identityToken": identityToken]
+            if let authorizationCode, !authorizationCode.isEmpty {
+                payload["authorizationCode"] = authorizationCode
             }
+            let body = try JSONSerialization.data(withJSONObject: payload)
+            let json = try await request("v1/auth/apple", method: "POST", body: body, authorized: false)
+            guard let token = json["token"] as? String else { throw AccountError.invalidResponse }
+            setToken(token)
+            // 起動時・前面に戻ったときに、Apple でのサインインがやめられていないかを確かめるため
+            _ = KeychainStore.set(appleUserID, for: Self.appleUserIDKey)
+            points = json["points"] as? Int
+            dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
+            if let flag = json["googleTTS"] as? Bool { googleVoicesAvailable = flag }
+            source = .points
+        } catch {
+            lastError = error.localizedDescription
         }
     }
 
@@ -264,6 +283,7 @@ final class AccountService {
             points = json["points"] as? Int
             dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
             if let serverPrices = json["prices"] as? [String: Int] { prices = serverPrices }
+            if let flag = json["googleTTS"] as? Bool { googleVoicesAvailable = flag }
             applyAdState(json)
         } catch {
             lastError = error.localizedDescription
@@ -321,12 +341,17 @@ final class AccountService {
         defer { isClaimingAd = false }
         lastError = nil
         do {
-            let json = try await request("v1/ads/claim", method: "POST", body: Data("{}".utf8), authorized: true)
+            let json = try await request("v1/ads/claim", method: "POST", body: await adClaimBody(), authorized: true)
             if let value = json["points"] as? Int { points = value }
             applyAdState(json)
             if (json["pending"] as? Bool) == true {
+                let before = points ?? 0
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 await refresh()
+                // SSV(AdMob のサーバー側検証)がまだ届いていない。refresh は lastError を消すので、その後に入れる
+                if (json["granted"] as? Bool) == false, (points ?? 0) <= before {
+                    lastError = String(localized: "ポイントの反映を確認中です。しばらくして残高を更新してください")
+                }
             }
         } catch {
             let message = error.localizedDescription
@@ -334,6 +359,19 @@ final class AccountService {
             // refresh は前のエラーを消すので、受け取りの失敗はその後に入れる
             lastError = message
         }
+    }
+
+    /// 広告のポイントを受け取るときの本文。テスト版なら Apple の証明(AppTransaction)を添える
+    private func adClaimBody() async -> Data {
+        guard AdsManager.usesTestAds else { return Data("{}".utf8) }
+        if appTransactionJWS == nil, let result = try? await AppTransaction.shared {
+            appTransactionJWS = result.jwsRepresentation
+        }
+        guard let appTransactionJWS,
+              let data = try? JSONSerialization.data(withJSONObject: ["appTransaction": appTransactionJWS]) else {
+            return Data("{}".utf8)
+        }
+        return data
     }
 
     /// AI を使ったあとの応答ヘッダ(X-VM-Points)で残りを更新する
@@ -499,6 +537,66 @@ enum CloudAIGateway {
         default:
             return nil
         }
+    }
+}
+
+// MARK: - 送信前の同意・ポリシーの URL
+
+extension CloudAIGateway {
+    /// 「続ける」を押したら true(UserDefaults)
+    static let consentKey = "cloudAI.consent"
+    /// Info.plist に VMServerURL が無いビルドで使う、ポリシー・サポートのページの置き場所
+    private static let fallbackServer = URL(string: "https://videomania-api.yuya-ogawa0906.workers.dev")!
+
+    /// プライバシーポリシーの URL(サーバーの /privacy)
+    static var privacyPolicyURL: URL {
+        (AccountService.serverURL ?? fallbackServer).appendingPathComponent("privacy")
+    }
+
+    /// サポートページの URL(サーバーの /support)
+    static var supportURL: URL {
+        (AccountService.serverURL ?? fallbackServer).appendingPathComponent("support")
+    }
+
+    /// OpenAI / Google に文章や音声を送る前の、1 回だけの確認。承諾済みなら即 true。
+    /// 「続ける」で承諾を保存して true、「キャンセル」で false。「プライバシーポリシー」は開くだけで、確認は出たまま
+    @MainActor
+    static func ensureConsent() async -> Bool {
+        if UserDefaults.standard.bool(forKey: consentKey) { return true }
+        guard AdsManager.presentingViewController() != nil else { return false }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            presentConsentAlert(continuation)
+        }
+    }
+
+    /// 同意の確認を最前面に出す。「プライバシーポリシー」はアラートが閉じてしまうので、出し直してから Safari を開く
+    /// (ボタンの handler はアラートが閉じたあと、まだ前面が .foregroundActive のうちに呼ばれる。Safari を開いたあとに
+    /// 出し直すと presentingViewController() が nil になって false で終わってしまう)
+    @MainActor
+    private static func presentConsentAlert(_ continuation: CheckedContinuation<Bool, Never>) {
+        guard let presenter = AdsManager.presentingViewController() else {
+            continuation.resume(returning: false)
+            return
+        }
+        let alert = UIAlertController(
+            title: String(localized: "クラウド AI に送ります"),
+            message: String(localized: "音声と文章を OpenAI(Google の声は Google)に送ります。送った内容は保存されません。"),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: String(localized: "プライバシーポリシー"), style: .default) { _ in
+            presentConsentAlert(continuation)
+            UIApplication.shared.open(privacyPolicyURL)
+        })
+        alert.addAction(UIAlertAction(title: String(localized: "キャンセル"), style: .cancel) { _ in
+            continuation.resume(returning: false)
+        })
+        let proceed = UIAlertAction(title: String(localized: "続ける"), style: .default) { _ in
+            UserDefaults.standard.set(true, forKey: consentKey)
+            continuation.resume(returning: true)
+        }
+        alert.addAction(proceed)
+        alert.preferredAction = proceed
+        presenter.present(alert, animated: true)
     }
 }
 

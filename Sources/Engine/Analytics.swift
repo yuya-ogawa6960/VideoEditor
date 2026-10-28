@@ -28,9 +28,12 @@ final class Analytics {
         var t: String
     }
 
-    /// 送信するか(既定はオン。設定で切れる)
+    /// 初回に「送信しますか?」と聞いたか(聞くまでは送らない。RootView が聞く)
+    static let askedKey = "analytics.asked"
+
+    /// 送信するか(初回に聞いて決める。設定で変えられる)
     var isEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true }
+        get { UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: Self.enabledKey) }
     }
 

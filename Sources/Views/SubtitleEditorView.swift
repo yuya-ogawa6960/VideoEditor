@@ -123,6 +123,11 @@ struct SubtitleEditorView: View {
         case cloudJob(CloudJobManifest)
     }
 
+    /// Whisper のモデルのダウンロードの確認で待っている文字起こし(置き換えるか)
+    private struct WhisperDownloadRequest {
+        let replace: Bool
+    }
+
     /// アラートに付ける追加のボタン
     private enum AlertAction {
         /// システム設定(音声認識の許可)
@@ -160,6 +165,8 @@ struct SubtitleEditorView: View {
     @State private var pendingReplaceTarget: ReplaceTarget?
     /// 「破棄」の確認で破棄しようとしている前回の結果
     @State private var pendingDiscardJob: CloudJobManifest?
+    /// Whisper のモデルのダウンロードの確認で待っている文字起こし(nil なら確認を出していない)
+    @State private var pendingWhisperDownload: WhisperDownloadRequest?
     @State private var transcriptionTask: Task<Void, Never>?
     /// 前回(アプリが終了するなどして)取り込めなかったクラウド文字起こし(CloudBackgroundUploader.pendingJobs)
     @State private var pendingCloudJobs: [CloudJobManifest] = []
@@ -343,7 +350,25 @@ struct SubtitleEditorView: View {
                 }
                 Button("キャンセル", role: .cancel) { }
             } message: { points in
-                Text(String(localized: "約 \(points) pt を使います。"))
+                // この確認はクラウド(OpenAI)のときだけ出る
+                Text(String(localized: "約 \(points) pt を使います。文章を OpenAI に送ります。"))
+            }
+            // Whisper のモデルがまだ無いときは、サイズを見せてからダウンロードする(Apple の音声認識に切り替えてもよい)
+            .confirmationDialog(whisperDownloadTitle,
+                                isPresented: Binding(get: { pendingWhisperDownload != nil },
+                                                     set: { if !$0 { pendingWhisperDownload = nil } }),
+                                titleVisibility: .visible,
+                                presenting: pendingWhisperDownload) { request in
+                Button("ダウンロード") {
+                    startTranscription(replace: request.replace, confirmedDownload: true)
+                }
+                Button("Apple の音声認識で作る") {
+                    AppSettings.shared.transcriptionEngine = .apple
+                    startTranscription(replace: request.replace)
+                }
+                Button("キャンセル", role: .cancel) { }
+            } message: { _ in
+                Text("Wi-Fi 推奨。")
             }
             // 文字起こし中は画面の自動ロックを止める(ロックで通信が切れて止まるため)
             .onChange(of: transcriber.isRunning) { _, running in
@@ -766,8 +791,27 @@ struct SubtitleEditorView: View {
         }
     }
 
-    private func startTranscription(replace: Bool) {
+    /// Whisper のモデルのダウンロードの確認の題(「base(約150MB)をダウンロードします」)
+    private var whisperDownloadTitle: String {
+        guard let option = WhisperModelOption.option(for: AppSettings.shared.whisperModel) else {
+            return String(localized: "Whisper のモデルをダウンロードします")
+        }
+        return String(localized: "\(option.displayName)(\(option.sizeHint))をダウンロードします")
+    }
+
+    /// Whisper でモデルがまだ無いとき、確認(pendingWhisperDownload)を出して true。confirmedDownload は確認のあと
+    private func needsWhisperDownloadConfirmation(replace: Bool, confirmedDownload: Bool) -> Bool {
+        guard !confirmedDownload else { return false }
+        let settings = AppSettings.shared
+        guard settings.transcriptionEngine == .whisper, WhisperTranscriber.isAvailable,
+              !WhisperTranscriber.shared.isModelDownloaded(settings.whisperModel) else { return false }
+        pendingWhisperDownload = WhisperDownloadRequest(replace: replace)
+        return true
+    }
+
+    private func startTranscription(replace: Bool, confirmedDownload: Bool = false) {
         guard transcriptionTask == nil else { return }
+        if needsWhisperDownloadConfirmation(replace: replace, confirmedDownload: confirmedDownload) { return }
         // 「選んだクリップだけ」のときは、そのクリップに言語を覚えておく(全体で作り直すときもその言語になる)
         let onlyClipID: UUID? = (captionScope == .clip) ? focusClip?.id : nil
         if let onlyClipID, let index = project.index(of: onlyClipID) {
@@ -1051,10 +1095,17 @@ struct SubtitleEditorView: View {
     /// (Apple Intelligence で翻訳するときはポイントを使わないので聞かない)
     private func requestAITranslation() {
         guard aiTranslationTask == nil, !project.subtitles.isEmpty else { return }
-        if CloudAIGateway.usesPoints, aiTranslationEngine == .cloud {
-            aiTranslationEstimate = SubtitlePolisher.estimatedPoints(lineCount: project.subtitles.count)
-        } else {
-            startAITranslation()
+        let engine = aiTranslationEngine
+        Task { @MainActor in
+            // OpenAI に送るときは、初回だけ送り先の確認(CloudAIGateway.ensureConsent)
+            if engine == .cloud {
+                guard await CloudAIGateway.ensureConsent() else { return }
+            }
+            if CloudAIGateway.usesPoints, engine == .cloud {
+                aiTranslationEstimate = SubtitlePolisher.estimatedPoints(lineCount: project.subtitles.count)
+            } else {
+                startAITranslation()
+            }
         }
     }
 

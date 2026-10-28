@@ -15,6 +15,8 @@ struct AccountPointsView: View {
     @State private var isWatchingAd = false
     @State private var showDeleteConfirm = false
     @State private var isDeleting = false
+    /// 削除が終わった(サインイン前の画面に戻るだけでは、消えたのかわからないので知らせる)
+    @State private var showDeleted = false
 
     var body: some View {
         Form {
@@ -44,6 +46,11 @@ struct AccountPointsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await account.refresh() }
         .task { await account.refresh() }
+        .alert("アカウントを削除しました", isPresented: $showDeleted) {
+            Button("OK") {}
+        } message: {
+            Text("ポイントと記録はサーバーから消えました。")
+        }
     }
 
     // MARK: サインイン前
@@ -71,7 +78,10 @@ struct AccountPointsView: View {
             .disabled(account.isWorking)
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
         } footer: {
-            Text("名前やメールアドレスは受け取りません。")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("名前やメールアドレスは受け取りません。クラウド AI を使うとき、音声と文章は OpenAI(Google の声は Google)に送られます。")
+                Link("プライバシーポリシー", destination: CloudAIGateway.privacyPolicyURL)
+            }
         }
     }
 
@@ -89,9 +99,6 @@ struct AccountPointsView: View {
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
-                    Text("\(points.formatted())円分")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 } else if account.isRefreshing || account.lastError == nil {
                     ProgressView()
                         .frame(height: 70)
@@ -163,9 +170,7 @@ struct AccountPointsView: View {
         } header: {
             Text("ポイントを増やす")
         } footer: {
-            if AdsManager.usesTestAds {
-                Text("テスト配信中のため、テスト用の広告が出ます。")
-            }
+            Text("ポイントは無料です。購入はできません。")
         }
     }
 
@@ -226,8 +231,9 @@ struct AccountPointsView: View {
                 Button("削除する", role: .destructive) {
                     isDeleting = true
                     Task { @MainActor in
-                        _ = await account.deleteAccount()
+                        let deleted = await account.deleteAccount()
                         isDeleting = false
+                        if deleted { showDeleted = true }
                     }
                 }
                 Button("キャンセル", role: .cancel) {}

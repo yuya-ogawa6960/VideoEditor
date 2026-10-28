@@ -7,7 +7,14 @@
 // - 使う前に必要なポイントを確保し、実際に使った量で精算する。失敗したら戻す
 // - パスは OpenAI と同じ(/v1/audio/transcriptions, /v1/chat/completions, /v1/audio/speech)にして、
 //   アプリ側は宛先とトークンを差し替えるだけで使えるようにしている
+// - 文章(台本・翻訳・読み上げ)は OpenAI の moderation で確かめ、不適切なら生成しない(content_blocked)
+// - 使い方の統計(events)は毎日の cron(scheduled)で 90 日より古い行を消す
+// - 問い合わせ(/support のフォーム → POST /v1/contact)は D1 の contacts に入れ、/stats で読む
+// - Apple でサインインの authorizationCode は refresh_token に換えて保存し、アカウント削除時に失効させる
+//   (APPLE_TEAM_ID・APPLE_SIWA_KEY_ID・APPLE_SIWA_KEY_P8 がそろっているときだけ)
 // =====================================================================
+
+import { verifyAppTransaction, isSandbox } from "./appTransaction.js";
 
 const POINTS = {
   signup: 100,            // はじめてのサインイン
@@ -36,6 +43,22 @@ const ALLOWED_TRANSCRIBE_MODELS = ["whisper-1", "gpt-4o-transcribe", "gpt-4o-min
 const CHAT_MODEL = "gpt-4o-mini";
 const MAX_CHAT_TOKENS = 4000;
 const SESSION_DAYS = 30;
+const MODERATION_MODEL = "omni-moderation-latest";
+const MODERATION_MAX_CHARS = 20000;
+// 使い方の統計(events)を残す日数。cron(wrangler.toml の [triggers])で古い行を消す
+const EVENTS_RETENTION_DAYS = 90;
+// 問い合わせ: 本文の長さと、1 つの IP からの 1 日の件数
+const CONTACT_MAX_CHARS = 2000;
+const CONTACT_PER_IP_PER_DAY = 20;
+const CONTACT_KINDS = {
+  question: "質問",
+  bug: "不具合",
+  ai_report: "不適切な AI 生成の報告",
+  ad_report: "不適切な広告の報告",
+  data_deletion: "データの削除依頼",
+};
+const APPLE_TOKEN_URL = "https://appleid.apple.com/auth/token";
+const APPLE_REVOKE_URL = "https://appleid.apple.com/auth/revoke";
 
 export default {
   async fetch(request, env) {
@@ -47,6 +70,7 @@ export default {
       if (request.method === "POST" && path === "/v1/events") return await ingestEvents(request, env);
       if (request.method === "GET" && path === "/stats") return await stats(url, env);
       if (request.method === "GET" && path === "/support") return html(SUPPORT_HTML);
+      if (request.method === "POST" && path === "/v1/contact") return await contact(request, env);
       if (request.method === "POST" && path === "/v1/auth/apple") return await signInWithApple(request, env);
       // AdMob のサーバー側検証(ログイン不要。署名で確かめる)
       if (request.method === "GET" && path === "/v1/ads/ssv") return await admobSSV(url, env);
@@ -67,7 +91,17 @@ export default {
       return error(500, "サーバーでエラーが起きました: " + (e && e.message ? e.message : String(e)), "server_error");
     }
   },
+
+  /** 毎日(wrangler.toml の crons)。90 日より古い使い方の統計を消す */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(purgeOldEvents(env));
+  },
 };
+
+async function purgeOldEvents(env) {
+  const cutoff = new Date(Date.now() - EVENTS_RETENTION_DAYS * 86400 * 1000).toISOString();
+  await env.DB.prepare("DELETE FROM events WHERE created_at < ?").bind(cutoff).run();
+}
 
 // ---------------------------------------------------------------------
 // 応答
@@ -220,8 +254,88 @@ async function signInWithApple(request, env) {
     ]);
     user = { id: userID, points: POINTS.signup, last_daily: null };
   }
+  // authorizationCode(5 分・1 回限り)はその場で refresh_token に換えて保存する(アカウント削除時の失効用)。
+  // 鍵が無い・失敗したときはサインインだけ続ける
+  if (typeof body.authorizationCode === "string" && body.authorizationCode && appleSIWAConfigured(env)) {
+    await ensureAppleRefreshColumn(env);
+    try {
+      const refreshToken = await appleExchangeCode(body.authorizationCode, env);
+      if (refreshToken) {
+        await env.DB.prepare("UPDATE users SET apple_refresh_token = ? WHERE id = ?").bind(refreshToken, userID).run();
+      }
+    } catch (_) {}
+  }
   const token = await issueSession(userID, env);
   return json({ token, points: user.points, isNew, dailyAvailable: user.last_daily !== todayJST() });
+}
+
+// ---------------------------------------------------------------------
+// Apple のトークンの失効(Sign in with Apple REST API)
+// 必要な secret: APPLE_TEAM_ID(Team ID)、APPLE_SIWA_KEY_ID(Sign in with Apple の鍵の Key ID)、
+// APPLE_SIWA_KEY_P8(.p8 の中身)。client_id は APPLE_AUDIENCE(バンドル ID)
+// ---------------------------------------------------------------------
+
+function appleSIWAConfigured(env) {
+  return Boolean(env.APPLE_TEAM_ID && env.APPLE_SIWA_KEY_ID && env.APPLE_SIWA_KEY_P8 && env.APPLE_AUDIENCE);
+}
+
+let appleRefreshColumnEnsured = false;
+
+/** 既存の DB に apple_refresh_token の列を足す(あれば失敗するので無視。isolate ごとに 1 回) */
+async function ensureAppleRefreshColumn(env) {
+  if (appleRefreshColumnEnsured) return;
+  appleRefreshColumnEnsured = true;
+  try {
+    await env.DB.prepare("ALTER TABLE users ADD COLUMN apple_refresh_token TEXT").run();
+  } catch (_) {}
+}
+
+/** client_secret(ES256 の JWT。iss=Team ID, sub=バンドル ID, aud=Apple, 180 日) */
+async function appleClientSecret(env) {
+  const pem = String(env.APPLE_SIWA_KEY_P8).replace(/\\n/g, "\n");
+  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const key = await crypto.subtle.importKey("pkcs8", b64urlDecode(b64.replace(/=+$/, "")), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64urlEncode(new TextEncoder().encode(JSON.stringify({ alg: "ES256", kid: env.APPLE_SIWA_KEY_ID })));
+  const payload = b64urlEncode(
+    new TextEncoder().encode(
+      JSON.stringify({ iss: env.APPLE_TEAM_ID, iat: now, exp: now + 180 * 86400, aud: "https://appleid.apple.com", sub: env.APPLE_AUDIENCE })
+    )
+  );
+  // WebCrypto の ECDSA 署名は r||s(64 バイト)で、JWS の ES256 がそのまま使える
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(header + "." + payload));
+  return header + "." + payload + "." + b64urlEncode(sig);
+}
+
+/** authorizationCode → refresh_token。取れなければ null */
+async function appleExchangeCode(code, env) {
+  const res = await fetch(APPLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: env.APPLE_AUDIENCE,
+      client_secret: await appleClientSecret(env),
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data && typeof data.refresh_token === "string" && data.refresh_token ? data.refresh_token : null;
+}
+
+/** refresh_token を失効させる(iPhone の 設定 → Apple アカウント →「Apple でサインイン」から消える) */
+async function appleRevoke(refreshToken, env) {
+  await fetch(APPLE_REVOKE_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.APPLE_AUDIENCE,
+      client_secret: await appleClientSecret(env),
+      token: refreshToken,
+      token_type_hint: "refresh_token",
+    }),
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -234,6 +348,8 @@ async function me(user, env) {
     points: user.points,
     dailyAvailable: user.last_daily !== todayJST(),
     prices: POINTS,
+    // Google の声(日本語)が使えるか。アプリはこれが false のとき Google の声の選択肢を出さない
+    googleTTS: Boolean(env.GOOGLE_TTS_API_KEY),
     ...(await adState(env, user.id)),
   });
 }
@@ -273,9 +389,18 @@ function testAdUsers(env) {
 
 /** アプリが「最後まで見た」と伝える。テスト期間(ALLOW_CLIENT_AD_CLAIM=1)だけここで付与し、本番は SSV を待つ */
 async function adClaim(request, user, env) {
-  // TestFlight のテスト広告は SSV が来ないので、その場合だけアプリの申告で足す(1 日の上限あり)。
-  // 「テスト版です」の目印は誰でも付けられるので、TEST_AD_USERS に名前のあるアカウントだけ認める
-  const testBuild = request.headers.get("x-vm-test-build") === "1" && testAdUsers(env).has(user.id);
+  // TestFlight・App Review のテスト広告は SSV が来ないので、その場合だけアプリの申告で足す(1 日の上限あり)。
+  // 「テスト版で動いている」ことは、Apple が署名した AppTransaction(appTransaction.js)で確かめる。
+  // それが送れない古い端末などのために、TEST_AD_USERS に名前のあるアカウントも認める
+  const body = await request.json().catch(() => ({}));
+  let testBuild = false;
+  if (body && typeof body.appTransaction === "string") {
+    const payload = await verifyAppTransaction(body.appTransaction, { bundleID: env.APPLE_AUDIENCE });
+    testBuild = isSandbox(payload);
+  }
+  if (!testBuild && request.headers.get("x-vm-test-build") === "1") {
+    testBuild = testAdUsers(env).has(user.id);
+  }
   const clientGrant = env.ALLOW_CLIENT_AD_CLAIM === "1" || testBuild;
   let granted = false;
   if (clientGrant) {
@@ -337,6 +462,57 @@ async function ingestEvents(request, env) {
   }
   if (statements.length) await env.DB.batch(statements);
   return json({ accepted: statements.length });
+}
+
+// ---------------------------------------------------------------------
+// 問い合わせ(/support のフォーム。ログイン不要)
+// ---------------------------------------------------------------------
+
+/** IP を直接は保存しない(SESSION_SECRET と一緒に SHA-256 にした先頭 32 文字) */
+async function hashIP(request, env) {
+  const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip + "|" + (env.SESSION_SECRET || "")));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+
+async function contact(request, env) {
+  const contentType = request.headers.get("content-type") || "";
+  const wantsJSON = contentType.includes("application/json");
+  const reply = (status, title, text) => (wantsJSON ? error(status, text, status === 429 ? "rate_limited" : "bad_request") : html(contactPage(title, text), status));
+  let fields = {};
+  if (wantsJSON) {
+    fields = (await request.json().catch(() => null)) || {};
+  } else {
+    const form = await request.formData().catch(() => null);
+    if (form) for (const key of ["kind", "message", "email"]) fields[key] = form.get(key);
+  }
+  const kind = String(fields.kind || "");
+  const message = String(fields.message || "").trim();
+  const email = String(fields.email || "").trim().slice(0, 200);
+  if (!Object.hasOwn(CONTACT_KINDS, kind)) return reply(400, "送信できませんでした", "種類を選んでください。");
+  if (!message) return reply(400, "送信できませんでした", "内容を書いてください。");
+  if (message.length > CONTACT_MAX_CHARS) return reply(400, "送信できませんでした", `内容は ${CONTACT_MAX_CHARS} 文字までです。`);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return reply(400, "送信できませんでした", "メールアドレスの形が正しくありません。");
+
+  const ipHash = await hashIP(request, env);
+  const since = new Date(Date.now() - 86400 * 1000).toISOString();
+  const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM contacts WHERE ip_hash = ? AND created_at >= ?").bind(ipHash, since).first();
+  if (count && count.n >= CONTACT_PER_IP_PER_DAY) return reply(429, "送信できませんでした", "送信が多すぎます。明日もう一度お試しください。");
+
+  await env.DB.prepare("INSERT INTO contacts (kind, message, email, created_at, ip_hash) VALUES (?, ?, ?, ?, ?)")
+    .bind(kind, message, email || null, nowISO(), ipHash)
+    .run();
+  if (wantsJSON) return json({ received: true });
+  return html(contactPage("受け付けました", "お問い合わせを受け付けました。返信先メールを書いた場合は、確認のうえご連絡します。"));
+}
+
+function contactPage(title, text) {
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${esc(title)} - Video Mania</title>${PAGE_STYLE}</head><body>
+<h1>${esc(title)}</h1>
+<p>${esc(text)}</p>
+<p><a href="/support">サポートページへ戻る</a></p>
+</body></html>`;
 }
 
 /** 集計ページ(?token=STATS_TOKEN)。GitHub の secret STATS_TOKEN を設定すると開ける */
@@ -457,6 +633,11 @@ async function stats(url, env) {
       GROUP BY app_version ORDER BY app_version DESC LIMIT 20`,
     since
   );
+  // 問い合わせ(最新 100 件。期間に関係なく)
+  const contacts = (await q("SELECT id, created_at, kind, email, message FROM contacts ORDER BY id DESC LIMIT 100")).map((r) => ({
+    ...r,
+    kind: Object.hasOwn(CONTACT_KINDS, r.kind) ? CONTACT_KINDS[r.kind] : r.kind,
+  }));
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const table = (rows, cols) =>
     rows.length
@@ -487,12 +668,21 @@ async function stats(url, env) {
 <h2>ひとことの感想</h2>${table(feedback, ["rating", "reason", "n"])}
 <h2>動作の重さ(MetricKit)</h2>${table(performance, ["app_version", "device", "reports", "launch_ms", "hang_ms", "hangs", "peak_mb", "abnormal_exits", "memory_exits"])}
 <h2>クラッシュ・固まり</h2>${table(diagnostics, ["app_version", "crashes", "hangs", "cpu", "disk"])}
+<h1>問い合わせ(最新 100 件)</h1>${table(contacts, ["id", "created_at", "kind", "email", "message"])}
 </body></html>`;
   return html(page);
 }
 
-/** アカウントの削除(ポイント・台帳・広告の記録をすべて消す) */
+/** アカウントの削除(Apple のトークンを失効させてから、ポイント・台帳・広告の記録をすべて消す) */
 async function deleteAccount(user, env) {
+  // 失効に失敗しても削除は続ける
+  if (appleSIWAConfigured(env)) {
+    await ensureAppleRefreshColumn(env);
+    try {
+      const row = await env.DB.prepare("SELECT apple_refresh_token FROM users WHERE id = ?").bind(user.id).first();
+      if (row && row.apple_refresh_token) await appleRevoke(row.apple_refresh_token, env);
+    } catch (_) {}
+  }
   await env.DB.batch([
     env.DB.prepare("DELETE FROM ad_rewards WHERE user_id = ?").bind(user.id),
     env.DB.prepare("DELETE FROM ledger WHERE user_id = ?").bind(user.id),
@@ -501,23 +691,23 @@ async function deleteAccount(user, env) {
   return json({ deleted: true });
 }
 
-function html(body) {
-  return new Response(body, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+function html(body, status = 200) {
+  return new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
-const PAGE_STYLE = `<meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:-apple-system,system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;line-height:1.7;color:#222;background:#fff}h1{font-size:1.5em}h2{font-size:1.15em;margin-top:1.6em}@media (prefers-color-scheme: dark){body{color:#eee;background:#111}a{color:#8cf}}</style>`;
+const PAGE_STYLE = `<meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:-apple-system,system-ui,sans-serif;max-width:720px;margin:0 auto;padding:24px 16px;line-height:1.7;color:#222;background:#fff}h1{font-size:1.5em}h2{font-size:1.15em;margin-top:1.6em}select,textarea,input{width:100%;box-sizing:border-box;font:inherit;padding:6px 8px;color:inherit;background:transparent;border:1px solid #8888;border-radius:6px}button{font:inherit;padding:8px 24px;border-radius:8px;border:1px solid #8888;background:#8882;color:inherit}@media (prefers-color-scheme: dark){body{color:#eee;background:#111}a{color:#8cf}}</style>`;
 
 const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania プライバシーポリシー</title>${PAGE_STYLE}</head><body>
 <h1>Video Mania プライバシーポリシー</h1>
-<p>最終更新日: 2026年10月22日</p>
+<p>最終更新日: 2026年10月28日</p>
 <h2>1. 動画・写真</h2>
 <p>編集する動画・写真・プロジェクトは、お使いの iPhone の中だけで処理・保存されます。開発者のサーバーに送られることはありません。</p>
 <h2>2. クラウド AI を使う場合</h2>
-<p>「クラウド AI」を選んだときだけ、文字起こしのための音声、字幕の整え・翻訳・台本作成のための文章、読み上げのための文章が OpenAI, L.L.C. に送られます(読み上げで Google の声を選んだときは、その文章が Google LLC に送られます)(ポイントを使う場合は開発者のサーバーを経由し、内容は保存しません)。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
+<p>「クラウド AI」を選んだときだけ、文字起こしのための音声、キャプションの整え・翻訳・台本作成のための文章、読み上げのための文章が OpenAI, L.L.C. に送られます(読み上げで Google の声を選んだときは、その文章が Google LLC に送られます)(ポイントを使う場合は開発者のサーバーを経由し、内容は保存しません)。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
 <h2>3. アカウントとポイント</h2>
-<p>Apple でサインインすると、Apple が発行する利用者ごとの識別子と、ポイントの残高・増減の記録を開発者のサーバー(Cloudflare)に保存します。氏名やメールアドレスは受け取りません。アプリの「文字起こしの方式」画面の「アカウントを削除」から、いつでも削除できます。</p>
+<p>Apple でサインインすると、Apple が発行する利用者ごとの識別子と、ポイントの残高・増減の記録を開発者のサーバー(Cloudflare)に保存します。氏名やメールアドレスは受け取りません。削除は、プロジェクト一覧の左上の星 → アカウントとポイント → アカウントを削除 から、いつでもできます(ポイントと記録はその場で消えます)。</p>
 <h2>4. 使い方の統計</h2>
-<p>どの機能がどれだけ使われているか、操作のどこで迷っているか(キャンセルや元に戻した回数など)、動作の重さ・異常終了の回数(Apple の MetricKit のまとめ)、書き出し後の任意の感想を、端末ごとのランダムな ID(アプリを削除すると変わります)で開発者のサーバーに送り、改善に役立てます。動画・文章・検索した言葉・氏名は送りません。アプリの「文字起こしの方式」画面の「プライバシー」でいつでもオフにできます。</p>
+<p>どの機能がどれだけ使われているか、操作のどこで迷っているか(キャンセルや元に戻した回数など)、動作の重さ・異常終了の回数(Apple の MetricKit のまとめ)、書き出し後の任意の感想を、端末ごとのランダムな ID(アプリを削除すると変わります)だけを付けて開発者のサーバーに送り、改善に役立てます。動画・文章・検索した言葉・氏名・アカウントは送りません。このデータは 90 日で削除します。オフにするには 設定 → プライバシーと広告 → 使い方の統計を送信(匿名) を切ってください。削除の依頼は<a href="/support#contact">問い合わせフォーム</a>からできます。</p>
 <h2>5. 広告</h2>
 <p>アプリは Google AdMob の広告を表示します。AdMob は広告の配信・測定のために、端末の広告識別子(許可した場合)やおおよその位置などを利用することがあります。詳しくは <a href="https://policies.google.com/technologies/ads?hl=ja">Google のポリシー</a>をご覧ください。トラッキングは iPhone の設定でいつでも許可を取り消せます。</p>
 <h2>6. Google フォトからの取り込み</h2>
@@ -528,10 +718,10 @@ const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <h2>7. 第三者への提供</h2>
 <p>上記のほか、法令に基づく場合を除き、個人情報を第三者に提供しません。</p>
 <h2>8. お問い合わせ</h2>
-<p><a href="/support">サポートページ</a>をご覧ください。</p>
+<p><a href="/support#contact">問い合わせフォーム</a>からご連絡ください。データの削除依頼も同じフォームで受け付けます。</p>
 <hr>
 <h1>Privacy Policy (English)</h1>
-<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI (or to Google when you choose a Google voice); with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. Anonymous usage statistics (which features are used, keyed by a random per-install ID) are sent to our server to improve the app; you can turn this off in the app. We do not share personal data with third parties except as required by law.</p>
+<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI (or to Google when you choose a Google voice); with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time: tap the star at the top left of the project list &rarr; Account &amp; Points &rarr; Delete account (your points and records are removed immediately). The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. Anonymous usage statistics (which features are used, keyed only by a random per-install ID that is not linked to your account) are sent to our server to improve the app and deleted after 90 days; you can turn this off in Settings &rarr; Privacy &amp; Ads &rarr; Send usage statistics (anonymous), and request deletion through the <a href="/support#contact">contact form</a>. We do not share personal data with third parties except as required by law.</p>
 <h2>Google Photos</h2>
 <p>When you add media from Google Photos, you sign in with Google and the app uses the Google Photos Picker API. The app only receives the photos and videos you select in the Google Photos picker (and their file name and type); it cannot see the rest of your library or your albums. The selected items are downloaded directly from Google to your iPhone and used only for editing there. They are never sent to our server or to any third party, and are not used for advertising or AI training (the only exception: if you yourself choose a Cloud AI feature such as cloud transcription for an imported video, only its audio is sent as described above). Your Google sign-in tokens are stored only on your iPhone (in the Keychain) and are never sent to our server. You can disconnect with "Log out" in the app, and revoke access at any time in your Google Account under Security &rarr; Third-party apps &amp; services (<a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>).</p>
 <p>Video Mania's use and transfer to any other app of information received from Google APIs will adhere to <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
@@ -541,11 +731,24 @@ const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <h1>Video Mania サポート</h1>
 <h2>よくある質問</h2>
 <p><b>書き出しが途中で止まる</b><br>iPhone の空き容量を確認し、書き出し中はアプリを開いたままにするか、iOS 26 以降ではロック画面の表示を止めずにお待ちください。</p>
-<p><b>字幕が作れない</b><br>「設定」→「Video Mania」で「音声認識」を許可してください。BGM だけの動画では字幕は作られません。</p>
+<p><b>キャプションが作れない</b><br>「設定」→「Video Mania」で「音声認識」を許可してください。BGM だけの動画ではキャプションは作られません。</p>
 <p><b>ポイントについて</b><br>はじめてのサインインで 100 ポイント、毎日 10 ポイント、広告を見て 1 日 3 回まで 10 ポイントずつもらえます。</p>
-<p><b>アカウントの削除</b><br>アプリの「文字起こしの方式」画面の「アカウントを削除」から行えます。</p>
-<h2>お問い合わせ</h2>
-<p>アプリ内の TestFlight / App Store のフィードバック、または App Store のアプリページの「デベロッパの Web サイト」からご連絡ください。</p>
+<p><b>アカウントの削除</b><br>プロジェクト一覧の左上の星 → アカウントとポイント → アカウントを削除。ポイントと記録はその場で消えます。</p>
+<p><b>使い方の統計を止める</b><br>設定 → プライバシーと広告 → 使い方の統計を送信(匿名) を切ってください。送った分は 90 日で消えます。削除を急ぐときは下のフォームから。</p>
+<h2 id="contact">お問い合わせ / Contact</h2>
+<p>質問・不具合・不適切な AI 生成や広告の報告・データの削除依頼は、このフォームから送ってください。<br>Questions, bug reports, reports of inappropriate AI output or ads, and data deletion requests: use this form.</p>
+<form method="post" action="/v1/contact">
+<p><label>種類 / Type<br><select name="kind" required>
+<option value="question">質問 / Question</option>
+<option value="bug">不具合 / Bug</option>
+<option value="ai_report">不適切な AI 生成の報告 / Inappropriate AI output</option>
+<option value="ad_report">不適切な広告の報告 / Inappropriate ad</option>
+<option value="data_deletion">データの削除依頼 / Data deletion request</option>
+</select></label></p>
+<p><label>内容 / Message(2000 文字まで)<br><textarea name="message" rows="6" maxlength="2000" required></textarea></label></p>
+<p><label>返信先メール / Email(任意 / optional)<br><input type="email" name="email" maxlength="200" autocomplete="email"></label></p>
+<p><button type="submit">送信 / Send</button></p>
+</form>
 <p><a href="/privacy">プライバシーポリシー</a></p>
 </body></html>`;
 
@@ -672,6 +875,44 @@ function insufficient(need, have) {
 // AI 中継
 // ---------------------------------------------------------------------
 
+/** 不適切な内容か(OpenAI の moderation)。判定できないとき(鍵なし・失敗・8 秒超)は false にして止めない */
+async function isContentFlagged(text, env) {
+  const input = String(text || "").trim().slice(0, MODERATION_MAX_CHARS);
+  if (!input || !env.OPENAI_API_KEY) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const upstream = await fetch(OPENAI + "/v1/moderations", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { authorization: "Bearer " + env.OPENAI_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify({ model: MODERATION_MODEL, input }),
+    });
+    if (!upstream.ok) return false;
+    const data = await upstream.json();
+    return Boolean(data && Array.isArray(data.results) && data.results.some((r) => r && r.flagged === true));
+  } catch (_) {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function contentBlocked() {
+  return error(400, "この内容は生成できません", "content_blocked");
+}
+
+/** チャットの messages から利用者の文章(user ロール)だけを取り出してつなげる(content は文字列か、{type:"text"} の配列) */
+function userText(messages) {
+  const parts = [];
+  for (const m of messages) {
+    if (!m || m.role !== "user") continue;
+    if (typeof m.content === "string") parts.push(m.content);
+    else if (Array.isArray(m.content)) for (const p of m.content) if (p && typeof p.text === "string") parts.push(p.text);
+  }
+  return parts.join("\n");
+}
+
 async function transcribe(request, user, env) {
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.includes("multipart/form-data")) return error(400, "形式が正しくありません", "bad_request");
@@ -740,6 +981,8 @@ async function speech(request, user, env) {
   const input = body.input.trim();
   if (!input) return error(400, "読み上げる文章が空です", "bad_request");
   if (input.length > MAX_SPEECH_CHARS) return error(413, "文章が長すぎます(" + MAX_SPEECH_CHARS + " 文字まで)", "too_large");
+  // 不適切な文章は読み上げない(ポイントを確保する前。Google の声もここを通る)
+  if (await isContentFlagged(input, env)) return contentBlocked();
   // 日本語の文は、声が読み間違えやすい言葉(固有名詞・読みが何通りもある熟語など)だけをひらがなにしてから渡す。
   // ポイントは元の文の長さで数える(読みの確認は追加のポイントなし)。失敗したら元の文のまま
   const spoken = body.fixReadings === false ? input : await fixJapaneseReadings(input, env);
@@ -923,6 +1166,9 @@ async function chat(request, user, env) {
   delete body.max_completion_tokens;
   body.max_tokens = Math.min(Math.max(1, asked), MAX_CHAT_TOKENS);
   body.stream = false;
+
+  // 利用者の文章(テーマ・字幕など)が不適切なら生成しない(ポイントを確保する前)
+  if (await isContentFlagged(userText(body.messages), env)) return contentBlocked();
 
   if (!(await reserve(env, user.id, POINTS.chat, "chat"))) {
     return insufficient(POINTS.chat, await balance(env, user.id));

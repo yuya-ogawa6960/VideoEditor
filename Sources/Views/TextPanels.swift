@@ -1824,6 +1824,11 @@ struct EditorTextToSpeechPanel: View {
         return .device(voiceID)
     }
 
+    /// Google の声(「AIボイス 日本語」)が使えるか(サーバーの設定。AccountService.googleVoicesAvailable)
+    private var googleVoicesAvailable: Bool {
+        AccountService.shared.googleVoicesAvailable
+    }
+
     private var rateText: String {
         if rate < 0.45 { return String(localized: "ゆっくり") }
         if rate > 0.55 { return String(localized: "速め") }
@@ -1921,6 +1926,10 @@ struct EditorTextToSpeechPanel: View {
         .padding(.top, 6)
         .onAppear {
             reloadVoices()
+            // Google の声が使えない設定なら、前に選んでいた Google の声は OpenAI の声に戻す
+            if cloudVoice?.isGoogle == true, !googleVoicesAvailable {
+                cloudVoice = .alloy
+            }
         }
         // 閉じても入力が消えないように残す
         .onChange(of: text) { _, value in TextToSpeechDraft.text = value }
@@ -1956,7 +1965,8 @@ struct EditorTextToSpeechPanel: View {
                         Divider()
                         Button(String(localized: "声を追加する"), systemImage: "plus") { showsVoiceHelp = true }
                     } else {
-                        ForEach(cloudVoice?.isGoogle == true ? CloudVoice.googleVoices : CloudVoice.openAIVoices) { voice in
+                        // Google の声の一覧はサーバーで使える設定のときだけ
+                        ForEach(cloudVoice?.isGoogle == true && googleVoicesAvailable ? CloudVoice.googleVoices : CloudVoice.openAIVoices) { voice in
                             Button(voice.displayName) { cloudVoice = voice }
                         }
                     }
@@ -1983,8 +1993,10 @@ struct EditorTextToSpeechPanel: View {
                 EditorChip(title: String(localized: "AIボイス"), isSelected: cloudVoice.map { !$0.isGoogle } ?? false) {
                     if cloudVoice == nil || cloudVoice?.isGoogle == true { cloudVoice = .alloy }
                 }
-                EditorChip(title: String(localized: "AIボイス 日本語"), isSelected: cloudVoice?.isGoogle ?? false) {
-                    if cloudVoice?.isGoogle != true { cloudVoice = .googleAoede }
+                if googleVoicesAvailable {
+                    EditorChip(title: String(localized: "AIボイス 日本語"), isSelected: cloudVoice?.isGoogle ?? false) {
+                        if cloudVoice?.isGoogle != true { cloudVoice = .googleAoede }
+                    }
                 }
                 Spacer()
             }
@@ -2097,6 +2109,14 @@ struct EditorTextToSpeechPanel: View {
         let chosenInstructions = instructions
         let chosenEffect = voiceEffect
         Task { @MainActor in
+            // クラウドの声(OpenAI / Google)に送る前の、初回だけの確認(CloudAIGateway.ensureConsent)
+            if chosen.isCloud {
+                let agreed = await CloudAIGateway.ensureConsent()
+                if !agreed {
+                    isRendering = false
+                    return
+                }
+            }
             do {
                 let url = try await TextToSpeech.render(choice: chosen, text: content, rate: chosenRate,
                                                         pitch: chosenPitch, instructions: chosenInstructions)
@@ -2116,8 +2136,14 @@ struct EditorTextToSpeechPanel: View {
                 }
                 onAdded(clip.id)
             } catch {
-                errorText = String(localized: "読み上げを作成できませんでした: \(error.localizedDescription)")
-                recovery = CloudAIGateway.recovery(for: error)
+                // moderation が止めた内容(ScriptWriter.swift)はその文だけ(ScriptWriterView.presentError と同じ)
+                if error is CloudAIModerationError {
+                    errorText = error.localizedDescription
+                    recovery = .none
+                } else {
+                    errorText = String(localized: "読み上げを作成できませんでした: \(error.localizedDescription)")
+                    recovery = CloudAIGateway.recovery(for: error)
+                }
             }
             isRendering = false
         }

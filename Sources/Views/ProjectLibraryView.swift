@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
 /// アプリのルート。プロジェクトを開いていなければ一覧、開いていれば編集画面(ContentView)
 struct RootView: View {
     @State private var openProjectID: UUID?
+    /// 使い方の統計を送るかを初回に聞く
+    @State private var showAnalyticsPrompt = false
     /// 開いたときの動画の置き場所(閉じるときに変わっていれば、次の「新しいプロジェクト」に使う)
     @State private var openedMediaMode: ProjectMediaMode = .appCopy
     /// 「ファイル」アプリや AirDrop から開かれた .videomania(一覧が表示されたら読み込む)
@@ -27,7 +29,7 @@ struct RootView: View {
 
             if let projectID = openProjectID {
                 ContentView(projectID: projectID, onClose: { wasImporting in
-                    // 編集画面の「その他」で動画の置き場所を変えていたら、次に作るプロジェクトもそれにする
+                    // 編集画面の「設定」で動画の置き場所を変えていたら、次に作るプロジェクトもそれにする
                     if let mode = ProjectLibrary.shared.project(id: projectID)?.effectiveMediaMode, mode != openedMediaMode {
                         NewProjectMediaMode.last = mode
                     }
@@ -62,8 +64,26 @@ struct RootView: View {
             guard url.isFileURL, url.pathExtension.lowercased() == ProjectPackage.packageExtension else { return }
             openedPackageURL = url
         }
+        // 使い方の統計は、初回に聞いてから送る(匿名でも同意が要る)。設定でいつでも変えられる
+        .alert("使い方の統計を送信しますか?", isPresented: $showAnalyticsPrompt) {
+            Button("送信する") {
+                Analytics.shared.isEnabled = true
+                UserDefaults.standard.set(true, forKey: Analytics.askedKey)
+            }
+            Button("送信しない") {
+                Analytics.shared.isEnabled = false
+                UserDefaults.standard.set(true, forKey: Analytics.askedKey)
+            }
+        } message: {
+            Text("どの機能を使ったかだけを、匿名で送ります。")
+        }
         // 広告(トラッキングの確認 → AdMob の開始 → 広告の読み込み)
-        .task { await AdsManager.shared.start() }
+        .task {
+            if !UserDefaults.standard.bool(forKey: Analytics.askedKey) {
+                showAnalyticsPrompt = true
+            }
+            await AdsManager.shared.start()
+        }
         .onChange(of: scenePhase) { _, phase in
             // バックグラウンドに回ったら、まとめ書き待ちの保存をすぐに書き出す
             if phase == .background {
@@ -109,7 +129,7 @@ enum NewProjectAspect {
 // MARK: - 新しいプロジェクトの動画の置き場所
 
 /// 「新しいプロジェクト」に使う動画の置き場所。最後に使ったものを覚えておく(初期値はアプリに取り込む)。
-/// 編集画面の「その他」→「動画の置き場所」で変えると、次に作るプロジェクトから使われる
+/// 編集画面の「設定」→「動画の置き場所」で変えると、次に作るプロジェクトから使われる
 enum NewProjectMediaMode {
     private static let key = "project.newMediaMode"
 

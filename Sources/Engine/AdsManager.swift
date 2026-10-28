@@ -155,6 +155,8 @@ final class AdsManager: NSObject {
             guard !Task.isCancelled else { return }
             _ = await ATTrackingManager.requestTrackingAuthorization()
         }
+        // 年齢制限 4+ に合わせて、広告は全年齢向け(G)だけにする
+        MobileAds.shared.requestConfiguration.maxAdContentRating = .general
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             MobileAds.shared.start { _ in continuation.resume() }
         }

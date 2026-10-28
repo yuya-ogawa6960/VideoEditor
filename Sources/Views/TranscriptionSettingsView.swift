@@ -32,6 +32,8 @@ struct TranscriptionSettingsView: View {
     @State private var downloadedModels: Set<String> = []
     @State private var downloadedSize: Int64 = 0
     @State private var showsDeleteConfirmation: Bool = false
+    /// 「モデルをダウンロード」の前のサイズの確認
+    @State private var showsDownloadConfirmation: Bool = false
 
     // 通知
     @State private var alertTitle: String = ""
@@ -93,6 +95,32 @@ struct TranscriptionSettingsView: View {
         } message: {
             Text("もう一度使うときは入力し直してください。")
         }
+        // Whisper モデルはサイズを見せてからダウンロードする
+        .confirmationDialog(whisperDownloadTitle,
+                            isPresented: $showsDownloadConfirmation, titleVisibility: .visible) {
+            Button("ダウンロード") { startDownload() }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("Wi-Fi 推奨。")
+        }
+        // クラウドAI(OpenAI)に変えたときは、初回だけ送り先の確認(CloudAIGateway.ensureConsent)。断ったら元に戻す
+        .onChange(of: settings.transcriptionEngine) { previous, engine in
+            guard engine == .cloud else { return }
+            Task { @MainActor in
+                let agreed = await CloudAIGateway.ensureConsent()
+                if !agreed, settings.transcriptionEngine == .cloud {
+                    settings.transcriptionEngine = previous
+                }
+            }
+        }
+    }
+
+    /// 「モデルをダウンロード」の確認の題(「base(約150MB)をダウンロードします」)
+    private var whisperDownloadTitle: String {
+        guard let option = WhisperModelOption.option(for: settings.whisperModel) else {
+            return String(localized: "Whisper のモデルをダウンロードします")
+        }
+        return String(localized: "\(option.displayName)(\(option.sizeHint))をダウンロードします")
     }
 
     private var alertBinding: Binding<Bool> {
@@ -208,7 +236,7 @@ struct TranscriptionSettingsView: View {
                 Button("キャンセル", role: .destructive) { cancelDownload() }
             } else {
                 Button {
-                    startDownload()
+                    showsDownloadConfirmation = true
                 } label: {
                     Label(downloadedModels.contains(settings.whisperModel) ? String(localized: "ダウンロード済み") : String(localized: "モデルをダウンロード"),
                           systemImage: downloadedModels.contains(settings.whisperModel) ? "checkmark.circle" : "arrow.down.circle")

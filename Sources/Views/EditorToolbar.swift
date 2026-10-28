@@ -57,7 +57,7 @@ struct EditorToolItem: Identifiable {
         case addSlideshow
         /// タップすると中の項目を 2 段目の列として表示する(‹ で戻る)
         case group([EditorToolItem])
-        /// 列の中の小見出し(「設定」など)。タップできない
+        /// 列の中の小見出し(区切り線だけのものも)。タップできない
         case section
     }
 
@@ -135,12 +135,25 @@ struct EditorToolItem: Identifiable {
                        disabledReason: nil, kind: .group(items))
     }
 
-    /// 「その他」グループの ID(最上段ではツールバーの右端に固定して出す)
+    /// 「その他」グループの ID(最上段ではツールバーの右端に「設定」と並べて固定して出す)
     static let moreID = "group-more"
 
     /// 「その他」グループ
     static func more(_ items: [EditorToolItem]) -> EditorToolItem {
         group(String(localized: "その他"), systemImage: "ellipsis.circle", id: moreID, items: items)
+    }
+
+    /// 「設定」グループの ID(最上段では「その他」の右隣に固定して出す)
+    static let settingsID = "group-settings"
+
+    /// 「設定」グループ(比率・動画の置き場所・プロジェクトを空にする など)
+    static func settings(_ items: [EditorToolItem]) -> EditorToolItem {
+        group(String(localized: "設定"), systemImage: "gearshape", id: settingsID, items: items)
+    }
+
+    /// 最上段でスクロールの外に固定して出す項目か(「その他」「設定」)
+    var isPinnedAtRoot: Bool {
+        id == EditorToolItem.moreID || id == EditorToolItem.settingsID
     }
 
     /// 列の中の小見出し
@@ -185,6 +198,8 @@ struct EditorToolbar: View {
     @Binding var extractAudioPickerItem: PhotosPickerItem?
     /// 「スライドショー」で選ばれた写真
     @Binding var slideshowPickerItems: [PhotosPickerItem]
+    /// .horizontal: 下の横並び(いつもの形)。.vertical: iPhone Duo を開いたときに右の列(時刻などが出る列)に縦に並べる
+    var axis: Axis = .horizontal
 
     /// 項目を並べる列の幅(広い画面では中央に寄せるため)
     @State private var rowWidth: CGFloat = 0
@@ -203,13 +218,22 @@ struct EditorToolbar: View {
     }
 
     var body: some View {
+        if axis == .vertical {
+            verticalBody
+        } else {
+            horizontalBody
+        }
+    }
+
+    /// 下の横並び(いつもの形)
+    private var horizontalBody: some View {
         let state = resolved
         let showsBack = !groupPath.isEmpty || onBack != nil
-        // 最上段では「その他」をスクロールの外(右端)に固定する(項目が多いと画面の外に出て見つからないため)
-        let pinnedMore: EditorToolItem? = groupPath.isEmpty ? state.items.first(where: { $0.id == EditorToolItem.moreID }) : nil
-        let scrolledItems: [EditorToolItem] = pinnedMore == nil ? state.items : state.items.filter { $0.id != EditorToolItem.moreID }
+        // 最上段では「その他」「設定」をスクロールの外(右端)に固定する(項目が多いと画面の外に出て見つからないため)
+        let pinnedItems: [EditorToolItem] = groupPath.isEmpty ? state.items.filter { $0.isPinnedAtRoot } : []
+        let scrolledItems: [EditorToolItem] = pinnedItems.isEmpty ? state.items : state.items.filter { !$0.isPinnedAtRoot }
 
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             if showsBack {
                 Button {
                     EditorHaptics.tap()
@@ -255,12 +279,14 @@ struct EditorToolbar: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
             .id(groupPath.joined(separator: "/"))
 
-            if let pinnedMore {
+            if !pinnedItems.isEmpty {
                 Rectangle()
                     .fill(Color.white.opacity(0.2))
                     .frame(width: 1, height: 32)
-                cell(pinnedMore)
-                    .padding(.horizontal, 4)
+                ForEach(pinnedItems) { item in
+                    cell(item)
+                        .padding(.horizontal, 4)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -272,6 +298,81 @@ struct EditorToolbar: View {
                 BrandStyle.surface
             }
         }
+    }
+
+    /// 右の列(iPhone Duo を開いたとき)。上から ‹(グループ名)→ 項目の縦スクロール → 「その他」(下に固定)
+    private var verticalBody: some View {
+        let state = resolved
+        let showsBack = !groupPath.isEmpty || onBack != nil
+        // 最上段では「その他」「設定」をスクロールの外(いちばん下)に固定する
+        let pinnedItems: [EditorToolItem] = groupPath.isEmpty ? state.items.filter { $0.isPinnedAtRoot } : []
+        let scrolledItems: [EditorToolItem] = pinnedItems.isEmpty ? state.items : state.items.filter { !$0.isPinnedAtRoot }
+
+        return VStack(spacing: 0) {
+            if showsBack {
+                Button {
+                    EditorHaptics.tap()
+                    goBack()
+                } label: {
+                    VStack(spacing: 2) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .semibold))
+                        if let title = state.groupTitle {
+                            Text(title)
+                                .font(.system(size: 10))
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                                .minimumScaleFactor(0.8)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .padding(.horizontal, 2)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(state.groupTitle != nil ? String(localized: "戻る") : String(localized: "選択を解除"))
+                .accessibilityShowsLargeContentViewer {
+                    Label(state.groupTitle ?? String(localized: "選択を解除"), systemImage: "chevron.left")
+                }
+
+                verticalDivider
+            }
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 2) {
+                    ForEach(scrolledItems) { item in
+                        cell(item)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+            .id(groupPath.joined(separator: "/"))
+
+            if !pinnedItems.isEmpty {
+                verticalDivider
+                ForEach(pinnedItems) { item in
+                    cell(item)
+                        .padding(.vertical, 2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // 下の動画が透けないよう、黒の上に面の色を重ねる
+        .background {
+            ZStack {
+                Color.black
+                BrandStyle.surface
+            }
+        }
+    }
+
+    /// 縦の列で使う横の区切り線
+    private var verticalDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.2))
+            .frame(height: 1)
+            .padding(.horizontal, 10)
     }
 
     private func goBack() {
@@ -387,7 +488,44 @@ struct EditorToolbar: View {
         }
     }
 
+    @ViewBuilder
     private func label(_ item: EditorToolItem) -> some View {
+        if axis == .vertical {
+            verticalLabel(item)
+        } else {
+            horizontalLabel(item)
+        }
+    }
+
+    /// 縦の列のセル: アイコンの下に 1〜2 行の名前。幅は列いっぱい
+    private func verticalLabel(_ item: EditorToolItem) -> some View {
+        let color: Color = item.isDestructive ? Color.red : Color.white
+        return VStack(spacing: 4) {
+            Image(systemName: item.systemImage)
+                .font(.system(size: 20))
+                .frame(height: 26)
+            Text(EditorToolLabel.wrapped(item.title))
+                .font(.system(size: 11))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .lineSpacing(-1)
+                // 列の幅に収まらない名前は少しだけ縮める
+                .minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(item.title)
+        }
+        .foregroundStyle(color)
+        .opacity(item.isEnabled ? 1 : 0.45)
+        .frame(maxWidth: .infinity, minHeight: 56)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .accessibilityShowsLargeContentViewer {
+            Label(item.title, systemImage: item.systemImage)
+        }
+    }
+
+    private func horizontalLabel(_ item: EditorToolItem) -> some View {
         let color: Color = item.isDestructive ? Color.red : Color.white
         return VStack(spacing: 4) {
             Image(systemName: item.systemImage)
@@ -419,7 +557,22 @@ struct EditorToolbar: View {
     /// 小見出し。名前が空なら区切り線だけ
     @ViewBuilder
     private func sectionLabel(_ item: EditorToolItem) -> some View {
-        if item.title.isEmpty {
+        if axis == .vertical {
+            // 縦の列では横の区切り線。名前があればその下に小さく出す
+            VStack(spacing: 4) {
+                verticalDivider
+                if !item.title.isEmpty {
+                    Text(item.title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
+            .padding(.vertical, 6)
+            .accessibilityHidden(item.title.isEmpty)
+        } else if item.title.isEmpty {
             Rectangle()
                 .fill(Color.white.opacity(0.2))
                 .frame(width: 1, height: 32)

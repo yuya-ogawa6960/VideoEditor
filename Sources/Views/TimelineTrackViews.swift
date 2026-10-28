@@ -17,8 +17,8 @@ enum TimelineMetrics {
     static let videoHeight: CGFloat = 58
     /// 映像クリップの直下に出す J カット / L カットの音声バー用レーン
     static let splitAudioLaneHeight: CGFloat = 4
-    /// V1 の下に出す、クリップの音の大きさの波形の段
-    static let audioWaveLaneHeight: CGFloat = 26
+    /// クリップのサムネイルの下部に重ねる、音の大きさの波形の高さ(別の段は作らず、プレビューを広く保つ)
+    static let audioWaveOverlayHeight: CGFloat = 20
     /// テキスト・ステッカートラック
     static let textHeight: CGFloat = 32
     /// 手書きトラック
@@ -29,7 +29,7 @@ enum TimelineMetrics {
     static let narrationHeight: CGFloat = 32
     /// 全トラックを並べたときの高さ
     /// (目盛り + 重ね合わせ + 映像 + テキスト + 手書き + 字幕 + BGM + ナレーション = 8 トラック、すき間 7 つ)
-    static let totalHeight: CGFloat = topPadding + rulerHeight + overlayHeight + videoHeight + audioWaveLaneHeight + splitAudioLaneHeight
+    static let totalHeight: CGFloat = topPadding + rulerHeight + overlayHeight + videoHeight + splitAudioLaneHeight
         + textHeight + drawingHeight + subtitleHeight + audioHeight + narrationHeight
         + trackSpacing * 7 + bottomPadding
 
@@ -81,17 +81,20 @@ enum TimelineMetrics {
     static let snapGuideColor = Color.yellow
 
     /// 映像トラック(J/L カットのレーン込み)の高さ
-    static var videoRowHeight: CGFloat { videoHeight + audioWaveLaneHeight + splitAudioLaneHeight }
+    static var videoRowHeight: CGFloat { videoHeight + splitAudioLaneHeight }
 
     /// 表示するトラック行(中身のあるトラックだけ + 映像 + 追加行)
     static func visibleTracks(overlayLanes: Int, textLanes: Int, hasDrawings: Bool,
-                              hasSubtitles: Bool, hasBGM: Bool, narrationLanes: Int) -> [TimelineTrackKind] {
+                              hasSubtitles: Bool, hasBGM: Bool, narrationLanes: Int,
+                              mosaicLanes: Int) -> [TimelineTrackKind] {
         var rows: [TimelineTrackKind] = []
         // 映像のトラックは業務用ソフトと同じく V1 の上へ積み重ねる(上の行ほど上に重なって映る):
-        // テキスト・ステッカー(いちばん上)→ 手書き → オーバーレイ → V1
+        // テキスト・ステッカー(いちばん上)→ 手書き → オーバーレイ → モザイク(FX)→ V1
+        // モザイクは V1 の映像だけにかかる(オーバーレイより先に描く)ので、V1 の直上に置く
         if textLanes > 0 { rows.append(.text(lanes: textLanes)) }
         if hasDrawings { rows.append(.drawing) }
         if overlayLanes > 0 { rows.append(.overlay(lanes: overlayLanes)) }
+        if mosaicLanes > 0 { rows.append(.mosaic(lanes: mosaicLanes)) }
         rows.append(.video)
         if hasSubtitles { rows.append(.subtitle) }
         if hasBGM { rows.append(.audio) }
@@ -102,11 +105,12 @@ enum TimelineMetrics {
 
     static func visibleTracks(for snapshot: ProjectSnapshot) -> [TimelineTrackKind] {
         visibleTracks(overlayLanes: overlayLaneCount(snapshot.overlays),
-                      textLanes: textLaneCount(snapshot.textClips),
+                      textLanes: textLaneCount(textOnlyClips(snapshot.textClips)),
                       hasDrawings: !snapshot.drawings.isEmpty,
                       hasSubtitles: !snapshot.subtitles.isEmpty,
                       hasBGM: snapshot.audio.bgmURL != nil,
-                      narrationLanes: narrationLaneCount(snapshot.narration))
+                      narrationLanes: narrationLaneCount(snapshot.narration),
+                      mosaicLanes: mosaicLaneCount(snapshot.textClips))
     }
 
     /// 行を全部並べたときの高さ(行間込み)
@@ -224,6 +228,21 @@ enum TimelineMetrics {
         lanes(clips.map { (id: $0.id, start: $0.start, end: $0.end) })
     }
 
+    /// テキスト・ステッカーの行に出す部品(モザイクを除く)
+    static func textOnlyClips(_ clips: [TextClip]) -> [TextClip] {
+        clips.filter { !$0.isMosaic }
+    }
+
+    /// モザイク(FX)の行に出す部品
+    static func mosaicClips(_ clips: [TextClip]) -> [TextClip] {
+        clips.filter { $0.isMosaic }
+    }
+
+    /// モザイクの段(モザイクどうしの重なりだけで決める。テキストとは別の行)
+    static func mosaicLanes(_ clips: [TextClip]) -> [UUID: Int] {
+        textLanes(mosaicClips(clips))
+    }
+
     static func overlayLanes(_ overlays: [OverlayClip]) -> [UUID: Int] {
         lanes(overlays.map { (id: $0.id, start: $0.start, end: $0.end) })
     }
@@ -233,6 +252,7 @@ enum TimelineMetrics {
     }
 
     static func textLaneCount(_ clips: [TextClip]) -> Int { laneCount(textLanes(clips)) }
+    static func mosaicLaneCount(_ clips: [TextClip]) -> Int { laneCount(mosaicLanes(clips)) }
     static func overlayLaneCount(_ overlays: [OverlayClip]) -> Int { laneCount(overlayLanes(overlays)) }
     static func narrationLaneCount(_ narration: [NarrationClip]) -> Int { laneCount(narrationLanes(narration)) }
 
@@ -243,6 +263,7 @@ enum TimelineMetrics {
         var nextV = 2
         var overlayLanes = 0
         var textLanes = 0
+        var mosaicLanes = 0
         var hasDrawing = false
         var narrationLanes = 0
         var hasAudio = false
@@ -250,6 +271,7 @@ enum TimelineMetrics {
             switch row {
             case .overlay(let lanes): overlayLanes = lanes
             case .text(let lanes): textLanes = lanes
+            case .mosaic(let lanes): mosaicLanes = lanes
             case .drawing: hasDrawing = true
             case .narration(let lanes): narrationLanes = lanes
             case .audio: hasAudio = true
@@ -257,6 +279,10 @@ enum TimelineMetrics {
             }
         }
         result["video"] = ["V1"]
+        // モザイクは V1 の映像にかける効果なので V の番号には数えず「FX」(段が複数なら上から FX2, FX1 …)
+        if mosaicLanes > 0 {
+            result["mosaic"] = mosaicLanes == 1 ? ["FX"] : (0..<mosaicLanes).map { "FX\(mosaicLanes - $0)" }
+        }
         // 描画の重なり順(オーバーレイ → 手書き → テキスト)に合わせて番号を振る。
         // 段は下(V1 に近い方)から番号が増え、名前の並びは上の段から(段 0 がいちばん下)
         if overlayLanes > 0 {
@@ -306,8 +332,10 @@ enum TimelineTrackKind: Hashable {
     case video, drawing, subtitle, audio, add
     /// 重なる分だけ段を増やすトラック
     case overlay(lanes: Int)
-    /// テキスト・ステッカー・モザイク
+    /// テキスト・ステッカー(モザイクは除く)
     case text(lanes: Int)
+    /// モザイク・ぼかし(FX)。TextClip の isMosaic だけを V1 の直上に並べる(見た目・高さはテキスト行と同じ)
+    case mosaic(lanes: Int)
     case narration(lanes: Int)
 
     /// 行の見分け(段数が変わっても同じ行として扱う)
@@ -316,6 +344,7 @@ enum TimelineTrackKind: Hashable {
         case .overlay: return "overlay"
         case .video: return "video"
         case .text: return "text"
+        case .mosaic: return "mosaic"
         case .drawing: return "drawing"
         case .subtitle: return "subtitle"
         case .audio: return "audio"
@@ -329,6 +358,7 @@ enum TimelineTrackKind: Hashable {
         case .overlay(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.overlayHeight, lanes: lanes)
         case .video: return TimelineMetrics.videoRowHeight
         case .text(let lanes): return TimelineMetrics.textTrackHeight(lanes: lanes)
+        case .mosaic(let lanes): return TimelineMetrics.textTrackHeight(lanes: lanes)
         case .drawing: return TimelineMetrics.drawingHeight
         case .subtitle: return TimelineMetrics.subtitleHeight
         case .audio: return TimelineMetrics.audioHeight
@@ -343,6 +373,7 @@ enum TimelineTrackKind: Hashable {
         case .overlay: return "photo.on.rectangle"
         case .video: return "film"
         case .text: return "textformat"
+        case .mosaic: return "checkerboard.rectangle"
         case .drawing: return "scribble"
         case .subtitle: return "captions.bubble"
         case .audio: return "music.note"
@@ -374,7 +405,10 @@ struct TimelineFrameData {
 /// 部品のドラッグ中に固定しておく行と段の割り当て(動かすたびに段が変わってバーが行を飛んだり、行の高さが変わったりしない)
 struct TimelineFrozenLanes {
     let rows: [TimelineTrackKind]
+    /// テキスト・ステッカー(モザイク以外)の段
     let textLanes: [UUID: Int]
+    /// モザイク(FX 行)の段
+    let mosaicLanes: [UUID: Int]
     let overlayLanes: [UUID: Int]
     let narrationLanes: [UUID: Int]
 }
@@ -1383,6 +1417,13 @@ struct TimelineTextBar: View {
                             .font(.system(size: max(10, height - 8)))
                             .lineLimit(1)
                     }
+                } else if let mosaic = textClip.mosaic {
+                    // モザイク(FX 行): 種類の名前(モザイク / ぼかし)を出す
+                    Image(systemName: "checkerboard.rectangle")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(mosaic.kind.displayName)
+                        .font(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
                 } else {
                     Image(systemName: "textformat")
                         .font(.system(size: 9, weight: .bold))
@@ -1757,9 +1798,12 @@ struct TimelineClipAudioLane: View {
                 let waveStart = isReversed ? max(clip.startTime, clip.endTime - visibleTo) : clip.startTime + visibleFrom
                 let waveEnd = isReversed ? clip.endTime - visibleFrom : min(clip.endTime, clip.startTime + visibleTo)
                 let hasSound = clip.hasAudio && !clip.isMuted && !clip.isStill
+                // サムネイルの下部に重ねる。波形が読めるように、下へ向かって暗くする
                 ZStack {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(TimelineMetrics.audioColor.opacity(hasSound ? 0.22 : 0.08))
+                    if hasSound {
+                        LinearGradient(colors: [Color.black.opacity(0), Color.black.opacity(0.6)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
                     if hasSound && item.visibleWidth >= 4 && waveEnd > waveStart {
                         // 高さには出力と同じく、そろえたゲイン × クリップの音量(volume)を掛ける
                         TimelineWaveformStrip(url: clip.url,
@@ -1770,13 +1814,10 @@ struct TimelineClipAudioLane: View {
                                               gain: clip.audio.gain * clip.audio.volume,
                                               reversed: isReversed)
                             .padding(.vertical, 2)
-                    } else {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.25))
-                            .frame(height: 1)
                     }
                 }
                 .frame(width: max(0, item.visibleWidth - 1), height: height)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                 .offset(x: item.visibleX)
             }
         }
