@@ -240,54 +240,7 @@ struct SubtitleEditorView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                previewHeader
-                ScrollViewReader { proxy in
-                    Form {
-                        pendingCloudJobSection
-                        if project.subtitles.isEmpty {
-                            // キャプションが無いときは「自動で作る」を最初に大きく出す
-                            transcriptionSection
-                            designSection
-                            cueListSection
-                        } else {
-                            // キャプションがあるときは デザイン → 操作列 → 開いたツール → 一覧
-                            designSection
-                            captionToolSection
-                            if let tool = expandedTool {
-                                switch tool {
-                                case .autoCaption: transcriptionSection
-                                case .translate: translationSection
-                                case .file: subtitleFileSection
-                                }
-                            }
-                            cueListSection
-                        }
-                    }
-                    // カラオケなど単語を使う描き方にしたら、単語の時刻が無いキャプションにその場で付ける
-                    .onChange(of: project.subtitleStyle.template) { _, template in
-                        fillMissingWordTimings(for: template)
-                    }
-                    .onAppear {
-                        guard !didPrepareOnAppear else { return }
-                        didPrepareOnAppear = true
-                        // クリップを選んで開いたときは「選んだクリップだけ」にし、自動作成を開いておく
-                        applyFocusClipDefaults()
-                        if focusClip != nil, !project.subtitles.isEmpty {
-                            expandedTool = .autoCaption
-                        }
-                        // 「キャプションを翻訳」から開いたときは翻訳を開いて、そこへスクロールする
-                        if initialSection == .translate, !project.subtitles.isEmpty {
-                            expandedTool = .translate
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                withAnimation {
-                                    proxy.scrollTo(SubtitleEditorView.toolRowID, anchor: .top)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            editorContent
             .navigationTitle("キャプション")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -369,33 +322,6 @@ struct SubtitleEditorView: View {
                 Button("キャンセル", role: .cancel) { }
             } message: { _ in
                 Text("Wi-Fi 推奨。")
-            }
-            // 文字起こし中は画面の自動ロックを止める(ロックで通信が切れて止まるため)
-            .onChange(of: transcriber.isRunning) { _, running in
-                IdleTimerGuard.set(running, for: "transcription")
-                // 前回の文字起こし結果のバナーを、文字起こし・取り込みが終わったら読み直す
-                if !running {
-                    refreshPendingCloudJobs()
-                }
-            }
-            .onDisappear {
-                IdleTimerGuard.set(false, for: "transcription")
-            }
-            // 前回の文字起こし結果のバナー: 開いたとき・前面に戻ったときに読み直す
-            .onAppear {
-                refreshPendingCloudJobs()
-                // Whisper を使う設定なら、押してから待たないようにモデルを先に読み込んでおく(字幕がまだ無いとき)
-                let settings = AppSettings.shared
-                // Whisper が入っていないビルドでは選べないので、前に選んでいたら Apple に戻す
-                if settings.transcriptionEngine == .whisper, !WhisperTranscriber.isAvailable {
-                    settings.transcriptionEngine = .apple
-                }
-                if settings.transcriptionEngine == .whisper, project.subtitles.isEmpty {
-                    WhisperTranscriber.shared.preload(model: settings.whisperModel)
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                refreshPendingCloudJobs()
             }
             .navigationDestination(item: $editingCueID) { cueID in
                 SubtitleCueEditView(project: project, player: player, cueID: cueID)
@@ -550,6 +476,85 @@ struct SubtitleEditorView: View {
         .onDisappear {
             cancelTranscription()
             cancelAITranslation()
+        }
+    }
+
+    /// 本体(式が長すぎて型チェックが終わらないので body から分ける)
+    private var editorContent: some View {
+        VStack(spacing: 0) {
+            previewHeader
+            ScrollViewReader { proxy in
+                Form {
+                    pendingCloudJobSection
+                    if project.subtitles.isEmpty {
+                        // キャプションが無いときは「自動で作る」を最初に大きく出す
+                        transcriptionSection
+                        designSection
+                        cueListSection
+                    } else {
+                        // キャプションがあるときは デザイン → 操作列 → 開いたツール → 一覧
+                        designSection
+                        captionToolSection
+                        if let tool = expandedTool {
+                            switch tool {
+                            case .autoCaption: transcriptionSection
+                            case .translate: translationSection
+                            case .file: subtitleFileSection
+                            }
+                        }
+                        cueListSection
+                    }
+                }
+                // カラオケなど単語を使う描き方にしたら、単語の時刻が無いキャプションにその場で付ける
+                .onChange(of: project.subtitleStyle.template) { _, template in
+                    fillMissingWordTimings(for: template)
+                }
+                .onAppear {
+                    guard !didPrepareOnAppear else { return }
+                    didPrepareOnAppear = true
+                    // クリップを選んで開いたときは「選んだクリップだけ」にし、自動作成を開いておく
+                    applyFocusClipDefaults()
+                    if focusClip != nil, !project.subtitles.isEmpty {
+                        expandedTool = .autoCaption
+                    }
+                    // 「キャプションを翻訳」から開いたときは翻訳を開いて、そこへスクロールする
+                    if initialSection == .translate, !project.subtitles.isEmpty {
+                        expandedTool = .translate
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            withAnimation {
+                                proxy.scrollTo(SubtitleEditorView.toolRowID, anchor: .top)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // 文字起こし中は画面の自動ロックを止める(ロックで通信が切れて止まるため)
+        .onChange(of: transcriber.isRunning) { _, running in
+            IdleTimerGuard.set(running, for: "transcription")
+            // 前回の文字起こし結果のバナーを、文字起こし・取り込みが終わったら読み直す
+            if !running {
+                refreshPendingCloudJobs()
+            }
+        }
+        .onDisappear {
+            IdleTimerGuard.set(false, for: "transcription")
+        }
+        // 前回の文字起こし結果のバナー: 開いたとき・前面に戻ったときに読み直す
+        .onAppear {
+            refreshPendingCloudJobs()
+            // Whisper を使う設定なら、押してから待たないようにモデルを先に読み込んでおく(字幕がまだ無いとき)
+            let settings = AppSettings.shared
+            // Whisper が入っていないビルドでは選べないので、前に選んでいたら Apple に戻す
+            if settings.transcriptionEngine == .whisper, !WhisperTranscriber.isAvailable {
+                settings.transcriptionEngine = .apple
+            }
+            if settings.transcriptionEngine == .whisper, project.subtitles.isEmpty {
+                WhisperTranscriber.shared.preload(model: settings.whisperModel)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            refreshPendingCloudJobs()
         }
     }
 
