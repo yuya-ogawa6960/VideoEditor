@@ -46,8 +46,9 @@ final class RetouchRenderer {
 
     private var states: [UUID: State] = [:]
 
-    /// 調べる間隔(秒)
+    /// 調べる間隔(秒)。書き出しは毎コマ、プレビューは 1/12 秒に 1 回(間は前の位置をなめらかに使う)
     private let detectInterval = 1.0 / 30 - 0.002
+    private let previewDetectInterval = 1.0 / 12 - 0.002
     /// 1/30 秒あたりの追従の速さ(1 = 平滑なし)
     private let followRate = 0.55
 
@@ -55,8 +56,10 @@ final class RetouchRenderer {
         states.removeAll()
     }
 
-    /// image(向き反映済みのソース)にレタッチを掛ける。time は出力上の秒
-    func apply(_ retouch: ClipRetouch, to image: CIImage, clipID: UUID, time: Double, isStill: Bool) -> CIImage {
+    /// image(向き反映済みのソース)にレタッチを掛ける。time は出力上の秒。
+    /// accurate: 書き出し(毎コマ・大きめの画像で顔を探す)。false はプレビュー(軽くして再生を止めない)
+    func apply(_ retouch: ClipRetouch, to image: CIImage, clipID: UUID, time: Double, isStill: Bool,
+               accurate: Bool = true) -> CIImage {
         let extent = image.extent
         guard !retouch.isIdentity, !extent.isInfinite, extent.width >= 16, extent.height >= 16,
               extent.width.isFinite, extent.height.isFinite else { return image }
@@ -71,10 +74,11 @@ final class RetouchRenderer {
             state = State(time: time, imageSize: extent.size, lastFaceDetect: nil, lastBodyDetect: nil)
         }
 
-        let needFace = retouch.usesFace && Self.due(state.lastFaceDetect, now: time, interval: detectInterval, isStill: isStill)
-        let needBody = retouch.usesBody && Self.due(state.lastBodyDetect, now: time, interval: detectInterval, isStill: isStill)
+        let interval = accurate ? detectInterval : previewDetectInterval
+        let needFace = retouch.usesFace && Self.due(state.lastFaceDetect, now: time, interval: interval, isStill: isStill)
+        let needBody = retouch.usesBody && Self.due(state.lastBodyDetect, now: time, interval: interval, isStill: isStill)
         if needFace || needBody {
-            let detected = Self.detect(image, faces: needFace, body: needBody)
+            let detected = Self.detect(image, faces: needFace, body: needBody, longSide: accurate ? 960 : 540)
             if needFace {
                 let alpha = Self.followAlpha(since: state.lastFaceDetect, now: time, rate: followRate)
                 state.faces = Self.merge(previous: state.faces, detected: detected.faces, alpha: alpha, time: time)
@@ -186,9 +190,10 @@ final class RetouchRenderer {
     // MARK: - 検出
 
     /// 顔の目印と人物の枠を探す(縮めた画像で調べ、元画像の座標に戻す)
-    private static func detect(_ image: CIImage, faces wantFaces: Bool, body wantBody: Bool) -> (faces: [Face], body: CGRect?) {
+    private static func detect(_ image: CIImage, faces wantFaces: Bool, body wantBody: Bool,
+                               longSide: CGFloat) -> (faces: [Face], body: CGRect?) {
         let extent = image.extent
-        let scale = min(1, 960 / max(extent.width, extent.height))
+        let scale = min(1, longSide / max(extent.width, extent.height))
         let small = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)
             .concatenating(CGAffineTransform(scaleX: scale, y: scale)))
         let smallSize = CGSize(width: extent.width * scale, height: extent.height * scale)
@@ -372,27 +377,26 @@ final class RetouchRenderer {
         }
 
         // ---- 顔の形
+        // 小顔: 顔の中心へ縮める(以前の CIBumpDistortionLinear)と鼻や口まで細くなり、マスクの境目で二重に見えた。
+        // いまは輪郭の少し外側に左右 1 つずつふくらみ(CIBumpDistortion)を置き、頬からあごの輪郭だけを内側へ押す。
+        // ふくらみは中心でずれ 0・半径の途中でいちばん動くので、輪郭はよく動き、顔の中と背景はほとんど動かない。
+        // 半径の端でずれが 0 になるので、マスクで切り抜かなくても境目は出ない
         if retouch.slimFace > 0.001, face.jaw.count >= 3 {
             let us = face.jaw.map { ax.pu($0) }
             let vs = face.jaw.map { ax.pv($0) }
-            if let uLo = us.min(), let uHi = us.max(), let vLo = vs.min() {
-                let centerU = (uLo + uHi) / 2
-                let lineCenter = ax.point(u: centerU, v: vLo * 0.5)
-                let angle = atan2(ax.v.dy, ax.v.dx)
-                let warped = distort(out, "CIBumpDistortionLinear", [
-                    kCIInputCenterKey: CIVector(x: lineCenter.x, y: lineCenter.y),
-                    kCIInputRadiusKey: NSNumber(value: Double(ax.width * 0.75)),
-                    kCIInputAngleKey: NSNumber(value: Double(angle)),
-                    kCIInputScaleKey: NSNumber(value: -0.32 * retouch.slimFace)
-                ], extent: extent)
-                // あごまわりだけ(目より上はほとんど変えない)
-                let maskCenter = ax.point(u: centerU, v: vLo * 0.55)
-                let outer = ax.width * 0.95
-                let rect = CGRect(x: maskCenter.x - outer, y: maskCenter.y - outer, width: outer * 2, height: outer * 2)
-                    .intersection(extent)
-                if rect.width >= 2, rect.height >= 2 {
-                    let mask = radialMask(center: maskCenter, inner: ax.width * 0.5, outer: outer, rect: rect)
-                    out = blend(warped.cropped(to: rect), over: out, mask: mask, amount: 1, extent: extent)
+            if let uLo = us.min(), let uHi = us.max(), let vLo = vs.min(), uHi - uLo > 4 {
+                // 目(v = 0)とあご(v = vLo < 0)の間、頬の下あたりの高さ
+                let centerV = vLo * 0.55
+                let radius = ax.width * 0.62
+                let push = 0.26 * retouch.slimFace
+                for (edgeU, side) in [(uLo, CGFloat(-1)), (uHi, CGFloat(1))] {
+                    let center = ax.point(u: edgeU + side * ax.width * 0.18, v: centerV)
+                    guard extent.insetBy(dx: -radius, dy: -radius).contains(center) else { continue }
+                    out = distort(out, "CIBumpDistortion", [
+                        kCIInputCenterKey: CIVector(x: center.x, y: center.y),
+                        kCIInputRadiusKey: NSNumber(value: Double(radius)),
+                        kCIInputScaleKey: NSNumber(value: push)
+                    ], extent: extent)
                 }
             }
         }

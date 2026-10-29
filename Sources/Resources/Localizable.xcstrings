@@ -13318,6 +13318,29 @@
         }
       }
     },
+    "この部分を再生": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play this part"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproducir esta parte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduzir esta parte"
+          }
+        }
+      }
+    },
     "これから追加する動画に使われます。追加済みの動画はそのままです。\n「写真ライブラリから参照」では、写真アプリで動画を消すとこのプロジェクトでも使えなくなります。スローモーションの動画はアプリに取り込みます。": {
       "extractionState": "manual",
       "localizations": {
@@ -18516,6 +18539,75 @@
         }
       }
     },
+    "カラーの画面": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pantalla de color"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tela de cor"
+          }
+        }
+      }
+    },
+    "カラーの画面を作れませんでした。\n%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create the color screen.\n%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear la pantalla de color.\n%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar a tela de cor.\n%@"
+          }
+        }
+      }
+    },
+    "カラーの画面を差し込みました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserted a color screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pantalla de color insertada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tela de cor inserida"
+          }
+        }
+      }
+    },
     "カラースコープ": {
       "extractionState": "manual",
       "localizations": {
@@ -19547,6 +19639,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cancelando…"
+          }
+        }
+      }
+    },
+    "キュッ(レコード)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record scratch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rayón de disco"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arranhão de disco"
           }
         }
       }
@@ -21000,6 +21115,29 @@
         }
       }
     },
+    "クリーム": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cream"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crema"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creme"
+          }
+        }
+      }
+    },
     "クロスズーム(アウト)": {
       "extractionState": "manual",
       "localizations": {
@@ -21253,6 +21391,29 @@
         }
       }
     },
+    "グレー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gray"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gris"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cinza"
+          }
+        }
+      }
+    },
     "グロー": {
       "extractionState": "manual",
       "localizations": {
@@ -21410,6 +21571,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tempo do quadro"
+          }
+        }
+      }
+    },
+    "コマをなぞると細かく、帯をなぞると大きく動きます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag the frame to fine-tune, drag the strip to move further"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra el fotograma para ajustar fino; arrastra la tira para mover más"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste o quadro para ajustar fino; arraste a faixa para mover mais"
           }
         }
       }
@@ -22564,6 +22748,29 @@
         }
       }
     },
+    "シーン(コオロギ)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crickets (silence)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grillos (silencio)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grilos (silêncio)"
+          }
+        }
+      }
+    },
     "ジェットカット": {
       "extractionState": "manual",
       "localizations": {
@@ -22606,6 +22813,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "GIF"
+          }
+        }
+      }
+    },
+    "ジャジャーン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta-da chord"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acorde de revelación"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acorde de revelação"
+          }
+        }
+      }
+    },
+    "ジャーン(タダー)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanfare (ta-da)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanfarria (tachán)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanfarra (tcharam)"
           }
         }
       }
@@ -25071,6 +25324,29 @@
         }
       }
     },
+    "テロップで章タイトルを入れる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add chapter title as text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir título de capítulo como texto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar título de capítulo como texto"
+          }
+        }
+      }
+    },
     "テロップはまだありません": {
       "extractionState": "manual",
       "localizations": {
@@ -25807,6 +26083,52 @@
         }
       }
     },
+    "ドゥーン(ブーム)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boom (bass drop)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boom (grave)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boom (grave)"
+          }
+        }
+      }
+    },
+    "ドゥーン(緊迫)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dramatic drone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tensión dramática"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tensão dramática"
+          }
+        }
+      }
+    },
     "ドキドキ": {
       "extractionState": "manual",
       "localizations": {
@@ -25964,6 +26286,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tambor"
+          }
+        }
+      }
+    },
+    "ドロロロ(ドラムロール)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drum roll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redoble de tambor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rufar de tambores"
           }
         }
       }
@@ -26129,6 +26474,29 @@
         }
       }
     },
+    "ネイビー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azul marino"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azul-marinho"
+          }
+        }
+      }
+    },
     "ネオン": {
       "extractionState": "manual",
       "localizations": {
@@ -26148,6 +26516,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Neon"
+          }
+        }
+      }
+    },
+    "ネタ・リアクション": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memes & reactions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memes y reacciones"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memes e reações"
           }
         }
       }
@@ -26355,6 +26746,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Coração"
+          }
+        }
+      }
+    },
+    "バダム・ツ(リムショット)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimshot (ba-dum-tss)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimshot (ba-dum-tss)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimshot (ba-dum-tss)"
           }
         }
       }
@@ -26585,6 +26999,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Versão"
+          }
+        }
+      }
+    },
+    "パチパチ(拍手)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applause"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplausos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplausos"
           }
         }
       }
@@ -27417,6 +27854,29 @@
         }
       }
     },
+    "ピンク": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pink"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rosa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rosa"
+          }
+        }
+      }
+    },
     "ピンクの付箋": {
       "extractionState": "manual",
       "localizations": {
@@ -27436,6 +27896,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nota adesiva rosa"
+          }
+        }
+      }
+    },
+    "ピンポーン(正解)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ding-dong (correct)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din-don (correcto)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din-don (correto)"
           }
         }
       }
@@ -27988,6 +28471,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Moda / GRWM"
+          }
+        }
+      }
+    },
+    "ファーファーファーファー(残念)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sad trombone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trombón triste"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trombone triste"
           }
         }
       }
@@ -28724,6 +29230,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Quadro congelado adicionado"
+          }
+        }
+      }
+    },
+    "ブッブー(不正解)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buzzer (wrong)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zumbador (incorrecto)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buzina (errado)"
           }
         }
       }
@@ -34520,6 +35049,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "IA para o acabamento"
+          }
+        }
+      }
+    },
+    "以前の章タイトル(黒い画面)を編集": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit older chapter titles (black card)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar títulos de capítulo anteriores (tarjeta negra)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar títulos de capítulo anteriores (cartão preto)"
           }
         }
       }
@@ -61089,6 +61641,29 @@
         }
       }
     },
+    "自由に": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizado"
+          }
+        }
+      }
+    },
     "色": {
       "extractionState": "manual",
       "localizations": {
@@ -61200,6 +61775,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "por cor"
+          }
+        }
+      }
+    },
+    "色と長さを選んで「追加」を押すと、再生位置の後ろに差し込みます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a color and length, then tap Add to insert it after the playhead"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un color y una duración y toca Añadir para insertarla después del cursor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma cor e uma duração e toque em Adicionar para inserir após o cursor"
           }
         }
       }
@@ -71067,6 +71665,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Os rostos são detectados automaticamente. A prévia pode ficar mais lenta"
+          }
+        }
+      }
+    },
+    "顔は自動で探します。再生しながら動かして確かめられます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faces are found automatically. You can adjust while the video plays"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las caras se detectan automáticamente. Puedes ajustar mientras se reproduce el video"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os rostos são detectados automaticamente. Você pode ajustar enquanto o vídeo toca"
           }
         }
       }

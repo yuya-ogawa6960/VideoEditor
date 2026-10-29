@@ -23,12 +23,17 @@ struct EditorSoundEffectsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker("分類", selection: $category) {
-                ForEach(SoundEffectCategory.allCases) { c in
-                    Text(c.title).tag(c)
+            // 分類(6 つになって狭い画面では収まらないので、横に流れるチップにする)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(SoundEffectCategory.allCases) { c in
+                        EditorChip(title: c.title, isSelected: category == c) {
+                            category = c
+                        }
+                    }
                 }
+                .padding(.horizontal, 2)
             }
-            .pickerStyle(.segmented)
 
             ScrollView {
                 VStack(spacing: 6) {

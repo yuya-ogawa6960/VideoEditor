@@ -4,20 +4,38 @@ import SwiftUI
 // レタッチのパネル(クリップの「AI」、画質補正のとなり)。
 // 顔 / メイク / 体型 を切り替えて、それぞれのスライダーで強さを決める(0 = 何もしない)。
 // 顔はプレビューのたびに自動で探す。かんたんな美肌は「画質補正」にある。
+// パネルを開いている間は合成を作り直さず(player.beginInteraction)、値をいまの映像に直接入れる
+// (player.setLiveRetouch)。再生したまま動かして確かめられ、止めているときはそのコマを描き直す。
+// 閉じたときに 1 回だけ作り直す(endInteraction)。
 // =====================================================================
 
 struct EditorRetouchPanel: View {
     @Binding var clip: Clip
+    let player: PlayerController
 
     @State private var group: RetouchGroup = .face
+    /// beginInteraction を呼んだままか(onAppear が続けて来ても 1 回だけにする)
+    @State private var holdsInteraction = false
 
     private func binding(_ keyPath: WritableKeyPath<ClipRetouch, Double>) -> Binding<Double> {
         Binding<Double>(get: { clip.retouch[keyPath: keyPath] },
-                        set: { clip.retouch[keyPath: keyPath] = $0 })
+                        set: { value in
+                            clip.retouch[keyPath: keyPath] = value
+                            pushLive()
+                        })
     }
 
     private var lipColorBinding: Binding<String> {
-        Binding<String>(get: { clip.retouch.lipColorHex }, set: { clip.retouch.lipColorHex = $0 })
+        Binding<String>(get: { clip.retouch.lipColorHex },
+                        set: { value in
+                            clip.retouch.lipColorHex = value
+                            pushLive()
+                        })
+    }
+
+    /// いまの値を再生中の映像にそのまま入れる(合成の作り直しを待たない)
+    private func pushLive() {
+        player.setLiveRetouch(clip.retouch, for: clip.id)
     }
 
     var body: some View {
@@ -49,19 +67,34 @@ struct EditorRetouchPanel: View {
             }
 
             HStack {
-                Text("顔は自動で探します。プレビューは重くなることがあります")
+                Text("顔は自動で探します。再生しながら動かして確かめられます")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     clip.retouch.reset(group)
+                    pushLive()
                 }
                 .disabled(clip.retouch.isZero(group))
                 .opacity(clip.retouch.isZero(group) ? 0.4 : 1)
             }
         }
         .padding(.top, 6)
+        .onAppear {
+            if !holdsInteraction {
+                holdsInteraction = true
+                player.beginInteraction()
+            }
+            pushLive()
+        }
+        .onDisappear {
+            // 閉じたら 1 回だけ合成を作り直す(新しい合成は snapshot の値で描くので、直接入れた値は要らなくなる)
+            if holdsInteraction {
+                holdsInteraction = false
+                player.endInteraction()
+            }
+        }
     }
 
     private func slider(_ title: String, _ keyPath: WritableKeyPath<ClipRetouch, Double>) -> some View {
@@ -81,6 +114,7 @@ struct EditorRetouchPanel: View {
                     clip.retouch.lipColorHex = hex
                     // 色を選んだら、リップが 0 のときは見えるようにする
                     if clip.retouch.lip < 0.001 { clip.retouch.lip = 0.5 }
+                    pushLive()
                 } label: {
                     Circle()
                         .fill(EditorColorHex.color(hex))

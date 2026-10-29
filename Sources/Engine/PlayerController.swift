@@ -433,6 +433,48 @@ final class PlayerController {
         }
     }
 
+    // MARK: - 合成の値を直接変える(レタッチのパネル)
+
+    /// 止めているコマの描き直しが実行中か(連続で呼ばれても重ねない)
+    @ObservationIgnored private var redrawInFlight = false
+    @ObservationIgnored private var redrawWanted = false
+    /// 同じ時刻へのシークは描き直されないことがあるので、1/2000 秒だけ交互にずらす
+    @ObservationIgnored private var redrawNudge = false
+
+    /// レタッチのパネルから: 合成を作り直さずに、いまの映像へ値を入れる。
+    /// 再生中なら次のコマから効く。止めているときはいまのコマを描き直す
+    func setLiveRetouch(_ retouch: ClipRetouch, for clipID: UUID) {
+        guard let compositor = player.currentItem?.customVideoCompositor as? VideoCompositor else { return }
+        compositor.setLiveRetouch(retouch, for: clipID)
+        redrawPausedFrame()
+    }
+
+    /// 止めているときに、いまのコマをもう一度描く(合成の値を直接変えたあと用)
+    private func redrawPausedFrame() {
+        guard !isPlaying, !scrubAudioActive, player.currentItem != nil, scrubTarget == nil else { return }
+        if redrawInFlight {
+            redrawWanted = true
+            return
+        }
+        redrawInFlight = true
+        redrawNudge.toggle()
+        let seconds = clampedTime(currentTime) + (redrawNudge ? 0.0005 : 0)
+        // シーク中は handleTick が currentTime を取り込まないようにする(ずらした時刻が残らないように)
+        pendingSeeks += 1
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 6000),
+                    toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pendingSeeks = max(0, self.pendingSeeks - 1)
+                self.redrawInFlight = false
+                if self.redrawWanted {
+                    self.redrawWanted = false
+                    self.redrawPausedFrame()
+                }
+            }
+        }
+    }
+
     // MARK: - Scrub(ドラッグ中の追いかけシーク)
 
     /// ドラッグ中に呼ぶ。目標を記録し、シークが実行中でなければ許容誤差 0.1 秒でシークする。

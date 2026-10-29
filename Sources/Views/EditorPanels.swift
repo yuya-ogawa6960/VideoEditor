@@ -74,6 +74,8 @@ enum EditorPanel: Hashable {
     case textKeyframes(UUID)
     /// 絵文字ステッカーの選択(ルート)
     case sticker
+    /// カラーの画面(単色の静止画クリップ)を差し込む
+    case colorScreen
 
     // ---- 第3弾: オーバーレイ ----
     case overlayKeyframes(UUID)
@@ -185,6 +187,7 @@ enum EditorPanel: Hashable {
         case .textPlacement: return String(localized: "位置・サイズ")
         case .textKeyframes: return String(localized: "キーフレーム")
         case .sticker: return String(localized: "ステッカー")
+        case .colorScreen: return String(localized: "カラーの画面")
         case .overlayKeyframes: return String(localized: "キーフレーム")
         case .overlayBlend: return String(localized: "描画モード")
         case .overlayTransition: return String(localized: "ビデオトランジション")
@@ -255,7 +258,7 @@ enum EditorPanel: Hashable {
         case .videoEffectAdd:
             return nil
         case .subtitleStyle, .captionTemplate, .aspect, .documentary, .titleCard, .lowerThird,
-             .narrationRecord, .sticker, .drawingCanvas, .watermark, .formatKit, .textToSpeech,
+             .narrationRecord, .sticker, .colorScreen, .drawingCanvas, .watermark, .formatKit, .textToSpeech,
              .autoEditTemplates, .pacing, .dubbing, .soundEffects:
             return nil
         }
@@ -265,7 +268,7 @@ enum EditorPanel: Hashable {
     /// 選ぶとすぐ追加される・録音するなど、入口として使うパネルでは出さない
     var supportsCancel: Bool {
         switch self {
-        case .sticker, .narrationRecord, .textToSpeech, .autoEditTemplates, .formatKit, .pacing, .dubbing, .soundEffects:
+        case .sticker, .colorScreen, .narrationRecord, .textToSpeech, .autoEditTemplates, .formatKit, .pacing, .dubbing, .soundEffects:
             return false
         case .backgroundRemoval, .overlayBackgroundRemoval:
             return true
@@ -299,7 +302,7 @@ enum EditorPanel: Hashable {
         case .backgroundRemoval, .overlayBackgroundRemoval: return 360
         case .clipKeyframes: return 360
         case .videoEffectAdd, .videoEffect: return 340
-        case .slip: return 330
+        case .slip: return 350
         case .mosaic: return 300
         case .pacing: return 340
         case .overlayOpacity: return 170
@@ -308,6 +311,7 @@ enum EditorPanel: Hashable {
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
              .overlayKeyframes, .watermark, .textToSpeech, .sticker,
              .autoReframe, .enhance, .subjectFlash, .retouch: return 320
+        case .colorScreen: return 260
         case .transition, .overlayTransition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
              .narrationEffects, .drawingStyle, .drawingCanvas,
              .stabilize, .parallax, .overlayParallax, .textTracking, .overlayTracking: return 280
@@ -367,7 +371,7 @@ enum EditorPanel: Hashable {
             // ルートからも、クリップ選択中(選択範囲を保存)からも開ける
             return selection == nil || selection?.clipID != nil
         case .documentary, .titleCard, .lowerThird, .narrationRecord,
-             .sticker, .drawingCanvas, .watermark, .textToSpeech, .autoEditTemplates, .dubbing, .soundEffects:
+             .sticker, .colorScreen, .drawingCanvas, .watermark, .textToSpeech, .autoEditTemplates, .dubbing, .soundEffects:
             // ルート(何も選択していない)ツールバーから開くパネル
             return selection == nil
         }

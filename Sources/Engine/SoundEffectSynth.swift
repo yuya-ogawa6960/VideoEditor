@@ -80,6 +80,21 @@ enum SoundEffectSynth {
             return v
         }
 
+        /// のこぎり波(-1 → 1)。折り返しの歪みを polyBLEP で抑える
+        mutating func saw(_ freq: Double) -> Float {
+            let dt = freq / SoundEffectSynth.sampleRate
+            var v = 2 * phase - 1
+            if phase < dt {
+                let x = phase / dt
+                v -= x + x - x * x - 1
+            } else if phase > 1 - dt {
+                let x = (phase - 1) / dt
+                v -= x * x + x + x + 1
+            }
+            advance(freq)
+            return Float(v)
+        }
+
         /// 基音 + 倍音(h2: 2 倍音の量、h3: 3 倍音の量)
         mutating func tone(_ freq: Double, h2: Float = 0, h3: Float = 0) -> Float {
             let p = phase * 2 * Double.pi
@@ -127,12 +142,13 @@ enum SoundEffectSynth {
     }
 
     /// ピークをそろえ、頭と終わりにごく短いフェードをかける(プチッという音を防ぐ)
-    static func finish(_ samples: [Float]) -> [Float] {
+    /// level: 仕上がりの大きさ(1 で targetPeak。静かな音は小さめに)
+    static func finish(_ samples: [Float], level: Float = 1) -> [Float] {
         var out = samples
         var peak: Float = 0
         for v in out where v.isFinite { peak = max(peak, abs(v)) }
         guard peak > 0 else { return out }
-        let scale = targetPeak / peak
+        let scale = targetPeak * level / peak
         for i in out.indices {
             out[i] = out[i].isFinite ? out[i] * scale : 0
         }
@@ -201,8 +217,21 @@ enum SoundEffectSynth {
         case .shutter: raw = shutter()
         case .typing: raw = typing()
         case .notification: raw = notification()
+        case .sadTrombone: raw = sadTrombone()
+        case .vineBoom: raw = vineBoom()
+        case .dramatic: raw = dramatic()
+        case .recordScratch: raw = recordScratch()
+        case .jajaan: raw = jajaan()
+        case .correct: raw = correct()
+        case .wrong: raw = wrong()
+        case .drumRoll: raw = drumRoll()
+        case .crickets: raw = crickets()
+        case .applause: raw = applause()
+        case .tada: raw = tada()
+        case .rimshot: raw = rimshot()
         }
-        return finish(raw)
+        // 「シーン」は静かな音なので控えめにそろえる
+        return finish(raw, level: kind == .crickets ? 0.45 : 1)
     }
 
     // ---- 動き ----
@@ -650,6 +679,367 @@ enum SoundEffectSynth {
         }
         mix(note(1318.5, length: 0.14, decay: 25), into: &out, at: 0, gain: 0.8)
         mix(note(1760, length: 0.32, decay: 12), into: &out, at: 0.1)
+        return out
+    }
+
+    // ---- ネタ・リアクション ----
+
+    /// 金管っぽい 1 音(のこぎり波 + 共鳴するローパス、軽いビブラート)
+    /// wah: フィルターをゆっくり開いてから閉じる(ワウ)、slide: 終わりで音程を下げる
+    private static func brassNote(_ freq: Double, length: Double, wah: Bool, slide: Bool) -> [Float] {
+        let n = frameCount(length)
+        var osc = Oscillator()
+        var filter = Filter()
+        var vib = Oscillator()
+        var s = [Float](repeating: 0, count: n)
+        let release = wah ? 0.25 : 0.05
+        for i in 0..<n {
+            let t = time(i)
+            let p = t / length
+            // 終わりの 3 割で 3 半音ほど下がる
+            let drop = slide ? pow(2.0, -3.0 / 12 * max(0, (p - 0.7) / 0.3)) : 1
+            let vibrato = 1 + 0.012 * Double(vib.sine(5.5)) * min(t / 0.15, 1)
+            let f = freq * drop * vibrato
+            // フィルターの開き具合(短い音は素早く、長い音はゆっくり開いてから閉じる)
+            let open: Double = wah ? Double(hump(p, peak: 0.35)) : (1 - exp(-t * 60)) * (1 - 0.5 * p)
+            let cutoff = freq * (2 + 6 * open)
+            let attack = min(t / 0.025, 1)
+            let tail = t > length - release ? (length - t) / release : 1
+            let env = attack * tail * (wah ? 0.7 + 0.3 * open : 1)
+            s[i] = filter.process(osc.saw(f), cutoff: cutoff, q: 2.5).low * Float(env)
+        }
+        return s
+    }
+
+    /// 和音(のこぎり波 + ローパス)。bright: フィルターをどれだけ開けるか(0...1)
+    private static func chord(_ freqs: [Double], length: Double, decay: Double, bright: Double) -> [Float] {
+        let n = frameCount(length)
+        var oscs = [Oscillator](repeating: Oscillator(), count: freqs.count)
+        var filter = Filter()
+        var s = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let t = time(i)
+            var sum: Float = 0
+            for j in freqs.indices {
+                // 1 つおきにわずかにずらして厚みを出す
+                sum += oscs[j].saw(freqs[j] * (1 + 0.002 * Double(j % 2)))
+            }
+            sum /= Float(freqs.count)
+            let cutoff = 600 + bright * 3000 * exp(-t * 2.5)
+            let release = Float(min(1, (length - t) / 0.02))
+            s[i] = filter.process(sum, cutoff: cutoff, q: 1.1).low * attackDecay(t, attack: 0.008, decay: decay) * release
+        }
+        return s
+    }
+
+    /// シンバル(cymbal() の短い版。decay で余韻の長さを変える)
+    private static func crash(seed: UInt64, length: Double, decay: Double) -> [Float] {
+        let n = frameCount(length)
+        var rng = Random(seed: seed)
+        let freqs: [Double] = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0].map { $0 * 2.1 }
+        var oscs = [Oscillator](repeating: Oscillator(), count: freqs.count)
+        var metal = Filter()
+        var hiss = Filter()
+        var s = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let t = time(i)
+            var sum: Float = 0
+            for j in freqs.indices { sum += oscs[j].square(freqs[j]) }
+            sum /= Float(freqs.count)
+            let m = metal.process(sum, cutoff: 6500, q: 0.7).high
+            let h = hiss.process(rng.noise(), cutoff: 6000, q: 0.7).high * 0.8
+            s[i] = (m + h) * attackDecay(t, attack: 0.002, decay: decay)
+        }
+        return s
+    }
+
+    /// ファーファーファーファー: 下がっていく金管の 4 音。最後はワウをかけて音程が落ちる
+    private static func sadTrombone() -> [Float] {
+        let duration = 2.0
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        // Bb3 → A3 → Ab3 → G3
+        let notes: [Double] = [233.08, 220.0, 207.65, 196.0]
+        let starts: [Double] = [0, 0.3, 0.6, 0.9]
+        for (index, freq) in notes.enumerated() {
+            let isLast = index == notes.count - 1
+            let length = isLast ? duration - starts[index] : 0.28
+            mix(brassNote(freq, length: length, wah: isLast, slide: isLast),
+                into: &out, at: starts[index], gain: isLast ? 1 : 0.9)
+        }
+        return out
+    }
+
+    /// ドゥーン(ブーム): 深い低音が素早く沈み、長く残る
+    private static func vineBoom() -> [Float] {
+        let duration = 1.2
+        let n = frameCount(duration)
+        var rng = Random(seed: 602)
+        var sub = Oscillator()
+        var body = Oscillator()
+        var thud = Filter()
+        var out = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let t = time(i)
+            let f = 50 + 70 * exp(-t * 18)
+            let low = sub.sine(f) * attackDecay(t, attack: 0.004, decay: 2.8)
+            // スマホのスピーカーでも聞こえるよう 1 オクターブ上を少し足す
+            let mid = body.sine(f * 2) * attackDecay(t, attack: 0.004, decay: 6) * 0.35
+            let hit = thud.process(rng.noise(), cutoff: 700, q: 0.8).low * Float(exp(-t * 90)) * 0.5
+            let v = low + mid + hit
+            out[i] = Float(tanh(Double(v) * 1.8) / tanh(1.8))
+        }
+        // 短く遅らせた音を戻して残響のような尾を付ける
+        let echoes: [(delay: Double, gain: Float)] = [(0.041, 0.35), (0.067, 0.28)]
+        for (delay, gain) in echoes {
+            let d = frameCount(delay)
+            guard d < n else { continue }
+            for i in d..<n { out[i] += out[i - d] * gain }
+        }
+        return out
+    }
+
+    /// ドゥーン(緊迫): 低い半音のぶつかりがゆっくり膨らんで、ぶつっと切れる
+    private static func dramatic() -> [Float] {
+        let duration = 2.0
+        let cut = 1.55
+        let n = frameCount(duration)
+        // C2, C#2, G2, C3, C#3
+        let freqs: [Double] = [65.41, 69.30, 98.0, 130.81, 138.59]
+        var oscs = [Oscillator](repeating: Oscillator(), count: freqs.count)
+        var sub = Oscillator()
+        var filter = Filter()
+        var tremolo = Oscillator()
+        var out = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let t = time(i)
+            let p = min(t / cut, 1)
+            var sum: Float = 0
+            for j in freqs.indices { sum += oscs[j].saw(freqs[j]) }
+            sum /= Float(freqs.count)
+            let cutoff = 250 * pow(8.0, p * p)
+            let tone = filter.process(sum, cutoff: cutoff, q: 1.2).low
+            let low = sub.sine(freqs[0]) * 0.5
+            let trem = 0.8 + 0.2 * tremolo.sine(5 + 3 * p)
+            // 膨らみきったところで切り、わずかな余韻だけ残す
+            let env = t < cut ? Float(pow(p, 2.2)) : Float(exp(-(t - cut) * 18))
+            out[i] = (tone + low) * trem * env
+        }
+        return out
+    }
+
+    /// キュッ(レコード): 帯域ノイズの中心を素早く下げて戻す(針をこする音)
+    private static func recordScratch() -> [Float] {
+        let duration = 0.5
+        let n = frameCount(duration)
+        var rng = Random(seed: 604)
+        var filter = Filter()
+        var osc = Oscillator()
+        var out = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let p = time(i) / duration
+            // 針の動き: 速く下がって、ゆっくり戻る
+            let motion = p < 0.4 ? 1 - pow(p / 0.4, 0.6) : pow((p - 0.4) / 0.6, 1.5)
+            let center = 500 * pow(5.0, motion)
+            let noise = filter.process(rng.noise(), cutoff: center, q: 5).band
+            let squeal = osc.tone(center / 3, h2: 0.3, h3: 0.2) * 0.35
+            let env = hump(p, peak: 0.15) * (p < 0.4 ? 1 : 0.7)
+            out[i] = (noise + squeal) * env
+        }
+        return out
+    }
+
+    /// ジャジャーン: 短い和音を 2 回、そのあと明るい和音を伸ばす
+    private static func jajaan() -> [Float] {
+        let duration = 1.5
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        // C メジャー
+        let stab: [Double] = [261.63, 329.63, 392.0, 523.25]
+        let hold: [Double] = [261.63, 329.63, 392.0, 523.25, 659.25, 783.99, 1046.5]
+        mix(chord(stab, length: 0.16, decay: 12, bright: 0.6), into: &out, at: 0, gain: 0.9)
+        mix(chord(stab, length: 0.16, decay: 12, bright: 0.6), into: &out, at: 0.19, gain: 0.9)
+        mix(chord(hold, length: duration - 0.38, decay: 2.2, bright: 1.0), into: &out, at: 0.38)
+        return out
+    }
+
+    /// ピンポーン(正解): 柔らかい 2 音(E5 → A5)
+    private static func correct() -> [Float] {
+        let duration = 0.7
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        func note(_ freq: Double, length: Double, decay: Double) -> [Float] {
+            let n = frameCount(length)
+            var osc = Oscillator()
+            var s = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                let t = time(i)
+                // 三角波に近い柔らかい音
+                let release = Float(min(1, (length - t) / 0.02))
+                s[i] = osc.tone(freq, h3: 0.11) * attackDecay(t, attack: 0.004, decay: decay) * release
+            }
+            return s
+        }
+        mix(note(659.25, length: 0.24, decay: 9), into: &out, at: 0, gain: 0.85)
+        mix(note(880.0, length: 0.48, decay: 5), into: &out, at: 0.22)
+        return out
+    }
+
+    /// ブッブー(不正解): 低いブザーを 2 回(2 回目は長め)
+    private static func wrong() -> [Float] {
+        let duration = 0.8
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        func buzz(length: Double) -> [Float] {
+            let n = frameCount(length)
+            var a = Oscillator()
+            var b = Oscillator()
+            var filter = Filter()
+            var s = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                let t = time(i)
+                // 少しずらした矩形波でうなりをつける
+                let raw = 0.6 * a.square(196) + 0.4 * b.square(199)
+                let env = Float(min(t / 0.006, 1)) * Float(min(1, (length - t) / 0.03))
+                s[i] = filter.process(raw, cutoff: 1500, q: 0.8).low * env
+            }
+            return s
+        }
+        mix(buzz(length: 0.22), into: &out, at: 0)
+        mix(buzz(length: 0.42), into: &out, at: 0.32)
+        return out
+    }
+
+    /// ドロロロ: スネアの連打がだんだん速く大きくなり、最後にシンバル
+    private static func drumRoll() -> [Float] {
+        let duration = 2.0
+        let crashAt = 1.72
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        var rng = Random(seed: 608)
+        func hit(pitch: Double) -> [Float] {
+            let n = frameCount(0.12)
+            var osc = Oscillator()
+            var filter = Filter()
+            var s = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                let t = time(i)
+                let body = osc.sine(pitch + 80 * exp(-t * 60)) * Float(exp(-t * 28))
+                let snap = filter.process(rng.noise(), cutoff: 1800, q: 1).band * Float(exp(-t * 70)) * 0.7
+                s[i] = body + snap
+            }
+            return s
+        }
+        var at = 0.0
+        var k = 0
+        while at < crashAt - 0.02 {
+            let p = at / crashAt
+            // 左右の手で少し音が違う
+            let pitch = k % 2 == 0 ? 165.0 : 150.0
+            let gain = Float(0.45 + 0.55 * p) * Float(rng.uniform(0.85...1.0))
+            mix(hit(pitch: pitch), into: &out, at: at, gain: gain)
+            // だんだん速く
+            at += 0.082 - 0.035 * p
+            k += 1
+        }
+        mix(crash(seed: 609, length: duration - crashAt, decay: 5), into: &out, at: crashAt, gain: 1.3)
+        return out
+    }
+
+    /// シーン(コオロギ): 高い鳴き声を 1 秒に 3 回くり返す
+    private static func crickets() -> [Float] {
+        let duration = 2.0
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        var rng = Random(seed: 610)
+        func chirp() -> [Float] {
+            // 短い音を 30Hz で刻む(本物の鳴き方に近い)
+            let length = 0.12
+            let n = frameCount(length)
+            var osc = Oscillator()
+            var s = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                let t = time(i)
+                let pulse = max(0, sin(2 * Double.pi * 30 * t))
+                let env = hump(t / length, peak: 0.5) * Float(pulse * pulse)
+                s[i] = osc.sine(4200 + 60 * sin(2 * Double.pi * 30 * t)) * env
+            }
+            return s
+        }
+        var at = 0.06
+        while at < duration - 0.15 {
+            mix(chirp(), into: &out, at: at, gain: Float(rng.uniform(0.7...1.0)))
+            at += 0.333 + rng.uniform(-0.01...0.01)
+        }
+        return out
+    }
+
+    /// パチパチ(拍手): 短いノイズの粒をたくさん重ね、途中で盛り上がる
+    private static func applause() -> [Float] {
+        let duration = 2.0
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        var rng = Random(seed: 611)
+        func clap(center: Double) -> [Float] {
+            let n = frameCount(0.04)
+            var filter = Filter()
+            var s = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                let t = time(i)
+                s[i] = filter.process(rng.noise(), cutoff: center, q: 1.4).band * Float(exp(-t * 160))
+            }
+            return s
+        }
+        var at = 0.0
+        while at < duration - 0.05 {
+            let p = at / duration
+            let swell = hump(p, peak: 0.4)
+            let gain = Float(rng.uniform(0.3...1.0)) * swell
+            mix(clap(center: rng.uniform(900...2600)), into: &out, at: at, gain: gain)
+            // 盛り上がりの付近ほど密に
+            at += rng.uniform(0.012...0.05) / (0.6 + 0.8 * Double(swell))
+        }
+        // 会場のざわめき(低めのノイズ)
+        var bed = Filter()
+        for i in out.indices {
+            let p = time(i) / duration
+            out[i] += bed.process(rng.noise(), cutoff: 1200, q: 0.7).low * 0.08 * hump(p, peak: 0.4)
+        }
+        return out
+    }
+
+    /// ジャーン(タダー): 駆け上がるファンファーレのあと、明るい和音
+    private static func tada() -> [Float] {
+        let duration = 1.2
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        // G4 → C5 → E5 → G5(1 オクターブ下を添える)
+        let run: [Double] = [392.0, 523.25, 659.25, 783.99]
+        let starts: [Double] = [0, 0.09, 0.18, 0.27]
+        for (index, freq) in run.enumerated() {
+            mix(chord([freq, freq * 0.5], length: 0.14, decay: 10, bright: 0.7),
+                into: &out, at: starts[index], gain: 0.8)
+        }
+        let finale: [Double] = [261.63, 392.0, 523.25, 659.25, 783.99, 1046.5]
+        mix(chord(finale, length: duration - 0.36, decay: 2.5, bright: 1.0), into: &out, at: 0.36)
+        // 和音の頭にシンバルを添えて華やかに
+        mix(crash(seed: 612, length: 0.7, decay: 6), into: &out, at: 0.36, gain: 0.35)
+        return out
+    }
+
+    /// バダム・ツ: タム 2 発のあとにシンバル
+    private static func rimshot() -> [Float] {
+        let duration = 0.8
+        var out = [Float](repeating: 0, count: frameCount(duration))
+        var rng = Random(seed: 613)
+        func tom(_ pitch: Double) -> [Float] {
+            let n = frameCount(0.25)
+            var osc = Oscillator()
+            var filter = Filter()
+            var s = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                let t = time(i)
+                let body = osc.sine(pitch + pitch * 0.8 * exp(-t * 40)) * Float(exp(-t * 14))
+                let stick = filter.process(rng.noise(), cutoff: 2500, q: 0.8).band * Float(exp(-t * 90)) * 0.5
+                s[i] = Float(tanh(Double(body + stick) * 1.3))
+            }
+            return s
+        }
+        mix(tom(170), into: &out, at: 0, gain: 0.9)
+        mix(tom(120), into: &out, at: 0.15)
+        mix(crash(seed: 614, length: 0.45, decay: 7), into: &out, at: 0.32, gain: 0.9)
         return out
     }
 }

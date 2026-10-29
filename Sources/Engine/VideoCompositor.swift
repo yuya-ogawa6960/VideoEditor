@@ -409,6 +409,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
     /// レタッチの顔・人物の追従(クリップごと)。renderQueue 上でのみ触る
     private let retouchRenderer = RetouchRenderer()
+    /// レタッチのパネルで動かしている途中の値(クリップごと)。合成を作り直さずに、いまの映像へそのまま効かせる。
+    /// 新しい合成(新しい VideoCompositor)に入れ替わると消える(そのときは snapshot の値が最新)。lock で守る
+    private var liveRetouchByClip: [UUID: ClipRetouch] = [:]
 
     override init() {
         super.init()
@@ -459,6 +462,19 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// レタッチの値をこの合成に直接入れる(パネルのスライダー用。nil で snapshot の値に戻す)
+    func setLiveRetouch(_ retouch: ClipRetouch?, for clipID: UUID) {
+        lock.lock()
+        liveRetouchByClip[clipID] = retouch
+        lock.unlock()
+    }
+
+    private func liveRetouch(for clipID: UUID) -> ClipRetouch? {
+        lock.lock()
+        defer { lock.unlock() }
+        return liveRetouchByClip.isEmpty ? nil : liveRetouchByClip[clipID]
     }
 
     func cancelAllPendingVideoCompositionRequests() {
@@ -642,8 +658,10 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         }
 
         // レタッチ(顔の形・メイク・体型)。切り抜き・配置の前に、向き反映済みのソースで顔を探す
-        if !layer.retouch.isIdentity {
-            image = retouchRenderer.apply(layer.retouch, to: image, clipID: layer.clipID, time: time, isStill: isStill)
+        let retouch = liveRetouch(for: layer.clipID) ?? layer.retouch
+        if !retouch.isIdentity {
+            image = retouchRenderer.apply(retouch, to: image, clipID: layer.clipID,
+                                          time: time, isStill: isStill, accurate: scene.postsFrames)
         }
 
         // 背景を消す / クロマキー(フィルタの前。元の色で判定する。書き出しはきれいな切り抜き)

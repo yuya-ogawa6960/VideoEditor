@@ -683,6 +683,13 @@ struct ContentView: View {
                 emptyStateSourceButton(String(localized: "カメラ"), systemImage: "camera") {
                     requestCameraAdd(appendAtEnd: false)
                 }
+                // 空の画面には下のパネルが無いので、黒 3 秒をそのまま入れる(入ってから編集画面で色や長さを変えられる)
+                emptyStateSourceButton(String(localized: "カラー"), systemImage: "rectangle.fill") {
+                    guard !isImporting else { return }
+                    history.record(project)
+                    importAppendsAtEnd = true
+                    insertColorScreen(hex: "#000000", seconds: 3)
+                }
                 if GoogleOAuth.isConfigured {
                     emptyStateSourceButton(String(localized: "Google フォト"), systemImage: "photo.on.rectangle.angled") {
                         requestGooglePhotosAdd(appendAtEnd: false)
@@ -833,61 +840,75 @@ struct ContentView: View {
             // iPhone Duo を開いた横持ちなど、高さに余裕がある画面ではそのぶん大きく映る)
             let previewMax: CGFloat = fullHeight
             let panelMax: CGFloat = max(160, fullHeight * 0.38)
+            // 縦長(9:16・4:5)の作品を広い画面の横持ちで開いたときは、左にプレビューを縦いっぱい、右にタイムラインとツールを置く
+            let splitPortrait: Bool = isLargeWindow && geo.size.width > geo.size.height && portraitPreviewRatio != nil
             // iPhone Duo を開いたときにツールを右の列へ(パネルを開いている間は下にパネルが出るので、列は出さない)
-            let sideToolbar: Bool = isLargeWindow && toolbarOnSide && !panelOpen
+            let sideToolbar: Bool = isLargeWindow && toolbarOnSide && !panelOpen && !splitPortrait
             // 右の列の幅: 時刻・電池などが出る右端のセーフエリアと同じ幅(狭いときは 72pt)
             let sideWidth: CGFloat = max(72, geo.safeAreaInsets.trailing)
-            // 右の列の高さ: 再生ボタンの行 + タイムライン(プレビューの下から画面の下まで)
-            let sideHeight: CGFloat = 44 + (frozenTimelineHeight ?? TimelineView.preferredHeight(for: project))
+            // 右の列はプレビューの横から画面の下まで縦いっぱいに出す。右上の時刻・電池と重ならないよう、その下から始める
+            let sideTop: CGFloat = max(0, Self.statusBarBottom() - geo.frame(in: .global).minY + 6)
+            let timelineHeight: CGFloat = frozenTimelineHeight ?? TimelineView.preferredHeight(for: project)
+            // 左のプレビューの幅: 高さいっぱいに映る幅(+ 余白)。画面の 45% まで
+            let previewWidth: CGFloat = min(geo.size.width * 0.45, fullHeight * (portraitPreviewRatio ?? 1) + 24)
+            // 右の列にパネルを開いても、タイムラインを残せるだけの高さがあるか
+            let keepsTimeline: Bool = splitPortrait && fullHeight - 44 - timelineHeight >= 240
+            let splitPanelMax: CGFloat = keepsTimeline ? max(160, fullHeight - 44 - timelineHeight - 8) : panelMax
 
-            VStack(spacing: 0) {
-                previewArea
-                    .frame(maxWidth: .infinity, minHeight: 100, maxHeight: previewMax)
-                    .background(Color.black)
-                    // ほかのアプリから落とした動画・写真は、再生位置からオーバーレイとして重ねる
-                    .onDrop(of: MediaDrop.types, isTargeted: $previewDropTargeted) { providers in
-                        handleOverlayDrop(providers)
-                    }
-                    .overlay {
-                        if previewDropTargeted, canAcceptDrop {
-                            MediaDropHighlight(title: String(localized: "オーバーレイとして追加"))
-                        }
-                    }
-                    // プレビューのタップは PreviewGestureOverlay が選択に使う(何もない所のタップは選択を外す。選択していなければ再生・一時停止)
-                    .layoutPriority(1)
-
-                if !isKeyboardVisible {
-                    if panelOpen {
-                        // パネルを開いている間はタイムラインの代わりに細いシークバーを出す(プレビューを広く保つ)。
-                        // 編集している部品の範囲はシークバーに色の帯で出す
-                        EditorScrubBar(player: player,
-                                       highlight: scrubHighlight,
-                                       canUndo: history.canUndo || undoRemovesStroke,
-                                       undoLabel: undoRemovesStroke ? String(localized: "最後の線を消す") : String(localized: "元に戻す"),
-                                       onUndo: { undoFromButton() })
-                            .padding(.horizontal, 12)
-                            .frame(height: 44)
-                    } else if sideToolbar {
-                        // 右の列にツール: 再生ボタンの行とタイムラインの右に、同じ高さの縦の列を置く。
-                        // 行ごと右端のセーフエリア(時刻などが出る列)まで広げ、列をその上に重ねる
-                        HStack(spacing: 0) {
-                            VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                if splitPortrait {
+                    previewBlock
+                        .frame(width: previewWidth, height: fullHeight)
+                    VStack(spacing: 0) {
+                        if !isKeyboardVisible {
+                            if panelOpen, !keepsTimeline {
+                                scrubBar
+                            } else {
                                 transportAndTimeline
                             }
-                            sideToolbarColumn
-                                .frame(width: sideWidth, height: sideHeight)
                         }
-                        .ignoresSafeArea(.container, edges: .trailing)
-                    } else {
-                        transportAndTimeline
+                        Spacer(minLength: 0)
+                        bottomArea(maxPanelHeight: splitPanelMax)
+                    }
+                    .frame(width: geo.size.width - previewWidth, height: fullHeight)
+                } else {
+                    VStack(spacing: 0) {
+                        previewBlock
+                            .frame(maxWidth: .infinity, minHeight: 100, maxHeight: previewMax)
+                            // プレビューのタップは PreviewGestureOverlay が選択に使う(何もない所のタップは選択を外す。選択していなければ再生・一時停止)
+                            .layoutPriority(1)
+
+                        if !isKeyboardVisible {
+                            if panelOpen {
+                                // パネルを開いている間はタイムラインの代わりに細いシークバーを出す(プレビューを広く保つ)
+                                scrubBar
+                            } else {
+                                transportAndTimeline
+                            }
+                        }
+
+                        if !sideToolbar {
+                            bottomArea(maxPanelHeight: panelMax)
+                        }
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+
+                    if sideToolbar {
+                        // 右の列にツール: プレビューの横から画面の下まで、右端のセーフエリア(時刻などが出る列)に縦の列を重ねる
+                        sideToolbarColumn
+                            .padding(.top, sideTop)
+                            .frame(width: sideWidth, height: geo.size.height, alignment: .top)
+                            .background {
+                                ZStack {
+                                    Color.black
+                                    BrandStyle.surface
+                                }
+                            }
                     }
                 }
-
-                if !sideToolbar {
-                    bottomArea(maxPanelHeight: panelMax)
-                }
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .frame(width: geo.size.width + (sideToolbar ? sideWidth : 0), height: geo.size.height, alignment: .leading)
+            .ignoresSafeArea(.container, edges: sideToolbar ? .trailing : [])
             // クリップを動かし始めたら、そのときの高さでタイムラインを固定する。終わったら新しい高さへなめらかに戻す
             .onChange(of: timeline.isEditing) { _, editing in
                 if editing {
@@ -960,6 +981,47 @@ struct ContentView: View {
             }
     }
 
+    /// 縦長の作品の幅 ÷ 高さ(9:16 なら 0.5625)。縦長でなければ nil。「元のまま」は映像の大きさで決める
+    private var portraitPreviewRatio: CGFloat? {
+        if let ratio = project.canvas.aspect.ratio { return ratio < 1 ? ratio : nil }
+        let size = player.renderSize
+        guard size.width > 0, size.height > size.width else { return nil }
+        return size.width / size.height
+    }
+
+    /// プレビュー(ほかのアプリから落とした動画・写真を、再生位置からオーバーレイとして重ねる受け口つき)
+    private var previewBlock: some View {
+        previewArea
+            .background(Color.black)
+            .onDrop(of: MediaDrop.types, isTargeted: $previewDropTargeted) { providers in
+                handleOverlayDrop(providers)
+            }
+            .overlay {
+                if previewDropTargeted, canAcceptDrop {
+                    MediaDropHighlight(title: String(localized: "オーバーレイとして追加"))
+                }
+            }
+    }
+
+    /// パネルを開いている間にタイムラインの代わりに出す細いシークバー。編集している部品の範囲は色の帯で出す
+    private var scrubBar: some View {
+        EditorScrubBar(player: player,
+                       highlight: scrubHighlight,
+                       canUndo: history.canUndo || undoRemovesStroke,
+                       undoLabel: undoRemovesStroke ? String(localized: "最後の線を消す") : String(localized: "元に戻す"),
+                       onUndo: { undoFromButton() })
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+    }
+
+    /// 右上の時刻・電池(ステータスバー)の下端(ウインドウ座標)。出ていなければ 0
+    private static func statusBarBottom() -> CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
+              let manager = scene.statusBarManager, !manager.isStatusBarHidden else { return 0 }
+        return manager.statusBarFrame.maxY
+    }
+
     /// iPhone Duo を開いたときの右の列のツール(下のツールバーと同じ項目を縦に並べる)
     private var sideToolbarColumn: some View {
         toolConfirmationDialogs(
@@ -1016,6 +1078,71 @@ struct ContentView: View {
         importAppendsAtEnd = appendAtEnd
         player.pause()
         showCameraRecorder = true
+    }
+
+    /// 「カラーの画面」(EditorColorScreenPanel)。色と長さを選んだら insertColorScreen で差し込む
+    private func requestColorScreenAdd(appendAtEnd: Bool) {
+        guard !isImporting else { return }
+        importAppendsAtEnd = appendAtEnd
+        player.pause()
+        selection = nil
+        openPanel(.colorScreen)
+    }
+
+    /// 単色の PNG(作品の大きさ)を Media フォルダに作り、写真と同じ静止画クリップとして
+    /// 再生位置のクリップの後ろ(末尾の「+」からのときと、クリップが無いときは末尾)に差し込む
+    private func insertColorScreen(hex: String, seconds: Double) {
+        let appendAtEnd = importAppendsAtEnd
+        importAppendsAtEnd = false
+        let snapshot = project.snapshot()
+        var size = CompositionBuilder.renderSize(for: snapshot, purpose: .export)
+        if !(size.width >= 16 && size.height >= 16) { size = CGSize(width: 1920, height: 1080) }
+        let color = UIColor(EditorColorHex.color(hex))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            color.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+        let clean = hex.uppercased().replacingOccurrences(of: "#", with: "")
+        let destination = MediaStore.uniqueDestination(forFileName: "カラー \(clean).png")
+        do {
+            guard let data = image.pngData() else { throw MediaStoreError.unreadableImage("PNG") }
+            try data.write(to: destination, options: .atomic)
+            var clip = try makeStillClip(from: destination)
+            clip.name = String(localized: "カラー") + " #" + clean
+            clip.endTime = max(0.2, seconds)
+            // 差し込む位置: 再生位置のクリップの後ろ(それ以外は末尾)。後ろの部品(字幕・BGM など)も差し込んだ長さだけずらす
+            var insertAt: Int? = nil
+            if !appendAtEnd, !project.clips.isEmpty,
+               let location = project.locate(timelineTime: player.currentTime), location.index < project.clips.count {
+                insertAt = location.index + 1
+            }
+            let rippleTime: Double? = insertAt.flatMap { i in
+                i < project.clips.count ? project.outputRange(ofClip: project.clips[i].id)?.start : nil
+            }
+            let durationBefore = project.layoutDuration
+            // 履歴はパネルを開いたときに記録済み(openPanel)
+            if let i = insertAt, i <= project.clips.count {
+                project.clips.insert(clip, at: i)
+            } else {
+                project.clips.append(clip)
+            }
+            if let rippleTime {
+                project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
+            }
+            trackMediaAdd(target: "clip", source: "color", count: 1)
+            activePanel = nil
+            selection = .clip(clip.id)
+            if let range = project.outputRange(ofClip: clip.id) {
+                player.seek(to: range.start + 0.02)
+            }
+            showToast(String(localized: "カラーの画面を差し込みました"), undo: true)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            alertMessage = String(localized: "カラーの画面を作れませんでした。\n\(error.localizedDescription)")
+        }
     }
 
     /// Google フォトから追加する
@@ -1409,6 +1536,10 @@ struct ContentView: View {
             } else {
                 EditorMissingPanelContent()
             }
+        case .colorScreen:
+            EditorColorScreenPanel { hex, seconds in
+                insertColorScreen(hex: hex, seconds: seconds)
+            }
         case .sticker:
             EditorStickerPanel(onPick: { emoji in
                 addSticker(emoji)
@@ -1586,7 +1717,7 @@ struct ContentView: View {
             }
         case .retouch(let clipID):
             if let clip = project.clipBinding(id: clipID) {
-                EditorRetouchPanel(clip: clip)
+                EditorRetouchPanel(clip: clip, player: player)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1850,6 +1981,9 @@ struct ContentView: View {
         sourceMenu.append(EditorToolMenuEntry(String(localized: "カメラで撮る"), systemImage: "camera") {
             requestCameraAdd(appendAtEnd: false)
         })
+        sourceMenu.append(EditorToolMenuEntry(String(localized: "カラーの画面"), systemImage: "rectangle.fill") {
+            requestColorScreenAdd(appendAtEnd: false)
+        })
         if GoogleOAuth.isConfigured {
             sourceMenu.append(EditorToolMenuEntry(String(localized: "Google フォト"), systemImage: "photo.on.rectangle.angled") {
                 requestGooglePhotosAdd(appendAtEnd: false)
@@ -1913,9 +2047,22 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "名前テロップ"), systemImage: "person.text.rectangle") {
             addLowerThirdAtPlayhead()
         })
-        items.append(EditorToolItem(String(localized: "章タイトル"), systemImage: "text.below.photo") {
-            addTitleCardAtPlayhead()
-        })
+        // 章タイトルはテロップ(テキスト)として入れる(テキストのレーンに乗り、動かす・伸ばす・見た目を変えるが普通のテロップと同じ)。
+        // 以前の黒い画面の章タイトルが残っているプロジェクトでは、長押しからそちらの編集も開ける
+        var chapter = EditorToolItem(String(localized: "章タイトル"), systemImage: "text.below.photo") {
+            addChapterTitleTelop()
+        }
+        if !project.titleCards.isEmpty {
+            chapter = chapter.withMenu([
+                EditorToolMenuEntry(String(localized: "テロップで章タイトルを入れる"), systemImage: "textformat") {
+                    addChapterTitleTelop()
+                },
+                EditorToolMenuEntry(String(localized: "以前の章タイトル(黒い画面)を編集"), systemImage: "rectangle.on.rectangle") {
+                    addTitleCardAtPlayhead()
+                },
+            ])
+        }
+        items.append(chapter)
         items.append(EditorToolItem(String(localized: "ステッカー"), systemImage: "face.smiling") {
             openPanel(.sticker)
         })
@@ -2117,6 +2264,12 @@ struct ContentView: View {
                                     enabled: !isImporting,
                                     disabledReason: Self.importingReason) {
             requestCameraAdd(appendAtEnd: false)
+        })
+        // 単色の画面(黒・白など)を静止画クリップとして差し込む(章タイトルの下地・場面の切り替えなど)
+        items.append(EditorToolItem(String(localized: "カラーの画面"), systemImage: "rectangle.fill", id: "root-color-screen",
+                                    enabled: !isImporting,
+                                    disabledReason: Self.importingReason) {
+            requestColorScreenAdd(appendAtEnd: false)
         })
         items.append(EditorToolItem(String(localized: "マーカー"), systemImage: "flag") {
             addMarkerAtPlayhead()
@@ -3625,7 +3778,34 @@ struct ContentView: View {
 
     // MARK: 章タイトル / テロップ
 
-    /// 再生位置に章タイトルを追加して編集パネルを開く
+    /// 再生位置に章タイトルのテロップ(2 行: 第n章 / タイトル)を入れて、テキストの編集パネルを開く。
+    /// 黒い画面に出したいときは「カラーの画面」で黒を差し込んで、その上に乗せる
+    private func addChapterTitleTelop() {
+        let before = project.snapshot()
+        history.record(project)
+        let start = frameAligned(player.currentTime)
+        // 何番目の章か(言語に依らないよう、章タイトルとして入れた「見出し」テンプレのテロップを数える)
+        let n = project.textClips.filter { $0.template == .headline && !$0.isSticker && $0.mosaic == nil }.count + 1
+        var clip = TextClip(text: String(localized: "第\(n)章") + "\n" + String(localized: "タイトル"), start: start)
+        clip.duration = 3
+        clip.template = .headline
+        clip.style = TextStyle.preset(.headline)
+        clip.style.sizeRatio = max(clip.style.sizeRatio, 0.085)
+        clip.style.alignment = .center
+        clip.widthRatio = 0.9
+        clip.center = .center
+        clip.animIn = .fade
+        clip.animOut = .fade
+        project.textClips.append(clip)
+        project.sortTextClips()
+        selection = .text(clip.id)
+        // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻る
+        panelSnapshot = before
+        activePanel = .textStyle(clip.id)
+        player.seek(to: start)
+    }
+
+    /// 再生位置に(以前の黒い画面の)章タイトルを追加して編集パネルを開く
     private func addTitleCardAtPlayhead() {
         let before = project.snapshot()
         history.record(project)

@@ -10,13 +10,15 @@ import AVFoundation
 
 /// 効果音の分類(パネルのタブ)
 enum SoundEffectCategory: String, CaseIterable, Identifiable {
-    case motion, pop, sparkle, impact, daily
+    // 「ネタ・リアクション」は見つけやすいよう 2 番目(先頭の「動き」はパネルの初期値)
+    case motion, meme, pop, sparkle, impact, daily
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .motion: return String(localized: "動き")
+        case .meme: return String(localized: "ネタ・リアクション")
         case .pop: return String(localized: "ポップ")
         case .sparkle: return String(localized: "キラキラ")
         case .impact: return String(localized: "衝撃")
@@ -37,6 +39,9 @@ enum SoundEffectKind: String, CaseIterable, Identifiable {
     case impact, drum, cymbal, heartbeat, glitch
     // 日常
     case shutter, typing, notification
+    // ネタ・リアクション(ショート動画でよく使われる音)
+    case sadTrombone, vineBoom, dramatic, recordScratch, jajaan, correct, wrong
+    case drumRoll, crickets, applause, tada, rimshot
 
     var id: String { rawValue }
 
@@ -64,6 +69,18 @@ enum SoundEffectKind: String, CaseIterable, Identifiable {
         case .shutter: return String(localized: "カシャ")
         case .typing: return String(localized: "カタカタ(タイピング)")
         case .notification: return String(localized: "ピコン(通知)")
+        case .sadTrombone: return String(localized: "ファーファーファーファー(残念)")
+        case .vineBoom: return String(localized: "ドゥーン(ブーム)")
+        case .dramatic: return String(localized: "ドゥーン(緊迫)")
+        case .recordScratch: return String(localized: "キュッ(レコード)")
+        case .jajaan: return String(localized: "ジャジャーン")
+        case .correct: return String(localized: "ピンポーン(正解)")
+        case .wrong: return String(localized: "ブッブー(不正解)")
+        case .drumRoll: return String(localized: "ドロロロ(ドラムロール)")
+        case .crickets: return String(localized: "シーン(コオロギ)")
+        case .applause: return String(localized: "パチパチ(拍手)")
+        case .tada: return String(localized: "ジャーン(タダー)")
+        case .rimshot: return String(localized: "バダム・ツ(リムショット)")
         }
     }
 
@@ -74,6 +91,8 @@ enum SoundEffectKind: String, CaseIterable, Identifiable {
         case .kira, .sparkle, .bell, .success: return .sparkle
         case .impact, .drum, .cymbal, .heartbeat, .glitch: return .impact
         case .shutter, .typing, .notification: return .daily
+        case .sadTrombone, .vineBoom, .dramatic, .recordScratch, .jajaan, .correct, .wrong,
+             .drumRoll, .crickets, .applause, .tada, .rimshot: return .meme
         }
     }
 }
