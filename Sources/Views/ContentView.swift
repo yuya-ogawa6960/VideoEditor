@@ -1989,6 +1989,17 @@ struct ContentView: View {
                 requestGooglePhotosAdd(appendAtEnd: false)
             })
         }
+        // 冒頭フック(見どころを先頭にコピー)も「足すもの」としてここから選べる。
+        // 長押しメニューは項目を無効にできないので、使えないときは理由をトーストで出す
+        sourceMenu.append(EditorToolMenuEntry(String(localized: "冒頭フック"), systemImage: "bolt.fill") {
+            if project.clips.isEmpty {
+                showToast(String(localized: "先に動画を追加してください"), style: .warning)
+            } else if analysis.isRunning {
+                showToast(Self.analysisBusyReason, style: .warning)
+            } else {
+                insertColdOpen()
+            }
+        })
         items.append(EditorToolItem(String(localized: "動画・写真を追加"), systemImage: "plus.rectangle.on.rectangle",
                                     enabled: !isImporting,
                                     disabledReason: Self.importingReason) {
