@@ -91,6 +91,8 @@ struct ExportFeedbackCard: View {
                             withAnimation { step = .thanks }
                         } label: {
                             Label("使いやすかった", systemImage: "hand.thumbsup")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
                                 .frame(maxWidth: .infinity, minHeight: 36)
                         }
                         .buttonStyle(.bordered)
@@ -98,6 +100,8 @@ struct ExportFeedbackCard: View {
                             withAnimation { step = .reasons }
                         } label: {
                             Label("迷った", systemImage: "hand.thumbsdown")
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
                                 .frame(maxWidth: .infinity, minHeight: 36)
                         }
                         .buttonStyle(.bordered)

@@ -39,6 +39,8 @@ struct ContentView: View {
     @State private var activeSheet: EditorSheet?
     /// 字幕のシートを開いたときに開いて見せる場所(「キャプションを翻訳」から)。シートを閉じたら忘れる
     @State private var subtitleSheetSection: SubtitleEditorSection?
+    /// 「文字起こしで編集」のシート(TranscriptEditView)
+    @State private var showTranscriptEdit = false
 
     @State private var pickerItems: [PhotosPickerItem] = []
     /// 「オーバーレイ」で選んだ動画・写真
@@ -72,10 +74,15 @@ struct ContentView: View {
     }
     /// iPhone Duo を開いたとき、下のツールを右の列(時刻などが出る列)に縦に並べる(アプリの設定・ツールバーの「設定」から切り替え)
     @AppStorage("editor.toolbarOnSide") private var toolbarOnSide = false
+    /// SNS の表示ガイド(TikTok などのボタンが重なる範囲をプレビューに出す。SafeZoneModels.swift)
+    @AppStorage("safeZoneGuide") private var safeZoneGuide: SafeZoneGuide = SafeZoneGuide.none
     @State private var showClearProjectConfirm = false
     /// 無音カットのテンポを選ぶ
     @State private var showSilenceCutConfirm = false
     @State private var showPunchInDialog = false
+    /// 「調整を全クリップに適用」の確認(元になるクリップ。LookClipboard.swift)
+    @State private var showLookApplyAllConfirm = false
+    @State private var lookApplyAllClipID: UUID?
     /// 無音カット・音量そろえの進捗(nil なら実行中でない)
     @State private var audioToolProgress: AudioToolProgress?
     @State private var audioToolTask: Task<Void, Never>?
@@ -112,6 +119,8 @@ struct ContentView: View {
     @State private var termReplacement: CaptionTermReplacement?
     /// 1.5: タイムラインの「+」から開く PhotosPicker
     @State private var showMediaPicker = false
+    /// 「カメラで撮る」(CameraRecorderView。撮った動画は「ファイル」からの追加と同じ道で取り込む)
+    @State private var showCameraRecorder = false
     /// タイムライン末尾の「+」から追加したときは末尾に足す(それ以外は再生位置のクリップの後ろに差し込む)
     @State private var importAppendsAtEnd = false
     /// ドロップで差し込む位置(タイムラインに落としたとき。importLocalFiles が一度だけ使う)
@@ -137,6 +146,9 @@ struct ContentView: View {
     @State private var incomingCheckAttempts = 0
     /// タイムラインの「+」から開くオーバーレイの PhotosPicker
     @State private var showOverlayPicker = false
+    /// ステッカーパネルの「GIF を読み込む」(写真ライブラリ / 「ファイル」。どちらもオーバーレイとして入る)
+    @State private var showGIFPhotoPicker = false
+    @State private var showGIFFileImporter = false
 
     init(projectID: UUID, onClose: @escaping (_ wasImporting: Bool) -> Void) {
         self.projectID = projectID
@@ -202,6 +214,13 @@ struct ContentView: View {
             if let progress = mediaToolProgress {
                 ClipFXProgressOverlay(progress: progress) {
                     mediaToolTask?.cancel()
+                }
+            }
+
+            // なめらかスローの作成中(FlowSlowControls.swift)
+            if let progress = FlowSlowJobs.shared.progress {
+                ClipFXProgressOverlay(progress: progress) {
+                    FlowSlowJobs.shared.cancel()
                 }
             }
 
@@ -304,6 +323,21 @@ struct ContentView: View {
         .sheet(item: $activeSheet) { sheet in
             sheetContent(for: sheet)
         }
+        .fullScreenCover(isPresented: $showCameraRecorder) {
+            // 「カメラで撮る」。撮った動画は「ファイル」から追加したときと同じ道で Media フォルダへ取り込む(一時ファイルは取り込み後に消す)
+            CameraRecorderView(aspect: project.canvas.aspect) { url in
+                importSourceOverride = "camera"
+                startLocalImport([url], securityScoped: false, deleteSourcesAfter: true)
+            }
+        }
+        // 文字起こしで編集(開くときに履歴を記録し、何も消さずに閉じたらその記録を捨てる)
+        .sheet(isPresented: $showTranscriptEdit, onDismiss: { history.discardLastIfUnchanged(project) }) {
+            TranscriptEditView(project: project, player: player,
+                               onOpenCaptions: { history.record(project); activeSheet = .subtitles },
+                               onFinished: { count, seconds in
+                                   showToast(String(localized: "文字起こしで \(count) か所・\(String(format: "%.1f", seconds)) 秒を削除しました"), undo: true)
+                               })
+        }
         .onChange(of: activeSheet) { previous, sheet in
             if let sheet {
                 Analytics.shared.track("sheet", ["name": Self.analyticsName(of: sheet)])
@@ -364,6 +398,15 @@ struct ContentView: View {
                               allowedContentTypes: [.movie, .image],
                               allowsMultipleSelection: true) { result in
                     handleFileImport(result)
+                }
+        }
+        // ステッカーパネルの「GIF を読み込む」→「ファイルから選ぶ」(オーバーレイとして入る)
+        .background {
+            Color.clear
+                .fileImporter(isPresented: $showGIFFileImporter,
+                              allowedContentTypes: [.gif],
+                              allowsMultipleSelection: true) { result in
+                    handleGIFFileImport(result)
                 }
         }
         .alert("共有で受け取った動画・写真が \(incomingPromptCount)件あります", isPresented: $showIncomingPrompt) {
@@ -637,6 +680,9 @@ struct ContentView: View {
                 emptyStateSourceButton(String(localized: "ファイル"), systemImage: "folder") {
                     requestFileAdd(appendAtEnd: false)
                 }
+                emptyStateSourceButton(String(localized: "カメラ"), systemImage: "camera") {
+                    requestCameraAdd(appendAtEnd: false)
+                }
                 if GoogleOAuth.isConfigured {
                     emptyStateSourceButton(String(localized: "Google フォト"), systemImage: "photo.on.rectangle.angled") {
                         requestGooglePhotosAdd(appendAtEnd: false)
@@ -708,6 +754,8 @@ struct ContentView: View {
             range = project.textClips.first(where: { $0.id == textID }).map { (start: $0.start, end: $0.start + $0.duration) }
         case .drawing(let drawingID):
             range = project.drawings.first(where: { $0.id == drawingID }).map { (start: $0.start, end: $0.start + $0.duration) }
+        case .videoEffect(let effectID):
+            range = project.videoEffects.first(where: { $0.id == effectID }).map { (start: $0.start, end: $0.end) }
         case .bgm, .marker:
             range = nil
         }
@@ -769,6 +817,11 @@ struct ContentView: View {
                                               openPanel(item.isMosaic ? .mosaic(textID) : .textStyle(textID))
                                           })
                 }
+            }
+            // SNS の表示ガイド(TikTok などのボタンが重なる範囲)。プレビューだけで、書き出しには影響しない
+            .overlay {
+                SafeZonePreviewLayer(guide: $safeZoneGuide, project: project,
+                                     renderSize: player.renderSize, showsButton: !isDrawingNew)
             }
     }
 
@@ -851,6 +904,14 @@ struct ContentView: View {
                       maxSelectionCount: nil,
                       selectionBehavior: .ordered,
                       matching: .any(of: [.videos, .images]),
+                      preferredItemEncoding: .current,
+                      photoLibrary: .shared())
+        // ステッカーパネルの「GIF を読み込む」→「写真から選ぶ」(画像だけ。GIF 以外の写真も写真オーバーレイになる)
+        .photosPicker(isPresented: $showGIFPhotoPicker,
+                      selection: $overlayPickerItems,
+                      maxSelectionCount: nil,
+                      selectionBehavior: .ordered,
+                      matching: .images,
                       preferredItemEncoding: .current,
                       photoLibrary: .shared())
         // 字幕を 1 件直したら、ほかの字幕の同じ言葉もまとめて直すか聞く(「カフェ小川」→「CAFE OGAWA」など)
@@ -947,6 +1008,14 @@ struct ContentView: View {
         guard !isImporting else { return }
         importAppendsAtEnd = appendAtEnd
         showFileImporter = true
+    }
+
+    /// 「カメラで撮る」(CameraRecorderView)。撮った動画は「ファイル」から追加したときと同じように Media フォルダへコピーして足す
+    private func requestCameraAdd(appendAtEnd: Bool) {
+        guard !isImporting else { return }
+        importAppendsAtEnd = appendAtEnd
+        player.pause()
+        showCameraRecorder = true
     }
 
     /// Google フォトから追加する
@@ -1047,6 +1116,18 @@ struct ContentView: View {
             }
             Button("キャンセル", role: .cancel) {}
         }
+        // このクリップの調整をほかの全クリップに写す(各クリップの HSL・LUT も置き換わる。トーストの「元に戻す」で戻せる)
+        .confirmationDialog("すべてのクリップに調整を適用しますか?",
+                            isPresented: $showLookApplyAllConfirm,
+                            titleVisibility: .visible) {
+            Button("全クリップに適用") {
+                if let clipID = lookApplyAllClipID { applyLookToAllClips(from: clipID) }
+                lookApplyAllClipID = nil
+            }
+            Button("キャンセル", role: .cancel) { lookApplyAllClipID = nil }
+        } message: {
+            Text("カラープリセット・カラー補正・HSL・LUT がほかのクリップの設定と置き換わります。")
+        }
     }
 
     /// 全クリップとナレーションの音量をそろえる(確認なし。トーストの「元に戻す」で戻せる)
@@ -1100,6 +1181,8 @@ struct ContentView: View {
             guard let i = project.markers.firstIndex(where: { $0.id == markerID }) else { return nil }
             let name = project.markers[i].name
             return name.isEmpty ? String(localized: "マーカー\(i + 1)") : name
+        case .videoEffect(let effectID):
+            return project.videoEffects.first(where: { $0.id == effectID })?.type.displayName
         }
     }
 
@@ -1296,7 +1379,7 @@ struct ContentView: View {
         // ---- 第3弾: テキスト ----
         case .textStyle(let textID):
             if let text = project.textClipBinding(id: textID) {
-                EditorTextStylePanel(text: text)
+                EditorTextStylePanel(text: text, project: project, history: history)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1327,9 +1410,11 @@ struct ContentView: View {
                 EditorMissingPanelContent()
             }
         case .sticker:
-            EditorStickerPanel { emoji in
+            EditorStickerPanel(onPick: { emoji in
                 addSticker(emoji)
-            }
+            }, onPickVector: { kind in
+                addVectorSticker(kind)
+            }, onPickGIFFromPhotos: { showGIFPhotoPicker = true }, onPickGIFFromFiles: { showGIFFileImporter = true })
 
         // ---- 第3弾: オーバーレイ ----
         case .overlayPlacement(let overlayID):
@@ -1493,6 +1578,24 @@ struct ContentView: View {
             } else {
                 EditorMissingPanelContent()
             }
+        case .subjectFlash(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorSubjectFlashPanel(clip: clip, project: project, player: player)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .retouch(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorRetouchPanel(clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .clipKeyframes(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorClipKeyframePanel(project: project, player: player, clip: clip)
+            } else {
+                EditorMissingPanelContent()
+            }
         case .parallax(let clipID):
             if let clip = project.clipBinding(id: clipID) {
                 EditorClipParallaxPanel(clip: clip)
@@ -1510,6 +1613,19 @@ struct ContentView: View {
         case .overlayParallax(let overlayID):
             if let overlay = project.overlayBinding(id: overlayID) {
                 EditorOverlayParallaxPanel(overlay: overlay)
+            } else {
+                EditorMissingPanelContent()
+            }
+        // 背景を消す / クロマキー
+        case .backgroundRemoval(let clipID):
+            if let clip = project.clipBinding(id: clipID) {
+                EditorClipBackgroundRemovalPanel(clip: clip, project: project, player: player)
+            } else {
+                EditorMissingPanelContent()
+            }
+        case .overlayBackgroundRemoval(let overlayID):
+            if let overlay = project.overlayBinding(id: overlayID) {
+                EditorOverlayBackgroundRemovalPanel(overlay: overlay, player: player)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1548,6 +1664,26 @@ struct ContentView: View {
                                         history: history,
                                         analysis: analysis,
                                         onApplied: { afterProjectReplaced() })
+        case .soundEffects:
+            // 追加しても選択は変えない(続けていくつも入れられるように)
+            EditorSoundEffectsPanel(project: project,
+                                    player: player,
+                                    history: history)
+        case .dubbing:
+            EditorDubbingPanel(project: project,
+                               player: player,
+                               history: history,
+                               analysis: analysis)
+        case .videoEffectAdd:
+            EditorVideoEffectAddPanel { type in
+                addVideoEffect(type)
+            }
+        case .videoEffect(let effectID):
+            if let effect = project.videoEffectBinding(id: effectID) {
+                EditorVideoEffectPanel(effect: effect, totalDuration: project.layoutDuration, player: player)
+            } else {
+                EditorMissingPanelContent()
+            }
         }
     }
 
@@ -1662,6 +1798,7 @@ struct ContentView: View {
             return project.textClips.first(where: { $0.id == id })?.isMosaic == true ? String(localized: "モザイクの編集") : String(localized: "テキストの編集")
         case .drawing: return String(localized: "手書きの編集")
         case .marker: return String(localized: "マーカーの編集")
+        case .videoEffect: return String(localized: "エフェクトの編集")
         }
     }
 
@@ -1685,6 +1822,8 @@ struct ContentView: View {
             return drawingItems(drawingID)
         case .marker(let markerID):
             return markerItems(markerID)
+        case .videoEffect(let effectID):
+            return videoEffectItems(effectID)
         }
     }
 
@@ -1707,6 +1846,9 @@ struct ContentView: View {
         var sourceMenu: [EditorToolMenuEntry] = []
         sourceMenu.append(EditorToolMenuEntry(String(localized: "ファイル"), systemImage: "folder") {
             requestFileAdd(appendAtEnd: false)
+        })
+        sourceMenu.append(EditorToolMenuEntry(String(localized: "カメラで撮る"), systemImage: "camera") {
+            requestCameraAdd(appendAtEnd: false)
         })
         if GoogleOAuth.isConfigured {
             sourceMenu.append(EditorToolMenuEntry(String(localized: "Google フォト"), systemImage: "photo.on.rectangle.angled") {
@@ -1738,6 +1880,12 @@ struct ContentView: View {
         items.append(EditorToolItem.addOverlay(String(localized: "オーバーレイ"), systemImage: "photo.on.rectangle",
                                                enabled: !isImporting,
                                                disabledReason: Self.importingReason))
+        // 画面全体にかける映像エフェクト(揺れ・VHS・キラキラなど)。タイムラインに部品として置く
+        items.append(EditorToolItem(String(localized: "映像エフェクト"), systemImage: "camera.filters", id: "root-video-effects",
+                                    enabled: !project.clips.isEmpty,
+                                    disabledReason: String(localized: "先に動画を追加してください")) {
+            openPanel(.videoEffectAdd)
+        })
         items.append(EditorToolItem.group(String(localized: "エフェクト"), systemImage: "sparkles", id: "group-effects",
                                           items: effectGroupItems))
         items.append(EditorToolItem.more(rootMoreItems))
@@ -1759,6 +1907,9 @@ struct ContentView: View {
             history.record(project)
             activeSheet = .subtitles
         })
+        items.append(EditorToolItem(String(localized: "文字起こしで編集"), systemImage: "strikethrough", id: "text-transcript-edit") {
+            openTranscriptEdit()
+        })
         items.append(EditorToolItem(String(localized: "名前テロップ"), systemImage: "person.text.rectangle") {
             addLowerThirdAtPlayhead()
         })
@@ -1771,7 +1922,7 @@ struct ContentView: View {
         return items
     }
 
-    /// オーディオ: BGM / ボイスオーバー録音 / AI読み上げ / 音声抽出
+    /// オーディオ: BGM / ボイスオーバー録音 / AI読み上げ / 効果音 / 音声抽出
     private var audioGroupItems: [EditorToolItem] {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem("BGM", systemImage: "music.note") {
@@ -1783,6 +1934,9 @@ struct ContentView: View {
         })
         items.append(EditorToolItem(String(localized: "AI読み上げ"), systemImage: "waveform.badge.mic") {
             openPanel(.textToSpeech)
+        })
+        items.append(EditorToolItem(String(localized: "効果音"), systemImage: "bell.and.waves.left.and.right") {
+            openPanel(.soundEffects)
         })
         let extractBusy = isImporting || mediaToolProgress != nil
         items.append(EditorToolItem.extractAudio(String(localized: "音声抽出"), systemImage: "waveform.badge.plus",
@@ -1857,6 +2011,10 @@ struct ContentView: View {
                                     disabledReason: needCaptions) {
             cutFillers()
         })
+        items.append(EditorToolItem(String(localized: "文字起こしで編集"), systemImage: "strikethrough", id: "ai-transcript-edit",
+                                    enabled: !noClips, disabledReason: needClips) {
+            openTranscriptEdit()
+        })
         items.append(EditorToolItem(String(localized: "冒頭フック"), systemImage: "bolt.fill", id: "ai-coldopen",
                                     enabled: !running && !noClips, disabledReason: noClips ? needClips : Self.analysisBusyReason) {
             insertColdOpen()
@@ -1899,6 +2057,11 @@ struct ContentView: View {
             // キャプションのシートを「翻訳」を開いた状態で出す
             subtitleSheetSection = .translate
             activeSheet = .subtitles
+        })
+        items.append(EditorToolItem(String(localized: "吹き替え"), systemImage: "person.wave.2.fill", id: "ai-dubbing",
+                                    enabled: !project.subtitles.isEmpty && !running,
+                                    disabledReason: project.subtitles.isEmpty ? needCaptions : Self.analysisBusyReason) {
+            openPanel(.dubbing)
         })
         items.append(EditorToolItem(String(localized: "おまかせテンプレ"), systemImage: "square.grid.2x2",
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
@@ -1949,6 +2112,12 @@ struct ContentView: View {
                                     disabledReason: Self.importingReason) {
             requestFileAdd(appendAtEnd: false)
         })
+        // カメラで撮ってそのまま足す(テレプロンプターつき。「動画・写真を追加」の長押しと同じ)
+        items.append(EditorToolItem(String(localized: "カメラで撮る"), systemImage: "camera",
+                                    enabled: !isImporting,
+                                    disabledReason: Self.importingReason) {
+            requestCameraAdd(appendAtEnd: false)
+        })
         items.append(EditorToolItem(String(localized: "マーカー"), systemImage: "flag") {
             addMarkerAtPlayhead()
         })
@@ -1977,6 +2146,16 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "動画の置き場所"), systemImage: mediaMode == .photoLibrary ? "photo.on.rectangle" : "internaldrive") {
             isChoosingMediaMode = true
         })
+        // SNS の表示ガイド: タップで なし → TikTok → Reels → Shorts → すべて の順に切り替え、長押しで直接選ぶ(プレビュー左上のボタンと同じ)
+        items.append(EditorToolItem(String(localized: "表示ガイド"), systemImage: "rectangle.dashed", id: "safe-zone-guide") {
+            safeZoneGuide = safeZoneGuide.next
+            showToast(safeZoneGuide.isOn ? String(localized: "\(safeZoneGuide.title)の表示ガイドを出しました")
+                                         : String(localized: "表示ガイドを消しました"), style: .info)
+        }.withMenu(SafeZoneGuide.allCases.map { guide in
+            EditorToolMenuEntry(guide.title, systemImage: guide == safeZoneGuide ? "checkmark" : "rectangle.dashed") {
+                safeZoneGuide = guide
+            }
+        }))
         // iPhone Duo を開いたときだけ: 下のツールを右の列に置く / 下に戻す(設定の「Duo を開いたときはツールを右に」と同じ)
         if isLargeWindow {
             items.append(EditorToolItem(toolbarOnSide ? String(localized: "ツールを下に戻す") : String(localized: "ツールを右に置く"),
@@ -2006,6 +2185,13 @@ struct ContentView: View {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem(String(localized: "スプリット"), systemImage: "square.split.2x1") {
             splitClip(clipID)
+        })
+        // 分割を戻す: 次のクリップが同じ素材の続きのときだけ(ClipRejoin.swift)
+        let canRejoin = project.index(of: clipID).map { ClipRejoin.canRejoin(project.clips, at: $0) } ?? false
+        items.append(EditorToolItem(String(localized: "分割を戻す"), systemImage: "arrow.right.and.line.vertical.and.arrow.left",
+                                    enabled: canRejoin,
+                                    disabledReason: String(localized: "次のクリップが同じ素材の続きではありません")) {
+            rejoinClip(clipID)
         })
         items.append(EditorToolItem(String(localized: "リップル削除"), systemImage: "trash", destructive: true) {
             deleteClip(clipID)
@@ -2070,6 +2256,9 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "画質補正"), systemImage: "sparkles.tv", id: "clip-ai-quality") {
             openPanel(.enhance(clipID))
         })
+        items.append(EditorToolItem(String(localized: "レタッチ"), systemImage: "face.smiling", id: "clip-ai-retouch") {
+            openPanel(.retouch(clipID))
+        })
         items.append(EditorToolItem(String(localized: "顔に自動モザイク"), systemImage: "face.dashed", id: "clip-ai-faces",
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
             autoMosaicFaces()
@@ -2090,6 +2279,9 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "アニメーション"), systemImage: "sparkles.rectangle.stack") {
             openPanel(.clipAnimation(clipID))
         })
+        items.append(EditorToolItem(String(localized: "キーフレーム"), systemImage: "diamond", id: "clip-keyframes") {
+            openPanel(.clipKeyframes(clipID))
+        })
         if !isStill {
             items.append(EditorToolItem(String(localized: "オートリフレーム"), systemImage: "person.crop.rectangle") {
                 openPanel(.autoReframe(clipID))
@@ -2100,6 +2292,22 @@ struct ContentView: View {
         }
         items.append(EditorToolItem(String(localized: "マスク"), systemImage: "circle.dashed") {
             openPanel(.mask(clipID))
+        })
+        // 背景を消す / クロマキー(同じパネル。オフなら押した方の方法で始める。キャンセルで戻る)
+        items.append(EditorToolItem(String(localized: "背景を消す"), systemImage: "person.and.background.dotted", id: "clip-bg-removal") {
+            openPanel(.backgroundRemoval(clipID))
+            if let i = project.index(of: clipID), !project.clips[i].backgroundRemoval.isActive {
+                project.clips[i].backgroundRemoval.mode = .auto
+            }
+        })
+        items.append(EditorToolItem(String(localized: "クロマキー"), systemImage: "eyedropper", id: "clip-chroma-key") {
+            openPanel(.backgroundRemoval(clipID))
+            if let i = project.index(of: clipID), !project.clips[i].backgroundRemoval.isActive {
+                project.clips[i].backgroundRemoval.mode = .chroma
+            }
+        })
+        items.append(EditorToolItem(String(localized: "被写体フラッシュ"), systemImage: "sparkle", id: "clip-subject-flash") {
+            openPanel(.subjectFlash(clipID))
         })
         if isStill {
             items.append(EditorToolItem(String(localized: "3Dズーム"), systemImage: "cube.transparent") {
@@ -2138,6 +2346,20 @@ struct ContentView: View {
         })
         items.append(EditorToolItem(String(localized: "カラー補正"), systemImage: "circle.lefthalf.filled") {
             openPanel(.colorAdjust(clipID))
+        })
+        // 調整(プリセット・補正・HSL・LUT すべて)をほかのクリップに写す(LookClipboard.swift)
+        items.append(EditorToolItem(String(localized: "調整をコピー"), systemImage: "doc.on.doc", id: "look-copy") {
+            copyLook(ofClip: clipID)
+        })
+        items.append(EditorToolItem(String(localized: "調整を貼り付け"), systemImage: "doc.on.clipboard", id: "look-paste",
+                                    enabled: LookClipboard.shared.hasLook, disabledReason: Self.emptyLookReason) {
+            pasteLook(toClips: [clipID])
+        })
+        items.append(EditorToolItem(String(localized: "調整を全クリップに適用"), systemImage: "square.stack.3d.down.right", id: "look-apply-all",
+                                    enabled: project.clips.count > 1,
+                                    disabledReason: String(localized: "クリップが 2 つ以上あるときに使えます")) {
+            lookApplyAllClipID = clipID
+            showLookApplyAllConfirm = true
         })
         // ここから下は慣れた人向け(区切り線だけ)
         items.append(EditorToolItem.section(""))
@@ -2255,6 +2477,21 @@ struct ContentView: View {
         motion.append(EditorToolItem(String(localized: "マスク"), systemImage: "circle.dashed") {
             openPanel(.overlayMask(overlayID))
         })
+        // 背景を消す / クロマキー(消した部分は透明 → 下の映像の上に人物だけを重ねる)
+        motion.append(EditorToolItem(String(localized: "背景を消す"), systemImage: "person.and.background.dotted", id: "overlay-bg-removal") {
+            openPanel(.overlayBackgroundRemoval(overlayID))
+            if let i = project.overlays.firstIndex(where: { $0.id == overlayID }),
+               !project.overlays[i].backgroundRemoval.isActive {
+                project.overlays[i].backgroundRemoval.mode = .auto
+            }
+        })
+        motion.append(EditorToolItem(String(localized: "クロマキー"), systemImage: "eyedropper", id: "overlay-chroma-key") {
+            openPanel(.overlayBackgroundRemoval(overlayID))
+            if let i = project.overlays.firstIndex(where: { $0.id == overlayID }),
+               !project.overlays[i].backgroundRemoval.isActive {
+                project.overlays[i].backgroundRemoval.mode = .chroma
+            }
+        })
         if isImage {
             motion.append(EditorToolItem(String(localized: "3Dズーム"), systemImage: "cube.transparent") {
                 openPanel(.overlayParallax(overlayID))
@@ -2267,6 +2504,14 @@ struct ContentView: View {
         })
         color.append(EditorToolItem(String(localized: "描画モード"), systemImage: "circle.lefthalf.striped.horizontal") {
             openPanel(.overlayBlend(overlayID))
+        })
+        // クリップと同じ調整のコピー・貼り付け(クリップ ↔ オーバーレイ間でも写せる)
+        color.append(EditorToolItem(String(localized: "調整をコピー"), systemImage: "doc.on.doc", id: "overlay-look-copy") {
+            copyLook(ofOverlay: overlayID)
+        })
+        color.append(EditorToolItem(String(localized: "調整を貼り付け"), systemImage: "doc.on.clipboard", id: "overlay-look-paste",
+                                    enabled: LookClipboard.shared.hasLook, disabledReason: Self.emptyLookReason) {
+            pasteLook(toOverlay: overlayID)
         })
         items.append(EditorToolItem.group(String(localized: "カラー"), systemImage: "circle.lefthalf.filled", id: "group-color", items: color))
         // 「その他」は中身が少ないのでやめて、直接並べる
@@ -2542,6 +2787,19 @@ struct ContentView: View {
         }
     }
 
+    /// 「文字起こしで編集」(TranscriptEditView)。キャプションが無ければ先に作ってもらう(字幕のシートを開く)
+    private func openTranscriptEdit() {
+        guard !project.subtitles.isEmpty else {
+            history.record(project)
+            activeSheet = .subtitles
+            return
+        }
+        player.pause()
+        activePanel = nil
+        history.record(project)
+        showTranscriptEdit = true
+    }
+
     /// 字幕の言葉から「えー」「あのー」などを見つけて、その部分だけ詰める
     private func cutFillers() {
         let cues = project.subtitles
@@ -2802,6 +3060,56 @@ struct ContentView: View {
         return items
     }
 
+    // MARK: 映像エフェクト
+
+    private func videoEffectItems(_ effectID: UUID) -> [EditorToolItem] {
+        var items: [EditorToolItem] = []
+        items.append(EditorToolItem(String(localized: "種類・強さ"), systemImage: "camera.filters", id: "effect-edit") {
+            openPanel(.videoEffect(effectID))
+        })
+        items.append(EditorToolItem(String(localized: "複製"), systemImage: "plus.square.on.square", id: "effect-duplicate") {
+            duplicateVideoEffect(effectID)
+        })
+        items.append(EditorToolItem(String(localized: "削除"), systemImage: "trash", id: "effect-delete", destructive: true) {
+            history.record(project)
+            selection = nil
+            project.removeVideoEffect(id: effectID)
+            showToast(String(localized: "削除しました"), undo: true)
+        })
+        return items
+    }
+
+    /// 映像エフェクトを再生位置に追加して選び、種類・強さのパネルを開く
+    private func addVideoEffect(_ type: VideoEffectType) {
+        guard !project.clips.isEmpty else { return }
+        let before = panelSnapshot ?? project.snapshot()
+        history.record(project)
+        let total = project.layoutDuration
+        var start = frameAligned(player.currentTime)
+        // 最後まで来ていたら、終わりの 3 秒にかける
+        if total > 0.5 && start > total - 0.5 { start = max(0, total - 3) }
+        let length = total > start + 0.3 ? min(3, total - start) : 3
+        let effect = VideoEffectClip(type: type, start: start, duration: length, intensity: type.defaultIntensity)
+        project.videoEffects.append(effect)
+        project.sortVideoEffects()
+        selection = .videoEffect(effect.id)
+        // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻る
+        panelSnapshot = before
+        activePanel = .videoEffect(effect.id)
+    }
+
+    /// 選択中の映像エフェクトを複製して直後に置き、複製を選ぶ
+    private func duplicateVideoEffect(_ effectID: UUID) {
+        guard let original = project.videoEffects.first(where: { $0.id == effectID }) else { return }
+        history.record(project)
+        var copy = original
+        copy.id = UUID()
+        copy.start = original.end
+        project.videoEffects.append(copy)
+        project.sortVideoEffects()
+        selection = .videoEffect(copy.id)
+    }
+
     // MARK: 複数選択
 
     private static let noMultiSelectionReason = String(localized: "クリップをタップして選んでください")
@@ -2831,12 +3139,69 @@ struct ContentView: View {
                                     enabled: hasSelection, disabledReason: Self.noMultiSelectionReason) {
             moveMultiSelected(by: 1)
         })
+        // コピーした調整を選んだクリップ全部に貼り付ける(LookClipboard.swift)
+        items.append(EditorToolItem(String(localized: "調整を貼り付け"), systemImage: "doc.on.clipboard", id: "multi-look-paste",
+                                    enabled: hasSelection && LookClipboard.shared.hasLook,
+                                    disabledReason: hasSelection ? Self.emptyLookReason : Self.noMultiSelectionReason) {
+            pasteLook(toClips: Set(ids))
+        })
         items.append(EditorToolItem(hasSelection ? String(localized: "リップル削除(\(ids.count))") : String(localized: "リップル削除"), systemImage: "trash",
                                     id: "multi-delete", destructive: true,
                                     enabled: hasSelection, disabledReason: Self.noMultiSelectionReason) {
             deleteMultiSelected()
         })
         return items
+    }
+
+    // MARK: 調整のコピー・貼り付け(LookClipboard.swift)
+
+    private static let emptyLookReason = String(localized: "先に「調整をコピー」をしてください")
+
+    private func copyLook(ofClip clipID: UUID) {
+        guard let clip = project.clips.first(where: { $0.id == clipID }) else { return }
+        LookClipboard.shared.copy(ClipLook(from: clip))
+        showToast(String(localized: "調整をコピーしました"))
+    }
+
+    private func copyLook(ofOverlay overlayID: UUID) {
+        guard let overlay = project.overlays.first(where: { $0.id == overlayID }) else { return }
+        LookClipboard.shared.copy(ClipLook(from: overlay))
+        showToast(String(localized: "調整をコピーしました"))
+    }
+
+    /// コピーした調整をクリップに貼り付ける(複数選択中はその全部)。トーストの「元に戻す」で戻せる
+    private func pasteLook(toClips ids: Set<UUID>) {
+        guard let look = LookClipboard.shared.look else { return }
+        let targets = project.clips.indices.filter { ids.contains(project.clips[$0].id) }
+        guard !targets.isEmpty else { return }
+        history.record(project)
+        for i in targets {
+            look.apply(to: &project.clips[i])
+        }
+        if targets.count > 1 {
+            showToast(String(localized: "\(targets.count) 本のクリップに調整を貼り付けました"), undo: true)
+        } else {
+            showToast(String(localized: "調整を貼り付けました"), undo: true)
+        }
+    }
+
+    private func pasteLook(toOverlay overlayID: UUID) {
+        guard let look = LookClipboard.shared.look,
+              let i = project.overlays.firstIndex(where: { $0.id == overlayID }) else { return }
+        history.record(project)
+        look.apply(to: &project.overlays[i])
+        showToast(String(localized: "調整を貼り付けました"), undo: true)
+    }
+
+    /// このクリップの調整(プリセット・補正・HSL・LUT すべて)をほかの全クリップに写す(確認のあと)
+    private func applyLookToAllClips(from clipID: UUID) {
+        guard let clip = project.clips.first(where: { $0.id == clipID }) else { return }
+        let look = ClipLook(from: clip)
+        history.record(project)
+        for i in project.clips.indices where project.clips[i].id != clipID {
+            look.apply(to: &project.clips[i])
+        }
+        showToast(String(localized: "全クリップに調整を適用しました"), undo: true)
     }
 
     private func endMultiSelect() {
@@ -3093,6 +3458,8 @@ struct ContentView: View {
             return project.drawings.contains(where: { $0.id == drawingID })
         case .marker(let markerID):
             return project.markers.contains(where: { $0.id == markerID })
+        case .videoEffect(let effectID):
+            return project.videoEffects.contains(where: { $0.id == effectID })
         }
     }
 
@@ -3168,6 +3535,24 @@ struct ContentView: View {
         clip.isSticker = true
         clip.widthRatio = 0.3
         clip.style.sizeRatio = 0.18
+        clip.style.bold = false
+        clip.style.shadow.enabled = false
+        clip.style.backgroundColorHex = nil
+        clip.style.strokeColorHex = nil
+        project.textClips.append(clip)
+        project.sortTextClips()
+        selection = .text(clip.id)
+    }
+
+    /// 動くステッカーを再生位置に追加して選択する(色は style.colorHex、吹き出しなどの文字は text)
+    private func addVectorSticker(_ kind: VectorStickerKind) {
+        history.record(project)
+        var clip = TextClip(text: kind.defaultText, start: max(0, player.currentTime))
+        clip.isSticker = true
+        clip.vectorSticker = kind
+        clip.widthRatio = 0.3
+        clip.style.sizeRatio = kind.aspect >= 2 ? 0.1 : 0.16
+        clip.style.colorHex = kind.defaultColorHex
         clip.style.bold = false
         clip.style.shadow.enabled = false
         clip.style.backgroundColorHex = nil
@@ -3329,6 +3714,11 @@ struct ContentView: View {
                     var video = try await MediaStore.makeOverlay(fromVideo: movieURL)
                     OverlayPreset.bRollFull.apply(to: &video)
                     overlay = video
+                } else if item.isGIF, let gif = try? await item.loadTransferable(type: PickedGIF.self) {
+                    // GIF は .gif のまま受け取り、動く写真オーバーレイにする(AnimatedImageCache)
+                    var image = try MediaStore.makeImageOverlay(from: gif.url)
+                    image.duration = AnimatedImageCache.suggestedOverlayDuration(for: gif.url)
+                    overlay = image
                 } else if let photo = try? await item.loadTransferable(type: PickedPhoto.self) {
                     var image = try MediaStore.makeImageOverlay(from: photo.url)
                     image.duration = 4
@@ -3631,6 +4021,14 @@ struct ContentView: View {
             // 素材に依存しない設定は引き継ぐ(リフレーム・手ぶれ補正の解析結果は素材ごとなので引き継がない)
             replaced.mask = old.mask
             replaced.enhance = old.enhance
+            replaced.retouch = old.retouch
+            // キーフレーム(元素材上の秒)は、クリップの先頭からの位置が同じになるようずらして引き継ぐ
+            let keyShift = replaced.startTime - old.startTime
+            replaced.keyframes = old.keyframes.map { key in
+                var k = key
+                k.time += keyShift
+                return k
+            }
             let before = project.snapshot()
             history.record(project)
             project.clips[i] = replaced
@@ -3944,6 +4342,27 @@ struct ContentView: View {
         showToast(String(localized: "スプリットしました"), undo: true)
     }
 
+    /// 分割したクリップを次のクリップとつなぎ直す(ClipRejoin.swift)。
+    /// 字幕・テキストなどは同じ素材の位置に付けたまま動かす(TimelineRipple.swift)
+    private func rejoinClip(_ clipID: UUID) {
+        guard let index = project.index(of: clipID), ClipRejoin.canRejoin(project.clips, at: index),
+              let merged = ClipRejoin.merge(project.clips[index], project.clips[index + 1]) else {
+            showToast(String(localized: "次のクリップが同じ素材の続きではありません"), style: .warning)
+            return
+        }
+        history.record(project)
+        // 先に 2 つの間のトランジションの重なりを外して部品を動かしてから 1 つにまとめる
+        // (まとめた後は配置が変わらないので、消えるクリップの上の部品もそのままの位置でよい)
+        var layout = project.captureClipLayout()
+        project.clips[index].transition = ClipTransition()
+        project.rippleTimelineItems(from: layout)
+        layout = project.captureClipLayout()
+        project.clips[index] = merged
+        project.clips.remove(at: index + 1)
+        project.rippleTimelineItems(from: layout)
+        showToast(String(localized: "分割を戻しました"), undo: true)
+    }
+
     // MARK: 保存 / プロジェクトの切り替え
 
     /// 変更内容を保存し、一覧のメタデータとサムネイルを更新する(書き込みはまとめて行われる)
@@ -4223,6 +4642,38 @@ struct ContentView: View {
         switch result {
         case .success(let urls):
             startLocalImport(urls, securityScoped: true, deleteSourcesAfter: false)
+        case .failure(let error):
+            alertMessage = String(localized: "ファイルを開けませんでした。\n\(error.localizedDescription)")
+        }
+    }
+
+    /// ステッカーパネルの「GIF を読み込む」→「ファイルから選ぶ」。一時フォルダにコピーしてから
+    /// ドラッグ&ドロップと同じ取り込み(importOverlayFiles)でオーバーレイにする
+    private func handleGIFFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard !urls.isEmpty, !isImporting else { return }
+            importSourceOverride = "files"
+            isImporting = true
+            importTotal = urls.count
+            importDone = 0
+            importFraction = nil
+            importIsDownloading = true
+            importTask = Task { @MainActor in
+                let copied = await AnimatedImageImport.copyToTemporary(urls)
+                importIsDownloading = false
+                guard !copied.isEmpty, !Task.isCancelled else {
+                    MediaDrop.remove(copied)
+                    importSourceOverride = nil
+                    isImporting = false
+                    importTask = nil
+                    if !Task.isCancelled {
+                        alertMessage = String(localized: "GIF を読み込めませんでした。")
+                    }
+                    return
+                }
+                await importOverlayFiles(copied)
+            }
         case .failure(let error):
             alertMessage = String(localized: "ファイルを開けませんでした。\n\(error.localizedDescription)")
         }
@@ -4512,7 +4963,7 @@ struct ContentView: View {
                     OverlayPreset.bRollFull.apply(to: &overlay)
                 case .image:
                     overlay = try MediaStore.makeImageOverlay(from: destination)
-                    overlay.duration = 4
+                    overlay.duration = overlay.isAnimatedImage ? AnimatedImageCache.suggestedOverlayDuration(for: destination) : 4
                 }
                 overlay.start = max(0, player.currentTime)
                 if !recorded {

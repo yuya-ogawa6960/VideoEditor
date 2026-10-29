@@ -129,6 +129,8 @@ final class ExportManager {
     @ObservationIgnored private var jobLabel: String = ""
     /// 「写真アプリにも保存」で保存できなかった出力(縦横同時は 2 本とも入ることがある)。「もう一度写真に保存」で使う
     @ObservationIgnored private var photoSaveFailedURLs: [URL] = []
+    /// 写真に保存した動画の localIdentifier(出力ファイルのパス → ID)。TikTok への投稿で使う
+    @ObservationIgnored private var photoAssetIDs: [String: String] = [:]
 
     // 進捗の間引き(任意スレッドから)
     private let progressLock = NSLock()
@@ -221,7 +223,8 @@ final class ExportManager {
             throw ExportManagerError.noOutput
         }
         for url in urls {
-            try await Self.saveVideoToPhotos(url)
+            let assetID = try await Self.saveVideoToPhotos(url)
+            await MainActor.run { self.recordPhotoAsset(assetID, for: url) }
             // 保存できた分は外す(途中で失敗しても、もう一度押したときに同じものを二重に保存しない)
             await MainActor.run { self.photoSaveFailedURLs.removeAll { $0 == url } }
         }
@@ -484,7 +487,8 @@ final class ExportManager {
             var photoError: Error?
             if saveToPhotos {
                 do {
-                    try await Self.saveVideoToPhotos(finalURL)
+                    let assetID = try await Self.saveVideoToPhotos(finalURL)
+                    await MainActor.run { self.recordPhotoAsset(assetID, for: finalURL) }
                     saved = true
                 } catch {
                     photoError = error
@@ -1089,14 +1093,32 @@ final class ExportManager {
         try fm.moveItem(at: workURL, to: finalURL)
     }
 
-    private static func saveVideoToPhotos(_ url: URL) async throws {
+    /// 写真に保存し、保存した動画の localIdentifier を返す(TikTok への投稿で使う。取れなければ nil)
+    @discardableResult
+    private static func saveVideoToPhotos(_ url: URL) async throws -> String? {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
             throw ExportManagerError.photosAccessDenied
         }
+        let holder = PhotoAssetIDHolder()
         try await PHPhotoLibrary.shared().performChanges {
-            _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+            let request = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+            holder.value = request?.placeholderForCreatedAsset?.localIdentifier
         }
+        return holder.value
+    }
+
+    /// 写真に保存した動画の ID を覚える(メインスレッドで)
+    @MainActor
+    private func recordPhotoAsset(_ id: String?, for url: URL) {
+        guard let id else { return }
+        photoAssetIDs[url.standardizedFileURL.path] = id
+    }
+
+    /// 書き出した動画を写真に保存したときの localIdentifier(この起動中に保存したものだけ)
+    @MainActor
+    func photoAssetIdentifier(for url: URL) -> String? {
+        photoAssetIDs[url.standardizedFileURL.path]
     }
 }
 

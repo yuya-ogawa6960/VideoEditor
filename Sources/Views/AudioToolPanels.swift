@@ -344,6 +344,9 @@ struct EditorNarrationVolumePanel: View {
                 .disabled(!hasGain)
                 .opacity(hasGain ? 1 : 0.4)
             }
+
+            // 音のフェードイン・フェードアウト(0〜3 秒。AudioFadePanels.swift)
+            AudioFadeSliders(fadeIn: $narration.fadeIn, fadeOut: $narration.fadeOut)
         }
         .padding(.top, 6)
     }

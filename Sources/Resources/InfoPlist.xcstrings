@@ -117,6 +117,35 @@
         }
       }
     },
+    "NSCameraUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を撮ってプロジェクトに入れるためにカメラを使用します。"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera is used to record videos for your project."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara se usa para grabar videos para tu proyecto."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera é usada para gravar vídeos para o seu projeto."
+          }
+        }
+      }
+    },
     "NSUserTrackingUsageDescription": {
       "extractionState": "manual",
       "localizations": {

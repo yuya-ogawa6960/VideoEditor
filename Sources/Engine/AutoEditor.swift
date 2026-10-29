@@ -44,9 +44,91 @@ enum AutoEditor {
         let description: String
         let settings: AutoEditSettings
         let kind: FormatKind?
+        /// build のあとにかけるリール風の仕上げ(ReelFinisher.swift)
+        var finish: ReelFinish? = nil
     }
 
     static let templates: [Template] = [
+        Template(id: "reelTempoTalk",
+                 name: String(localized: "テンポ系トーク(リール風)"),
+                 description: String(localized: "無音と言いよどみを詰め、カットごとに寄り・引き。話題の変わり目に白飛びフラッシュ。キャプションは話している言葉が黄色になる小さめの文字。"),
+                 settings: AutoEditSettings(style: .short, targetDuration: 0, useBGMBeats: false,
+                                            addTitleCard: false, titleText: "", addTransitions: false,
+                                            applyLook: true, preferFaces: true, preferSpeech: true),
+                 kind: nil,
+                 finish: .tempoTalk),
+        Template(id: "reelKurashi",
+                 name: String(localized: "丁寧な暮らし(リール風)"),
+                 description: String(localized: "落ち着いた場面を 40 秒に。自然光のような明るくやわらかい色、ゆっくりしたディゾルブ、細い明朝のタイトルとキャプション。"),
+                 settings: AutoEditSettings(style: .vlog, targetDuration: 40, useBGMBeats: false,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: false, preferSpeech: false),
+                 kind: nil,
+                 finish: .kurashi),
+        Template(id: "reelRecipe",
+                 name: String(localized: "料理レシピ(手元・テンポ)"),
+                 description: String(localized: "手元の作業を 45 秒にテンポよく。おいしそうに見える暖かい色、つなぎ無しのカット、帯つきの読みやすいキャプションと大きなタイトル。"),
+                 settings: AutoEditSettings(style: .howto, targetDuration: 45, useBGMBeats: true,
+                                            addTitleCard: false, titleText: "", addTransitions: false,
+                                            applyLook: true, preferFaces: false, preferSpeech: false),
+                 kind: nil,
+                 finish: .recipe),
+        Template(id: "reelRoomTour",
+                 name: String(localized: "ルームツアー"),
+                 description: String(localized: "部屋の様子を 45 秒に。白い壁が明るく見える色、部屋から部屋へ流れるつなぎ、冒頭に「ROOM TOUR」。"),
+                 settings: AutoEditSettings(style: .vlog, targetDuration: 45, useBGMBeats: true,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: false, preferSpeech: false),
+                 kind: nil,
+                 finish: .roomTour),
+        Template(id: "reelTravelBeat",
+                 name: String(localized: "旅行ハイライト(ビート)"),
+                 description: String(localized: "旅の動きのある場面を BGM のビートに合わせて 20 秒。鮮やかな色、ズームブラーとホイップのつなぎ、冒頭に「TRIP」。"),
+                 settings: AutoEditSettings(style: .short, targetDuration: 20, useBGMBeats: true,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: false, preferSpeech: false),
+                 kind: nil,
+                 finish: .travelBeat),
+        Template(id: "reelGRWM",
+                 name: String(localized: "ファッション・GRWM"),
+                 description: String(localized: "顔が映る場面と話を優先して 30 秒。肌がきれいに見える明るい色と美肌、テンポのいいフラッシュ、話している言葉に色が付くキャプション。"),
+                 settings: AutoEditSettings(style: .short, targetDuration: 30, useBGMBeats: true,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: true, preferSpeech: true),
+                 kind: nil,
+                 finish: .grwm),
+        Template(id: "reelPet",
+                 name: String(localized: "ペット"),
+                 description: String(localized: "動きのあるかわいい場面をビートに合わせて 30 秒。明るく暖かい色、ときどき寄るつなぎ、手書き風のポップなキャプション。"),
+                 settings: AutoEditSettings(style: .family, targetDuration: 30, useBGMBeats: true,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: false, preferSpeech: false),
+                 kind: nil,
+                 finish: .pet),
+        Template(id: "reelCafe",
+                 name: String(localized: "カフェ巡り"),
+                 description: String(localized: "お店の雰囲気を 30 秒に。フィルムのような暖かく落ち着いた色、ゆっくりめのディゾルブ、細い明朝のキャプション。"),
+                 settings: AutoEditSettings(style: .vlog, targetDuration: 30, useBGMBeats: true,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: false, preferSpeech: false),
+                 kind: nil,
+                 finish: .cafe),
+        Template(id: "reelBeforeAfter",
+                 name: String(localized: "Before/After"),
+                 description: String(localized: "クリップを並べた順のまま、最初に「BEFORE」、最後に「AFTER」。After の直前で白く光らせる。色は変えない。"),
+                 settings: AutoEditSettings(style: .short, targetDuration: 0, useBGMBeats: false,
+                                            addTitleCard: false, titleText: "", addTransitions: false,
+                                            applyLook: false, preferFaces: false, preferSpeech: false),
+                 kind: nil,
+                 finish: .beforeAfter),
+        Template(id: "reelGameHighlight",
+                 name: String(localized: "ゲーム実況ハイライト"),
+                 description: String(localized: "盛り上がって話している場面を 30 秒に。くっきりした色、ときどきグリッチのつなぎ、太い縁取りのキャプション。"),
+                 settings: AutoEditSettings(style: .short, targetDuration: 30, useBGMBeats: false,
+                                            addTitleCard: false, titleText: "", addTransitions: true,
+                                            applyLook: true, preferFaces: false, preferSpeech: true),
+                 kind: nil,
+                 finish: .gameHighlight),
         Template(id: "short15",
                  name: String(localized: "ショート15秒"),
                  description: String(localized: "いちばん動きのある 15 秒。ビートに合わせた短いカット、鮮やかな色。"),
@@ -254,6 +336,13 @@ enum AutoEditor {
             moved.start = time
             drawings.append(moved)
         }
+        var videoEffects: [VideoEffectClip] = []
+        for item in snapshot.videoEffects {
+            guard let time = mapper.map(item.start) else { continue }
+            var moved = item
+            moved.start = time
+            videoEffects.append(moved)
+        }
 
         // 演出・音声
         var documentary = snapshot.documentary
@@ -291,7 +380,8 @@ enum AutoEditor {
                                drawings: drawings,
                                markers: markers,
                                watermark: snapshot.watermark,
-                               cover: snapshot.cover)
+                               cover: snapshot.cover,
+                               videoEffects: videoEffects)
     }
 
     // MARK: - スライドショー

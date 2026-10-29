@@ -179,7 +179,7 @@ struct AccountPointsView: View {
         Section {
             priceRow(String(localized: "クラウド文字起こし"), String(localized: "1分 \(account.price("transcribePerMinute", default: 10))pt"))
             priceRow(String(localized: "AI 仕上げ・翻訳・台本"), String(localized: "80行ごと \(account.price("chat", default: 20))pt"))
-            priceRow(String(localized: "クラウドの読み上げ"), String(localized: "1,000文字 \(account.price("speechPerThousandChars", default: 50))pt"))
+            priceRow(String(localized: "クラウドの読み上げ"), String(localized: "\(account.speechCharsPerPoint)文字 1pt"))
         } header: {
             Text("使うポイント")
         } footer: {

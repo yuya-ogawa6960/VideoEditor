@@ -544,6 +544,9 @@ struct EditorSpeedCurvePanel: View {
                 .disabled(!clip.speedCurve.enabled)
                 .opacity(clip.speedCurve.enabled ? 1 : 0.4)
 
+            // 間のコマを作るなめらかスロー(FlowSlowControls.swift)
+            EditorFlowSlowSection(project: project, clip: $clip)
+
             HStack {
                 Text("長さ \(MediaTimeText.precise(clip.trimmedDuration)) → \(MediaTimeText.precise(clip.outputDuration))")
                     .font(.caption)

@@ -17,6 +17,13 @@ enum EditorSelection: Hashable {
     case text(UUID)
     case drawing(UUID)
     case marker(UUID)
+    /// 映像エフェクト(VideoEffectModels.swift)
+    case videoEffect(UUID)
+
+    var videoEffectID: UUID? {
+        if case .videoEffect(let id) = self { return id }
+        return nil
+    }
 
     var textID: UUID? {
         if case .text(let id) = self { return id }
@@ -295,5 +302,6 @@ extension EditorProject {
         markers = snapshot.markers
         watermark = snapshot.watermark
         cover = snapshot.cover
+        videoEffects = snapshot.videoEffects
     }
 }

@@ -76,6 +76,10 @@ struct VideoCompositorOverlay {
     /// 出てくるとき・消えるときのビデオトランジション
     let transitionIn: ClipTransition
     let transitionOut: ClipTransition
+    /// 背景を消す / クロマキー(消した部分は透明)
+    let backgroundRemoval: BackgroundRemoval
+    /// 動く画像(GIF)の写真オーバーレイ(AnimatedImageCache のコマを繰り返す)
+    let isAnimatedImage: Bool
 
     init(overlay: OverlayClip, trackID: CMPersistentTrackID?, preferredTransform: CGAffineTransform? = nil) {
         self.id = overlay.id
@@ -104,6 +108,8 @@ struct VideoCompositorOverlay {
         self.blendMode = overlay.blendMode
         self.mask = overlay.mask
         self.parallax = overlay.parallax
+        self.backgroundRemoval = overlay.backgroundRemoval
+        self.isAnimatedImage = overlay.isImage && overlay.isAnimatedImage
     }
 
     var end: Double { start + duration }
@@ -213,6 +219,14 @@ struct VideoCompositorClipLayer {
     var parallax: DepthParallax = DepthParallax()
     /// 逆再生のとき元素材の全長(逆再生済みファイル上の秒 → 元素材上の秒 の変換に使う)。通常は nil
     var reversedSourceDuration: Double? = nil
+    /// 人物・被写体だけパッと光らせる
+    var subjectFlash: SubjectFlash = SubjectFlash()
+    /// 背景を消す / クロマキー(CompositionBuilder で作ったあとに入れる)
+    var backgroundRemoval: BackgroundRemoval = BackgroundRemoval()
+    /// レタッチ(顔の形・メイク・体型)
+    var retouch: ClipRetouch = ClipRetouch()
+    /// メインクリップのキーフレーム(キーが無ければ nil。CompositionBuilder で作ったあとに入れる)
+    var clipKeyframes: ClipKeyframeTrack? = nil
 
     var duration: Double { max(0, end - start) }
     var hasPicture: Bool { trackID != nil || stillImageURL != nil }
@@ -292,6 +306,8 @@ final class VideoCompositorScene {
     /// Bロール / ワイプ / 写真(開始時刻順)
     let mediaOverlays: [VideoCompositorOverlay]
     let totalDuration: Double
+    /// 映像エフェクト(開始時刻順。VideoEffectRenderer)
+    let videoEffects: [VideoEffectClip]
 
     init(renderSize: CGSize,
          scaling: ScalingMode,
@@ -303,8 +319,10 @@ final class VideoCompositorScene {
          documentary: DocumentaryRenderInfo,
          postsFrames: Bool = false,
          mediaOverlays: [VideoCompositorOverlay],
-         totalDuration: Double) {
+         totalDuration: Double,
+         videoEffects: [VideoEffectClip] = []) {
         self.renderSize = renderSize
+        self.videoEffects = videoEffects
         self.scaling = scaling
         self.subtitles = subtitles
         self.subtitleStyle = subtitleStyle
@@ -389,6 +407,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
     /// 自動リフレームのなめらかな追従用: クリップごとの直前の注目点(出力時刻つき)。renderQueue 上でのみ触る
     private var reframeStates: [UUID: (time: Double, center: NormalizedPoint)] = [:]
 
+    /// レタッチの顔・人物の追従(クリップごと)。renderQueue 上でのみ触る
+    private let retouchRenderer = RetouchRenderer()
+
     override init() {
         super.init()
     }
@@ -447,6 +468,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         renderQueue.async { [weak self] in
             self?.previousFrames.removeAll()
             self?.reframeStates.removeAll()
+            self?.retouchRenderer.reset()
         }
     }
 
@@ -498,7 +520,13 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                                              over: frame,
                                              time: seconds,
                                              request: request,
-                                             canvasSize: size)
+                                             canvasSize: size,
+                                             accurate: scene.postsFrames)
+            }
+
+            // 2.5 映像エフェクト(メイン映像とオーバーレイを合わせた画面全体。質感・文字・キャプションにはかけない)
+            if !scene.videoEffects.isEmpty {
+                frame = VideoEffectRenderer.apply(scene.videoEffects, to: frame, time: seconds, canvasSize: size)
             }
 
             // 3. 周辺減光 → フィルム粒子 → 章タイトル / テロップ
@@ -613,6 +641,20 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             image = EnhanceFilters.applyPreFilters(layer.enhance, to: image)
         }
 
+        // レタッチ(顔の形・メイク・体型)。切り抜き・配置の前に、向き反映済みのソースで顔を探す
+        if !layer.retouch.isIdentity {
+            image = retouchRenderer.apply(layer.retouch, to: image, clipID: layer.clipID, time: time, isStill: isStill)
+        }
+
+        // 背景を消す / クロマキー(フィルタの前。元の色で判定する。書き出しはきれいな切り抜き)
+        if layer.backgroundRemoval.isActive {
+            image = BackgroundRemovalRenderer.apply(layer.backgroundRemoval,
+                                                    to: GeometryMath.normalizedToOrigin(image),
+                                                    cacheKey: "clip-\(layer.clipID.uuidString)-\(isStill ? -1 : time)",
+                                                    accurate: scene.postsFrames,
+                                                    fillsBackground: true)
+        }
+
         // 静止画の 3D ズーム(奥行きがあれば視差、無ければ Ken Burns 風)
         var usedParallax = false
         if let still = layer.stillImageURL, layer.parallax.enabled {
@@ -628,13 +670,25 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
         // キャンバスへの配置(自動リフレームが効く条件ならクロップ窓を切り出して埋める)
         var placed: CIImage
+        var reframed = false
         if !isStill, let st = sourceTime,
            let window = reframeCrop(layer: layer, sourceTime: st, time: time,
                                     imageSize: sourceExtent.size, canvasSize: size, scaling: scene.scaling) {
             let cropped = GeometryMath.normalizedToOrigin(image.cropped(to: window))
             placed = Self.place(cropped, canvasSize: size, scaling: .fill)
+            reframed = true
         } else {
             placed = Self.place(image, canvasSize: size, scaling: scene.scaling)
+        }
+
+        // キーフレーム(位置・大きさ・回転・不透明度。配置のあとにキャンバスの中心まわりで動かす。ClipKeyframeRenderer.swift)
+        if let keyTrack = layer.clipKeyframes {
+            let keyValue = keyTrack.value(sourceTime: sourceTime, localTime: time - layer.start)
+            placed = ClipKeyframeRenderer.apply(keyValue,
+                                                to: placed,
+                                                source: image,
+                                                blurBackground: !reframed && scene.scaling == .fitBlur,
+                                                canvasSize: size)
         }
 
         // 簡易高画質化(配置後。拡大されていればアンシャープマスク、そうでなければ弱いシャープ)
@@ -659,6 +713,12 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
         // 全体のルック(余白は透明のままなので黒帯は黒のまま)
         placed = DocumentaryRenderer.applyLook(placed, info: scene.documentary)
+
+        // 被写体フラッシュ(人物・被写体だけ光らせる。光っている間だけ切り抜きを作る)
+        let flashAmount = layer.subjectFlash.intensity(atLocalTime: time - layer.start)
+        if flashAmount > 0.01 {
+            placed = SubjectFlashRenderer.apply(layer.subjectFlash, amount: flashAmount, to: placed, canvasSize: size)
+        }
 
         // マスク(形の外は透明 → 背景の黒が見える)
         if layer.mask.isActive {

@@ -187,6 +187,8 @@ enum MediaStore {
                                   duration: defaultImageOverlayDuration)
         overlay.speed = 1
         overlay.volume = 0
+        // 動く画像(GIF / APNG)はコマを繰り返して描く(AnimatedImageCache)
+        overlay.isAnimatedImage = AnimatedImageCache.isAnimated(url: url)
         return overlay
     }
 

@@ -42,6 +42,10 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # このビルドには TikTok のクライアントキーを入れないので、空の URL スキームを入れないよう印のあいだを消す
+      - name: Leave out the TikTok URL scheme
+        run: sed -i '' -e '/# >>> tiktok-url-scheme/,/# <<< tiktok-url-scheme/d' project.yml
+
       - name: Generate Xcode project
         run: xcodegen generate --spec project.yml
 

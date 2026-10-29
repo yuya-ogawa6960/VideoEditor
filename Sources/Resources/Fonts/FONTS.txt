@@ -9,3 +9,9 @@ Patrick Hand, Gochi Hand, Indie Flower, Amatic SC, Fraunces, Playfair Display, G
 
 Apache License 2.0 (see LICENSE-APACHE.txt):
 Kosugi Maru, Chewy
+
+Keifont (http://font.sumomo.ne.jp/font_1.html), Apache License 2.0 (see LICENSE-APACHE.txt):
+[Source Han Sans] Copyright(c) 2014 Adobe Systems Incorporated. All Rights Reserved.
+[M+ OUTLINE FONTS] Copyright(c) 2014 M+ FONTS PROJECT (see LICENSE-MPLUS.txt)
+[Genshin] Copyright(c) 2014 Jikasei Font Kobo by MM.
+[KANAMOJI] Copyright(c) 2014 Do-Font

@@ -406,6 +406,9 @@ final class FormatKitStore {
         for i in project.drawings.indices where project.drawings[i].start >= threshold {
             project.drawings[i].start += delta
         }
+        for i in project.videoEffects.indices where project.videoEffects[i].start >= threshold {
+            project.videoEffects[i].start += delta
+        }
         for i in project.markers.indices where project.markers[i].time >= threshold {
             project.markers[i].time += delta
         }

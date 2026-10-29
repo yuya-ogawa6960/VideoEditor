@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS users (
   points INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   last_daily TEXT,                -- 毎日ボーナスを最後に受け取った日(日本時間 YYYY-MM-DD)
-  apple_refresh_token TEXT        -- Apple のトークン(アカウント削除時に失効させる)。既存の DB には index.js が ALTER TABLE で足す
+  apple_refresh_token TEXT,       -- Apple のトークン(アカウント削除時に失効させる)。既存の DB には index.js が ALTER TABLE で足す
+  speech_carry INTEGER NOT NULL DEFAULT 0 -- まだポイントにしていない読み上げの文字数(10 文字で 1pt の端数)。既存の DB には index.js が ALTER TABLE で足す
 );
 
 CREATE TABLE IF NOT EXISTS ledger (

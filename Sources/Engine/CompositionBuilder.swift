@@ -221,7 +221,11 @@ enum CompositionBuilder {
                                                              stabilization: StabilizationTrack(),
                                                              enhance: clip.enhance,
                                                              parallax: clip.parallax,
-                                                             reversedSourceDuration: nil)
+                                                             reversedSourceDuration: nil,
+                                                             subjectFlash: clip.subjectFlash,
+                                                             retouch: clip.retouch)
+                layers[clipIndex]?.backgroundRemoval = clip.backgroundRemoval
+                layers[clipIndex]?.clipKeyframes = ClipKeyframeTrack(clip: clip, reversedActive: false)
                 pictureCount += 1
                 continue
             }
@@ -272,13 +276,36 @@ enum CompositionBuilder {
                 continue
             }
 
+            // --- なめらかスロー: コマを足した動画があれば、映像だけそちらを使う(音声・リフレームなどは元の素材の秒のまま)。
+            //     ファイルの 0 秒 = 元素材の offset 秒なので、同じ範囲をずらして割り当て直す(ClipKeyframeModels.swift)
+            var videoSource = sourceVideo
+            var videoPlan = plan
+            var usesFlowFile = false
+            if !reversedActive, let flow = clip.activeFlowSlow {
+                let flowTracks = (try? await AVURLAsset(url: flow.url).loadTracks(withMediaType: .video)) ?? []
+                if let flowTrack = flowTracks.first,
+                   let flowRange = try? await flowTrack.load(.timeRange) {
+                    let flowPlan = speedPlan(clip: clip,
+                                             sourceStart: max(0, srcStartSec - flow.offset),
+                                             sourceEnd: srcEndSec - flow.offset,
+                                             trackRange: flowRange,
+                                             outStart: outStart,
+                                             outDuration: outDuration)
+                    if !flowPlan.isEmpty {
+                        videoSource = flowTrack
+                        videoPlan = flowPlan
+                        usesFlowFile = true
+                    }
+                }
+            }
+
             // --- メイン映像(等速区間ごとに挿入して長さを合わせる)
             var insertedAny = false
-            for segment in plan {
+            for segment in videoPlan {
                 if trackEnd(track) > segment.outRange.start { continue }
                 compositionPad(track, to: segment.outRange.start)
                 do {
-                    try track.insertTimeRange(segment.sourceRange, of: sourceVideo, at: segment.outRange.start)
+                    try track.insertTimeRange(segment.sourceRange, of: videoSource, at: segment.outRange.start)
                 } catch {
                     continue
                 }
@@ -321,14 +348,18 @@ enum CompositionBuilder {
                         let gain = clip.audio.gain.isFinite ? max(0, clip.audio.gain) : 1
                         let clipVolume = clip.audio.volume.isFinite ? max(0, clip.audio.volume) : 1
                         let volume = min(snapshot.audio.originalVolume * gain * clipVolume, maxClipVolume)
+                        // クリップ自身のフェード(出力の長さの半分まで)。トランジションの重なりで既にフェードしていれば長い方を使う
+                        let halfOut = outDuration.seconds / 2
+                        let clipFadeIn = max(overlapIn, min(max(0, clip.audioFadeIn), halfOut))
+                        let clipFadeOut = max(overlapOut, min(max(0, clip.audioFadeOut), halfOut))
                         if clip.speedCurve.enabled || reversedActive {
                             insertSegmentedAudio(plan,
                                                  sourceAudio: sourceAudio,
                                                  audioRange: audioRange,
                                                  lane: lane,
                                                  volume: volume,
-                                                 fadeIn: overlapIn,
-                                                 fadeOut: overlapOut)
+                                                 fadeIn: clipFadeIn,
+                                                 fadeOut: clipFadeOut)
                         } else if let first = plan.first {
                             let speed = max(clip.speed, 0.01)
                             let previousOut = clipIndex > 0 ? clipOutputDurations[clipIndex - 1] : 0
@@ -354,8 +385,8 @@ enum CompositionBuilder {
                                     lane.addSegment(at: audioPlacement.at,
                                                     duration: audioPlacement.outDuration,
                                                     volume: volume,
-                                                    fadeIn: overlapIn,
-                                                    fadeOut: overlapOut)
+                                                    fadeIn: clipFadeIn,
+                                                    fadeOut: clipFadeOut)
                                 } catch {
                                     // 音声が入らなくても映像は続行
                                 }
@@ -448,7 +479,7 @@ enum CompositionBuilder {
                                                 speed: $0.speed,
                                                 sourceStart: $0.sourceRange.start.seconds)
                 },
-                smoothSlow: clip.speedCurve.enabled && clip.speedCurve.smoothSlow,
+                smoothSlow: clip.speedCurve.enabled && clip.speedCurve.smoothSlow && !usesFlowFile,
                 start: placement.start,
                 end: placement.end,
                 mask: clip.mask,
@@ -456,7 +487,11 @@ enum CompositionBuilder {
                 stabilization: clip.stabilization,
                 enhance: clip.enhance,
                 parallax: DepthParallax(),
-                reversedSourceDuration: reversedActive ? clip.duration : nil)
+                reversedSourceDuration: reversedActive ? clip.duration : nil,
+                subjectFlash: clip.subjectFlash,
+                retouch: clip.retouch)
+            layers[clipIndex]?.backgroundRemoval = clip.backgroundRemoval
+            layers[clipIndex]?.clipKeyframes = ClipKeyframeTrack(clip: clip, reversedActive: reversedActive)
             pictureCount += 1
         }
 
@@ -553,7 +588,10 @@ enum CompositionBuilder {
             postsFrames: purpose == .export,
             // オーバーレイもトラック(段)の順に重ねる(V2 → V3 …)
             mediaOverlays: Self.sortedOverlaysByLane(overlayInfos, lanes: TimelineMetrics.overlayLanes(snapshot.overlays)),
-            totalDuration: totalSeconds)
+            totalDuration: totalSeconds,
+            videoEffects: snapshot.videoEffects
+                .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
+                .sorted { $0.start < $1.start })
 
         var instructions: [VideoCompositorInstruction] = specs.map {
             VideoCompositorInstruction(timeRange: $0.range, layers: $0.layers, transition: $0.transition, scene: scene)
@@ -609,20 +647,31 @@ enum CompositionBuilder {
                         let duckIntervals: [(start: Double, end: Double)] = snapshot.documentary.autoDucking
                             ? compositionDuckIntervals(speechRanges, total: totalSeconds)
                             : []
+                        // フェードイン・フェードアウトの長さ(秒。全体の半分まで)
+                        let bgmFadeIn = min(max(0, snapshot.audio.bgmFadeIn), totalSeconds / 2)
+                        let bgmFadeOut = snapshot.audio.bgmFadeOut
+                            ? min(max(0, snapshot.audio.bgmFadeOutSeconds), totalSeconds / 2)
+                            : 0
                         if !duckIntervals.isEmpty {
                             compositionApplyBGMEnvelope(params,
                                                         volume: volume,
                                                         duckLevel: snapshot.documentary.duckingLevel,
                                                         intervals: duckIntervals,
                                                         total: totalSeconds,
-                                                        fadeOut: snapshot.audio.bgmFadeOut)
+                                                        fadeIn: bgmFadeIn,
+                                                        fadeOut: bgmFadeOut)
                         } else {
-                            params.setVolume(volume, at: .zero)
-                            if snapshot.audio.bgmFadeOut {
-                                let fade = CMTime(value: 2 * Int64(timescale), timescale: timescale)
-                                let fadeLength = totalDuration > fade ? fade : totalDuration
+                            if bgmFadeIn > 0.01 {
+                                let fadeLength = CMTime(seconds: bgmFadeIn, preferredTimescale: timescale)
+                                params.setVolumeRamp(fromStartVolume: 0, toEndVolume: volume,
+                                                     timeRange: CMTimeRange(start: .zero, duration: fadeLength))
+                            } else {
+                                params.setVolume(volume, at: .zero)
+                            }
+                            if bgmFadeOut > 0.01 {
+                                let fadeLength = CMTime(seconds: bgmFadeOut, preferredTimescale: timescale)
                                 let fadeStart = totalDuration - fadeLength
-                                if fadeLength > .zero {
+                                if fadeLength > .zero && fadeStart >= .zero {
                                     params.setVolumeRamp(fromStartVolume: volume, toEndVolume: 0,
                                                          timeRange: CMTimeRange(start: fadeStart, duration: fadeLength))
                                 }
@@ -1128,7 +1177,12 @@ enum CompositionBuilder {
                 continue
             }
             let volume = clip.effectiveVolume
-            lane.addVolume(volume.isFinite ? min(max(volume, 0), maxClipVolume) : 1, at: at)
+            // フェードイン・フェードアウト(長さの半分まで。addSegment の中で収める)
+            lane.addSegment(at: at,
+                            duration: aDuration,
+                            volume: volume.isFinite ? min(max(volume, 0), maxClipVolume) : 1,
+                            fadeIn: max(0, clip.fadeIn),
+                            fadeOut: max(0, clip.fadeOut))
             ranges.append((start: at.seconds, end: (at + aDuration).seconds))
         }
         return ranges
@@ -1273,16 +1327,18 @@ enum CompositionBuilder {
         return result
     }
 
-    /// ダッキング(0.3 秒のランプ)と最後のフェードアウトを、重ならない連続ランプとして設定する
+    /// ダッキング(0.3 秒のランプ)と最初のフェードイン・最後のフェードアウト(秒。0 = なし)を、重ならない連続ランプとして設定する
     private static func compositionApplyBGMEnvelope(_ params: AVMutableAudioMixInputParameters,
                                                     volume: Float,
                                                     duckLevel: Float,
                                                     intervals: [(start: Double, end: Double)],
                                                     total: Double,
-                                                    fadeOut: Bool) {
+                                                    fadeIn: Double,
+                                                    fadeOut: Double) {
         let ramp = 0.3
         let ducked = volume * min(max(duckLevel, 0), 1)
-        let fadeLength = fadeOut ? min(2.0, total) : 0
+        let fadeInLength = fadeIn > 0.01 ? min(fadeIn, total / 2) : 0
+        let fadeLength = fadeOut > 0.01 ? min(fadeOut, total / 2) : 0
         let fadeStart = total - fadeLength
 
         // ダッキングのみを反映した音量
@@ -1300,9 +1356,12 @@ enum CompositionBuilder {
             }
             return v
         }
-        // フェードアウトも掛けた最終音量
+        // フェードイン・フェードアウトも掛けた最終音量
         func finalVolume(_ t: Double) -> Float {
             var v = duckedVolume(t)
+            if fadeInLength > 0 && t < fadeInLength {
+                v *= Float(max(0, t / fadeInLength))
+            }
             if fadeLength > 0 && t > fadeStart {
                 v *= Float(max(0, (total - t) / fadeLength))
             }
@@ -1316,6 +1375,7 @@ enum CompositionBuilder {
             candidates.append(iv.end)
             candidates.append(iv.end + ramp)
         }
+        if fadeInLength > 0 { candidates.append(fadeInLength) }
         if fadeLength > 0 { candidates.append(fadeStart) }
         let clampedTimes = candidates.map { min(max($0, 0), total) }.sorted()
         var points: [Double] = []

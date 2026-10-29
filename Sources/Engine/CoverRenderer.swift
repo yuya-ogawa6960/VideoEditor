@@ -69,6 +69,8 @@ enum CoverRenderer {
         var buildSnapshot = snapshot
         buildSnapshot.subtitles = []
         buildSnapshot.drawings = []
+        // 映像エフェクト(揺れ・ストロボなど動きのあるもの)もサムネには入れない
+        buildSnapshot.videoEffects = []
         buildSnapshot.watermark = WatermarkSettings()
         buildSnapshot.documentary.fadeFromToBlack = false
         buildSnapshot.documentary.dipToBlackBetweenClips = false

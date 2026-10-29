@@ -4,6 +4,7 @@
 #   ASC_KEY_ID       … App Store Connect API キーのキー ID
 #   ASC_ISSUER_ID    … App Store Connect API キーの Issuer ID
 #   ASC_KEY_P8       … ダウンロードした AuthKey_XXXX.p8 の中身(-----BEGIN PRIVATE KEY----- から最後まで)
+#   TIKTOK_CLIENT_KEY … (任意)TikTok for Developers のクライアントキー。無ければ「TikTok に投稿」を出さない
 # Secrets がまだないときは、何もせずに終わります。
 name: TestFlight
 
@@ -27,6 +28,8 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
       ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      # TikTok に直接投稿(Share Kit)のクライアントキー。空でも作れる(ボタンが出ないだけ)
+      TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
       # App Store Connect はビルド番号が増え続ける必要があるため、AltStore 用の番号と重ならないよう 1000 から始める
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
@@ -63,6 +66,13 @@ jobs:
             exit 1
           fi
           echo "Share Extension left out of this build (set the repository variable SHARE_EXTENSION to on to include it)"
+
+      # TikTok のクライアントキーが無いときは、空の URL スキームを Info.plist に入れないよう project.yml の印のあいだを消す
+      - name: Leave out the TikTok URL scheme (until TIKTOK_CLIENT_KEY is set)
+        if: steps.check.outputs.ready == 'true' && env.TIKTOK_CLIENT_KEY == ''
+        run: |
+          sed -i '' -e '/# >>> tiktok-url-scheme/,/# <<< tiktok-url-scheme/d' project.yml
+          echo "TikTok URL scheme left out (add the TIKTOK_CLIENT_KEY secret to enable posting to TikTok)"
 
       - name: Generate Xcode project
         if: steps.check.outputs.ready == 'true'
@@ -103,6 +113,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="$TEAM_ID" \
+            TIKTOK_CLIENT_KEY="$TIKTOK_CLIENT_KEY" \
             CURRENT_PROJECT_VERSION="$BUILD_NO"
 
       - name: Embed entitlements (Sign in with Apple)

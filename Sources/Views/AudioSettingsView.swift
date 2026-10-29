@@ -96,13 +96,31 @@ struct AudioSettingsView: View {
             }
 
             if project.audio.bgmURL != nil {
-                Toggle("最後の2秒をフェードアウト", isOn: $project.audio.bgmFadeOut)
+                // 最初のフェードインと最後のフェードアウト(0 = しない。AudioFadePanels.swift)
+                AudioFadeSliderRow(title: String(localized: "フェードイン"),
+                                   value: $project.audio.bgmFadeIn,
+                                   range: 0...5,
+                                   compact: false)
+                AudioFadeSliderRow(title: String(localized: "フェードアウト"),
+                                   value: bgmFadeOutSecondsBinding,
+                                   range: 0...5,
+                                   compact: false)
             }
         } header: {
             Text("BGM")
         } footer: {
             Text("Apple Music の曲は使えません")
         }
+    }
+
+    /// フェードアウトの秒数(0 = しない)。bgmFadeOut のオン/オフはそのまま残す
+    private var bgmFadeOutSecondsBinding: Binding<Double> {
+        Binding(
+            get: { project.audio.bgmFadeOut ? project.audio.bgmFadeOutSeconds : 0 },
+            set: { newValue in
+                project.audio.bgmFadeOut = newValue > 0.05
+                if newValue > 0.05 { project.audio.bgmFadeOutSeconds = newValue }
+            })
     }
 
     // MARK: 音量

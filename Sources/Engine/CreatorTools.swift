@@ -193,6 +193,7 @@ extension EditorProject {
         for i in narration.indices { narration[i].start = shifted(narration[i].start) }
         for i in overlays.indices { overlays[i].start = shifted(overlays[i].start) }
         for i in drawings.indices { drawings[i].start = shifted(drawings[i].start) }
+        for i in videoEffects.indices { videoEffects[i].start = shifted(videoEffects[i].start) }
         for i in markers.indices { markers[i].time = shifted(markers[i].time) }
         for i in titleCards.indices { titleCards[i].start = shifted(titleCards[i].start) }
         for i in lowerThirds.indices { lowerThirds[i].start = shifted(lowerThirds[i].start) }
@@ -215,6 +216,7 @@ extension EditorProject {
         for i in narration.indices { narration[i].start = move(narration[i].start) }
         for i in overlays.indices { overlays[i].start = move(overlays[i].start) }
         for i in drawings.indices { drawings[i].start = move(drawings[i].start) }
+        for i in videoEffects.indices { videoEffects[i].start = move(videoEffects[i].start) }
         for i in markers.indices { markers[i].time = move(markers[i].time) }
         for i in titleCards.indices { titleCards[i].start = move(titleCards[i].start) }
         for i in lowerThirds.indices { lowerThirds[i].start = move(lowerThirds[i].start) }

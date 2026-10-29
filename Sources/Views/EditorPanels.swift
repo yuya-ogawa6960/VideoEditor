@@ -113,10 +113,19 @@ enum EditorPanel: Hashable {
     case enhance(UUID)
     /// 静止画クリップの 3D ズーム(奥行き視差)
     case parallax(UUID)
+    /// 人物・被写体だけパッと光らせる
+    case subjectFlash(UUID)
+    /// レタッチ(小顔・目・メイク・体型)
+    case retouch(UUID)
+    /// メインクリップのキーフレーム(位置・大きさ・回転・不透明度。ClipKeyframePanel.swift)
+    case clipKeyframes(UUID)
 
     // ---- 第4弾: オーバーレイ ----
     case overlayMask(UUID)
     case overlayParallax(UUID)
+    /// 背景を消す / クロマキー(BackgroundRemovalPanel.swift)。クリップ用とオーバーレイ用
+    case backgroundRemoval(UUID)
+    case overlayBackgroundRemoval(UUID)
 
     // ---- 第4弾: トラッキング(プレビューで対象を囲む → キーフレーム) ----
     case textTracking(UUID)
@@ -131,6 +140,14 @@ enum EditorPanel: Hashable {
     // ---- 第4弾: ルート ----
     /// おまかせ編集のテンプレート一覧
     case autoEditTemplates
+    /// 吹き替え(キャプションを訳して声にする。DubbingPanel.swift)
+    case dubbing
+    /// 内蔵の効果音(SoundEffectPanel.swift)
+    case soundEffects
+    /// 映像エフェクトを選んで追加する(ルート。VideoEffectPanel.swift)
+    case videoEffectAdd
+    /// 選んだ映像エフェクトの種類・強さ
+    case videoEffect(UUID)
 
     var title: String {
         switch self {
@@ -187,10 +204,17 @@ enum EditorPanel: Hashable {
         case .stabilize: return String(localized: "スタビライザー")
         case .enhance: return String(localized: "画質補正")
         case .parallax, .overlayParallax: return String(localized: "3Dズーム")
+        case .backgroundRemoval, .overlayBackgroundRemoval: return String(localized: "背景を消す")
+        case .subjectFlash: return String(localized: "被写体フラッシュ")
+        case .retouch: return String(localized: "レタッチ")
+        case .clipKeyframes: return String(localized: "キーフレーム")
         case .textTracking, .overlayTracking: return String(localized: "トラッキング")
         case .mosaic: return String(localized: "モザイク")
         case .pacing: return String(localized: "中だるみ・編集チェック")
         case .autoEditTemplates: return String(localized: "おまかせテンプレ")
+        case .dubbing: return String(localized: "吹き替え")
+        case .soundEffects: return String(localized: "効果音")
+        case .videoEffectAdd, .videoEffect: return String(localized: "映像エフェクト")
         }
     }
 
@@ -200,8 +224,15 @@ enum EditorPanel: Hashable {
         case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id),
              .slip(let id), .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
              .audioEffects(let id), .beatDetect(let id), .hsl(let id), .lut(let id), .colorMatch(let id),
-             .mask(let id), .autoReframe(let id), .stabilize(let id), .enhance(let id), .parallax(let id):
+             .mask(let id), .autoReframe(let id), .stabilize(let id), .enhance(let id), .parallax(let id), .subjectFlash(let id),
+             .retouch(let id):
             return .clip(id)
+        case .backgroundRemoval(let id):
+            return .clip(id)
+        case .clipKeyframes(let id):
+            return .clip(id)
+        case .overlayBackgroundRemoval(let id):
+            return .overlay(id)
         case .textEdit(let id):
             return .subtitle(id)
         case .overlayPlacement(let id), .overlayKenBurns(let id), .overlayVolume(let id),
@@ -219,9 +250,13 @@ enum EditorPanel: Hashable {
             return .marker(id)
         case .bgmVolume:
             return .bgm
+        case .videoEffect(let id):
+            return .videoEffect(id)
+        case .videoEffectAdd:
+            return nil
         case .subtitleStyle, .captionTemplate, .aspect, .documentary, .titleCard, .lowerThird,
              .narrationRecord, .sticker, .drawingCanvas, .watermark, .formatKit, .textToSpeech,
-             .autoEditTemplates, .pacing:
+             .autoEditTemplates, .pacing, .dubbing, .soundEffects:
             return nil
         }
     }
@@ -230,15 +265,23 @@ enum EditorPanel: Hashable {
     /// 選ぶとすぐ追加される・録音するなど、入口として使うパネルでは出さない
     var supportsCancel: Bool {
         switch self {
-        case .sticker, .narrationRecord, .textToSpeech, .autoEditTemplates, .formatKit, .pacing:
+        case .sticker, .narrationRecord, .textToSpeech, .autoEditTemplates, .formatKit, .pacing, .dubbing, .soundEffects:
             return false
+        case .backgroundRemoval, .overlayBackgroundRemoval:
+            return true
+        case .clipKeyframes:
+            return true
+        case .videoEffectAdd:
+            return false
+        case .videoEffect:
+            return true
         case .speed, .volume, .filter, .textEdit, .subtitleStyle, .aspect, .bgmVolume, .documentary,
              .titleCard, .lowerThird, .jlCut, .colorAdjust, .overlayPlacement, .overlayKenBurns,
              .overlayVolume, .overlaySpeed, .overlayFilter, .narrationVolume, .transition, .clipAnimation,
              .geometry, .speedCurve, .audioEffects, .beatDetect, .hsl, .lut, .colorMatch, .textStyle,
              .textAnimation, .textPlacement, .textKeyframes, .overlayKeyframes, .overlayBlend, .overlayTransition, .overlayOpacity,
              .narrationEffects, .drawingCanvas, .drawingStyle, .drawingTiming, .markerName, .markerKind,
-             .captionTemplate, .watermark, .mask, .autoReframe, .stabilize, .enhance, .parallax,
+             .captionTemplate, .watermark, .mask, .autoReframe, .stabilize, .enhance, .parallax, .subjectFlash, .retouch,
              .overlayMask, .overlayParallax, .textTracking, .overlayTracking, .mosaic, .slip:
             return true
         }
@@ -251,8 +294,11 @@ enum EditorPanel: Hashable {
         case .colorAdjust, .overlayPlacement: return 320
         case .overlayKenBurns, .narrationRecord: return 280
         case .jlCut: return 250
-        case .textStyle, .formatKit, .autoEditTemplates: return 360
+        case .textStyle, .formatKit, .autoEditTemplates, .dubbing, .soundEffects: return 360
         case .mask, .overlayMask: return 340
+        case .backgroundRemoval, .overlayBackgroundRemoval: return 360
+        case .clipKeyframes: return 360
+        case .videoEffectAdd, .videoEffect: return 340
         case .slip: return 330
         case .mosaic: return 300
         case .pacing: return 340
@@ -261,14 +307,16 @@ enum EditorPanel: Hashable {
         case .subtitleStyle, .captionTemplate: return 360
         case .geometry, .speedCurve, .audioEffects, .hsl, .textPlacement, .textKeyframes,
              .overlayKeyframes, .watermark, .textToSpeech, .sticker,
-             .autoReframe, .enhance: return 320
+             .autoReframe, .enhance, .subjectFlash, .retouch: return 320
         case .transition, .overlayTransition, .clipAnimation, .beatDetect, .lut, .colorMatch, .textAnimation,
              .narrationEffects, .drawingStyle, .drawingCanvas,
              .stabilize, .parallax, .overlayParallax, .textTracking, .overlayTracking: return 280
         // 比率: 比率のタイル + 収め方の見本(高さ約 102)が切れずに見える高さ
         case .aspect: return 280
-        case .speed, .volume, .textEdit, .bgmVolume, .overlayVolume,
-             .overlaySpeed, .narrationVolume, .overlayBlend, .drawingTiming, .markerName, .markerKind:
+        // ボリューム(クリップ・ナレーション)はフェードイン・フェードアウトのスライダーぶん高い
+        case .volume, .narrationVolume: return 330
+        case .speed, .textEdit, .bgmVolume, .overlayVolume,
+             .overlaySpeed, .overlayBlend, .drawingTiming, .markerName, .markerKind:
             return 220
         }
     }
@@ -279,8 +327,15 @@ enum EditorPanel: Hashable {
         case .speed(let id), .volume(let id), .filter(let id), .jlCut(let id), .colorAdjust(let id),
              .slip(let id), .transition(let id), .clipAnimation(let id), .geometry(let id), .speedCurve(let id),
              .audioEffects(let id), .beatDetect(let id), .hsl(let id), .lut(let id), .colorMatch(let id),
-             .mask(let id), .autoReframe(let id), .stabilize(let id), .enhance(let id), .parallax(let id):
+             .mask(let id), .autoReframe(let id), .stabilize(let id), .enhance(let id), .parallax(let id), .subjectFlash(let id),
+             .retouch(let id):
             return selection == .clip(id)
+        case .backgroundRemoval(let id):
+            return selection == .clip(id)
+        case .clipKeyframes(let id):
+            return selection == .clip(id)
+        case .overlayBackgroundRemoval(let id):
+            return selection == .overlay(id)
         case .textEdit(let id):
             return selection == .subtitle(id)
         case .subtitleStyle, .captionTemplate:
@@ -302,13 +357,17 @@ enum EditorPanel: Hashable {
             return selection == .drawing(id)
         case .markerName(let id), .markerKind(let id):
             return selection == .marker(id)
+        case .videoEffect(let id):
+            return selection == .videoEffect(id)
+        case .videoEffectAdd:
+            return selection == nil
         case .pacing:
             return true
         case .formatKit:
             // ルートからも、クリップ選択中(選択範囲を保存)からも開ける
             return selection == nil || selection?.clipID != nil
         case .documentary, .titleCard, .lowerThird, .narrationRecord,
-             .sticker, .drawingCanvas, .watermark, .textToSpeech, .autoEditTemplates:
+             .sticker, .drawingCanvas, .watermark, .textToSpeech, .autoEditTemplates, .dubbing, .soundEffects:
             // ルート(何も選択していない)ツールバーから開くパネル
             return selection == nil
         }
@@ -663,6 +722,9 @@ struct EditorSpeedPanel: View {
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+
+            // 間のコマを作るなめらかスロー(FlowSlowControls.swift)
+            EditorFlowSlowSection(project: project, clip: $clip)
         }
         .padding(.top, 6)
     }
@@ -701,6 +763,9 @@ struct EditorVolumePanel: View {
                     clip.audio.volume = 1
                 }
             }
+            // 音のフェードイン・フェードアウト(0〜3 秒。AudioFadePanels.swift)
+            AudioFadeSliders(fadeIn: $clip.audioFadeIn, fadeOut: $clip.audioFadeOut)
+                .disabled(!clip.hasAudio)
         }
         .padding(.top, 6)
     }

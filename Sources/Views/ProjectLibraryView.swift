@@ -61,8 +61,14 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.25), value: openProjectID)
         // .videomania をタップして開かれたとき。編集中なら、一覧に戻ったときに受け取る
         .onOpenURL { url in
+            // TikTok への投稿から戻ってきたとき(TikTokShare)
+            if !url.isFileURL && TikTokShare.handleOpenURL(url) { return }
             guard url.isFileURL, url.pathExtension.lowercased() == ProjectPackage.packageExtension else { return }
             openedPackageURL = url
+        }
+        // TikTok の戻り先がユニバーサルリンクのとき
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            _ = TikTokShare.handleOpenURL(activity.webpageURL)
         }
         // 使い方の統計は、初回に聞いてから送る(匿名でも同意が要る)。設定でいつでも変えられる
         .alert("使い方の統計を送信しますか?", isPresented: $showAnalyticsPrompt) {
@@ -187,6 +193,10 @@ struct ProjectLibraryView: View {
     @State private var showAspectPicker = false
     /// シートで選んだ比率(閉じ終わってから作って開く)
     @State private var pickedAspect: CanvasAspect?
+    /// 「カメラで撮る」(CameraRecorderView)
+    @State private var showCameraRecorder = false
+    /// カメラで撮った動画(閉じ終わってから、その動画で新しいプロジェクトを作って開く)
+    @State private var cameraClipURL: URL?
 
     /// iPhone の縦では 2 列。横向き・iPad では列を増やす(縦長のカードが画面より高くならないように)
     private let columns = [
@@ -206,6 +216,7 @@ struct ProjectLibraryView: View {
                         emptyHint
                     } else {
                         newProjectButton
+                        cameraProjectButton
 
                         HStack(alignment: .firstTextBaseline) {
                             Text("最近のプロジェクト")
@@ -242,6 +253,16 @@ struct ProjectLibraryView: View {
                     NewProjectAspect.last = aspect
                     pickedAspect = aspect
                     showAspectPicker = false
+                }
+            }
+            .fullScreenCover(isPresented: $showCameraRecorder, onDismiss: {
+                // 閉じ終わってから、撮った動画で新しいプロジェクトを作って開く(落とした動画・写真と同じ道で取り込む)
+                guard let url = cameraClipURL else { return }
+                cameraClipURL = nil
+                createProject(mediaMode: .appCopy, droppedMedia: [url], aspect: NewProjectAspect.last)
+            }) {
+                CameraRecorderView(aspect: NewProjectAspect.last) { url in
+                    cameraClipURL = url
                 }
             }
             .background(Color.black.ignoresSafeArea())
@@ -417,6 +438,23 @@ struct ProjectLibraryView: View {
         }
     }
 
+    /// 「カメラで撮る」: 撮った動画で新しいプロジェクトを作る(比率は最後に選んだもの。素材はアプリ内にコピーする)
+    private var cameraProjectButton: some View {
+        Button {
+            guard !isPackageBusy else { return }
+            showCameraRecorder = true
+        } label: {
+            Label("カメラで撮る", systemImage: "camera")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(BrandStyle.surface, in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("カメラで撮る")
+    }
+
     /// importingIncomingMedia: 共有で受け取った動画・写真を編集するために作る(開いた編集画面が聞かずに取り込む)。
     /// aspect: 「新しいプロジェクト」で選んだ比率(縦はぼかし背景で収める)。このときだけ、空のまま閉じたら消す
     private func createProject(mediaMode: ProjectMediaMode, importingIncomingMedia: Bool = false,
@@ -503,6 +541,7 @@ struct ProjectLibraryView: View {
                 .foregroundStyle(.white)
             newProjectButton
                 .padding(.top, 8)
+            cameraProjectButton
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)

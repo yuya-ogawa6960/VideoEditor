@@ -210,6 +210,11 @@ struct TransitionPreview: View {
                 if p < 0.5 { a } else { b }
                 Color.white.opacity(k)
             }
+        case .exposureFlash:
+            // 画面全体が明るく飛ぶ(白を重ねるのではなく、明るさと鮮やかさを上げる)
+            (p < 0.5 ? a : b)
+                .brightness(0.55 * pow(k, 0.7))
+                .saturation(1 + 0.4 * k)
         case .lightLeak:
             ZStack {
                 a

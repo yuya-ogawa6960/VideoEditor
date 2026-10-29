@@ -2,8 +2,9 @@ import Foundation
 import CoreText
 
 // =====================================================================
-// アプリに同梱しているフォント(Google Fonts の SIL Open Font License / Apache License 2.0 のもの)。
-// ファイルは Sources/Resources/Fonts。ライセンス文は同じフォルダの OFL.txt / LICENSE-APACHE.txt。
+// アプリに同梱しているフォント(Google Fonts の SIL Open Font License / Apache License 2.0 のもの、
+// けいふぉんと(Do-Font、Apache License 2.0))。
+// ファイルは Sources/Resources/Fonts。ライセンス文は同じフォルダの FONTS.txt / OFL.txt / LICENSE-APACHE.txt / LICENSE-MPLUS.txt。
 // 起動時に registerAll() でこのアプリ内だけに登録する。
 // =====================================================================
 
@@ -16,6 +17,7 @@ enum BundledFonts {
 
     /// 日本語(かわいい・ポップ・手書き)
     static let japanese: [Entry] = [
+        Entry(name: "Keifont", label: "けいふぉんと"),
         Entry(name: "HachiMaruPop-Regular", label: "はちまるポップ"),
         Entry(name: "YuseiMagic-Regular", label: "油性マジック"),
         Entry(name: "MochiyPopOne-Regular", label: "もっちりポップ"),

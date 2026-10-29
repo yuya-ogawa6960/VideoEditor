@@ -189,8 +189,21 @@ struct Clip: Identifiable, Equatable {
     var enhance: ClipEnhancements
     /// 静止画クリップの 3D ズーム(奥行き情報がある写真のみ)
     var parallax: DepthParallax
+    /// 人物・被写体だけパッと光らせる(SubjectFlashModels.swift)
+    var subjectFlash: SubjectFlash = SubjectFlash()
+    /// キーフレーム(位置・大きさ・回転・不透明度。時刻は元素材上の秒。ClipKeyframeModels.swift)
+    var keyframes: [Keyframe] = []
+    /// なめらかスロー(コマを作って足した動画。ClipKeyframeModels.swift)
+    var flowSlow: FlowSlowMotion = FlowSlowMotion()
+    /// 背景を消す / クロマキー(BackgroundRemovalModels.swift)
+    var backgroundRemoval: BackgroundRemoval = BackgroundRemoval()
+    /// レタッチ(顔の形・メイク・体型。RetouchModels.swift)
+    var retouch: ClipRetouch = ClipRetouch()
     /// 自動字幕の言語(このクリップだけ英語・訳付きなど。nil なら字幕を作るときに選んだ言語)
     var captionLanguage: CaptionLanguage? = nil
+    /// 音声のフェードイン・フェードアウト(秒、0〜3。0 = なし。トランジションの重なりより長いときだけ効く)
+    var audioFadeIn: Double = 0
+    var audioFadeOut: Double = 0
 
     init(id: UUID = UUID(), url: URL, duration: Double, naturalSize: CGSize,
          preferredTransform: CGAffineTransform, hasAudio: Bool, thumbnail: UIImage?, name: String) {
@@ -258,6 +271,17 @@ struct Clip: Identifiable, Equatable {
         copy.stabilization = stabilization
         copy.enhance = enhance
         copy.parallax = parallax
+        copy.subjectFlash = subjectFlash
+        copy.keyframes = keyframes.map { key in
+            var k = key
+            k.id = UUID()
+            return k
+        }
+        copy.flowSlow = flowSlow
+        copy.backgroundRemoval = backgroundRemoval
+        copy.retouch = retouch
+        copy.audioFadeIn = audioFadeIn
+        copy.audioFadeOut = audioFadeOut
         return copy
     }
 
@@ -283,6 +307,13 @@ struct Clip: Identifiable, Equatable {
             && lhs.stabilization == rhs.stabilization
             && lhs.enhance == rhs.enhance
             && lhs.parallax == rhs.parallax
+            && lhs.subjectFlash == rhs.subjectFlash
+            && lhs.keyframes == rhs.keyframes
+            && lhs.flowSlow == rhs.flowSlow
+            && lhs.backgroundRemoval == rhs.backgroundRemoval
+            && lhs.retouch == rhs.retouch
+            && lhs.audioFadeIn == rhs.audioFadeIn
+            && lhs.audioFadeOut == rhs.audioFadeOut
             && lhs.name == rhs.name
     }
 }
@@ -406,8 +437,12 @@ struct AudioSettings: Equatable {
     var bgmVolume: Float = 0.5
     /// 0 ... 1
     var originalVolume: Float = 1.0
-    /// 最後の 2 秒で BGM をフェードアウト
+    /// 最後に BGM をフェードアウトする(長さは bgmFadeOutSeconds)
     var bgmFadeOut: Bool = true
+    /// フェードアウトの長さ(秒)。bgmFadeOut が false なら使わない
+    var bgmFadeOutSeconds: Double = 2
+    /// 最初に BGM をフェードインする長さ(秒、0 = なし)
+    var bgmFadeIn: Double = 0
 }
 
 // MARK: - 出力形式
@@ -548,6 +583,8 @@ struct ProjectSnapshot: Equatable {
     var markers: [TimelineMarker] = []
     var watermark = WatermarkSettings()
     var cover = CoverSettings()
+    /// 映像エフェクト(画面全体にかける。VideoEffectModels.swift)
+    var videoEffects: [VideoEffectClip] = []
 
     var totalDuration: Double { clips.reduce(0) { $0 + $1.outputDuration } }
     var isEmpty: Bool { clips.isEmpty }
@@ -575,6 +612,8 @@ final class EditorProject {
     var markers: [TimelineMarker] = []
     var watermark = WatermarkSettings()
     var cover = CoverSettings()
+    /// 映像エフェクト(画面全体にかける。VideoEffectModels.swift)
+    var videoEffects: [VideoEffectClip] = []
     /// restore(_:) で中身を置き換えた回数(元に戻した直後に、開いていたパネルの下書きで上書きしないための印。
     /// 増やすのは restore(_:) だけ。EditorSelection.swift)
     var restoreCount = 0
@@ -586,7 +625,8 @@ final class EditorProject {
         ProjectSnapshot(clips: clips, subtitles: subtitles, subtitleStyle: subtitleStyle,
                         audio: audio, canvas: canvas, documentary: documentary,
                         titleCards: titleCards, lowerThirds: lowerThirds, overlays: overlays, narration: narration,
-                        textClips: textClips, drawings: drawings, markers: markers, watermark: watermark, cover: cover)
+                        textClips: textClips, drawings: drawings, markers: markers, watermark: watermark, cover: cover,
+                        videoEffects: videoEffects)
     }
 
     // MARK: タイムライン計算

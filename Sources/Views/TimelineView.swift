@@ -63,7 +63,8 @@ struct TimelineView: View {
                                       hasSubtitles: !project.subtitles.isEmpty,
                                       hasBGM: project.audio.bgmURL != nil,
                                       narrationLanes: TimelineMetrics.narrationLaneCount(project.narration),
-                                      mosaicLanes: TimelineMetrics.mosaicLaneCount(project.textClips))
+                                      mosaicLanes: TimelineMetrics.mosaicLaneCount(project.textClips),
+                                      effectLanes: TimelineMetrics.effectLaneCount(project.videoEffects))
     }
 
     static func rowPlacements(_ rows: [TimelineTrackKind]) -> [TimelineRowPlacement] {
@@ -304,6 +305,7 @@ struct TimelineView: View {
         case .video: laneHeight = TimelineMetrics.videoHeight
         case .overlay: laneHeight = TimelineMetrics.overlayHeight
         case .text, .mosaic: laneHeight = TimelineMetrics.textHeight
+        case .effect: laneHeight = TimelineMetrics.effectHeight
         case .narration: laneHeight = TimelineMetrics.narrationHeight
         default: laneHeight = kind.height
         }
@@ -346,6 +348,8 @@ struct TimelineView: View {
                       textClips: TimelineMetrics.mosaicClips(f.snapshot.textClips), mosaic: true)
         case .drawing:
             drawingTrack(width: width, originX: originX, pps: pps, drawings: f.snapshot.drawings)
+        case .effect:
+            effectTrack(width: width, originX: originX, pps: pps, effects: f.snapshot.videoEffects)
         case .subtitle:
             subtitleTrack(width: width, originX: originX, pps: pps, subtitles: f.snapshot.subtitles)
         case .audio:
@@ -1013,6 +1017,141 @@ struct TimelineView: View {
         .frame(width: width, height: h, alignment: .topLeading)
     }
 
+    // MARK: - 映像エフェクトトラック
+
+    private func effectItems(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                             effects: [VideoEffectClip]) -> [TimelineEffectItem] {
+        var result: [TimelineEffectItem] = []
+        for effect in effects {
+            let x = originX + CGFloat(effect.start) * pps
+            let w = max(CGFloat(effect.duration) * pps, 6)
+            guard let span = TimelineMetrics.visibleSpan(x: x, width: w, viewWidth: width) else { continue }
+            let labelX = TimelineMetrics.stickyLabelX(trueX: x, visibleX: span.x,
+                                                      visibleWidth: span.width, labelWidth: 40)
+            result.append(TimelineEffectItem(id: effect.id, effect: effect, screenX: x, width: w,
+                                             visibleX: span.x, visibleWidth: span.width, labelX: labelX))
+        }
+        return result
+    }
+
+    /// 映像エフェクトの行(時間が重なるものは別の段。段 0 がいちばん下)
+    private func effectTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                             effects: [VideoEffectClip]) -> some View {
+        let h = TimelineMetrics.effectHeight
+        let items = effectItems(width: width, originX: originX, pps: pps, effects: effects)
+        let selectedID: UUID? = selection?.videoEffectID
+        let selectedItem: TimelineEffectItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
+        let lanes: [UUID: Int] = frozenLanes?.effectLanes ?? TimelineMetrics.effectLanes(effects)
+        let laneCount: Int = max(1, (lanes.values.max() ?? 0) + 1)
+        let trackHeight: CGFloat = TimelineMetrics.stackedHeight(h, lanes: laneCount)
+        let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
+        let selectedY: CGFloat = CGFloat(laneCount - 1 - (selectedID.flatMap { lanes[$0] } ?? 0)) * laneStep
+
+        return ZStack(alignment: .topLeading) {
+            ForEach(items) { item in
+                let isSel = item.id == selectedID
+                let row = laneCount - 1 - (lanes[item.id] ?? 0)
+                TimelineEffectBar(effect: item.effect,
+                                  labelX: item.labelX,
+                                  visibleWidth: item.visibleWidth,
+                                  height: h,
+                                  isSelected: isSel)
+                    .timelineLaneHitArea(row: row, rows: laneCount)
+                    .offset(x: item.visibleX, y: CGFloat(row) * laneStep)
+                    .onTapGesture {
+                        if tapStopsMomentum() { return }
+                        selection = .videoEffect(item.id)
+                    }
+                    .gesture(effectMoveGesture(id: item.id), including: isSel ? .all : .subviews)
+                    .zIndex(isSel ? 1 : 0)
+            }
+
+            if let sel = selectedItem {
+                selectionDecor(screenX: sel.screenX, width: sel.width,
+                               visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
+                               y: selectedY, height: h, duration: sel.effect.duration,
+                               leading: effectTrimGesture(id: sel.id, leading: true),
+                               trailing: effectTrimGesture(id: sel.id, leading: false))
+            }
+        }
+        .frame(width: width, height: trackHeight, alignment: .topLeading)
+    }
+
+    private func effectMoveGesture(id: UUID) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
+            .updating($editGestureActive) { _, state, _ in
+                state = true
+            }
+            .onChanged { value in
+                if interaction.edit == nil {
+                    guard shouldBeginEdit(value), let effect = project.videoEffects.first(where: { $0.id == id }) else { return }
+                    beginEdit(.moveEffect(id: id, originalStart: effect.start), snapExcluding: id)
+                }
+                applyEffectEdit(translation: value.translation.width)
+            }
+            .onEnded { _ in
+                finishEdit()
+            }
+    }
+
+    private func effectTrimGesture(id: UUID, leading: Bool) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .updating($editGestureActive) { _, state, _ in
+                state = true
+            }
+            .onChanged { value in
+                if interaction.edit == nil {
+                    guard shouldBeginEdit(value), let effect = project.videoEffects.first(where: { $0.id == id }) else { return }
+                    beginEdit(.trimEffect(id: id, leading: leading, original: effect), snapExcluding: id)
+                }
+                applyEffectEdit(translation: value.translation.width)
+            }
+            .onEnded { _ in
+                finishEdit()
+            }
+    }
+
+    private func applyEffectEdit(translation: CGFloat) {
+        let pps = max(timeline.pointsPerSecond, 0.0001)
+        let delta = Double(translation) / pps
+        let minimumLength = 0.3
+        switch interaction.edit {
+        case let .moveEffect(id, originalStart)?:
+            guard let i = project.videoEffects.firstIndex(where: { $0.id == id }) else { return }
+            let length = max(0, project.videoEffects[i].duration)
+            let upperStart = max(0, max(timelineDuration(), originalStart + length) - length)
+            let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
+            let newStart = min(max(0, originalStart + moved), upperStart)
+            if abs(project.videoEffects[i].start - newStart) > 0.0001 {
+                recordEditHistory()
+                project.videoEffects[i].start = newStart
+            }
+        case let .trimEffect(id, leading, original)?:
+            guard let i = project.videoEffects.firstIndex(where: { $0.id == id }) else { return }
+            var updated = original
+            if leading {
+                let upperStart = max(0, original.end - minimumLength)
+                let proposed = original.start + snappedDelta(delta, edges: [original.start])
+                let newStart = min(max(0, proposed), upperStart)
+                noteTrimLimit(abs(newStart - proposed) > 0.0001)
+                updated.start = newStart
+                updated.duration = max(minimumLength, original.end - newStart)
+            } else {
+                let upperEnd = max(timelineDuration(), original.end)
+                let maxLength = max(minimumLength, upperEnd - original.start)
+                let proposed = original.duration + snappedDelta(delta, edges: [original.end])
+                updated.duration = min(max(minimumLength, proposed), maxLength)
+                noteTrimLimit(abs(updated.duration - proposed) > 0.0001)
+            }
+            if project.videoEffects[i] != updated {
+                recordEditHistory()
+                project.videoEffects[i] = updated
+            }
+        default:
+            break
+        }
+    }
+
     // MARK: - 字幕トラック
 
     private func subtitleItems(width: CGFloat, originX: CGFloat, pps: CGFloat,
@@ -1420,6 +1559,10 @@ struct TimelineView: View {
             targets.append(d.start)
             targets.append(d.end)
         }
+        for e in snapshot.videoEffects where e.id != id {
+            targets.append(e.start)
+            targets.append(e.end)
+        }
         for c in snapshot.subtitles where c.id != id {
             targets.append(c.start)
             targets.append(c.end)
@@ -1549,7 +1692,8 @@ struct TimelineView: View {
                                           textLanes: TimelineMetrics.textLanes(TimelineMetrics.textOnlyClips(snapshot.textClips)),
                                           mosaicLanes: TimelineMetrics.mosaicLanes(snapshot.textClips),
                                           overlayLanes: TimelineMetrics.overlayLanes(snapshot.overlays),
-                                          narrationLanes: TimelineMetrics.narrationLanes(snapshot.narration))
+                                          narrationLanes: TimelineMetrics.narrationLanes(snapshot.narration),
+                                          effectLanes: TimelineMetrics.effectLanes(snapshot.videoEffects))
     }
 
     private func finishEdit() {
@@ -1587,6 +1731,8 @@ struct TimelineView: View {
             project.sortTextClips()
         case .moveDrawing, .trimDrawing:
             project.drawings.sort { $0.start < $1.start }
+        case .moveEffect, .trimEffect:
+            project.sortVideoEffects()
         case .moveMarker:
             project.sortMarkers()
         }
@@ -1642,6 +1788,8 @@ struct TimelineView: View {
             applyTextEdit(translation: translation)
         case .moveDrawing?, .trimDrawing?:
             applyDrawingEdit(translation: translation)
+        case .moveEffect?, .trimEffect?:
+            applyEffectEdit(translation: translation)
         case .moveMarker?:
             applyMarkerEdit(translation: translation)
         case .reorder?, nil:

@@ -896,6 +896,8 @@ struct StoredTextClip: Codable {
     var isSticker: Bool
     /// モザイク(後から追加したので省略可能)
     var mosaic: StoredMosaic?
+    /// 動くステッカーの種類(後から追加したので省略可能)
+    var vectorSticker: String?
 
     init(_ t: TextClip) {
         id = t.id
@@ -916,6 +918,7 @@ struct StoredTextClip: Codable {
         keyframes = t.keyframes.map { StoredKeyframe($0) }
         isSticker = t.isSticker
         mosaic = t.mosaic.map { StoredMosaic($0) }
+        vectorSticker = t.vectorSticker?.rawValue
     }
 
     var value: TextClip {
@@ -936,6 +939,8 @@ struct StoredTextClip: Codable {
         t.keyframes = keyframes.map { $0.value }
         t.isSticker = isSticker
         t.mosaic = mosaic?.value
+        t.vectorSticker = vectorSticker.flatMap { VectorStickerKind(rawValue: $0) }
+        if t.vectorSticker != nil { t.isSticker = true }
         return t
     }
 }
@@ -1423,6 +1428,19 @@ private struct StoredClip: Codable {
     var parallax: StoredParallax?
     /// 自動字幕の言語(後から追加したので省略可能)
     var captionLanguage: String?
+    /// 被写体フラッシュ(後から追加したので省略可能)
+    var subjectFlash: StoredSubjectFlash?
+    /// メインクリップのキーフレーム(後から追加したので省略可能。時刻は元素材上の秒)
+    var keyframes: [StoredKeyframe]?
+    /// なめらかスロー(後から追加したので省略可能。ClipKeyframeModels.swift)
+    var flowSlow: StoredFlowSlow?
+    /// 背景を消す / クロマキー(後から追加したので省略可能)
+    var backgroundRemoval: StoredBackgroundRemoval?
+    /// レタッチ(後から追加したので省略可能)
+    var retouch: StoredRetouch?
+    /// 音声のフェードイン・フェードアウト(秒。後から追加したので省略可能。nil = 0)
+    var audioFadeIn: Double?
+    var audioFadeOut: Double?
 
     init(_ c: Clip) {
         id = c.id
@@ -1462,6 +1480,13 @@ private struct StoredClip: Codable {
         enhance = StoredEnhance(c.enhance)
         parallax = StoredParallax(c.parallax)
         captionLanguage = c.captionLanguage?.rawValue
+        subjectFlash = c.subjectFlash == SubjectFlash() ? nil : StoredSubjectFlash(c.subjectFlash)
+        keyframes = c.keyframes.isEmpty ? nil : c.keyframes.map { StoredKeyframe($0) }
+        flowSlow = StoredFlowSlow.make(c.flowSlow)
+        backgroundRemoval = StoredBackgroundRemoval.make(c.backgroundRemoval)
+        retouch = c.retouch == ClipRetouch() ? nil : StoredRetouch(c.retouch)
+        audioFadeIn = c.audioFadeIn > 0 ? c.audioFadeIn : nil
+        audioFadeOut = c.audioFadeOut > 0 ? c.audioFadeOut : nil
     }
 
     /// 写真ライブラリの動画("photos:<id>")を参照している動画クリップか
@@ -1536,7 +1561,101 @@ private struct StoredClip: Codable {
         clip.enhance = enhance?.value ?? ClipEnhancements()
         clip.parallax = parallax?.value ?? DepthParallax()
         clip.captionLanguage = captionLanguage.flatMap { CaptionLanguage(rawValue: $0) }
+        clip.subjectFlash = subjectFlash?.value ?? SubjectFlash()
+        clip.keyframes = (keyframes ?? []).map { $0.value }
+        clip.flowSlow = flowSlow?.value ?? FlowSlowMotion()
+        clip.backgroundRemoval = backgroundRemoval?.value ?? BackgroundRemoval()
+        clip.retouch = retouch?.value ?? ClipRetouch()
+        clip.audioFadeIn = audioFadeIn ?? 0
+        clip.audioFadeOut = audioFadeOut ?? 0
         return clip
+    }
+}
+
+/// レタッチ(項目はすべて省略可能。読めない値は 0 にする)
+private struct StoredRetouch: Codable {
+    var slimFace: Double?
+    var bigEyes: Double?
+    var slimNose: Double?
+    var smile: Double?
+    var lip: Double?
+    var lipColor: String?
+    var blush: Double?
+    var whitenTeeth: Double?
+    var slimBody: Double?
+    var longLegs: Double?
+
+    init(_ r: ClipRetouch) {
+        slimFace = r.slimFace
+        bigEyes = r.bigEyes
+        slimNose = r.slimNose
+        smile = r.smile
+        lip = r.lip
+        lipColor = r.lipColorHex
+        blush = r.blush
+        whitenTeeth = r.whitenTeeth
+        slimBody = r.slimBody
+        longLegs = r.longLegs
+    }
+
+    var value: ClipRetouch {
+        func amount(_ v: Double?) -> Double {
+            guard let v, v.isFinite else { return 0 }
+            return min(max(v, 0), 1)
+        }
+        var r = ClipRetouch()
+        r.slimFace = amount(slimFace)
+        r.bigEyes = amount(bigEyes)
+        r.slimNose = amount(slimNose)
+        r.smile = amount(smile)
+        r.lip = amount(lip)
+        if let lipColor, UIColor(hex: lipColor) != nil {
+            r.lipColorHex = lipColor
+        }
+        r.blush = amount(blush)
+        r.whitenTeeth = amount(whitenTeeth)
+        r.slimBody = amount(slimBody)
+        r.longLegs = amount(longLegs)
+        return r
+    }
+}
+
+/// 被写体フラッシュ
+private struct StoredSubjectFlash: Codable {
+    var enabled: Bool
+    var target: String
+    var pointX: Double
+    var pointY: Double
+    var time: Double
+    var duration: Double
+    var strength: Double
+    var glow: Bool
+
+    init(_ f: SubjectFlash) {
+        enabled = f.enabled
+        target = f.target.rawValue
+        pointX = f.point.x
+        pointY = f.point.y
+        time = f.time
+        duration = f.duration
+        strength = f.strength
+        glow = f.glow
+    }
+
+    var value: SubjectFlash {
+        let defaults = SubjectFlash()
+        func clamp(_ v: Double, _ lo: Double, _ hi: Double, _ fallback: Double) -> Double {
+            v.isFinite ? min(max(v, lo), hi) : fallback
+        }
+        var f = SubjectFlash()
+        f.enabled = enabled
+        f.target = SubjectFlashTarget(rawValue: target) ?? defaults.target
+        f.point = NormalizedPoint(x: clamp(pointX, 0, 1, 0.5), y: clamp(pointY, 0, 1, 0.5))
+        f.time = clamp(time, 0, 86_400, 0)
+        f.duration = clamp(duration, 0.15, 1, defaults.duration)
+        f.strength = clamp(strength, 0.2, 1, defaults.strength)
+        f.glow = glow
+        return f
     }
 }
 
@@ -1620,6 +1739,10 @@ private struct StoredOverlay: Codable {
     var transitionInDuration: Double?
     var transitionOutType: String?
     var transitionOutDuration: Double?
+    /// 背景を消す / クロマキー(後から追加したので省略可能)
+    var backgroundRemoval: StoredBackgroundRemoval?
+    /// 動く画像(GIF)か(後から追加したので省略可能。無ければファイルから判定する)
+    var isAnimatedImage: Bool?
 
     init(_ o: OverlayClip) {
         id = o.id
@@ -1654,6 +1777,8 @@ private struct StoredOverlay: Codable {
         transitionInDuration = o.transitionIn.duration
         transitionOutType = o.transitionOut.type.rawValue
         transitionOutDuration = o.transitionOut.duration
+        backgroundRemoval = StoredBackgroundRemoval.make(o.backgroundRemoval)
+        isAnimatedImage = o.isAnimatedImage
     }
 
     /// 素材ファイルが消えていれば nil
@@ -1683,6 +1808,8 @@ private struct StoredOverlay: Codable {
                                         duration: transitionInDuration ?? 0.5)
         o.transitionOut = ClipTransition(type: TransitionType(rawValue: transitionOutType ?? "") ?? .none,
                                          duration: transitionOutDuration ?? 0.5)
+        o.backgroundRemoval = backgroundRemoval?.value ?? BackgroundRemoval()
+        o.isAnimatedImage = isImage && (isAnimatedImage ?? AnimatedImageCache.isAnimated(url: url))
         return o
     }
 }
@@ -1699,6 +1826,9 @@ private struct StoredNarration: Codable {
     var gain: Float
     /// 第3弾(省略可能)
     var effects: StoredAudioEffects?
+    /// フェードイン・フェードアウト(秒。後から追加したので省略可能。nil = 0)
+    var fadeIn: Double?
+    var fadeOut: Double?
 
     init(_ n: NarrationClip) {
         id = n.id
@@ -1710,16 +1840,20 @@ private struct StoredNarration: Codable {
         volume = n.volume
         gain = n.gain
         effects = StoredAudioEffects(n.effects)
+        fadeIn = n.fadeIn > 0 ? n.fadeIn : nil
+        fadeOut = n.fadeOut > 0 ? n.fadeOut : nil
     }
 
-    /// 音声ファイルが消えていれば nil
+    /// 音声ファイルが消えていれば nil(内蔵の効果音は Caches から消えていても作り直す)
     func makeNarration() -> NarrationClip? {
-        guard let url = ProjectStore.resolveMedia(file) else { return nil }
+        guard let url = ProjectStore.resolveMedia(file) ?? SoundEffectLibrary.generatedURL(fileName: file) else { return nil }
         var n = NarrationClip(id: id, url: url, name: name, start: start, duration: duration)
         n.sourceStart = sourceStart
         n.volume = volume
         n.gain = gain
         n.effects = effects?.value ?? AudioEffects()
+        n.fadeIn = fadeIn ?? 0
+        n.fadeOut = fadeOut ?? 0
         return n
     }
 }
@@ -1930,6 +2064,8 @@ private struct ProjectFile: Codable {
     var markers: [StoredMarker]?
     var watermark: StoredWatermark?
     var cover: StoredCover?
+    /// 映像エフェクト(省略可能。VideoEffectModels.swift)
+    var videoEffects: [StoredVideoEffect]?
     var clips: [StoredClip]
     var subtitles: [StoredCue]
     /// version 2 以降の字幕スタイルと出力設定(nil なら下の旧形式の項目から復元する)
@@ -1946,6 +2082,9 @@ private struct ProjectFile: Codable {
     var bgmVolume: Float
     var originalVolume: Float
     var bgmFadeOut: Bool
+    /// BGM のフェードアウトの長さとフェードイン(後から追加したので省略可能。nil = 2 秒 / 0 秒)
+    var bgmFadeOutSeconds: Double?
+    var bgmFadeIn: Double?
     // 旧形式(version 1)の出力設定。新しいファイルには書かない
     var aspect: String?
     var scaling: String?
@@ -1969,6 +2108,8 @@ private struct ProjectFile: Codable {
         bgmVolume = s.audio.bgmVolume
         originalVolume = s.audio.originalVolume
         bgmFadeOut = s.audio.bgmFadeOut
+        bgmFadeOutSeconds = s.audio.bgmFadeOutSeconds
+        bgmFadeIn = s.audio.bgmFadeIn > 0 ? s.audio.bgmFadeIn : nil
         documentary = StoredDocumentary(s.documentary)
         titleCards = s.titleCards.map { StoredTitleCard($0) }
         lowerThirds = s.lowerThirds.map { StoredLowerThird(id: $0.id, kind: $0.kind.rawValue, start: $0.start, duration: $0.duration, primary: $0.primary, secondary: $0.secondary) }
@@ -1979,6 +2120,7 @@ private struct ProjectFile: Codable {
         markers = s.markers.map { StoredMarker($0) }
         watermark = StoredWatermark(s.watermark)
         cover = StoredCover(s.cover)
+        videoEffects = s.videoEffects.isEmpty ? nil : s.videoEffects.map { StoredVideoEffect($0) }
     }
 
     /// 旧形式(平らな項目)から字幕スタイルを復元
@@ -2052,6 +2194,8 @@ private struct ProjectFile: Codable {
         audio.bgmVolume = bgmVolume
         audio.originalVolume = originalVolume
         audio.bgmFadeOut = bgmFadeOut
+        audio.bgmFadeOutSeconds = bgmFadeOutSeconds ?? 2
+        audio.bgmFadeIn = bgmFadeIn ?? 0
 
         let canvasSettings = canvas?.value ?? legacyCanvas()
 
@@ -2068,7 +2212,8 @@ private struct ProjectFile: Codable {
             drawings: (drawings ?? []).map { $0.value },
             markers: (markers ?? []).map { $0.value },
             watermark: watermark?.value ?? WatermarkSettings(),
-            cover: cover?.value ?? CoverSettings())
+            cover: cover?.value ?? CoverSettings(),
+            videoEffects: (videoEffects ?? []).compactMap { $0.value })
         return (snapshot, unresolved)
     }
 
@@ -2089,6 +2234,7 @@ private struct ProjectFile: Codable {
         for c in clips {
             addMedia(c.file)
             addMedia(c.reversedFile)
+            addMedia(c.flowSlow?.file)
             addMedia(c.stillImageFile)
             for a in c.angles { addMedia(a.file) }
             addLUT(c.filter.lutFileName)
@@ -2112,6 +2258,9 @@ private struct ProjectFile: Codable {
         for i in clips.indices {
             clips[i].file = m(clips[i].file)
             clips[i].reversedFile = mo(clips[i].reversedFile)
+            if clips[i].flowSlow != nil {
+                clips[i].flowSlow?.file = mo(clips[i].flowSlow?.file)
+            }
             clips[i].stillImageFile = mo(clips[i].stillImageFile)
             for j in clips[i].angles.indices {
                 clips[i].angles[j].file = m(clips[i].angles[j].file)

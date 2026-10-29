@@ -25,6 +25,7 @@ struct NormalizedPoint: Equatable {
 enum TransitionType: String, CaseIterable, Identifiable {
     case none, dissolve, fadeBlack, fadeWhite, slideLeft, slideRight, slideUp, slideDown, zoomIn, zoomOut, wipeLeft, wipeRight, blur
     case wipeUp, wipeDown, coverLeft, coverRight, irisOpen, irisClose, doorOpen, spin, swirl, zoomBlur, whipLeft, whipRight, flash, lightLeak, glitch, pixelate, bars, pageCurl
+    case exposureFlash
     var id: String { rawValue }
     var displayName: String {
         switch self {
@@ -54,6 +55,7 @@ enum TransitionType: String, CaseIterable, Identifiable {
         case .whipLeft: return String(localized: "ホイップパン(左)")
         case .whipRight: return String(localized: "ホイップパン(右)")
         case .flash: return String(localized: "フラッシュ")
+        case .exposureFlash: return String(localized: "白飛びフラッシュ")
         case .lightLeak: return String(localized: "光漏れ")
         case .glitch: return String(localized: "グリッチ")
         case .pixelate: return String(localized: "モザイク")
@@ -385,6 +387,9 @@ struct TextClip: Identifiable, Equatable {
     var keyframes: [Keyframe] = []
     /// 絵文字ステッカーとして扱う(大きな絵文字1つ、背景なし)
     var isSticker: Bool = false
+    /// 動くステッカー(nil 以外なら isSticker も true。絵は VectorStickerRenderer で描き、色は style.colorHex、
+    /// 吹き出しなどの文字は text。VectorStickerModels.swift)
+    var vectorSticker: VectorStickerKind? = nil
     /// モザイク / ぼかし(nil 以外ならテキストは描かず、この範囲の映像にモザイクをかける。MosaicModels.swift)
     var mosaic: MosaicStyle? = nil
 

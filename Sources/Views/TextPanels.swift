@@ -315,6 +315,14 @@ struct EditorFontPickerRow: View {
 
 struct EditorStickerPanel: View {
     let onPick: (String) -> Void
+    /// 動くステッカー(VectorStickerPanel.swift)を選んだとき
+    let onPickVector: (VectorStickerKind) -> Void
+    /// 「GIF を読み込む」(GIFImportMenu.swift): 写真ライブラリ / 「ファイル」から選ぶ
+    var onPickGIFFromPhotos: () -> Void = {}
+    var onPickGIFFromFiles: () -> Void = {}
+
+    /// nil = 絵文字。ほかは動くステッカーのカテゴリ
+    @State private var category: VectorStickerCategory? = nil
 
     private static let emojis: [String] = [
         "😀", "😂", "🥹", "😍", "😎", "🤔", "😱", "🥳", "😭", "🤣", "😴", "🤯",
@@ -329,6 +337,31 @@ struct EditorStickerPanel: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 8)
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    EditorChip(title: String(localized: "絵文字"), isSelected: category == nil) {
+                        category = nil
+                    }
+                    ForEach(VectorStickerCategory.allCases) { item in
+                        EditorChip(title: item.displayName, isSelected: category == item) {
+                            category = item
+                        }
+                    }
+                }
+            }
+            if let category {
+                // 動く画像(GIF)も動くステッカーの並びから入れられるようにする
+                GIFImportMenu(onPickPhotos: onPickGIFFromPhotos, onPickFiles: onPickGIFFromFiles)
+                VectorStickerGrid(category: category, onPick: onPickVector)
+            } else {
+                emojiGrid
+            }
+        }
+        .padding(.top, 6)
+    }
+
+    private var emojiGrid: some View {
         VStack(alignment: .leading, spacing: 10) {
             LazyVGrid(columns: columns, spacing: 6) {
                 ForEach(Self.emojis, id: \.self) { emoji in
@@ -348,7 +381,6 @@ struct EditorStickerPanel: View {
                 }
             }
         }
-        .padding(.top, 6)
     }
 }
 
@@ -356,6 +388,9 @@ struct EditorStickerPanel: View {
 
 struct EditorTextStylePanel: View {
     @Binding var text: TextClip
+    /// スタイルのコピー・貼り付け・すべてに適用・マイスタイル(TextStyleClipboardRow.swift)。nil なら出さない
+    var project: EditorProject? = nil
+    var history: EditorHistory? = nil
 
     /// タブ。項目が多いので 5 つに分けて、1 画面に収まる量だけ見せる
     private enum Tab: String, CaseIterable, Identifiable {
@@ -405,7 +440,18 @@ struct EditorTextStylePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if text.isSticker {
+            if let kind = text.vectorSticker {
+                // 動くステッカー: 文字(吹き出し・数字・ボタンだけ)・色・大きさ・表示時間
+                if kind.hasText {
+                    textField(title: String(localized: "文字"))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    EditorSectionTitle(title: String(localized: "色"))
+                    DrawingColorChips(colorHex: $text.style.colorHex)
+                }
+                sizeRow
+                durationRow
+            } else if text.isSticker {
                 textField(title: String(localized: "絵文字"))
                 sizeRow
                 durationRow
@@ -516,6 +562,10 @@ struct EditorTextStylePanel: View {
                     }
                     .padding(.vertical, 2)
                 }
+            }
+
+            if let project {
+                TextStyleClipboardRow(project: project, history: history, text: $text)
             }
 
             durationRow
@@ -1847,12 +1897,12 @@ struct EditorTextToSpeechPanel: View {
         return voice.name
     }
 
-    /// クラウドの声で使う見込みのポイント(1000 文字ごとに 1pt)。自分の OpenAI キーや端末の声なら nil
+    /// クラウドの声で使う見込みのポイント(5 文字で 1pt。サーバーの値)。自分の OpenAI キーや端末の声なら nil
     private var estimatedPoints: Int? {
         // Google の声はポイントでだけ使える(TextToSpeech の googleNeedsPoints)
         guard let cloudVoice, cloudVoice.isGoogle || CloudAIGateway.prefersPoints else { return nil }
         let count = text.trimmingCharacters(in: .whitespacesAndNewlines).count
-        return max(1, (count + 999) / 1000)
+        return AccountService.shared.speechPoints(forCharacters: count)
     }
 
     private var renderTitle: String {

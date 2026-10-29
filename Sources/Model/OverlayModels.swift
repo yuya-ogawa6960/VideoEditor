@@ -167,6 +167,10 @@ struct OverlayClip: Identifiable, Equatable {
     /// 使っている間は、その側のフェードイン/アウトは使わない)
     var transitionIn = ClipTransition()
     var transitionOut = ClipTransition()
+    /// 背景を消す / クロマキー(消した部分は透明 → 下の映像が見える)
+    var backgroundRemoval = BackgroundRemoval()
+    /// 動く画像(GIF / APNG)の写真オーバーレイ。コマを繰り返して描く(AnimatedImageCache)
+    var isAnimatedImage: Bool = false
 
     init(id: UUID = UUID(),
          url: URL,
@@ -275,6 +279,8 @@ struct OverlayClip: Identifiable, Equatable {
             && lhs.fadeOut == rhs.fadeOut
             && lhs.transitionIn == rhs.transitionIn
             && lhs.transitionOut == rhs.transitionOut
+            && lhs.backgroundRemoval == rhs.backgroundRemoval
+            && lhs.isAnimatedImage == rhs.isAnimatedImage
     }
 }
 

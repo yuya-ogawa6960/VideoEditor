@@ -104,6 +104,17 @@ extension EditorProject {
             return result
         }
 
+        // 映像エフェクト
+        videoEffects = videoEffects.compactMap { item in
+            let start = ripple.map(item.start)
+            let end = ripple.map(item.start + item.duration)
+            guard end - start >= minimumLength else { return nil }
+            var result = item
+            result.start = start
+            result.duration = end - start
+            return result
+        }
+
         // マーカー(区間の中にあったものは消す)
         markers = markers.compactMap { marker in
             guard !ripple.isInside(marker.time) else { return nil }
@@ -190,6 +201,12 @@ extension EditorProject {
             result.start += length
             return result
         }
+        videoEffects = videoEffects.map { item in
+            guard item.start >= edge else { return item }
+            var result = item
+            result.start += length
+            return result
+        }
         markers = markers.map { marker in
             guard marker.time >= edge else { return marker }
             var result = marker
@@ -222,6 +239,7 @@ extension EditorProject {
         lowerThirds = []
         textClips = []
         drawings = []
+        videoEffects = []
         markers = []
         overlays = []
         narration = []
@@ -487,6 +505,13 @@ extension EditorProject {
             result.duration = span.end - span.start
             return result
         }
+        videoEffects = videoEffects.compactMap { item in
+            guard let span = remap.span(item.start, item.end) else { return nil }
+            var result = item
+            result.start = span.start
+            result.duration = span.end - span.start
+            return result
+        }
         markers = markers.map { marker in
             var result = marker
             result.time = remap.map(marker.time).clamped
@@ -519,6 +544,7 @@ extension EditorProject {
         lowerThirds.sort { $0.start < $1.start }
         sortTextClips()
         drawings.sort { $0.start < $1.start }
+        videoEffects.sort { $0.start < $1.start }
         sortMarkers()
         sortOverlays()
         sortNarration()

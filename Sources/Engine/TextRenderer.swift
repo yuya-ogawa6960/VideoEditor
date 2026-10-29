@@ -195,13 +195,22 @@ enum TextRenderer {
                 }
             }
         }
+        // 動くステッカーは文字単位の表示(タイプライターなど)を使わない
+        if clip.vectorSticker != nil { visibleUnits = nil }
         if let v = visibleUnits {
             if v <= 0 { return nil }
             let total = unitIsWord ? wordUnits(clip.text).count : clip.text.count
             if v >= total { visibleUnits = nil }
         }
 
-        guard var textImage = Self.image(for: clip, canvasSize: canvasSize, visibleUnits: visibleUnits, unitIsWord: unitIsWord) else {
+        let baseImage: CIImage?
+        if clip.vectorSticker != nil {
+            // 動くステッカー: クリップ内の時刻のコマ(VectorStickerRenderer.swift)
+            baseImage = VectorStickerRenderer.image(for: clip, localTime: local, canvasSize: canvasSize)
+        } else {
+            baseImage = Self.image(for: clip, canvasSize: canvasSize, visibleUnits: visibleUnits, unitIsWord: unitIsWord)
+        }
+        guard var textImage = baseImage else {
             return nil
         }
         if blur > 0.3 {

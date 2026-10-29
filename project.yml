@@ -13,7 +13,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     # アプリと共有用の拡張機能で同じ番号にする(App Store の決まり)。上げるときはここだけ
-    MARKETING_VERSION: "1.12.70"
+    MARKETING_VERSION: "1.12.71"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: ""
@@ -36,6 +36,11 @@ packages:
   WhisperKit:
     url: https://github.com/argmaxinc/WhisperKit
     from: 0.9.0
+  # TikTok に直接投稿(TikTok OpenSDK の Share Kit)。Sources/Engine/TikTokShare.swift
+  # (`#if canImport(TikTokOpenShareSDK)` で守っているので、外すときはここと dependencies を消すだけ)
+  TikTokOpenSDK:
+    url: https://github.com/tiktok/tiktok-opensdk-ios
+    from: 2.5.0
 
 targets:
   VideoEditor:
@@ -57,6 +62,10 @@ targets:
         product: GoogleMobileAds
       - package: UserMessagingPlatform
         product: GoogleUserMessagingPlatform
+      - package: TikTokOpenSDK
+        product: TikTokOpenSDKCore
+      - package: TikTokOpenSDK
+        product: TikTokOpenShareSDK
     entitlements:
       path: VideoEditor.entitlements
       properties:
@@ -75,6 +84,21 @@ targets:
         VMServerURL: "$(VM_SERVER_URL)"
         # Google フォトから直接取り込む(Google Photos Picker API)の OAuth クライアント ID
         GoogleOAuthClientID: "$(GOOGLE_OAUTH_CLIENT_ID)"
+        # TikTok に直接投稿(Share Kit)のクライアントキー(GitHub の Secret TIKTOK_CLIENT_KEY。空ならボタンを出さない)
+        TikTokClientKey: "$(TIKTOK_CLIENT_KEY)"
+        # TikTok から戻ってくる URL(TikTok for Developers の Share Kit に登録したもの)
+        TikTokRedirectURI: "$(TIKTOK_REDIRECT_URI)"
+        LSApplicationQueriesSchemes:
+          - tiktokopensdk
+          - tiktoksharesdk
+          - snssdk1180
+          - snssdk1233
+        # >>> tiktok-url-scheme(TIKTOK_CLIENT_KEY が空のとき、CI はこの印のあいだを消す。空の URL スキームを入れないように)
+        CFBundleURLTypes:
+          - CFBundleURLName: tiktok
+            CFBundleURLSchemes:
+              - "$(TIKTOK_CLIENT_KEY)"
+        # <<< tiktok-url-scheme
         CFBundleDisplayName: Video Mania
         CFBundleName: VideoEditor
         CFBundleDevelopmentRegion: ja
@@ -96,6 +120,7 @@ targets:
         NSPhotoLibraryAddUsageDescription: 書き出した動画を保存するために写真ライブラリを使用します。
         NSSpeechRecognitionUsageDescription: 動画の音声から字幕を自動作成するために音声認識を使用します。
         NSMicrophoneUsageDescription: ナレーションを録音するためにマイクを使用します。
+        NSCameraUsageDescription: 動画を撮ってプロジェクトに入れるためにカメラを使用します。
         # 広告(AdMob)
         GADApplicationIdentifier: ca-app-pub-5816286661245536~3399107309
         NSUserTrackingUsageDescription: あなたに合った広告を表示するために使用します。許可しなくてもアプリはすべて使えます。
@@ -184,6 +209,10 @@ targets:
         # Google フォトから直接取り込むときの OAuth クライアント ID(iOS 用。docs/GooglePhotosSetup.md)。
         # 空のあいだは、追加の選択肢に「Google フォト」を出さない
         GOOGLE_OAUTH_CLIENT_ID: ""
+        # TikTok のクライアントキー。ここには書かない(CI が GitHub の Secret TIKTOK_CLIENT_KEY を xcodebuild に渡す)
+        TIKTOK_CLIENT_KEY: ""
+        # TikTok から戻ってくる URL(ユニバーサルリンク)。TikTok for Developers にも同じものを登録する
+        TIKTOK_REDIRECT_URI: "$(VM_SERVER_URL)/tiktok/share"
 
   # >>> share-extension
   # 写真アプリ・Google フォトなどの「共有」から、動画・写真を Video Mania に送る拡張機能。

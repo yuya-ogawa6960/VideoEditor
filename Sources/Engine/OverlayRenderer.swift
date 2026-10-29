@@ -24,7 +24,8 @@ enum OverlayRenderer {
                      over frame: CIImage,
                      time: Double,
                      request: AVAsynchronousVideoCompositionRequest,
-                     canvasSize: CGSize) -> CIImage {
+                     canvasSize: CGSize,
+                     accurate: Bool = false) -> CIImage {
         guard canvasSize.width >= 2, canvasSize.height >= 2 else { return frame }
         let canvas = CGRect(origin: .zero, size: canvasSize)
         var out = frame
@@ -34,7 +35,13 @@ enum OverlayRenderer {
 
             let source: CIImage?
             if overlay.isImage {
-                source = cachedImage(url: overlay.url, canvasSize: canvasSize)
+                if overlay.isAnimatedImage,
+                   let animated = AnimatedImageCache.shared.frame(url: overlay.url, at: overlay.animatedImageTime(at: time)) {
+                    // 動く画像(GIF): オーバーレイの先頭からの時間のコマ(1 周を超えたら繰り返す)
+                    source = animated
+                } else {
+                    source = cachedImage(url: overlay.url, canvasSize: canvasSize)
+                }
             } else if let trackID = overlay.trackID,
                       let buffer = request.sourceFrame(byTrackID: trackID) {
                 source = VideoCompositor.oriented(CIImage(cvPixelBuffer: buffer), transform: overlay.preferredTransform)
@@ -43,7 +50,8 @@ enum OverlayRenderer {
             }
             guard let source else { continue }
 
-            if let rendered = Self.image(for: overlay, source: source, time: time, fade: fade, canvasSize: canvasSize) {
+            if let rendered = Self.image(for: overlay, source: source, time: time, fade: fade, canvasSize: canvasSize,
+                                         accurate: accurate) {
                 let withOverlay = composite(rendered, over: out, blendMode: overlay.blendMode, canvas: canvas)
                 // 出てくるとき・消えるときは、下の映像とのあいだをクリップと同じトランジションで切り替える。
                 // 切り替えるのはオーバーレイのある範囲だけ(小さなワイプでも、まわりの映像は動かさない)
@@ -73,10 +81,20 @@ enum OverlayRenderer {
                       source: CIImage,
                       time: Double,
                       fade: Double,
-                      canvasSize: CGSize) -> CIImage? {
+                      canvasSize: CGSize,
+                      accurate: Bool = false) -> CIImage? {
         var image = GeometryMath.normalizedToOrigin(source)
         let sourceExtent = image.extent
         guard sourceExtent.width >= 1, sourceExtent.height >= 1, !sourceExtent.isInfinite else { return nil }
+
+        // 0. 背景を消す / クロマキー(消した部分は透明 → 下の映像が見える)
+        if overlay.backgroundRemoval.isActive {
+            image = BackgroundRemovalRenderer.apply(overlay.backgroundRemoval,
+                                                    to: image,
+                                                    cacheKey: "overlay-\(overlay.id.uuidString)-\(overlay.isImage && !overlay.isAnimatedImage ? -1 : time)",
+                                                    accurate: accurate,
+                                                    fillsBackground: false)
+        }
 
         // 1. 写真の 3D ズーム(奥行き)。有効なら Ken Burns の代わりに使う
         if overlay.isImage, overlay.parallax.enabled {

@@ -24,6 +24,9 @@ struct NarrationClip: Identifiable, Equatable {
     /// 正規化で求めたゲイン(線形)
     var gain: Float = 1
     var effects = AudioEffects()
+    /// フェードイン・フェードアウト(秒、0〜3。0 = なし)
+    var fadeIn: Double = 0
+    var fadeOut: Double = 0
 
     /// 出力タイムライン上の終了秒
     var end: Double { start + duration }

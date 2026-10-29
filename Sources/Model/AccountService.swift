@@ -79,6 +79,17 @@ final class AccountService {
     func price(_ key: String, default value: Int) -> Int {
         prices[key] ?? value
     }
+
+    /// クラウドの読み上げで何文字が 1pt か(サーバーの値。既定は 10 文字 = 1 文字 0.1pt)
+    var speechCharsPerPoint: Int { max(1, price("speechCharsPerPoint", default: 10)) }
+
+    /// クラウドの読み上げで chars 文字を読んだときの目安のポイント。
+    /// サーバーは端数を次の読み上げに持ち越すので、何回に分けても合計の文字数で決まる(ここでは切り上げで多めに見積もる)
+    func speechPoints(forCharacters chars: Int) -> Int {
+        guard chars > 0 else { return 0 }
+        let per = speechCharsPerPoint
+        return (chars + per - 1) / per
+    }
     /// サーバー上の利用者 ID(リワード広告のサーバー側検証に渡す)
     private(set) var userID: String?
     /// テスト版(TestFlight・App Review)の証明。Apple が署名した AppTransaction を、テスト広告のポイントを

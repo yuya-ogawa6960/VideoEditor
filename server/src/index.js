@@ -21,7 +21,8 @@ const POINTS = {
   daily: 10,              // 毎日ボーナス(日本時間で 1 日 1 回)
   transcribePerMinute: 10, // クラウド文字起こし 1 分
   chat: 20,               // 字幕の整え・翻訳・台本など 1 回
-  speechPerThousandChars: 50, // クラウドの声(読み上げ)1000 文字あたり(原価が文字起こしより高いため)
+  speechCharsPerPoint: 10, // クラウドの声(読み上げ)は 10 文字で 1pt(1 文字 0.1pt)。端数は次の読み上げに持ち越す
+  speechPerThousandChars: 100, // 上と同じ値段を 1000 文字あたりで(古いアプリの料金表示用)
   adReward: 10,           // リワード広告 1 回
   adRewardDailyLimit: 3,  // リワード広告の 1 日の上限(日本時間)
 };
@@ -853,6 +854,38 @@ async function chargeExtra(env, userID, amount, reason) {
   await addLedger(env, userID, -amount, reason);
 }
 
+let speechCarryColumnEnsured = false;
+
+/** 既存の DB に speech_carry(まだポイントにしていない読み上げの文字数)の列を足す(あれば失敗するので無視。isolate ごとに 1 回) */
+async function ensureSpeechCarryColumn(env) {
+  if (speechCarryColumnEnsured) return;
+  speechCarryColumnEnsured = true;
+  try {
+    await env.DB.prepare("ALTER TABLE users ADD COLUMN speech_carry INTEGER NOT NULL DEFAULT 0").run();
+  } catch (_) {}
+}
+
+/**
+ * 読み上げのポイントを確保する。前回までの端数(speechCharsPerPoint 未満の文字数)に足して、
+ * まとまった分だけ引く(吹き替えのように短い文を何回も読んでも、合計の文字数どおりになる)。
+ * 成功したら commitSpeechCarry で新しい端数を保存する(失敗したときは cost を返して端数は前のまま)
+ */
+async function reserveSpeech(env, userID, chars, reason) {
+  await ensureSpeechCarryColumn(env);
+  const per = POINTS.speechCharsPerPoint;
+  const row = await env.DB.prepare("SELECT speech_carry FROM users WHERE id = ?").bind(userID).first();
+  const before = row && Number.isFinite(row.speech_carry) ? Math.min(Math.max(row.speech_carry, 0), per - 1) : 0;
+  const total = before + Math.max(0, chars);
+  const cost = Math.floor(total / per);
+  const carry = total % per;
+  if (cost > 0 && !(await reserve(env, userID, cost, reason))) return { ok: false, cost, carry: before };
+  return { ok: true, cost, carry };
+}
+
+async function commitSpeechCarry(env, userID, carry) {
+  await env.DB.prepare("UPDATE users SET speech_carry = ? WHERE id = ?").bind(carry, userID).run();
+}
+
 async function balance(env, userID) {
   const row = await env.DB.prepare("SELECT points FROM users WHERE id = ?").bind(userID).first();
   return row ? row.points : 0;
@@ -992,10 +1025,9 @@ async function speech(request, user, env) {
   const payload = { model: SPEECH_MODEL, input: spoken, voice, speed, response_format: "mp3" };
   if (typeof body.instructions === "string" && body.instructions.trim()) payload.instructions = body.instructions.trim().slice(0, 400);
 
-  const cost = Math.max(1, Math.ceil(input.length / 1000)) * POINTS.speechPerThousandChars;
-  if (!(await reserve(env, user.id, cost, "speech"))) {
-    return insufficient(cost, await balance(env, user.id));
-  }
+  const charge = await reserveSpeech(env, user.id, input.length, "speech");
+  if (!charge.ok) return insufficient(charge.cost, await balance(env, user.id));
+  const cost = charge.cost;
   let upstream;
   try {
     upstream = await fetch(OPENAI + "/v1/audio/speech", {
@@ -1014,6 +1046,7 @@ async function speech(request, user, env) {
     return new Response(text, { status: upstream.status, headers: { "content-type": upstream.headers.get("content-type") || "application/json" } });
   }
   const audio = await upstream.arrayBuffer();
+  await commitSpeechCarry(env, user.id, charge.carry);
   return new Response(audio, {
     status: 200,
     headers: { "content-type": "audio/mpeg", "x-vm-points": String(await balance(env, user.id)) },
@@ -1025,10 +1058,9 @@ async function googleSpeech(body, input, spoken, user, env) {
   if (!env.GOOGLE_TTS_API_KEY) return error(503, "Google の声はまだ使えません", "google_not_configured");
   const voice = GOOGLE_VOICES.includes(body.voice) ? body.voice : GOOGLE_VOICES[0];
   const speakingRate = Math.min(2, Math.max(0.25, Number(body.speed || 1)));
-  const cost = Math.max(1, Math.ceil(input.length / 1000)) * POINTS.speechPerThousandChars;
-  if (!(await reserve(env, user.id, cost, "speech:google"))) {
-    return insufficient(cost, await balance(env, user.id));
-  }
+  const charge = await reserveSpeech(env, user.id, input.length, "speech:google");
+  if (!charge.ok) return insufficient(charge.cost, await balance(env, user.id));
+  const cost = charge.cost;
   const chunks = [];
   for (const part of splitByBytes(spoken, GOOGLE_MAX_BYTES)) {
     let upstream;
@@ -1069,6 +1101,7 @@ async function googleSpeech(body, input, spoken, user, env) {
     audio.set(c, offset);
     offset += c.length;
   }
+  await commitSpeechCarry(env, user.id, charge.carry);
   return new Response(audio, {
     status: 200,
     headers: { "content-type": "audio/mpeg", "x-vm-points": String(await balance(env, user.id)) },

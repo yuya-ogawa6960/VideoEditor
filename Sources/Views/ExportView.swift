@@ -104,6 +104,8 @@ struct ExportView: View {
     @State private var peek = AnalysisPeek.shared
     @State private var saveToPhotos: Bool = true
     @State private var isSavingToPhotos: Bool = false
+    /// 「TikTok に投稿」で写真への保存・TikTok を開いている途中
+    @State private var isPostingToTikTok: Bool = false
     @State private var alertTitle: String = ""
     @State private var alertMessage: String?
     @State private var alertOffersSettings: Bool = false
@@ -199,6 +201,8 @@ struct ExportView: View {
                     // 書き出しボタンの下にバナー広告(届く前から同じ高さで場所を取るので、ボタンは動かない。届かなければ閉じる。BannerAdView.swift)
                     BannerAdSlot()
                 }
+                // 広告の横・下(ホームバーの所)に、後ろの表がすけて見えないように塗る
+                .background(Color.black.ignoresSafeArea(edges: .bottom))
             }
             .navigationTitle("書き出し")
             .navigationBarTitleDisplayMode(.inline)
@@ -613,6 +617,43 @@ struct ExportView: View {
         VStack(spacing: 6) {
             if exporter.isRunning {
                 runningLine
+            } else if isFinishedWithOutput, let url = exporter.lastOutputURL {
+                // 書き出しが終わったら、下のボタンは「共有」1 つにする(同じ形のボタンが上下に 2 つ並ばないように)
+                ShareLink(item: url) {
+                    Label("共有", systemImage: "square.and.arrow.up")
+                        .font(.headline)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(BrandProminentButtonStyle())
+                if lastOutputIsVideo, TikTokShare.isAvailable {
+                    // TikTok に直接送る(写真に保存した動画を渡す。まだなら先に保存する)
+                    Button {
+                        postToTikTok()
+                    } label: {
+                        if isPostingToTikTok {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("TikTok を開いています…")
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                        } else {
+                            Label("TikTok に投稿", systemImage: "music.note")
+                                .font(.headline)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isPostingToTikTok || isSavingToPhotos)
+                }
+                Button("もう一度書き出す") {
+                    startExport()
+                }
+                .font(.subheadline)
+                .buttonStyle(.borderless)
+                .frame(minHeight: 44)
+                .disabled(!canStart)
             } else {
                 Button {
                     startExport()
@@ -658,6 +699,12 @@ struct ExportView: View {
         guard !project.isEmpty, !exporter.isRunning else { return false }
         guard let estimate else { return false }
         return estimate.canExport
+    }
+
+    /// 書き出しが終わって、共有できるファイルがある
+    private var isFinishedWithOutput: Bool {
+        if case .finished = exporter.state { return exporter.lastOutputURL != nil }
+        return false
     }
 
     /// 直前の出力が動画か(音声のみ書き出しのときは「写真に保存」を出さない)
@@ -721,15 +768,7 @@ struct ExportView: View {
                 if !exporter.savedToPhotos && lastOutputIsVideo {
                     photoSaveFallback
                 }
-                if let url = exporter.lastOutputURL {
-                    ShareLink(item: url) {
-                        Label("共有", systemImage: "square.and.arrow.up")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 50)
-                    }
-                    .buttonStyle(BrandProminentButtonStyle())
-                }
-                // 感想と広告は共有ボタンより下。広告は届いてから場所を取る(届かなければ何も出さない)
+                // 共有ボタンは画面の下(bottomBar)。感想と広告はここ。広告は届いてから場所を取る(届かなければ何も出さない)
                 ExportFeedbackCard()
                     .frame(maxWidth: .infinity, alignment: .leading)
                 NativeAdCard(reservesSpace: false)
@@ -851,6 +890,49 @@ struct ExportView: View {
                               message: String(localized: "もう一度「写真に保存」を押してください。\n\n詳細: ") + error.localizedDescription)
                 }
             }
+        }
+    }
+
+    /// 書き出した動画を TikTok に送る。Share Kit は写真ライブラリの動画しか受け取らないので、まだなら先に写真に保存する
+    private func postToTikTok() {
+        guard !isPostingToTikTok, let url = exporter.lastOutputURL else { return }
+        isPostingToTikTok = true
+        Task { @MainActor in
+            var assetID = exporter.photoAssetIdentifier(for: url)
+            if assetID == nil {
+                do {
+                    try await exporter.saveLastOutputToPhotos()
+                } catch {
+                    isPostingToTikTok = false
+                    showAlert(title: String(localized: "TikTok に送れませんでした"),
+                              message: String(localized: "TikTok に送るには、先に写真アプリへの保存が必要です。\n\n詳細: ") + error.localizedDescription,
+                              offersSettings: (error as? ExportManagerError) == .photosAccessDenied)
+                    return
+                }
+                assetID = exporter.photoAssetIdentifier(for: url)
+            }
+            guard let assetID else {
+                isPostingToTikTok = false
+                showAlert(title: String(localized: "TikTok に送れませんでした"),
+                          message: String(localized: "写真アプリに保存した動画が見つかりませんでした。「写真に保存」を押してから、もう一度お試しください。"))
+                return
+            }
+            Analytics.shared.track("tiktok_share_start")
+            TikTokShare.share(localIdentifiers: [assetID]) { outcome in
+                isPostingToTikTok = false
+                switch outcome {
+                case .success:
+                    Analytics.shared.track("tiktok_share_done")
+                case .cancelled, .notInstalled:
+                    // やめたとき・TikTok が無いとき(SDK が App Store の案内を出す)は何も言わない
+                    break
+                case .failed(let message):
+                    showAlert(title: String(localized: "TikTok に送れませんでした"), message: message)
+                }
+            }
+            // TikTok に切り替わったら、結果を待たずにボタンを戻す(戻り先が開けないときも押し直せるように)
+            try? await Task.sleep(for: .seconds(2))
+            isPostingToTikTok = false
         }
     }
 

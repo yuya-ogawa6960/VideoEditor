@@ -254,6 +254,11 @@ enum TransitionRenderer {
                 "inputColor": CIColor(red: 1, green: 0.95, blue: 0.85)
             ]).composited(over: black).cropped(to: canvas)
 
+        case .exposureFlash:
+            // 切り替わりの瞬間に画面全体が白っぽく飛ぶ(色は少し残して鮮やかに)。真ん中で切り替える
+            let base = p < 0.5 ? a : b
+            return SubjectFlashRenderer.overexposed(base, strength: pow(k, 0.7)).cropped(to: canvas)
+
         case .lightLeak:
             // オレンジの光が左から右へ流れながら切り替わる
             let base = crossfade(a, b, GeometryMath.smoothstep(p))

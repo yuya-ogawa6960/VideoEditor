@@ -816,7 +816,11 @@ struct PreviewGestureOverlay: View {
         let lines = CGFloat(lineCount)
         var w: CGFloat
         var h: CGFloat
-        if clip.isSticker {
+        if let kind = clip.vectorSticker {
+            // 動くステッカー: 描画と同じ大きさ(高さ = 文字サイズ × 1.25、横は種類ごとの比率)
+            h = fontPx * CGFloat(VectorStickerRenderer.boxScale)
+            w = h * CGFloat(kind.aspect)
+        } else if clip.isSticker {
             w = fontPx * 1.25
             h = fontPx * 1.25
         } else if clip.style.vertical {
@@ -921,7 +925,12 @@ struct PreviewGestureOverlay: View {
         let rect = Self.estimatedRect(for: placed, in: size)
         let frameSize = CGSize(width: max(rect.width, 28), height: max(rect.height, 28))
         return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right") {
-            textProxy(placed, size: size)
+            if let kind = placed.vectorSticker {
+                VectorStickerPreview(kind: kind, colorHex: placed.style.colorHex, text: placed.text, animated: false)
+                    .opacity(0.7)
+            } else {
+                textProxy(placed, size: size)
+            }
         }
         .overlay {
             if clip.isMosaic {

@@ -86,13 +86,15 @@ enum TimelineMetrics {
     /// 表示するトラック行(中身のあるトラックだけ + 映像 + 追加行)
     static func visibleTracks(overlayLanes: Int, textLanes: Int, hasDrawings: Bool,
                               hasSubtitles: Bool, hasBGM: Bool, narrationLanes: Int,
-                              mosaicLanes: Int) -> [TimelineTrackKind] {
+                              mosaicLanes: Int, effectLanes: Int = 0) -> [TimelineTrackKind] {
         var rows: [TimelineTrackKind] = []
         // 映像のトラックは業務用ソフトと同じく V1 の上へ積み重ねる(上の行ほど上に重なって映る):
         // テキスト・ステッカー(いちばん上)→ 手書き → オーバーレイ → モザイク(FX)→ V1
         // モザイクは V1 の映像だけにかかる(オーバーレイより先に描く)ので、V1 の直上に置く
         if textLanes > 0 { rows.append(.text(lanes: textLanes)) }
         if hasDrawings { rows.append(.drawing) }
+        // 映像エフェクトはオーバーレイまでを合わせた画面にかかる(テキスト・手書きにはかからない)ので、オーバーレイの上
+        if effectLanes > 0 { rows.append(.effect(lanes: effectLanes)) }
         if overlayLanes > 0 { rows.append(.overlay(lanes: overlayLanes)) }
         if mosaicLanes > 0 { rows.append(.mosaic(lanes: mosaicLanes)) }
         rows.append(.video)
@@ -110,7 +112,8 @@ enum TimelineMetrics {
                       hasSubtitles: !snapshot.subtitles.isEmpty,
                       hasBGM: snapshot.audio.bgmURL != nil,
                       narrationLanes: narrationLaneCount(snapshot.narration),
-                      mosaicLanes: mosaicLaneCount(snapshot.textClips))
+                      mosaicLanes: mosaicLaneCount(snapshot.textClips),
+                      effectLanes: effectLaneCount(snapshot.videoEffects))
     }
 
     /// 行を全部並べたときの高さ(行間込み)
@@ -256,6 +259,16 @@ enum TimelineMetrics {
     static func overlayLaneCount(_ overlays: [OverlayClip]) -> Int { laneCount(overlayLanes(overlays)) }
     static func narrationLaneCount(_ narration: [NarrationClip]) -> Int { laneCount(narrationLanes(narration)) }
 
+    /// 映像エフェクトの段(時間が重なるものは別の段)
+    static func effectLanes(_ effects: [VideoEffectClip]) -> [UUID: Int] {
+        lanes(effects.map { (id: $0.id, start: $0.start, end: $0.end) })
+    }
+    static func effectLaneCount(_ effects: [VideoEffectClip]) -> Int { laneCount(effectLanes(effects)) }
+    /// 映像エフェクトの 1 段の高さ
+    static let effectHeight: CGFloat = 28
+    /// 映像エフェクト(すみれ色)
+    static let effectColor = Color(red: 0.42, green: 0.36, blue: 0.95)
+
     /// 業務用ソフトと同じ呼び方の段の名前(V1 = メイン映像、上に重なるほど番号が大きい。A = 音声、ST = 字幕)。
     /// キーは TimelineTrackKind.key、値は段ごとの名前(上の段から)
     static func trackLabels(for rows: [TimelineTrackKind]) -> [String: [String]] {
@@ -267,8 +280,10 @@ enum TimelineMetrics {
         var hasDrawing = false
         var narrationLanes = 0
         var hasAudio = false
+        var effectLanes = 0
         for row in rows {
             switch row {
+            case .effect(let lanes): effectLanes = lanes
             case .overlay(let lanes): overlayLanes = lanes
             case .text(let lanes): textLanes = lanes
             case .mosaic(let lanes): mosaicLanes = lanes
@@ -279,6 +294,10 @@ enum TimelineMetrics {
             }
         }
         result["video"] = ["V1"]
+        // 映像エフェクトも画面にかける効果なので V の番号には数えず「EF」(段が複数なら上から EF2, EF1 …)
+        if effectLanes > 0 {
+            result["effect"] = effectLanes == 1 ? ["EF"] : (0..<effectLanes).map { "EF\(effectLanes - $0)" }
+        }
         // モザイクは V1 の映像にかける効果なので V の番号には数えず「FX」(段が複数なら上から FX2, FX1 …)
         if mosaicLanes > 0 {
             result["mosaic"] = mosaicLanes == 1 ? ["FX"] : (0..<mosaicLanes).map { "FX\(mosaicLanes - $0)" }
@@ -337,10 +356,13 @@ enum TimelineTrackKind: Hashable {
     /// モザイク・ぼかし(FX)。TextClip の isMosaic だけを V1 の直上に並べる(見た目・高さはテキスト行と同じ)
     case mosaic(lanes: Int)
     case narration(lanes: Int)
+    /// 映像エフェクト(VideoEffectClip。重なる分だけ段を増やす)
+    case effect(lanes: Int)
 
     /// 行の見分け(段数が変わっても同じ行として扱う)
     var key: String {
         switch self {
+        case .effect: return "effect"
         case .overlay: return "overlay"
         case .video: return "video"
         case .text: return "text"
@@ -355,6 +377,7 @@ enum TimelineTrackKind: Hashable {
 
     var height: CGFloat {
         switch self {
+        case .effect(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.effectHeight, lanes: lanes)
         case .overlay(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.overlayHeight, lanes: lanes)
         case .video: return TimelineMetrics.videoRowHeight
         case .text(let lanes): return TimelineMetrics.textTrackHeight(lanes: lanes)
@@ -370,6 +393,7 @@ enum TimelineTrackKind: Hashable {
     /// 左端に出すアイコン(追加行は無し)
     var iconName: String? {
         switch self {
+        case .effect: return "camera.filters"
         case .overlay: return "photo.on.rectangle"
         case .video: return "film"
         case .text: return "textformat"
@@ -411,6 +435,8 @@ struct TimelineFrozenLanes {
     let mosaicLanes: [UUID: Int]
     let overlayLanes: [UUID: Int]
     let narrationLanes: [UUID: Int]
+    /// 映像エフェクトの段
+    var effectLanes: [UUID: Int] = [:]
 }
 
 /// 再描画を伴わないジェスチャー管理用の状態
@@ -464,6 +490,8 @@ enum TimelineEditKind {
     case moveDrawing(id: UUID, originalStart: Double)
     case trimDrawing(id: UUID, leading: Bool, original: DrawingClip)
     case moveMarker(id: UUID, originalTime: Double)
+    case moveEffect(id: UUID, originalStart: Double)
+    case trimEffect(id: UUID, leading: Bool, original: VideoEffectClip)
 }
 
 /// 映像トラック上の 1 クリップの配置
@@ -904,7 +932,7 @@ struct TimelineTransitionBadge: View {
         switch type {
         case .dissolve: return "circle.lefthalf.filled"
         case .fadeBlack: return "moon.fill"
-        case .fadeWhite, .flash, .lightLeak: return "sun.max.fill"
+        case .fadeWhite, .flash, .lightLeak, .exposureFlash: return "sun.max.fill"
         case .slideLeft, .whipLeft, .coverLeft: return "arrow.left"
         case .slideRight, .whipRight, .coverRight: return "arrow.right"
         case .slideUp: return "arrow.up"
@@ -1407,7 +1435,14 @@ struct TimelineTextBar: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(TimelineMetrics.textColor)
             HStack(spacing: 4) {
-                if isSticker {
+                if let kind = textClip.vectorSticker {
+                    // 動くステッカー: カテゴリのアイコン + 名前(文字を入れられる種類はその文字)
+                    Image(systemName: kind.category.systemImage)
+                        .font(.system(size: 9, weight: .bold))
+                    Text(kind.hasText && !label.isEmpty ? label : kind.displayName)
+                        .font(.system(size: 10, weight: .semibold))
+                        .lineLimit(1)
+                } else if isSticker {
                     // ステッカーは絵文字そのものを大きく見せる
                     if label.isEmpty {
                         Image(systemName: "face.smiling")

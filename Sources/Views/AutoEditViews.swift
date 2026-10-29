@@ -490,16 +490,35 @@ struct EditorAutoEditTemplatePanel: View {
         }
         let chosenSettings = settings
         let name = template.name
+        let finish = template.finish
         analysis.run(title: String(localized: "テンプレートを適用中")) { report in
             let result = try await AutoEditor.build(snapshot: snapshot,
                                                     settings: chosenSettings,
                                                     highlights: nil,
-                                                    progress: report)
+                                                    progress: { fraction in
+                                                        report(finish == nil ? fraction : 0.7 * fraction)
+                                                    })
             if Task.isCancelled { return }
             history.record(project)
             project.restore(result)
+            if let finish {
+                // リール風の仕上げ(無音カット・寄り引き・フラッシュ・キャプションの見た目など)。
+                // 途中で止めたら、適用前に戻す(履歴は上で 1 回だけ記録済み)
+                do {
+                    _ = try await ReelFinisher.apply(finish, to: project) { fraction in
+                        report(0.7 + 0.3 * fraction)
+                    }
+                } catch {
+                    project.restore(snapshot)
+                    throw error
+                }
+            }
             player.seek(to: 0)
-            message = String(localized: "「\(name)」を適用しました")
+            if finish != nil && project.subtitles.isEmpty {
+                message = String(localized: "「\(name)」を適用しました。「キャプションを作成」で字幕を入れると、このテンプレの見た目で出ます。")
+            } else {
+                message = String(localized: "「\(name)」を適用しました")
+            }
             onApplied()
         } onError: { error in
             errorText = String(localized: "もう一度「適用」を押してください。続くときは別のテンプレートをお試しください。\n\n詳細: ") + error.localizedDescription
