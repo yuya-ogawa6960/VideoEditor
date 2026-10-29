@@ -3,6 +3,7 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 import CoreTransferable
+import SwiftUI
 import PhotosUI
 
 // =====================================================================

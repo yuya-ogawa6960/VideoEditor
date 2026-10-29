@@ -71,7 +71,7 @@ struct TeleprompterOverlay: View {
     // MARK: - 文章
 
     private var textArea: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isScrolling)) { context in
+        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isScrolling)) { context in
             let offset = currentOffset(at: context.date)
             Text(script)
                 .font(.system(size: fontSize.pointSize, weight: .semibold))
