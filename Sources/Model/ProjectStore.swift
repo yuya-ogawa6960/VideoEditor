@@ -2258,8 +2258,8 @@ private struct ProjectFile: Codable {
         for i in clips.indices {
             clips[i].file = m(clips[i].file)
             clips[i].reversedFile = mo(clips[i].reversedFile)
-            if clips[i].flowSlow != nil {
-                clips[i].flowSlow?.file = mo(clips[i].flowSlow?.file)
+            if let flowFile = clips[i].flowSlow?.file {
+                clips[i].flowSlow?.file = mo(flowFile)
             }
             clips[i].stillImageFile = mo(clips[i].stillImageFile)
             for j in clips[i].angles.indices {
