@@ -275,6 +275,8 @@ final class AppSettings {
         static let polishEngine = "transcription.polishEngine"
         /// 開発者モード(「設定」のバージョンの行を 7 回タップで切り替え。既定はオフ)
         static let developerMode = "developer.mode"
+        /// 書き出した動画を自動で消すまでの日数(0 は消さない。ExportAutoCleanup)
+        static let exportAutoCleanupDays = "exports.autoCleanupDays"
         /// Keychain のアカウント名
         static let openAIKey = "openai.apiKey"
     }
@@ -288,6 +290,7 @@ final class AppSettings {
     @ObservationIgnored private var storedPolish: Bool
     @ObservationIgnored private var storedPolishEngine: PolishEngine
     @ObservationIgnored private var storedDeveloperMode: Bool
+    @ObservationIgnored private var storedExportAutoCleanupDays: Int
     @ObservationIgnored private var cachedOpenAIKey: String
 
     init(defaults: UserDefaults = .standard) {
@@ -304,6 +307,7 @@ final class AppSettings {
         storedPolish = defaults.object(forKey: Keys.polish) == nil ? true : defaults.bool(forKey: Keys.polish)
         storedPolishEngine = PolishEngine(rawValue: defaults.string(forKey: Keys.polishEngine) ?? "") ?? .auto
         storedDeveloperMode = defaults.bool(forKey: Keys.developerMode)
+        storedExportAutoCleanupDays = defaults.integer(forKey: Keys.exportAutoCleanupDays)
         cachedOpenAIKey = KeychainStore.get(Keys.openAIKey) ?? ""
     }
 
@@ -412,6 +416,24 @@ final class AppSettings {
             withMutation(keyPath: \.developerMode) {
                 lock.lock(); storedDeveloperMode = newValue; lock.unlock()
                 defaults.set(newValue, forKey: Keys.developerMode)
+            }
+        }
+    }
+
+    // MARK: 書き出した動画の自動削除
+
+    /// 書き出した動画(Documents/Exports)を自動で消すまでの日数。0 は消さない(既定)。
+    /// 起動時に ExportFileStore.runAutomaticCleanup が見る
+    var exportAutoCleanupDays: Int {
+        get {
+            access(keyPath: \.exportAutoCleanupDays)
+            lock.lock(); defer { lock.unlock() }
+            return storedExportAutoCleanupDays
+        }
+        set {
+            withMutation(keyPath: \.exportAutoCleanupDays) {
+                lock.lock(); storedExportAutoCleanupDays = newValue; lock.unlock()
+                defaults.set(newValue, forKey: Keys.exportAutoCleanupDays)
             }
         }
     }

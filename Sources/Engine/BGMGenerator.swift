@@ -43,7 +43,7 @@ enum BGMGenerator {
 
     /// 試聴用の 15 秒(Caches に置き、2 回目からはそのまま返す)
     static func previewURL(preset: BGMPreset) async throws -> URL {
-        let url = previewDirectory.appendingPathComponent("\(preset.id)_v2.m4a")
+        let url = previewDirectory.appendingPathComponent("\(preset.id)_v4.m4a")
         if FileManager.default.fileExists(atPath: url.path) { return url }
         try await render(preset: preset, seconds: 15, to: url)
         return url
@@ -794,6 +794,159 @@ enum BGMGenerator {
         return p
     }
 
+    /// 主旋律の楽器(pluckTone とは別に、曲ごとにジャンルから選ぶ)
+    static func leadPatch(_ instrument: BGMLeadInstrument, preset: BGMPreset) -> Patch {
+        var p: Patch
+        switch instrument {
+        case .piano:
+            p = keysPatch(tone: .piano)
+            p.gain *= 0.85
+        case .brightPiano:
+            p = keysPatch(tone: .piano)
+            p.fmIndex = 2.4
+            p.decay = 1.6
+            p.gain *= 0.8
+        case .stringsLegato:
+            // レガートの弦(のこぎり波 3 本+遅れて始まるビブラート)
+            p = Patch()
+            p.waves = [.saw, .saw, .saw]
+            p.detuneCents = [-8, 0, 8]
+            p.attack = 0.12
+            p.decay = 1
+            p.sustain = 0.85
+            p.release = 0.4
+            p.cutoff = 2400
+            p.cutoffEnv = 0.4
+            p.filterDecay = 0.5
+            p.resonance = 0.6
+            p.vibratoDepth = 0.004
+            p.vibratoRate = 5.2
+            p.vibratoDelay = 0.3
+            p.gain = 0.09
+            p.sendLevel = 0.4
+        case .softBell:
+            p = keysPatch(tone: .bell)
+            p.fmIndex = 0.9
+            p.gain *= 0.9
+        case .pluck:
+            p = keysPatch(tone: .pluck)
+        case .marimba:
+            p = keysPatch(tone: .marimba)
+        case .ePiano:
+            // エレピ(FM、変調比 1)
+            p = keysPatch(tone: .bell)
+            p.fmRatio = 1
+            p.fmIndex = 2.0
+            p.fmIndexDecay = 0.3
+            p.decay = 2.0
+            p.gain = 0.17
+            p.sendLevel = 0.3
+        case .mutedGuitar:
+            // ミュートしたギター(短く減衰するカープラス)
+            p = keysPatch(tone: .pluck)
+            p.stringDamping = 0.990
+            p.stringBrightness = 0.4
+            p.release = 0.05
+            p.gain = 0.22
+        case .vibraphone:
+            p = keysPatch(tone: .bell)
+            p.fmRatio = 3.0
+            p.fmIndex = 0.8
+            p.decay = 2.5
+            p.vibratoDepth = 0.003
+            p.vibratoRate = 5.5
+            p.gain = 0.14
+            p.sendLevel = 0.45
+        case .supersaw:
+            p = Patch()
+            p.waves = [.saw, .saw, .saw]
+            p.detuneCents = [-15, 0, 15]
+            p.attack = 0.01
+            p.decay = 0.3
+            p.sustain = 0.6
+            p.release = 0.15
+            p.cutoff = 3200
+            p.cutoffEnv = 1.5
+            p.filterDecay = 0.2
+            p.resonance = 0.8
+            p.gain = 0.08
+            p.sendLevel = 0.35
+        case .musicBox:
+            // オルゴール(ホラーでは少し音程のずれた倍音)
+            p = keysPatch(tone: .bell)
+            p.fmRatio = preset.mood == .horror ? 5.07 : 5.0
+            p.fmIndex = 1.2
+            p.decay = 1.2
+            p.gain = 0.13
+            p.sendLevel = 0.5
+        case .glassFM:
+            p = keysPatch(tone: .bell)
+            p.fmRatio = 2.76
+            p.fmIndex = 1.5
+            p.decay = 2.0
+            p.gain = 0.12
+            p.sendLevel = 0.55
+        case .lowStrings:
+            // 低い弦(1 オクターブ下で弾く。BGMSoundDesign.leadOctave)
+            p = Patch()
+            p.waves = [.saw, .saw]
+            p.detuneCents = [-10, 10]
+            p.attack = 0.3
+            p.decay = 1
+            p.sustain = 0.9
+            p.release = 0.6
+            p.cutoff = 1100
+            p.resonance = 0.7
+            p.vibratoDepth = 0.003
+            p.vibratoRate = 4.6
+            p.vibratoDelay = 0.4
+            p.gain = 0.1
+            p.sendLevel = 0.5
+        case .koto:
+            // 琴風(明るいカープラス)
+            p = keysPatch(tone: .pluck)
+            p.stringDamping = 0.993
+            p.stringBrightness = 0.85
+            p.release = 0.1
+            p.gain = 0.21
+        case .shakuhachi:
+            // 尺八風(正弦波+三角波、ゆれるビブラート)
+            p = Patch()
+            p.waves = [.sine, .triangle]
+            p.detuneCents = [0, 2]
+            p.attack = 0.15
+            p.decay = 0.8
+            p.sustain = 0.8
+            p.release = 0.3
+            p.cutoff = 1800
+            p.filterLFORate = 0.3
+            p.filterLFODepth = 0.2
+            p.vibratoDepth = 0.006
+            p.vibratoRate = 4.5
+            p.vibratoDelay = 0.25
+            p.gain = 0.14
+            p.sendLevel = 0.45
+        case .brass:
+            p = keysPatch(tone: .brass)
+        }
+        p.gain *= 0.8
+        p.sendLevel += 0.1
+        return p
+    }
+
+    /// 曲ごとの音色のばらつき(明るさ・エンベロープ・デチューン)
+    static func varied(_ patch: Patch, cutoff: Double, env: Double, detune: Double) -> Patch {
+        var p = patch
+        p.cutoff *= cutoff
+        p.stringBrightness = min(0.95, max(0.2, p.stringBrightness * cutoff))
+        p.fmIndex *= cutoff
+        p.attack *= env
+        p.decay *= env
+        p.release *= env
+        p.detuneCents = p.detuneCents.map { abs($0) >= 1200 ? $0 : $0 * detune }
+        return p
+    }
+
     static func sparklePatch(horror: Bool) -> Patch {
         var p = keysPatch(tone: .bell)
         p.decay = horror ? 2.2 : 1.0
@@ -1050,36 +1203,6 @@ enum BGMGenerator {
         return d
     }
 
-    /// 伴奏(弾く音)を鳴らす 16 分の位置
-    static func compSteps(for preset: BGMPreset) -> [Int] {
-        if preset.beatsPerBar == 3 {
-            return preset.drumPattern == 0 ? [0, 8] : [0, 4, 8]
-        }
-        switch preset.drumPattern & 3 {
-        case 0: return [0, 8]
-        case 1: return [0, 4, 8, 12]
-        case 2: return [0, 3, 6, 8, 11, 14]
-        default: return [0, 6, 10, 12]
-        }
-    }
-
-    /// ベースの位置と、そこで弾く音(0 = ルート、1 = 5 度、2 = ルートのオクターブ上)
-    static func bassSteps(for preset: BGMPreset) -> [(step: Int, tone: Int)] {
-        if preset.beatsPerBar == 3 {
-            return [(0, 0), (4, 1), (8, 1)]
-        }
-        if preset.pluckTone == .pizzicato {
-            return [(0, 0), (4, 1), (6, 2), (8, 0), (12, 1), (14, 2)]
-        }
-        switch preset.drums {
-        case .none, .soft, .heartbeat: return [(0, 0), (8, 1)]
-        case .pop: return [(0, 0), (6, 1), (8, 0), (14, 2)]
-        case .lofi: return [(0, 0), (7, 0), (10, 1)]
-        case .house: return [(0, 0), (2, 2), (4, 0), (6, 2), (8, 0), (10, 2), (12, 0), (14, 2)]
-        case .march: return [(0, 0), (4, 1), (8, 0), (12, 1)]
-        }
-    }
-
     // MARK: - コード
 
     /// 1 小節のコード
@@ -1142,71 +1265,6 @@ enum BGMGenerator {
         return candidates.min { distance($0) < distance($1) } ?? candidates[0]
     }
 
-    static func makeChord(degree: Int, key: Int, scale: BGMScale, sevenths: Bool, previous: [Int]?) -> BarChord {
-        let classes = chordClasses(degree: degree, key: key, scale: scale, sevenths: sevenths)
-        let voicing = voiceLead(classes: classes, previous: previous)
-        let iv = scale.intervals
-        let d = max(1, min(7, degree)) - 1
-        let bassRoot = 36 + classes[0]
-        let fifthIdx = d + 4
-        let fifthClass = (key + iv[fifthIdx % 7] + 12 * (fifthIdx / 7)) % 12
-        var bassFifth = 36 + fifthClass
-        if bassFifth < bassRoot { bassFifth += 12 }
-        if bassFifth - bassRoot > 7 { bassFifth -= 12 }
-        // アルペジオ: コードの音を 72〜83 に(5 音階なら近い音に寄せる)
-        let melodic = scale.melodicIntervals
-        var arp: [Int] = []
-        for c in classes {
-            var rel = (c - key + 12) % 12
-            if !melodic.contains(rel) {
-                rel = melodic.min { abs($0 - rel) < abs($1 - rel) } ?? rel
-            }
-            let m = 72 + (key + rel) % 12
-            if !arp.contains(m) { arp.append(m) }
-        }
-        arp.sort()
-        if let first = arp.first { arp.append(first + 12) }
-        return BarChord(classes: classes, voicing: voicing, bassRoot: bassRoot, bassFifth: bassFifth, arp: arp)
-    }
-
-    // MARK: - モチーフ(旋律)
-
-    struct MotifNote {
-        var step: Int     // 2 小節内の 16 分の位置
-        var length: Int   // 16 分の数
-        var degree: Int   // 音階上の番号(melodicPool の添字)
-    }
-
-    /// 2 小節のモチーフを作る(リズムは型から、音は音階上を順次進行+ときどき跳躍)
-    static func makeMotif(preset: BGMPreset, stepsPerBar: Int, rng: inout Random) -> [MotifNote] {
-        let rhythms4: [[(Int, Int)]] = [
-            [(0, 4), (4, 2), (6, 2), (8, 4), (12, 4), (16, 6), (22, 2), (24, 8)],
-            [(0, 2), (2, 2), (4, 4), (8, 2), (10, 2), (12, 4), (16, 4), (20, 4), (24, 8)],
-            [(0, 3), (3, 3), (6, 2), (8, 4), (12, 4), (16, 3), (19, 3), (22, 2), (24, 4), (28, 4)],
-            [(2, 2), (4, 4), (8, 2), (10, 2), (12, 4), (18, 2), (20, 4), (24, 6)]
-        ]
-        let rhythms3: [[(Int, Int)]] = [
-            [(0, 4), (4, 4), (8, 4), (12, 8), (20, 4)],
-            [(0, 6), (6, 2), (8, 4), (12, 4), (16, 4), (20, 4)]
-        ]
-        let rhythm = stepsPerBar == 12 ? rhythms3[rng.int(rhythms3.count)] : rhythms4[rng.int(rhythms4.count)]
-        let poolCount = preset.scale.melodicIntervals.count * 2    // 2 オクターブ分
-        var degree = poolCount / 2 + rng.int(3) - 1
-        var direction = rng.chance(0.5) ? 1 : -1
-        var notes: [MotifNote] = []
-        for (i, r) in rhythm.enumerated() {
-            if i > 0 {
-                if rng.chance(0.3) { direction = -direction }
-                let leap = rng.chance(0.25) ? 2 + rng.int(2) : 1
-                degree += direction * leap
-                if degree < 2 { degree = 2; direction = 1 }
-                if degree > poolCount - 3 { degree = poolCount - 3; direction = -1 }
-            }
-            notes.append(MotifNote(step: r.0, length: r.1, degree: degree))
-        }
-        return notes
-    }
-
     // MARK: - 構成
 
     struct Layers: OptionSet {
@@ -1221,7 +1279,7 @@ enum BGMGenerator {
     }
 
     enum Section {
-        case intro, a, b, aPrime, outro
+        case intro, a, b, aPrime, bPrime, outro
     }
 
     // MARK: - 本体
@@ -1243,24 +1301,26 @@ enum BGMGenerator {
         let barFrames = Int(barSec * sr)
         let stepFrames = Int(stepSec * sr)
         let totalBars = Int(ceil(seconds / barSec)) + 1
-        let progression = preset.progression.isEmpty ? [1] : preset.progression
         let short = seconds < 30
         let introBars = short ? 1 : 2
-        let sectionBars = short ? 4 : 8
-        let outroBars = short ? 1 : 2
+
+        // 作曲(楽譜)は 1 回だけ。ここから下は楽譜を読んで鳴らすだけ
+        let score = BGMComposer.compose(preset: preset, totalBars: totalBars, stepsPerBar: stepsPerBar,
+                                        introBars: introBars, short: short)
+        let sound = score.sound
+        let notes = score.notes
 
         let drums = makeDrums(preset: preset, rng: &rng)
         let patternA = drumPattern(for: preset, variation: false)
         let patternB = drumPattern(for: preset, variation: true)
-        let comp = compSteps(for: preset)
-        let bassPlan = bassSteps(for: preset)
-        let padP = padPatch(preset: preset)
-        let keysP = keysPatch(tone: preset.pluckTone)
+        let padP = varied(padPatch(preset: preset), cutoff: 1, env: 1, detune: sound.detune)
+        let keysP = varied(keysPatch(tone: preset.pluckTone), cutoff: sound.compCutoff, env: sound.compEnv, detune: sound.detune)
         let bassP = bassPatch(preset: preset)
-        let arpP = arpPatch(tone: preset.pluckTone)
-        let melodyP = melodyPatch(tone: preset.pluckTone)
+        let arpP = varied(arpPatch(tone: preset.pluckTone), cutoff: sound.arpCutoff, env: sound.arpEnv, detune: sound.detune)
+        let melodyP = varied(leadPatch(sound.lead, preset: preset), cutoff: sound.leadCutoff, env: sound.leadEnv, detune: sound.detune)
+        var counterP = arpP
+        counterP.gain *= 0.7
         let sparkleP = sparklePatch(horror: preset.mood == .horror)
-        let arpDivision = preset.bpm < 100 ? 1 : 2          // 1 = 16 分、2 = 8 分
         let swingFrames = preset.swing * stepSec * sr
         let humanFrames = Int(0.008 * sr)
 
@@ -1278,87 +1338,56 @@ enum BGMGenerator {
             base * Float(0.9 + humanRNG.unit() * 0.2)
         }
 
-        // 小節ごとのセクション
+        // 小節ごとのセクション(楽譜のとおり)
         func section(of bar: Int) -> Section {
-            if bar < introBars { return .intro }
-            if bar >= totalBars - outroBars - 1 { return .outro }
-            let block = (bar - introBars) / sectionBars
-            switch block % 3 {
-            case 0: return .a
-            case 1: return .b
-            default: return .aPrime
-            }
+            bar >= 0 && bar < score.sections.count ? score.sections[bar] : .outro
         }
         func layers(for s: Section) -> Layers {
             switch s {
             case .intro: return [.pad, .arp]
-            case .a: return [.pad, .keys, .bass, .drums, .arp]
-            case .b: return [.pad, .keys, .bass, .drums, .arp, .melody, .full]
+            case .a: return [.pad, .keys, .bass, .drums, .arp, .melody]
+            case .b, .bPrime: return [.pad, .keys, .bass, .drums, .arp, .melody, .full]
             case .aPrime: return [.pad, .keys, .bass, .drums, .melody]
             case .outro: return [.pad, .keys, .bass, .arp]
             }
         }
-
-        // 小節ごとのコード(声部連結。進行を 2 周したら平行長調へ)
-        var chords: [BarChord] = []
-        chords.reserveCapacity(totalBars)
-        var previousVoicing: [Int]? = nil
-        for bar in 0..<totalBars {
-            var key = preset.key
-            var scale = preset.scale
-            if preset.liftToMajor, bar >= introBars + progression.count * 2 {
-                key = (preset.key + 3) % 12
-                scale = .major
-            }
-            let c = makeChord(degree: progression[(bar - introBars + progression.count * 64) % progression.count],
-                              key: key, scale: scale, sevenths: preset.sevenths, previous: previousVoicing)
-            previousVoicing = c.voicing
-            chords.append(c)
+        /// i から始まる「同じ時刻・同じパート」の音のまとまりの終わり(パッド・伴奏の和音)
+        func groupEnd(_ i: Int) -> Int {
+            var j = i + 1
+            while j < notes.count, notes[j].part == notes[i].part, notes[j].bar == notes[i].bar,
+                  notes[j].step == notes[i].step { j += 1 }
+            return j
         }
-        // 旋律に使える音(2 オクターブ、72〜95)
-        func melodicPool(bar: Int) -> [Int] {
-            var key = preset.key
-            var scale = preset.scale
-            if preset.liftToMajor, bar >= introBars + progression.count * 2 {
-                key = (preset.key + 3) % 12
-                scale = .major
-            }
-            var pool: [Int] = []
-            for octave in [72, 84] {
-                for rel in scale.melodicIntervals { pool.append(octave + (key + rel) % 12) }
-            }
-            return pool.sorted()
-        }
-        let motif = makeMotif(preset: preset, stepsPerBar: stepsPerBar, rng: &rng)
 
-        // ---------- 1. パッド(コードが変わるまで 1 音で伸ばす)→ バス処理(HPF+コーラス) ----------
+        // ---------- 1. パッド(楽譜の和音を伸ばす)→ バス処理(HPF+コーラス) ----------
         let padTarget = Target(bus: bus, send: send, sendLevel: Float(preset.reverb))
         if preset.pad {
-            var bar = 0
-            while bar < totalBars {
-                var end = bar + 1
-                while end < totalBars, chords[end].voicing == chords[bar].voicing, section(of: end) == section(of: bar) { end += 1 }
-                let start = bar * barFrames
-                let length = (end - bar) * barFrames - Int(0.03 * sr)
-                let notes = chords[bar].voicing
-                let quiet: Float = section(of: bar) == .intro ? 0.8 : 1
-                for (n, midi) in notes.enumerated() {
-                    let pan = Float(n) / Float(max(notes.count - 1, 1)) * 0.8 - 0.4
-                    play(midi: midi, start: start, length: length, velocity: quiet, pan: pan, patch: padP, target: padTarget, rng: &rng)
+            var i = 0
+            while i < notes.count {
+                guard notes[i].part == .pad else { i += 1; continue }
+                let j = groupEnd(i)
+                let first = notes[i]
+                let start = first.bar * barFrames + first.step * stepFrames
+                let length = first.length * stepFrames - Int(0.03 * sr)
+                let n = j - i
+                for k in i..<j {
+                    let pan = (Float(k - i) / Float(max(n - 1, 1)) * 0.8 - 0.4) * sound.width
+                    play(midi: notes[k].midi, start: start, length: length, velocity: notes[k].velocity, pan: pan,
+                         patch: padP, target: padTarget, rng: &rng)
                 }
-                if preset.widePad || preset.organ, let root = notes.first {
+                if preset.widePad || preset.organ {
                     // 弦楽合奏のチェロ(ルートを 1 オクターブ下)
                     var low = padP
                     low.gain *= 0.7
                     low.cutoff *= 0.7
-                    play(midi: root - 12, start: start, length: length, velocity: quiet, pan: 0, patch: low, target: padTarget, rng: &rng)
+                    play(midi: first.midi - 12, start: start, length: length, velocity: first.velocity, pan: 0, patch: low, target: padTarget, rng: &rng)
                 }
-                if preset.detuned, let top = notes.last {
+                if preset.detuned {
                     var v = padP
                     v.gain *= 0.4
-                    play(midi: top + 1, start: start, length: length, velocity: 1, pan: 0.2, patch: v, target: padTarget, rng: &rng)
+                    play(midi: notes[j - 1].midi + 1, start: start, length: length, velocity: 1, pan: 0.2, patch: v, target: padTarget, rng: &rng)
                 }
-                bar = end
+                i = j
             }
         }
         // ドローン(主音を鳴らし続ける)
@@ -1384,100 +1413,55 @@ enum BGMGenerator {
         }
         highpass(bus, cutoff: 110)
         if !preset.organ {
-            chorus(bus, rate: preset.widePad ? 0.35 : 0.6, depthMs: preset.widePad ? 5 : 3.5, delayMs: preset.widePad ? 22 : 14, mix: 0.45)
+            chorus(bus, rate: preset.widePad ? 0.35 : 0.6, depthMs: (preset.widePad ? 5 : 3.5) * sound.chorusDepth,
+                   delayMs: preset.widePad ? 22 : 14, mix: 0.45)
         }
         addBus(bus, to: master)
         bus.clear()
 
-        // ---------- 2. 鍵盤・アルペジオ・旋律・きらめき(1 つのバス) → HPF ----------
+        // ---------- 2. 伴奏・アルペジオ・主旋律・対旋律・きらめき(1 つのバス) → HPF ----------
         let keysTarget = Target(bus: bus, send: send, sendLevel: Float(preset.reverb))
-        var motifVariant = 0
-        for bar in 0..<totalBars {
-            let ch = chords[bar]
-            let sec = section(of: bar)
-            let ly = layers(for: sec)
-
-            // 伴奏(コードを少しずらして弾く)
-            if preset.pluck, ly.contains(.keys) {
-                for (i, step) in comp.enumerated() where step < stepsPerBar {
-                    let start = frame(bar: bar, step: step)
-                    let nextStep = i + 1 < comp.count ? comp[i + 1] : stepsPerBar
-                    var length = (nextStep - step) * stepFrames
-                    if preset.pluckTone == .pizzicato { length = min(length, Int(0.12 * sr)) }
-                    let base: Float = step == 0 ? 1 : 0.8
-                    let notes = ch.voicing
-                    for (n, midi) in notes.enumerated() {
-                        let pan = Float(n) / Float(max(notes.count - 1, 1)) * 0.5 - 0.25
-                        play(midi: midi, start: start + n * Int(0.012 * sr), length: length,
-                             velocity: velocity(base * (sec == .aPrime ? 0.9 : 1)), pan: pan, patch: keysP, target: keysTarget, rng: &rng)
-                    }
+        var arpLeft = false
+        var index = 0
+        while index < notes.count {
+            let note = notes[index]
+            switch note.part {
+            case .comp:
+                // 和音を少しずらして弾く
+                let j = groupEnd(index)
+                let n = j - index
+                let start = frame(bar: note.bar, step: note.step)
+                var length = note.length * stepFrames
+                if preset.pluckTone == .pizzicato { length = min(length, Int(0.12 * sr)) }
+                for k in index..<j {
+                    let pan = (Float(k - index) / Float(max(n - 1, 1)) * 0.5 - 0.25) * sound.width + sound.compOffset
+                    play(midi: notes[k].midi, start: start + (k - index) * Int(0.012 * sr), length: length,
+                         velocity: velocity(notes[k].velocity), pan: pan, patch: keysP, target: keysTarget, rng: &rng)
                 }
+                index = j
+                continue
+            case .arp:
+                let start = frame(bar: note.bar, step: note.step) + Int(note.micro * Double(stepFrames))
+                let length = Int(Double(note.length * stepFrames) * 0.9)
+                arpLeft.toggle()
+                play(midi: note.midi, start: start, length: length, velocity: velocity(note.velocity),
+                     pan: arpLeft ? -sound.arpPan : sound.arpPan, patch: arpP, target: keysTarget, rng: &rng)
+            case .lead:
+                let length = Int(Double(note.length * stepFrames) * 0.92)
+                play(midi: note.midi + sound.leadOctave, start: frame(bar: note.bar, step: note.step), length: length,
+                     velocity: velocity(note.velocity), pan: sound.leadPan, patch: melodyP, target: keysTarget, rng: &rng)
+            case .counter:
+                let length = Int(Double(note.length * stepFrames) * 0.9)
+                play(midi: note.midi, start: frame(bar: note.bar, step: note.step), length: length,
+                     velocity: velocity(note.velocity), pan: sound.counterPan, patch: counterP, target: keysTarget, rng: &rng)
+            case .sparkle:
+                let pan = Float(((note.midi * 7 + note.step * 13 + note.bar * 5) % 15) - 7) / 10
+                play(midi: note.midi, start: frame(bar: note.bar, step: note.step), length: Int(0.1 * sr),
+                     velocity: note.velocity, pan: pan, patch: sparkleP, target: keysTarget, rng: &rng)
+            case .pad, .bass:
+                break
             }
-
-            // アルペジオ(上下に行き来。B では 1 オクターブ上の音も混ぜる)
-            if preset.arpeggio, ly.contains(.arp) {
-                let notes = ch.arp
-                let count = notes.count
-                var step = 0
-                var index = 0
-                while step < stepsPerBar {
-                    let cycle = max(count * 2 - 2, 1)
-                    let k = index % cycle
-                    let noteIndex = k < count ? k : cycle - k
-                    var midi = notes[min(noteIndex, count - 1)]
-                    if ly.contains(.full), step % 8 == 6 { midi += 12 }
-                    let start = frame(bar: bar, step: step)
-                    let length = Int(Double(arpDivision * stepFrames) * 0.9)
-                    let accent: Float = step % 4 == 0 ? 1 : 0.7
-                    let pan = Float(k % 2 == 0 ? 0.3 : -0.3)
-                    play(midi: midi, start: start, length: length, velocity: velocity(accent * (sec == .intro ? 0.75 : 1)),
-                         pan: pan, patch: arpP, target: keysTarget, rng: &rng)
-                    step += arpDivision
-                    index += 1
-                }
-            }
-
-            // 旋律(2 小節のモチーフを変奏しながら。強拍はコードの音に寄せる)
-            if preset.melody, ly.contains(.melody), (bar - introBars) % 2 == 0 {
-                let pool = melodicPool(bar: bar)
-                let shift = [0, 0, 1, -1, 2][motifVariant % 5]
-                motifVariant += 1
-                for (i, note) in motif.enumerated() {
-                    // 変奏: 最後の 2 音をたまに変える、たまに休む
-                    if i >= motif.count - 2, rng.chance(0.3) { continue }
-                    let noteBar = bar + note.step / stepsPerBar
-                    guard noteBar < totalBars else { continue }
-                    let stepInBar = note.step % stepsPerBar
-                    var degree = note.degree + shift
-                    degree = max(1, min(pool.count - 2, degree))
-                    var midi = pool[degree]
-                    if stepInBar % 8 == 0 || note.length >= 6 {
-                        // コードの音へ寄せる
-                        let tones = chords[noteBar].classes
-                        if !tones.contains(midi % 12) {
-                            let up = pool[min(degree + 1, pool.count - 1)]
-                            let down = pool[max(degree - 1, 0)]
-                            if tones.contains(up % 12) { midi = up } else if tones.contains(down % 12) { midi = down }
-                        }
-                    }
-                    let start = frame(bar: noteBar, step: stepInBar)
-                    let length = Int(Double(note.length * stepFrames) * (preset.pluckTone == .pizzicato ? 0.5 : 0.92))
-                    play(midi: midi, start: start, length: length,
-                         velocity: velocity(stepInBar % 4 == 0 ? 0.9 : 0.75), pan: 0.1, patch: melodyP, target: keysTarget, rng: &rng)
-                }
-            }
-
-            // きらめき(高い鈴をときどき)
-            if preset.sparkle, sec != .outro {
-                let pool = melodicPool(bar: bar)
-                for step in stride(from: 0, to: stepsPerBar, by: 2) where rng.chance(0.14) {
-                    let midi = pool[pool.count / 2 + rng.int(pool.count / 2)] + (rng.chance(0.3) ? 12 : 0)
-                    let vel = Float(rng.uniform(0.5...1))
-                    let pan = Float(rng.uniform(-0.7...0.7))
-                    play(midi: midi, start: frame(bar: bar, step: step), length: Int(0.1 * sr),
-                         velocity: vel, pan: pan, patch: sparkleP, target: keysTarget, rng: &rng)
-                }
-            }
+            index += 1
         }
         highpass(bus, cutoff: 130)
         addBus(bus, to: master)
@@ -1486,23 +1470,10 @@ enum BGMGenerator {
 
         // ---------- 3. ベース(マスターへ直接。リバーブ無し) ----------
         let bassTarget = Target(bus: master, send: send, sendLevel: 0)
-        if preset.bass {
-            for bar in 0..<totalBars where layers(for: section(of: bar)).contains(.bass) {
-                let ch = chords[bar]
-                for (i, entry) in bassPlan.enumerated() where entry.step < stepsPerBar {
-                    let start = frame(bar: bar, step: entry.step)
-                    let nextStep = i + 1 < bassPlan.count ? bassPlan[i + 1].step : stepsPerBar
-                    let length = max((nextStep - entry.step) * stepFrames - Int(0.03 * sr), stepFrames / 2)
-                    let midi: Int
-                    switch entry.tone {
-                    case 1: midi = ch.bassFifth
-                    case 2: midi = ch.bassRoot + 12
-                    default: midi = ch.bassRoot
-                    }
-                    play(midi: midi, start: start, length: length, velocity: velocity(entry.step == 0 ? 1 : 0.85),
-                         pan: 0, patch: bassP, target: bassTarget, rng: &rng)
-                }
-            }
+        for note in notes where note.part == .bass {
+            let length = max(note.length * stepFrames - Int(0.03 * sr), stepFrames / 2)
+            play(midi: note.midi, start: frame(bar: note.bar, step: note.step), length: length,
+                 velocity: velocity(note.velocity), pan: 0, patch: bassP, target: bassTarget, rng: &rng)
         }
 
         // ---------- 4. ドラム(マスターへ。スネア・手拍子は少しリバーブへ) ----------
@@ -1586,7 +1557,9 @@ enum BGMGenerator {
         }
 
         // ---------- 6. マスター: リバーブ → グルーコンプ → アウトロのフィルター+フェード → ラウドネス → リミッター ----------
-        reverb(send: send, into: master, amount: Float(preset.reverb), size: preset.widePad ? 0.9 : 0.8, damping: preset.widePad ? 0.3 : 0.45)
+        reverb(send: send, into: master, amount: Float(preset.reverb),
+               size: min(max((preset.widePad ? 0.9 : 0.8) + sound.reverbSize, 0.5), 0.98),
+               damping: preset.widePad ? 0.3 : 0.45, preDelaySec: sound.preDelay)
         // リバーブ送りはここで使い終わり。コンプなどの前に解放する
         send.free()
         compress(master, thresholdDb: -14, ratio: 2.5, attack: 0.012, release: 0.25)
@@ -1666,7 +1639,7 @@ enum BGMGenerator {
     }
 
     /// Schroeder リバーブ(プリディレイ 20ms、左右で長さの違うコム 4 本+オールパス 2 本、ダンピング付き)
-    static func reverb(send: Mono, into master: Bus, amount: Float, size: Double, damping: Float) {
+    static func reverb(send: Mono, into master: Bus, amount: Float, size: Double, damping: Float, preDelaySec: Double = 0.02) {
         guard amount > 0.001 else { return }
         let sr = sampleRate
         let scale = sr / 44100
@@ -1675,7 +1648,7 @@ enum BGMGenerator {
         let apL = [556, 441].map { Int(Double($0) * scale) }
         let apR = [579, 464].map { Int(Double($0) * scale) }
         let feedback = Float(0.7 + 0.2 * size)
-        let preDelay = Int(0.02 * sr)
+        let preDelay = Int(max(preDelaySec, 0.001) * sr)
 
         final class Comb {
             var buf: [Float]

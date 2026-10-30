@@ -29,6 +29,8 @@ struct VideoEditorApp: App {
         Task.detached(priority: .utility) { MediaTools.registerStoredFonts() }
         // 前回までのドラッグ&ドロップの一時フォルダを消す
         Task.detached(priority: .utility) { MediaDrop.cleanUpTemporaryFolders() }
+        // 「書き出した動画を自動で消す」(設定)。選んだ日数より古い Documents/Exports の動画を消す
+        Task { @MainActor in ExportFileStore.runAutomaticCleanup() }
     }
 
     var body: some Scene {

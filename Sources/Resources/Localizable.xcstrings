@@ -1864,6 +1864,29 @@
         }
       }
     },
+    "%lld 本(%@)を削除しますか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete %lld videos (%@)?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar %lld videos (%@)?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir %lld vídeos (%@)?"
+          }
+        }
+      }
+    },
     "%lld 本のクリップで、人物が画面の端に寄っていて縦に切り出すと見切れます。「オートリフレーム」で人物を追いかけて中央に映せます。": {
       "extractionState": "manual",
       "localizations": {
@@ -1998,6 +2021,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld vídeos ainda estão sendo processados no Google Fotos e não puderam ser importados. Aguarde um pouco e escolha-os de novo."
+          }
+        }
+      }
+    },
+    "%lld 本を削除(%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete %lld (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar %lld (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir %lld (%@)"
+          }
+        }
+      }
+    },
+    "%lld 本・合計 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld videos · %@ total"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld videos · %@ en total"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld vídeos · %@ no total"
           }
         }
       }
@@ -3474,6 +3543,52 @@
         }
       }
     },
+    "30 日より前": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Older than 30 days"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más de 30 días"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais de 30 dias"
+          }
+        }
+      }
+    },
+    "30 日後": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After 30 days"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de 30 días"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após 30 dias"
+          }
+        }
+      }
+    },
     "3Dズーム": {
       "extractionState": "manual",
       "localizations": {
@@ -3681,6 +3796,52 @@
         }
       }
     },
+    "7 日より前": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Older than 7 days"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más de 7 días"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais de 7 dias"
+          }
+        }
+      }
+    },
+    "7 日後": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After 7 days"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de 7 días"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após 7 dias"
+          }
+        }
+      }
+    },
     "8 分を超える動画にチャプターが %lld 個しかありません。YouTube では 3 つ以上(最初は 0:00、各 10 秒以上)あると目次が出て、見たい所へ飛べます。キャプションがあれば AI が構成案を作ります。": {
       "extractionState": "manual",
       "localizations": {
@@ -3769,6 +3930,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld pt / 80 linhas"
+          }
+        }
+      }
+    },
+    "90 日後": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After 90 days"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de 90 días"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após 90 dias"
           }
         }
       }
@@ -7430,6 +7614,29 @@
         }
       }
     },
+    "OK": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
     "OpenAI API キーが必要(従量課金)": {
       "extractionState": "manual",
       "localizations": {
@@ -9657,6 +9864,29 @@
           "stringUnit": {
             "state": "translated",
             "value": ". Acabamento com IA: "
+          }
+        }
+      }
+    },
+    "「%@」(%@)を削除しますか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete \"%1$@\" (%2$@)?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar \"%1$@\" (%2$@)?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir \"%1$@\" (%2$@)?"
           }
         }
       }
@@ -12651,6 +12881,29 @@
         }
       }
     },
+    "ここにある動画は「ファイル」アプリの「このiPhone内 › Video Mania › Exports」にも出ます。消すと元に戻せません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These videos also appear in the Files app under On My iPhone › Video Mania › Exports. Deleting cannot be undone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estos videos también aparecen en la app Archivos en En mi iPhone › Video Mania › Exports. No se puede deshacer la eliminación"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estes vídeos também aparecem no app Arquivos em No meu iPhone › Video Mania › Exports. A exclusão não pode ser desfeita"
+          }
+        }
+      }
+    },
     "ここに入力": {
       "extractionState": "manual",
       "localizations": {
@@ -13893,6 +14146,29 @@
         }
       }
     },
+    "この起動中に書き出した動画は消しません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos exported since the app was opened are kept"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los videos exportados desde que se abrió la app se conservan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeos exportados desde que o app foi aberto são mantidos"
+          }
+        }
+      }
+    },
     "この部分を再生": {
       "extractionState": "manual",
       "localizations": {
@@ -14211,6 +14487,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fonte de bambu"
+          }
+        }
+      }
+    },
+    "しない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nunca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nunca"
           }
         }
       }
@@ -46990,6 +47289,29 @@
         }
       }
     },
+    "古いものをまとめて削除": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete old videos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar videos antiguos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir vídeos antigos"
+          }
+        }
+      }
+    },
     "古い地図": {
       "extractionState": "manual",
       "localizations": {
@@ -52000,6 +52322,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Texto alvo não encontrado."
+          }
+        }
+      }
+    },
+    "対象の動画はありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No videos to delete"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay videos para eliminar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum vídeo para excluir"
           }
         }
       }
@@ -57846,6 +58191,29 @@
         }
       }
     },
+    "書き出した動画の整理": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage exported videos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organizar videos exportados"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organizar vídeos exportados"
+          }
+        }
+      }
+    },
     "書き出した動画の長さを読み取れませんでした": {
       "extractionState": "manual",
       "localizations": {
@@ -57865,6 +58233,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível ler a duração do vídeo exportado"
+          }
+        }
+      }
+    },
+    "書き出した動画はありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No exported videos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay videos exportados"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum vídeo exportado"
           }
         }
       }
@@ -57915,6 +58306,29 @@
         }
       }
     },
+    "書き出した動画を整理": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage exported videos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organizar videos exportados"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organizar vídeos exportados"
+          }
+        }
+      }
+    },
     "書き出した動画を確認できませんでした: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -57934,6 +58348,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível verificar o vídeo exportado: %@"
+          }
+        }
+      }
+    },
+    "書き出した動画を自動で消す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-delete exported videos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar videos exportados automáticamente"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir vídeos exportados automaticamente"
           }
         }
       }
@@ -58003,6 +58440,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Exportando"
+          }
+        }
+      }
+    },
+    "書き出してから選んだ日数がたった動画を、アプリを開いたときに消します": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos older than the chosen number of days are deleted when the app opens"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los videos que superen los días elegidos se eliminan al abrir la app"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeos mais antigos que o número de dias escolhido são excluídos ao abrir o app"
           }
         }
       }
@@ -61223,6 +61683,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Duração do desaparecimento"
+          }
+        }
+      }
+    },
+    "消した動画は元に戻せません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted videos cannot be recovered"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los videos eliminados no se pueden recuperar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeos excluídos não podem ser recuperados"
           }
         }
       }
@@ -75759,6 +76242,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "selecionar"
+          }
+        }
+      }
+    },
+    "選択して削除": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select and delete"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleccionar y eliminar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecionar e excluir"
           }
         }
       }
