@@ -1,0 +1,210 @@
+# 画面の自動チェック(UITests/)をシミュレータで走らせます。
+#   (a) 画面が 3 秒以内に落ち着かない(SwiftUI の描き直しが止まらない・メインスレッドが固まる)と失敗
+#   (b) 参照画像(UITests/__Snapshots__)と見た目が違うと失敗
+# 失敗した画面(実際・参照・差分)は Artifacts「failed-snapshots」に置きます。
+# 参照画像の更新のしかたは UITests/__Snapshots__/README.md
+#
+# ランナー: ふだんは xcode-27(TestFlight と同じ Xcode)。そのラベルが使えないときは
+# リポジトリ変数 UI_TESTS_RUNNER に macos-latest などを入れると、そのランナーで走ります
+# (Settings → Secrets and variables → Actions → Variables)。
+name: UI tests (simulator)
+
+on:
+  pull_request:
+    paths-ignore: [ "server/**", "docs/**", ".github/workflows/deploy-server.yml", ".github/workflows/asc-*.yml", ".github/workflows/db-*.yml" ]
+  push:
+    branches: [ main ]
+    paths-ignore: [ "server/**", "docs/**", ".github/workflows/deploy-server.yml", ".github/workflows/asc-*.yml", ".github/workflows/db-*.yml" ]
+  workflow_dispatch:
+    inputs:
+      record:
+        description: "参照画像をすべて記録し直して、このブランチにコミットする"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ui-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  # 参照画像をブランチにコミットするため(記録し直すとき・プルリクエストで新しいテストを足したとき)
+  contents: write
+
+jobs:
+  ui-tests:
+    runs-on: ${{ vars.UI_TESTS_RUNNER || 'xcode-27' }}
+    timeout-minutes: 60
+    env:
+      RECORD: ${{ github.event_name == 'workflow_dispatch' && inputs.record && '1' || '0' }}
+      ARTIFACTS: ${{ github.workspace }}/snapshot-artifacts
+      RESULT_BUNDLE: ${{ github.workspace }}/build/UITests.xcresult
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # プルリクエストではブランチそのもの(マージ結果ではなく)を取る。新しい参照画像をそのブランチへコミットできるように
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Select newest Xcode
+        run: |
+          ls -d /Applications/Xcode*.app || true
+          NEWEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | grep -v -i beta | sort -V | tail -n 1)
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST/Contents/Developer"; fi
+          xcodebuild -version
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: build/DerivedData
+          key: uitests-deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}-${{ github.sha }}
+          restore-keys: |
+            uitests-deriveddata-${{ runner.os }}-${{ hashFiles('project.yml') }}-
+            uitests-deriveddata-${{ runner.os }}-
+
+      # テストでは TikTok のクライアントキーを使わないので、空の URL スキームを入れないよう印のあいだを消す
+      - name: Leave out the TikTok URL scheme
+        run: sed -i '' -e '/# >>> tiktok-url-scheme/,/# <<< tiktok-url-scheme/d' project.yml
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+
+      - name: Pick and boot an iPhone simulator
+        run: |
+          UDID=$(.github/scripts/pick-simulator.sh)
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          # 時刻・電池の表示を固定(テストは自分の窓に描くので絵には入らないが、ログのスクリーンショットを揃える)
+          xcrun simctl status_bar "$UDID" override --time "9:41" --batteryState charged --batteryLevel 100 || true
+
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild build-for-testing \
+            -project VideoEditor.xcodeproj \
+            -scheme VideoEditorUITests \
+            -configuration Debug \
+            -destination "id=$SIM_UDID" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tee build/build.log | grep -E "error:|warning: .*UITests|BUILD (SUCCEEDED|FAILED)|TEST BUILD" || true
+          grep -qE "(TEST )?BUILD SUCCEEDED" build/build.log
+
+      # カメラ画面のテストは、権限のダイアログで止まらないよう先に権限を与えておく(シミュレータにカメラは無いので、
+      # 画面は「この端末ではカメラを使えません」を出したプレビューの状態で落ち着く)
+      - name: Grant camera and microphone to the app
+        run: |
+          APP=$(find build/DerivedData/Build/Products/Debug-iphonesimulator -maxdepth 1 -name "VideoEditor.app" | head -n 1)
+          test -n "$APP"
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
+          xcrun simctl install "$SIM_UDID" "$APP"
+          xcrun simctl privacy "$SIM_UDID" grant camera "$BUNDLE_ID"
+          xcrun simctl privacy "$SIM_UDID" grant microphone "$BUNDLE_ID"
+          xcrun simctl privacy "$SIM_UDID" grant photos "$BUNDLE_ID" || true
+
+      - name: Run UI tests
+        id: test
+        env:
+          # テストに渡す環境変数(TEST_RUNNER_ を外した名前で届く)
+          TEST_RUNNER_SNAPSHOT_RECORD: ${{ env.RECORD }}
+          TEST_RUNNER_SNAPSHOT_ARTIFACTS: ${{ env.ARTIFACTS }}
+        run: |
+          set -o pipefail
+          mkdir -p "$ARTIFACTS"
+          rm -rf "$RESULT_BUNDLE"
+          # 完全に固まったテストは 2 分で打ち切る(-test-timeouts-enabled)
+          xcodebuild test-without-building \
+            -project VideoEditor.xcodeproj \
+            -scheme VideoEditorUITests \
+            -destination "id=$SIM_UDID" \
+            -derivedDataPath build/DerivedData \
+            -resultBundlePath "$RESULT_BUNDLE" \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 180 \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build/test.log \
+            | grep -E "Test Case|error:|::warning::|::notice::|::error::|Executed|TEST (SUCCEEDED|FAILED)|Skipped|skipped"
+
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "## UI tests"
+            if [ -f build/test.log ]; then
+              echo '```'
+              grep -E "^Test Case .*(passed|failed|skipped)|Executed .* tests" build/test.log | tail -n 60 || true
+              echo '```'
+              if grep -q "error:" build/test.log; then
+                echo "### 失敗"
+                echo '```'
+                grep "error:" build/test.log | sed -e 's/^.*error: //' | head -n 30
+                echo '```'
+              fi
+            else
+              echo "テストまで進みませんでした(ビルドのログを見てください)"
+            fi
+            NEW=$(git status --porcelain -- UITests/__Snapshots__ | wc -l | tr -d ' ')
+            if [ "$NEW" != "0" ]; then
+              echo "### 記録した参照画像: $NEW 件"
+              git status --porcelain -- UITests/__Snapshots__ | sed -e 's/^/- /'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload failed snapshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-snapshots
+          path: snapshot-artifacts
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload xcresult
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult
+          path: build/UITests.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload recorded snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recorded-snapshots
+          path: UITests/__Snapshots__/**/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # 記録し直したとき(Run workflow の record)と、プルリクエストで参照画像の無いテストを足したときは、
+      # 記録した参照画像をそのブランチにコミットする(main への push では コミットせず Artifacts に置くだけ)。
+      # GITHUB_TOKEN のコミットではワークフローが走り直さないので、次の push から比べ始める
+      - name: Commit recorded snapshots
+        if: >-
+          steps.test.outcome == 'success' &&
+          (env.RECORD == '1' ||
+           (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
+        run: |
+          if [ -z "$(git status --porcelain -- UITests/__Snapshots__)" ]; then
+            echo "参照画像に変更はありません"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add UITests/__Snapshots__
+          if [ "$RECORD" = "1" ]; then
+            git commit -m "UI テストの参照画像を記録し直す"
+          else
+            git commit -m "UI テストの参照画像を追加(新しいテストの分)"
+          fi
+          BRANCH="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git push origin "HEAD:$BRANCH"
