@@ -54373,6 +54373,52 @@
         }
       }
     },
+    "最高画質 / 30fps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Best quality / 30fps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máxima calidad / 30fps"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máxima qualidade / 30fps"
+          }
+        }
+      }
+    },
+    "最高画質 / 60fps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Best quality / 60fps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máxima calidad / 60fps"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máxima qualidade / 60fps"
+          }
+        }
+      }
+    },
     "最高精度": {
       "extractionState": "manual",
       "localizations": {

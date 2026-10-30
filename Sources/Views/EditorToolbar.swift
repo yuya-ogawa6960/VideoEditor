@@ -71,6 +71,10 @@ struct EditorToolItem: Identifiable {
     let kind: Kind
     /// 長押しで出すメニュー(.action の項目だけ。空なら出さない)
     private(set) var menu: [EditorToolMenuEntry] = []
+    /// true ならタップでメニューを開く(長押しは分かりにくいので、選択肢のあるボタンはタップで出す)。
+    /// tapTitle があれば、いつもの動作(action)をその名前でメニューの先頭に入れる
+    private(set) var menuOnTap: Bool = false
+    private(set) var tapTitle: String?
 
     init(_ title: String, systemImage: String, id: String? = nil, destructive: Bool = false,
          enabled: Bool = true, disabledReason: String? = nil, action: @escaping () -> Void) {
@@ -171,6 +175,15 @@ struct EditorToolItem: Identifiable {
     func withMenu(_ entries: [EditorToolMenuEntry]) -> EditorToolItem {
         var copy = self
         copy.menu = entries
+        return copy
+    }
+
+    /// タップでメニューを開くコピー。tapTitle を渡すと、いつもの動作(action)をその名前で先頭に入れる(nil なら entries だけ)
+    func withTapMenu(_ entries: [EditorToolMenuEntry], tapTitle: String? = nil) -> EditorToolItem {
+        var copy = self
+        copy.menu = entries
+        copy.menuOnTap = true
+        copy.tapTitle = tapTitle
         return copy
     }
 
@@ -449,6 +462,29 @@ struct EditorToolbar: View {
             .buttonStyle(.plain)
             if item.menu.isEmpty {
                 button
+            } else if item.menuOnTap {
+                // タップでメニュー(長押しは気づかれにくい)。いつもの動作は tapTitle の名前で先頭に
+                Menu {
+                    if let tapTitle = item.tapTitle {
+                        Button {
+                            EditorHaptics.tap()
+                            action()
+                        } label: {
+                            Label(tapTitle, systemImage: item.systemImage)
+                        }
+                        Divider()
+                    }
+                    ForEach(item.menu) { entry in
+                        Button {
+                            entry.action()
+                        } label: {
+                            Label(entry.title, systemImage: entry.systemImage)
+                        }
+                    }
+                } label: {
+                    label(item)
+                }
+                .buttonStyle(.plain)
             } else {
                 button.contextMenu {
                     ForEach(item.menu) { entry in

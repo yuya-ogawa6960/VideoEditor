@@ -2030,11 +2030,12 @@ struct ContentView: View {
             })
         }
         // 並び(その他/設定 の前に 8 つまで): 追加 / 分割 / テキスト / オーディオ / エフェクト / オーバーレイ / AI / 全体
+        // タップでメニュー(写真から選ぶ / ファイル / カメラで撮る / カラーの画面 / Google フォト)。長押しは分かりにくいため
         items.append(EditorToolItem(String(localized: "追加"), systemImage: "plus.rectangle.on.rectangle",
                                     enabled: !isImporting,
                                     disabledReason: Self.importingReason) {
             requestMediaAdd(appendAtEnd: false)
-        }.withMenu(sourceMenu))
+        }.withTapMenu(sourceMenu, tapTitle: String(localized: "写真から選ぶ")))
         // 何も選んでいなければ再生位置のクリップを切る(切ったあとは左側を選んだまま)
         items.append(EditorToolItem(String(localized: "分割"), systemImage: "scissors", id: "root-split",
                                     enabled: !project.clips.isEmpty,
@@ -2092,7 +2093,7 @@ struct ContentView: View {
             addChapterTitleTelop()
         }
         if !project.titleCards.isEmpty {
-            chapter = chapter.withMenu([
+            chapter = chapter.withTapMenu([
                 EditorToolMenuEntry(String(localized: "テロップで章タイトルを入れる"), systemImage: "textformat") {
                     addChapterTitleTelop()
                 },
@@ -2318,7 +2319,7 @@ struct ContentView: View {
             safeZoneGuide = safeZoneGuide.next
             showToast(safeZoneGuide.isOn ? String(localized: "\(safeZoneGuide.title)の表示ガイドを出しました")
                                          : String(localized: "表示ガイドを消しました"), style: .info)
-        }.withMenu(SafeZoneGuide.allCases.map { guide in
+        }.withTapMenu(SafeZoneGuide.allCases.map { guide in
             EditorToolMenuEntry(guide.title, systemImage: guide == safeZoneGuide ? "checkmark" : "rectangle.dashed") {
                 safeZoneGuide = guide
             }
