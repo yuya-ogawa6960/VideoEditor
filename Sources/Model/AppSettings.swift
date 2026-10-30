@@ -273,6 +273,8 @@ final class AppSettings {
         static let cloudQuality = "transcription.cloudQuality"
         static let polish = "transcription.polishSubtitles"
         static let polishEngine = "transcription.polishEngine"
+        /// 開発者モード(「設定」のバージョンの行を 7 回タップで切り替え。既定はオフ)
+        static let developerMode = "developer.mode"
         /// Keychain のアカウント名
         static let openAIKey = "openai.apiKey"
     }
@@ -285,6 +287,7 @@ final class AppSettings {
     @ObservationIgnored private var storedCloudQuality: CloudTranscriptionQuality
     @ObservationIgnored private var storedPolish: Bool
     @ObservationIgnored private var storedPolishEngine: PolishEngine
+    @ObservationIgnored private var storedDeveloperMode: Bool
     @ObservationIgnored private var cachedOpenAIKey: String
 
     init(defaults: UserDefaults = .standard) {
@@ -300,6 +303,7 @@ final class AppSettings {
         storedCloudQuality = CloudTranscriptionQuality(rawValue: defaults.string(forKey: Keys.cloudQuality) ?? "") ?? .fast
         storedPolish = defaults.object(forKey: Keys.polish) == nil ? true : defaults.bool(forKey: Keys.polish)
         storedPolishEngine = PolishEngine(rawValue: defaults.string(forKey: Keys.polishEngine) ?? "") ?? .auto
+        storedDeveloperMode = defaults.bool(forKey: Keys.developerMode)
         cachedOpenAIKey = KeychainStore.get(Keys.openAIKey) ?? ""
     }
 
@@ -390,6 +394,24 @@ final class AppSettings {
             withMutation(keyPath: \.polishEngine) {
                 lock.lock(); storedPolishEngine = newValue; lock.unlock()
                 defaults.set(newValue.rawValue, forKey: Keys.polishEngine)
+            }
+        }
+    }
+
+    // MARK: 開発者モード
+
+    /// 実験中の機能(Osmo Pocket のライブビューなど)を「設定」に出す。既定はオフ。
+    /// 「設定」のバージョンの行を 7 回タップすると切り替わる(審査員や普通の利用者には見えない)
+    var developerMode: Bool {
+        get {
+            access(keyPath: \.developerMode)
+            lock.lock(); defer { lock.unlock() }
+            return storedDeveloperMode
+        }
+        set {
+            withMutation(keyPath: \.developerMode) {
+                lock.lock(); storedDeveloperMode = newValue; lock.unlock()
+                defaults.set(newValue, forKey: Keys.developerMode)
             }
         }
     }

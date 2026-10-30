@@ -321,7 +321,7 @@ struct EditorNarrationVolumePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorSliderRow(title: String(localized: "ボリューム"),
+            EditorSliderRow(title: String(localized: "音量"),
                             value: $narration.volume,
                             range: 0...1,
                             display: "\(Int((narration.volume * 100).rounded()))%")

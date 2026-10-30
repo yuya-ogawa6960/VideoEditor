@@ -34,7 +34,7 @@ enum DubbingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noCaptions: return String(localized: "先にキャプションを作成してください")
+        case .noCaptions: return String(localized: "先に「自動字幕」で字幕を作ってください")
         case .nothingToSpeak: return String(localized: "読み上げる訳文がありませんでした")
         }
     }

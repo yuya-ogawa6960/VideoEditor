@@ -7,6 +7,7 @@ import SwiftUI
 // - 文字起こしとAI仕上げ(TranscriptionSettingsView)、用語の登録、読み方の登録
 // - プライバシーと広告(使い方の統計・広告の同意の見直し。AdPrivacySection)
 // - サポート用の情報(ロック中の継続・バックグラウンド送信・広告の状態)。デバッグ・TestFlight のビルドだけ
+// - 開発者モード(バージョンの行を 7 回タップで切り替え。既定はオフ)。実験中の機能(Osmo Pocket のライブビュー)
 // プロジェクトを開かなくても、広告の同意や統計の送信を変えられるようにここに置く。
 // =====================================================================
 
@@ -24,6 +25,8 @@ struct AppSettingsView: View {
     /// バージョンの行を 5 回タップすると、サポート用の情報を出す(製品版では隠しておく)
     @State private var versionTaps: Int = 0
     @State private var revealsDiagnostics: Bool = false
+    /// 開発者モード(AppSettings.developerMode)。バージョンの行を 7 回タップで切り替える
+    @State private var settings = AppSettings.shared
     /// iPhone Duo を開いたとき、編集画面のツールを右の列(時刻などが出る列)に縦に並べる(編集画面の「設定」からも切り替えられる)
     @AppStorage("editor.toolbarOnSide") private var toolbarOnSide = false
 
@@ -69,6 +72,11 @@ struct AppSettingsView: View {
                         revealsDiagnostics = true
                         refreshDiagnostics()
                     }
+                    // 同じ行を続けて 7 回で開発者モードを切り替える(5 回のサポート用の情報はそのまま)
+                    if versionTaps == 7 {
+                        settings.developerMode.toggle()
+                        versionTaps = 0
+                    }
                 } label: {
                     LabeledContent("バージョン") {
                         Text(verbatim: Self.versionText)
@@ -80,6 +88,10 @@ struct AppSettingsView: View {
             // 開発・テスト用の情報。審査員にも見えないよう、バージョンを 5 回タップしたときだけ出す
             if showsDiagnosticsSection {
                 diagnosticsSection
+            }
+            // 実験中の機能。開発者モードのときだけ出す(既定はオフ)
+            if settings.developerMode {
+                developerSection
             }
         }
         .navigationTitle("設定")
@@ -115,6 +127,32 @@ struct AppSettingsView: View {
                     Label("情報を更新", systemImage: "arrow.clockwise")
                 }
             }
+        }
+    }
+
+    // MARK: - 開発者モード
+
+    /// 開発者向けの画面なので文字は翻訳しない(Text(verbatim:))
+    private var developerSection: some View {
+        Section {
+            #if OSMO_LIVE
+            NavigationLink {
+                OsmoLiveMonitorView()
+            } label: {
+                Text(verbatim: "Osmo Pocket ライブビュー(実験)")
+            }
+            #else
+            Text(verbatim: "このビルドには Osmo Pocket の実験は入っていません(リポジトリ変数 OSMO_LIVE)")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            #endif
+            Button {
+                settings.developerMode = false
+            } label: {
+                Text(verbatim: "開発者モードをオフにする")
+            }
+        } header: {
+            Text(verbatim: "開発者モード")
         }
     }
 

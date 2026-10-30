@@ -1,0 +1,131 @@
+// =====================================================================
+// 「Osmo Pocket ライブビュー(実験)」の画面。開発者モードのときだけ「設定」から開ける
+//
+// 開発者向けの画面なので、文字は翻訳の対象にしない(Text(verbatim:))。
+// 実機ではまだ一度も試していない。docs/OsmoPocket.md の「実機で確かめること」を参照。
+// =====================================================================
+
+#if OSMO_LIVE
+import AVFoundation
+import SwiftUI
+import UIKit
+
+struct OsmoLiveMonitorView: View {
+    @State private var monitor = OsmoLiveMonitor()
+    @State private var showsLog = false
+
+    var body: some View {
+        List {
+            Section {
+                OsmoVideoLayerView(layer: monitor.decoder.displayLayer)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                    .background(Color.black)
+                    .overlay {
+                        if monitor.phase != .live {
+                            Text(verbatim: monitor.phase.label)
+                                .font(.footnote)
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                                .padding()
+                        }
+                    }
+                    .listRowInsets(EdgeInsets())
+            }
+
+            Section {
+                LabeledContent { Text(verbatim: monitor.phase.label) } label: { Text(verbatim: "状態") }
+                if let name = monitor.connectedName {
+                    LabeledContent { Text(verbatim: name) } label: { Text(verbatim: "カメラ") }
+                }
+                LabeledContent { Text(verbatim: "\(monitor.codec) \(monitor.resolution)") } label: { Text(verbatim: "映像") }
+                LabeledContent {
+                    Text(verbatim: String(format: "%.0f fps / 復号 %d", monitor.fps, monitor.decodedFrames))
+                        .monospacedDigit()
+                } label: { Text(verbatim: "表示") }
+                LabeledContent {
+                    Text(verbatim: "pkt \(monitor.stats.videoPackets) / AU \(monitor.stats.accessUnits) / 欠け \(monitor.stats.droppedIncomplete)")
+                        .monospacedDigit()
+                } label: { Text(verbatim: "受信") }
+            }
+
+            Section {
+                if monitor.phase == .idle || isFailed {
+                    Button { monitor.startScan() } label: { Text(verbatim: "カメラを探す") }
+                } else {
+                    Button(role: .destructive) { monitor.stop() } label: { Text(verbatim: "切断") }
+                }
+            } footer: {
+                Text(verbatim: "カメラの電源を入れ、近くに置いてください。初回はカメラの画面で接続を許可します。iPhone はカメラの Wi-Fi に入るので、そのあいだインターネットはモバイル通信になります。")
+            }
+
+            if monitor.phase == .scanning {
+                Section {
+                    if monitor.sightings.isEmpty {
+                        HStack {
+                            ProgressView()
+                            Text(verbatim: "探しています…")
+                        }
+                    }
+                    ForEach(monitor.sightings) { s in
+                        Button { monitor.connect(s) } label: {
+                            VStack(alignment: .leading) {
+                                Text(verbatim: s.name)
+                                Text(verbatim: "\(s.modelName)  RSSI \(s.rssi)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text(verbatim: "見つかったカメラ")
+                }
+            }
+
+            Section {
+                DisclosureGroup(isExpanded: $showsLog) {
+                    Text(verbatim: monitor.logText.isEmpty ? "—" : monitor.logText)
+                        .font(.system(.caption2, design: .monospaced))
+                        .textSelection(.enabled)
+                    ShareLink(item: monitor.logText) { Text(verbatim: "ログを共有") }
+                } label: {
+                    Text(verbatim: "ログ(\(monitor.logLines.count) 行)")
+                }
+            } footer: {
+                Text(verbatim: "実験中の機能です。DJI の公式な方法ではなく、カメラのファームウェアの更新で動かなくなることがあります。")
+            }
+        }
+        .navigationTitle(Text(verbatim: "Osmo ライブビュー(実験)"))
+        .navigationBarTitleDisplayMode(.inline)
+        .onDisappear { monitor.stop() }
+    }
+
+    private var isFailed: Bool {
+        if case .failed = monitor.phase { return true }
+        return false
+    }
+}
+
+/// AVSampleBufferDisplayLayer を SwiftUI に置く
+private struct OsmoVideoLayerView: UIViewRepresentable {
+    let layer: AVSampleBufferDisplayLayer
+
+    func makeUIView(context: Context) -> LayerHostView {
+        let view = LayerHostView()
+        view.backgroundColor = .black
+        view.hosted = layer
+        view.layer.addSublayer(layer)
+        return view
+    }
+
+    func updateUIView(_ uiView: LayerHostView, context: Context) {}
+
+    final class LayerHostView: UIView {
+        var hosted: CALayer?
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            hosted?.frame = bounds
+        }
+    }
+}
+#endif

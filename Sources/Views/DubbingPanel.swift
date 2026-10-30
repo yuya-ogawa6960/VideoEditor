@@ -103,7 +103,7 @@ struct EditorDubbingPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if project.subtitles.isEmpty {
-                Text("先にキャプションを作成してください")
+                Text("先に「自動字幕」で字幕を作ってください")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {

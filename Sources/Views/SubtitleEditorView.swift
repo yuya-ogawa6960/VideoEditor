@@ -463,7 +463,7 @@ struct SubtitleEditorView: View {
             case .success(let count):
                 // 表示モードは書き出しにも効くので勝手に切り替えず、ボタンで選べるようにする
                 showAlert(title: String(localized: "翻訳しました"),
-                          message: String(localized: "\(count) 件のキャプションを翻訳しました。"),
+                          message: String(localized: "\(count) 件の字幕を翻訳しました。"),
                           action: .showBoth)
             case .failure(let error):
                 showAlert(title: String(localized: "翻訳できませんでした"),
@@ -1180,7 +1180,7 @@ struct SubtitleEditorView: View {
             project.subtitles = updated
             // 表示モードは書き出しにも効くので勝手に切り替えず、ボタンで選べるようにする
             showAlert(title: String(localized: "AI翻訳しました"),
-                      message: String(localized: "\(count) 件のキャプションを翻訳しました。"),
+                      message: String(localized: "\(count) 件の字幕を翻訳しました。"),
                       action: .showBoth)
         }
     }

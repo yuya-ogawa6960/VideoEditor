@@ -13,7 +13,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     # アプリと共有用の拡張機能で同じ番号にする(App Store の決まり)。上げるときはここだけ
-    MARKETING_VERSION: "1.12.78"
+    MARKETING_VERSION: "1.12.80"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: ""
@@ -77,6 +77,11 @@ targets:
         com.apple.security.application-groups:
           - group.com.yuyaogawa6960.videomania
         # <<< share-extension
+        # >>> osmo-live(リポジトリ変数 OSMO_LIVE が on でないとき、CI はこの印のあいだを消す。docs/OsmoPocket.md)
+        # Osmo Pocket の実験: iPhone をカメラの Wi-Fi に入れる(NEHotspotConfiguration)。
+        # Apple Developer の App ID で「Hotspot」の機能をオンにしてから OSMO_LIVE を on にする
+        com.apple.developer.networking.HotspotConfiguration: true
+        # <<< osmo-live
     info:
       path: Info.plist
       properties:
@@ -121,6 +126,10 @@ targets:
         NSSpeechRecognitionUsageDescription: 動画の音声から字幕を自動作成するために音声認識を使用します。
         NSMicrophoneUsageDescription: ナレーションを録音するためにマイクを使用します。
         NSCameraUsageDescription: 動画を撮ってプロジェクトに入れるためにカメラを使用します。
+        # >>> osmo-live(Osmo Pocket の実験。OSMO_LIVE が on でないとき CI が消す)
+        NSBluetoothAlwaysUsageDescription: DJI Osmo Pocket を探して接続するために Bluetooth を使用します(開発者モードの実験機能)。
+        NSLocalNetworkUsageDescription: DJI Osmo Pocket の Wi-Fi に接続してライブビューを受け取るためにローカルネットワークを使用します(開発者モードの実験機能)。
+        # <<< osmo-live
         # 広告(AdMob)
         GADApplicationIdentifier: ca-app-pub-5816286661245536~3399107309
         NSUserTrackingUsageDescription: あなたに合った広告を表示するために使用します。許可しなくてもアプリはすべて使えます。
@@ -202,6 +211,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yuyaogawa6960.videomania
         TARGETED_DEVICE_FAMILY: "1"
+        # >>> osmo-live(Sources/Osmo/ は #if OSMO_LIVE で守っている。CI がこの印を消すとコードごと入らない)
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) OSMO_LIVE"
+        # <<< osmo-live
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "NO"
