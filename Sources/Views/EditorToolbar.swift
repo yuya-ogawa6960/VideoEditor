@@ -156,6 +156,11 @@ struct EditorToolItem: Identifiable {
         id == EditorToolItem.moreID || id == EditorToolItem.settingsID
     }
 
+    /// 右の列(縦)で最上段のいちばん下に固定して出す項目か(「設定」だけ。「その他」はスクロール側に入れる)
+    var isPinnedAtRootVertical: Bool {
+        id == EditorToolItem.settingsID
+    }
+
     /// 列の中の小見出し
     static func section(_ title: String) -> EditorToolItem {
         EditorToolItem(id: "section-\(title)", title: title, systemImage: "", enabled: true,
@@ -203,6 +208,8 @@ struct EditorToolbar: View {
 
     /// 項目を並べる列の幅(広い画面では中央に寄せるため)
     @State private var rowWidth: CGFloat = 0
+    /// 横スクロールの中身の幅(表示幅より広いときだけ右端にグラデーションを重ねて「続きがある」と見せる)
+    @State private var rowContentWidth: CGFloat = 0
     /// 右の列(縦)のスクロール部分の高さ。項目が少ないときに下へ寄せるために使う
     @State private var verticalScrollHeight: CGFloat = 0
 
@@ -277,8 +284,19 @@ struct EditorToolbar: View {
                 .padding(.horizontal, 6)
                 // iPhone Duo を開いたときなど広い画面では、収まる項目を中央に寄せる(左に固まって右が空かないように)
                 .frame(minWidth: rowWidth >= 600 ? rowWidth : 0)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowContentWidth = $0 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
+            // 続きがあるときは右端に黒のグラデーションを重ねて「スクロールできる」と見せる(タップは通す)
+            .overlay(alignment: .trailing) {
+                if rowContentWidth > rowWidth + 1 {
+                    LinearGradient(colors: [Color.black.opacity(0), Color.black.opacity(0.85)],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 16)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
             .id(groupPath.joined(separator: "/"))
 
             if !pinnedItems.isEmpty {
@@ -303,16 +321,16 @@ struct EditorToolbar: View {
     }
 
     /// 右の列(iPhone Duo)。上は時刻・電池・電波が縦に並ぶ場所なので、項目は下(親指の近く)に寄せる:
-    /// 項目の縦スクロール(少ないときは下寄せ) → ‹(戻る / 選択解除) → 「その他」「設定」(最上段だけ、いちばん下に固定)
+    /// 項目の縦スクロール(少ないときは下寄せ) → ‹(戻る / 選択解除) → 「設定」(最上段だけ、いちばん下に固定。「その他」はスクロール側)
     private var verticalBody: some View {
         let state = resolved
         let showsBack = !groupPath.isEmpty || onBack != nil
-        // 最上段では「その他」「設定」をスクロールの外(いちばん下)に固定する
-        let pinnedItems: [EditorToolItem] = groupPath.isEmpty ? state.items.filter { $0.isPinnedAtRoot } : []
-        let scrolledItems: [EditorToolItem] = pinnedItems.isEmpty ? state.items : state.items.filter { !$0.isPinnedAtRoot }
+        // 最上段では「設定」だけをスクロールの外(いちばん下)に固定する(縦は場所が少ないので「その他」はスクロール側に入れる)
+        let pinnedItems: [EditorToolItem] = groupPath.isEmpty ? state.items.filter { $0.isPinnedAtRootVertical } : []
+        let scrolledItems: [EditorToolItem] = pinnedItems.isEmpty ? state.items : state.items.filter { !$0.isPinnedAtRootVertical }
 
         return VStack(spacing: 0) {
-            ScrollView(.vertical, showsIndicators: false) {
+            ScrollView(.vertical, showsIndicators: true) {
                 VStack(spacing: 2) {
                     ForEach(scrolledItems) { item in
                         cell(item)
@@ -359,6 +377,10 @@ struct EditorToolbar: View {
             }
 
             if !pinnedItems.isEmpty {
+                // 戻るボタンと固定の「設定」が続くと押し間違えやすいので 8pt 空ける
+                if showsBack {
+                    Color.clear.frame(height: 8)
+                }
                 verticalDivider
                 ForEach(pinnedItems) { item in
                     cell(item)
@@ -747,27 +769,23 @@ struct EditorModeBadge: View {
 enum EditorToolLabel {
     private static let breaks: [String: String] = [
         "動画・写真を追加": "動画・写真\nを追加",
-        "ビデオトランジション": "ビデオ\nトランジション",
-        "リップル削除": "リップル\n削除",
+        "トランジション": "トランジ\nション",
         "カラープリセット": "カラー\nプリセット",
         "カラー補正": "カラー\n補正",
         "カラースコープ": "カラー\nスコープ",
         "HSL セカンダリ": "HSL\nセカンダリ",
-        "速度・デュレーション": "速度・\nデュレーション",
         "タイムリマップ": "タイム\nリマップ",
-        "ボイスオーバー録音": "ボイスオーバー\n録音",
-        "キャプションを作成": "キャプション\nを作成",
         "キャプションのスタイル": "キャプション\nのスタイル",
-        "キャプションのデザイン": "キャプション\nのデザイン",
-        "ラウドネスを自動一致": "ラウドネスを\n自動一致",
-        "無音部分を削除": "無音部分\nを削除",
-        "モーション・クロップ": "モーション・\nクロップ",
-        "フッテージを置き換え": "フッテージを\n置き換え",
+        "字幕デザイン": "字幕\nデザイン",
+        "位置・クロップ": "位置・\nクロップ",
         "スタビライザー": "スタビ\nライザー",
-        "オーディオエフェクト": "オーディオ\nエフェクト",
         "スピーチを強調": "スピーチ\nを強調",
-        "ビートに合わせる": "ビートに\n合わせる",
-        "顔に自動モザイク": "顔に自動\nモザイク",
+        "映像エフェクト": "映像\nエフェクト",
+        "スライドショー": "スライド\nショー",
+        "オートパンチイン": "オート\nパンチイン",
+        "言いよどみカット": "言いよどみ\nカット",
+        "文字起こし編集": "文字起こし\n編集",
+        "被写体フラッシュ": "被写体\nフラッシュ",
         "おまかせテンプレ": "おまかせ\nテンプレ",
         "おまかせ編集": "おまかせ\n編集",
         "このプロジェクトを空にする": "プロジェクト\nを空にする",
@@ -787,7 +805,7 @@ enum EditorToolLabel {
         "逆再生を解除": "逆再生を\n解除",
         "トリミングを解除": "トリミング\nを解除",
         "ファイルから追加": "ファイル\nから追加",
-        "曲を変更": "曲を\n変更",
+        "BGMを置き換え": "BGMを\n置き換え",
         "文字を直す": "文字を\n直す",
         "オーバーレイ": "オーバー\nレイ"
     ]

@@ -606,11 +606,11 @@ enum PacingAnalyzer {
         if speech > 0.5 && maxAge > 12 && motion < 0.3 { bad.append(String(localized: "画面が変わらないまま話が続いています")) }
 
         if level != .good {
-            if pauses >= 2 { suggestions.append(String(localized: "話の間をスプリットで詰める(ジャンプカット)")) }
+            if pauses >= 2 { suggestions.append(String(localized: "話の間を分割で詰める(ジャンプカット)")) }
             if maxAge > 10 { suggestions.append(String(localized: "途中で別のカットやズームを挟む(5〜10 秒ごとに画を変える)")) }
             if speech > 0.5 && motion < 0.3 { suggestions.append(String(localized: "話の内容に合う写真や動画をオーバーレイで重ねる")) }
             if let aiAverage, aiAverage <= 2.5 { suggestions.append(String(localized: "話が長い所は要点だけ残してカットする")) }
-            if speech < 0.3 && loud < 0.15 { suggestions.append(String(localized: "無音部分を削除する、または BGM を足す")) }
+            if speech < 0.3 && loud < 0.15 { suggestions.append(String(localized: "無音カットをする、または BGM を足す")) }
             suggestions.append(String(localized: "テキストで要点を見せる"))
         }
         let reasons = (level == .good ? good + bad : bad + good)
@@ -960,7 +960,8 @@ enum PacingAnalyzer {
                                                     options: [CIDetectorAccuracy: CIDetectorAccuracyLow])
     private static let cpuFaceDetector = CIDetector(ofType: CIDetectorTypeFace, context: FilterEngineContexts.cpu,
                                                     options: [CIDetectorAccuracy: CIDetectorAccuracyLow])
-    private static var faceDetector: CIDetector? {
+    /// (HighlightAnalyzer の笑顔判定でも使う)
+    static var faceDetector: CIDetector? {
         let lifecycle = AppLifecycle.shared
         return (lifecycle.isInBackground && !lifecycle.backgroundGPUAllowed) ? cpuFaceDetector : gpuFaceDetector
     }
@@ -1100,8 +1101,8 @@ enum PacingAnalyzer {
         }
     }
 
-    /// Vision の分類名 → 理由の文に使う日本語(景色に関係するものだけ)
-    private static func sceneName(_ identifier: String) -> String? {
+    /// Vision の分類名 → 理由の文に使う日本語(景色に関係するものだけ。HighlightAnalyzer の景色判定でも使う)
+    static func sceneName(_ identifier: String) -> String? {
         let table: [(String, String)] = [
             ("sunset", String(localized: "夕焼け")), ("sunrise", String(localized: "朝焼け")), ("sky", String(localized: "空")), ("cloud", String(localized: "空")),
             ("beach", String(localized: "海辺")), ("ocean", String(localized: "海")), ("sea", String(localized: "海")), ("lake", String(localized: "湖")), ("river", String(localized: "川")),

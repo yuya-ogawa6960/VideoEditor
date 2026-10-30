@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Accelerate
+import CoreImage
 import CoreVideo
 import Vision
 
@@ -13,6 +14,10 @@ import Vision
 //              字幕があればその区間は 1 とする
 //   - 動き   : 320 px・4 コマ/秒のコマ間の輝度差(クリップ内の 90 パーセンタイルで正規化)
 //   - 顔     : 1 コマ/秒の VNDetectFaceRectanglesRequest(人数と大きさ)
+//   - 画     : 2 秒に 1 コマ、顔検出と同じコマで「映したいものが映っているか」を見る。
+//              Vision の美しさスコア(記録用の画は 0)+ 景色(空・海・山・街並みなど)
+//              + 笑顔(CIDetector)+ カメラ目線で話す大きな顔(正面向き)の加点。
+//              誰も話していない景色や表情のいい場面も選ばれるようにするため
 // スコアの高い 2〜6 秒の窓を重ならないように選び、会話の途中で切れないよう前後に少し伸ばす。
 // 戻り値はクリップ順・開始時刻順。時刻は元素材上の秒。
 // progress は 0...1 をバックグラウンドのスレッドから呼ぶことがある。
@@ -30,6 +35,16 @@ enum HighlightAnalyzer {
         var speech: Double
         var motion: Double
         var face: Double
+        /// 画のよさ(景色・表情・カメラ目線)
+        var visual: Double
+    }
+
+    /// 画のよさの中で何が効いたか(理由の文に使う)
+    private enum VisualKind: Int {
+        case none = 0
+        case scenery = 1
+        case expression = 2
+        case toCamera = 3
     }
 
     private struct ClipFeatures {
@@ -38,6 +53,8 @@ enum HighlightAnalyzer {
         var speech: [Double]
         var motion: [Double]
         var face: [Double]
+        var visual: [Double]
+        var visualKind: [VisualKind]
 
         init(seconds: Int) {
             let n = max(1, seconds)
@@ -46,6 +63,8 @@ enum HighlightAnalyzer {
             speech = [Double](repeating: 0, count: n)
             motion = [Double](repeating: 0, count: n)
             face = [Double](repeating: 0, count: n)
+            visual = [Double](repeating: 0, count: n)
+            visualKind = [VisualKind](repeating: .none, count: n)
         }
     }
 
@@ -106,6 +125,8 @@ enum HighlightAnalyzer {
                 }
                 features.motion = video.motion
                 features.face = video.face
+                features.visual = video.visual
+                features.visualKind = video.visualKind
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -292,19 +313,33 @@ enum HighlightAnalyzer {
 
     // MARK: - 映像
 
+    /// 「カメラ目線」とみなす顔の向き(ラジアン)と大きさ(画面の高さに対する割合)
+    private static let frontalYawLimit = 0.35
+    private static let toCameraFaceHeight = 0.2
+
     private static func analyzeVideo(clip: Clip, seconds: Int,
-                                     progress: @escaping (Double) -> Void) async throws -> (motion: [Double], face: [Double]) {
+                                     progress: @escaping (Double) -> Void) async throws
+        -> (motion: [Double], face: [Double], visual: [Double], visualKind: [VisualKind]) {
         final class VideoState {
             var previousLuma: [Float] = []
             var motionSum: [Double]
             var motionCount: [Int]
             var faceScore: [Double]
+            var visual: [Double]
+            var visualKind: [VisualKind]
+            var visualSampled: [Bool]
             var frameIndex = 0
+            var lastVisualSecond = -10
             let faceRequest = VNDetectFaceRectanglesRequest()
+            let aestheticRequest = VNCalculateImageAestheticsScoresRequest()
+            let classifyRequest = VNClassifyImageRequest()
             init(seconds: Int) {
                 motionSum = [Double](repeating: 0, count: seconds)
                 motionCount = [Int](repeating: 0, count: seconds)
                 faceScore = [Double](repeating: 0, count: seconds)
+                visual = [Double](repeating: 0, count: seconds)
+                visualKind = [VisualKind](repeating: .none, count: seconds)
+                visualSampled = [Bool](repeating: false, count: seconds)
             }
         }
         let n = max(1, seconds)
@@ -330,20 +365,49 @@ enum HighlightAnalyzer {
             state.previousLuma = luma
 
             if state.frameIndex % faceEvery == 0 {
+                // 顔は 1 秒に 1 回。画のよさ(美しさ・景色)は 2 秒に 1 回、同じコマで見る
+                let sampleVisual = second - state.lastVisualSecond >= 2
+                if sampleVisual { state.lastVisualSecond = second }
                 let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up, options: [:])
+                // 顔は単独で先に見る(画のよさの要求が失敗しても顔の結果を落とさないため)
                 VisionCompute.prepare([state.faceRequest])
-                if (try? handler.perform([state.faceRequest])) != nil {
+                let performed = (try? handler.perform([state.faceRequest])) != nil
+                var visualOK = false
+                if sampleVisual {
+                    let visualRequests: [VNRequest] = [state.aestheticRequest, state.classifyRequest]
+                    VisionCompute.prepare(visualRequests)
+                    visualOK = (try? handler.perform(visualRequests)) != nil
+                }
+
+                var largest = 0.0
+                var toCamera = false
+                if performed {
                     let faces = state.faceRequest.results ?? []
                     if !faces.isEmpty {
-                        var largest = 0.0
                         for face in faces {
-                            largest = max(largest, Double(face.boundingBox.height))
+                            let height = Double(face.boundingBox.height)
+                            largest = max(largest, height)
+                            // 大きな顔がほぼ正面を向いていればカメラに向かって話している(向きが取れないコマは数えない)
+                            if height >= toCameraFaceHeight, let yaw = face.yaw?.doubleValue,
+                               abs(yaw) <= frontalYawLimit {
+                                toCamera = true
+                            }
                         }
                         let countScore = min(1.0, Double(faces.count) * 0.6)
                         let sizeScore = min(1.0, max(0.3, largest / 0.12))
                         let score = countScore * sizeScore
                         state.faceScore[second] = max(state.faceScore[second], score)
                     }
+                }
+
+                if sampleVisual {
+                    let judged = judgeVisual(buffer: buffer,
+                                             aesthetic: visualOK ? state.aestheticRequest.results?.first : nil,
+                                             labels: visualOK ? (state.classifyRequest.results ?? []) : [],
+                                             hasFace: largest > 0, toCamera: toCamera)
+                    state.visual[second] = judged.score
+                    state.visualKind[second] = judged.kind
+                    state.visualSampled[second] = true
                 }
             }
             state.frameIndex += 1
@@ -368,28 +432,93 @@ enum HighlightAnalyzer {
                 motion[s] = min(1, motion[s] / divisor)
             }
         }
-        return (motion, state.faceScore)
+        // 画のよさは 2 秒に 1 回しか見ないので、見ていない秒には直前の値を引き継ぐ
+        var visual = state.visual
+        var visualKind = state.visualKind
+        var lastValue = 0.0
+        var lastKind = VisualKind.none
+        for s in 0..<n {
+            if state.visualSampled[s] {
+                lastValue = visual[s]
+                lastKind = visualKind[s]
+            } else {
+                visual[s] = lastValue
+                visualKind[s] = lastKind
+            }
+        }
+        return (motion, state.faceScore, visual, visualKind)
+    }
+
+    /// 1 コマの「映したいものが映っているか」を 0...1 にする。
+    /// 美しさ(-1...1 → 0...1、記録用の画は 0)を土台に、景色・笑顔・カメラ目線を足す
+    private static func judgeVisual(buffer: CVPixelBuffer, aesthetic: VNImageAestheticsScoresObservation?,
+                                    labels: [VNClassificationObservation], hasFace: Bool,
+                                    toCamera: Bool) -> (score: Double, kind: VisualKind) {
+        var base = 0.0
+        if let aesthetic {
+            // 書類・画面写真のような「記録用」の画は美しさに数えない
+            base = aesthetic.isUtility ? 0 : clamp01((Double(aesthetic.overallScore) + 1) / 2)
+        }
+        var score = base * 0.6
+        var kind = VisualKind.none
+
+        // 景色: 分類の上位に空・海・山・街並みなどがあれば加点
+        var scenery = false
+        for label in labels.prefix(8) where label.confidence > 0.3 {
+            if PacingAnalyzer.sceneName(label.identifier) != nil {
+                scenery = true
+                break
+            }
+        }
+        if scenery, !hasFace || base > 0.5 {
+            score += 0.25
+            kind = .scenery
+        }
+
+        // 表情: 顔があるコマだけ CIDetector で笑顔を見る(顔がなければ飛ばして負荷を抑える)
+        var smiling = false
+        if hasFace, let detector = PacingAnalyzer.faceDetector {
+            let image = CIImage(cvPixelBuffer: buffer)
+            if let features = detector.features(in: image, options: [CIDetectorSmile: true]) as? [CIFaceFeature],
+               features.contains(where: { $0.hasSmile }) {
+                smiling = true
+            }
+        }
+        if smiling {
+            score += 0.3
+            kind = .expression
+        }
+
+        // カメラ目線: 大きな顔が正面を向いている(笑顔と重なれば両方足す)
+        if toCamera {
+            score += 0.3
+            kind = .toCamera
+        }
+        return (clamp01(score), kind)
     }
 
     // MARK: - 区間の選択
 
     private static func weights(for settings: AutoEditSettings) -> Weights {
         var w: Weights
+        // 画のよさ(景色・表情・カメラ目線)は、Vlog・家族の記録では会話と同じかそれ以上に、
+        // 解説・ドキュメンタリーでは会話より低めに効かせる
         switch settings.style {
-        case .documentary: w = Weights(loud: 0.15, speech: 0.45, motion: 0.15, face: 0.25)
-        case .vlog: w = Weights(loud: 0.2, speech: 0.25, motion: 0.3, face: 0.25)
-        case .short: w = Weights(loud: 0.3, speech: 0.15, motion: 0.4, face: 0.15)
-        case .family: w = Weights(loud: 0.15, speech: 0.3, motion: 0.2, face: 0.35)
-        case .howto: w = Weights(loud: 0.15, speech: 0.5, motion: 0.15, face: 0.2)
+        case .documentary: w = Weights(loud: 0.15, speech: 0.4, motion: 0.15, face: 0.2, visual: 0.3)
+        case .vlog: w = Weights(loud: 0.15, speech: 0.25, motion: 0.25, face: 0.2, visual: 0.35)
+        case .short: w = Weights(loud: 0.25, speech: 0.15, motion: 0.35, face: 0.15, visual: 0.3)
+        case .family: w = Weights(loud: 0.15, speech: 0.3, motion: 0.2, face: 0.3, visual: 0.3)
+        case .howto: w = Weights(loud: 0.15, speech: 0.5, motion: 0.15, face: 0.2, visual: 0.15)
         }
         if !settings.preferFaces { w.face *= 0.3 }
         if !settings.preferSpeech { w.speech *= 0.3 }
-        let sum = w.loud + w.speech + w.motion + w.face
+        let sum = w.loud + w.speech + w.motion + w.face + w.visual
         if sum > 0 {
             w.loud /= sum
             w.speech /= sum
             w.motion /= sum
             w.face /= sum
+            w.visual /= sum
         }
         return w
     }
@@ -410,10 +539,11 @@ enum HighlightAnalyzer {
         guard n > 0 else { return [] }
         let w = weights(for: settings)
         var score = [Double](repeating: 0, count: n)
-        var dominant = [Int](repeating: 0, count: n)   // 0 音量 / 1 会話 / 2 動き / 3 顔
+        var dominant = [Int](repeating: 0, count: n)   // 0 音量 / 1 会話 / 2 動き / 3 顔 / 4 画
         for s in 0..<n {
             let parts: [Double] = [w.loud * features.loud[s], w.speech * features.speech[s],
-                                   w.motion * features.motion[s], w.face * features.face[s]]
+                                   w.motion * features.motion[s], w.face * features.face[s],
+                                   w.visual * features.visual[s]]
             var total = 0.0
             var bestIndex = 0
             var bestValue = -1.0
@@ -437,7 +567,9 @@ enum HighlightAnalyzer {
             for v in score { sum += v }
             let mean = sum / Double(n)
             return [HighlightSegment(clipID: clip.id, start: clip.startTime, end: clip.endTime,
-                                     score: clamp01(mean), reason: reasonText(dominant: majority(dominant)))]
+                                     score: clamp01(mean),
+                                     reason: reasonText(dominant: majority(dominant),
+                                                        visualKind: majorityKind(features.visualKind)))]
         }
 
         let windows = n - windowSeconds + 1
@@ -497,8 +629,9 @@ enum HighlightAnalyzer {
             let endTime = min(clip.endTime, clip.startTime + Double(p.end))
             guard endTime - startTime >= 1 else { continue }
             let dom = majority(Array(dominant[p.start..<p.end]))
+            let kind = majorityKind(Array(features.visualKind[p.start..<p.end]))
             result.append(HighlightSegment(clipID: clip.id, start: startTime, end: endTime,
-                                           score: clamp01(p.score), reason: reasonText(dominant: dom)))
+                                           score: clamp01(p.score), reason: reasonText(dominant: dom, visualKind: kind)))
         }
         return result.sorted { $0.start < $1.start }
     }
@@ -509,18 +642,42 @@ enum HighlightAnalyzer {
     }
 
     private static func majority(_ values: [Int]) -> Int {
-        var counts = [Int](repeating: 0, count: 4)
-        for v in values where v >= 0 && v < 4 { counts[v] += 1 }
+        var counts = [Int](repeating: 0, count: 5)
+        for v in values where v >= 0 && v < 5 { counts[v] += 1 }
         var best = 0
-        for i in 1..<4 where counts[i] > counts[best] { best = i }
+        for i in 1..<5 where counts[i] > counts[best] { best = i }
         return best
     }
 
-    private static func reasonText(dominant: Int) -> String {
+    /// 窓の中でいちばん多かった画の種類(.none 以外があればそちらを優先)
+    private static func majorityKind(_ values: [VisualKind]) -> VisualKind {
+        var counts = [Int](repeating: 0, count: 4)
+        for v in values { counts[v.rawValue] += 1 }
+        var best = 0
+        for i in 1..<4 where counts[i] > 0 && (best == 0 || counts[i] > counts[best]) { best = i }
+        return VisualKind(rawValue: best) ?? .none
+    }
+
+    private static func reasonText(dominant: Int, visualKind: VisualKind) -> String {
         switch dominant {
-        case 1: return String(localized: "話している場面")
+        case 1:
+            // 話していて、かつカメラ目線ならそちらを理由にする
+            if visualKind == .toCamera { return String(localized: "カメラ目線で話している") }
+            return String(localized: "話している場面")
         case 2: return String(localized: "動きのある場面")
-        case 3: return String(localized: "顔が映っている場面")
+        case 3:
+            switch visualKind {
+            case .expression: return String(localized: "表情がいい")
+            case .toCamera: return String(localized: "カメラ目線で話している")
+            case .scenery, .none: return String(localized: "顔が映っている場面")
+            }
+        case 4:
+            switch visualKind {
+            case .scenery: return String(localized: "景色がきれい")
+            case .expression: return String(localized: "表情がいい")
+            case .toCamera: return String(localized: "カメラ目線で話している")
+            case .none: return String(localized: "画がきれい")
+            }
         default: return String(localized: "音が盛り上がる場面")
         }
     }

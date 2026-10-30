@@ -399,7 +399,7 @@ struct EditorOverlayVolumePanel: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                EditorSliderRow(title: String(localized: "ボリューム"),
+                EditorSliderRow(title: String(localized: "音量"),
                                 value: $overlay.volume,
                                 range: 0...1,
                                 display: "\(Int((overlay.volume * 100).rounded()))%")
@@ -479,7 +479,7 @@ struct EditorOverlaySpeedPanel: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text("速度・デュレーション")
+                        Text("速度")
                             .font(.caption)
                         Spacer()
                         Text(String(format: "%.2fx", overlay.speed))
