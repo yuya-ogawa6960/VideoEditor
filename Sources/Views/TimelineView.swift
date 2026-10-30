@@ -5,6 +5,8 @@ import QuartzCore
 /// タイムラインの「+ 追加」から追加するものの種類
 enum TimelineAddKind {
     case media, text, subtitle, overlay, bgm, narration
+    /// いちばんの見どころを先頭にコピーして差し込む(AI)
+    case coldOpen
 }
 
 /// トラック行の縦位置(行の領域内のローカル座標)
@@ -390,6 +392,12 @@ struct TimelineView: View {
                 onAdd(.narration)
             } label: {
                 Label("ナレーション", systemImage: "mic.fill")
+            }
+            Divider()
+            Button {
+                onAdd(.coldOpen)
+            } label: {
+                Label("冒頭フック", systemImage: "bolt.fill")
             }
         } label: {
             HStack(spacing: 4) {
