@@ -30,7 +30,18 @@ CREATE TABLE IF NOT EXISTS ad_rewards (
 
 CREATE INDEX IF NOT EXISTS ad_rewards_user_day ON ad_rewards (user_id, day);
 
--- 使い方の統計(匿名。install_id は端末ごとのランダムな ID で、users とは結びつけない)
+-- /v1/ads/claim の 1 日の呼び出し回数(アカウントごと。付与できた・できないにかかわらず数え、上限を超えたら 429)。
+-- 既存の DB には index.js が CREATE TABLE IF NOT EXISTS で足す
+CREATE TABLE IF NOT EXISTS ad_claim_attempts (
+  user_id TEXT NOT NULL,
+  day TEXT NOT NULL,              -- 日本時間 YYYY-MM-DD
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, day)
+);
+
+-- 使い方の統計(匿名。install_id は端末ごとのランダムな ID で、users とは結びつけない。
+-- サーバーが書く ad_claim_rejected は install_id = 'server' で、アカウントは短いハッシュ(params.user)だけ)
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   install_id TEXT NOT NULL,

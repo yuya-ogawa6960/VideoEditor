@@ -26,6 +26,8 @@ const POINTS = {
   adReward: 10,           // リワード広告 1 回
   adRewardDailyLimit: 3,  // リワード広告の 1 日の上限(日本時間)
 };
+// /v1/ads/claim を 1 つのアカウントが 1 日に呼べる回数(付与の上限 3 回より多め。超えたら 429 で、記録に残す)
+const AD_CLAIM_ATTEMPTS_PER_DAY = 10;
 const SPEECH_MODEL = "gpt-4o-mini-tts";
 // Google の読み上げ(日本語)。キー(GOOGLE_TTS_API_KEY)は GitHub の secret から入れる
 const GOOGLE_TTS = "https://texttospeech.googleapis.com/v1/text:synthesize";
@@ -388,31 +390,110 @@ function testAdUsers(env) {
   return new Set(String(env.TEST_AD_USERS || "").split(",").map((s) => s.trim()).filter(Boolean));
 }
 
-/** アプリが「最後まで見た」と伝える。テスト期間(ALLOW_CLIENT_AD_CLAIM=1)だけここで付与し、本番は SSV を待つ */
-async function adClaim(request, user, env) {
-  // TestFlight・App Review のテスト広告は SSV が来ないので、その場合だけアプリの申告で足す(1 日の上限あり)。
-  // 「テスト版で動いている」ことは、Apple が署名した AppTransaction(appTransaction.js)で確かめる。
-  // それが送れない古い端末などのために、TEST_AD_USERS に名前のあるアカウントも認める
+let adClaimAttemptsTableEnsured = false;
+
+/** 既存の DB に ad_claim_attempts の表を足す(schema.sql と同じ定義。isolate ごとに 1 回) */
+async function ensureAdClaimAttemptsTable(env) {
+  if (adClaimAttemptsTableEnsured) return;
+  adClaimAttemptsTableEnsured = true;
+  try {
+    await env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS ad_claim_attempts (user_id TEXT NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, PRIMARY KEY (user_id, day))"
+    ).run();
+  } catch (_) {}
+}
+
+/** /v1/ads/claim の呼び出しを 1 回数え、その日の回数を返す(付与の可否にかかわらず数える) */
+async function countAdClaimAttempt(env, userID) {
+  await ensureAdClaimAttemptsTable(env);
+  const row = await env.DB.prepare(
+    "INSERT INTO ad_claim_attempts (user_id, day, count, updated_at) VALUES (?, ?, 1, ?) " +
+      "ON CONFLICT (user_id, day) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at RETURNING count"
+  )
+    .bind(userID, todayJST(), nowISO())
+    .first();
+  return row && Number.isFinite(row.count) ? row.count : 1;
+}
+
+/** 記録用にアカウント ID を短いハッシュにする(events は匿名の表なので生の ID は入れない) */
+async function userTag(userID) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(userID)));
+  return Array.from(new Uint8Array(digest).slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * 受け取りを断った回を events に残す(name = ad_claim_rejected)。/stats の「クラッシュ・固まり・カメラの記録」に出る。
+ * reason: rate_limited / no_proof / bad_proof / not_sandbox / not_test_user / daily_limit
+ */
+async function logAdClaimRejected(env, userID, reason, detail) {
+  try {
+    const params = { reason, user: await userTag(userID), ...detail };
+    await env.DB.prepare(
+      "INSERT INTO events (install_id, name, params, app_version, os_version, device, locale, client_time, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+      .bind("server", "ad_claim_rejected", JSON.stringify(params), "server", "", "", "", "", nowISO())
+      .run();
+  } catch (_) {}
+}
+
+/**
+ * アプリが「最後まで見た」と伝える(POST /v1/ads/claim)。
+ *
+ * 本番(App Store 版)の広告は AdMob のサーバー側検証(/v1/ads/ssv)で付与するので、ここでは付与せず pending を返す。
+ * TestFlight・Xcode のテスト広告は SSV が来ないので、次の「両方」がそろったときだけ、ここでアプリの申告を信じて付与する:
+ *   1) 本文の appTransaction(Apple が署名した StoreKit 2 の JWS)が検証でき、environment が Sandbox / Xcode で、
+ *      bundleId がこのアプリであること(appTransaction.js)
+ *   2) そのアカウントが TEST_AD_USERS(GitHub の secret)に入っていること
+ *      (ALLOW_CLIENT_AD_CLAIM=1 のテスト期間は 2 を省く。ただし 1 は省かない)
+ * ヘッダ x-vm-test-build は見分けの参考(記録)にするだけで、これだけでは何も付与しない。
+ * 1 アカウント 1 日 AD_CLAIM_ATTEMPTS_PER_DAY 回を超える呼び出しは 429。断った回はすべて events(ad_claim_rejected)に残す。
+ */
+async function adClaim(request, user, env, deps = {}) {
+  const verify = deps.verifyAppTransaction || verifyAppTransaction;
   const body = await request.json().catch(() => ({}));
-  let testBuild = false;
-  if (body && typeof body.appTransaction === "string") {
-    const payload = await verifyAppTransaction(body.appTransaction, { bundleID: env.APPLE_AUDIENCE });
-    testBuild = isSandbox(payload);
+  const testHeader = request.headers.get("x-vm-test-build") === "1";
+  const jws = body && typeof body.appTransaction === "string" ? body.appTransaction : "";
+  const detail = { header: testHeader ? "1" : "0", proof: jws ? "sent" : "none" };
+  const state = async () => ({ points: await balance(env, user.id), ...(await adState(env, user.id)) });
+
+  // 1 日の呼び出し回数(付与できた・できないにかかわらず)
+  const attempts = await countAdClaimAttempt(env, user.id);
+  if (attempts > AD_CLAIM_ATTEMPTS_PER_DAY) {
+    await logAdClaimRejected(env, user.id, "rate_limited", { ...detail, attempts: String(attempts) });
+    return error(429, "広告のポイントの受け取りが多すぎます。明日またお試しください。", "rate_limited");
   }
-  if (!testBuild && request.headers.get("x-vm-test-build") === "1") {
-    testBuild = testAdUsers(env).has(user.id);
+
+  // 証明もヘッダも無い = 本番のアプリ。付与は SSV に任せて pending を返す(断ったわけではないので記録しない)
+  if (!jws && !testHeader && env.ALLOW_CLIENT_AD_CLAIM !== "1") {
+    return json({ granted: false, pending: true, ...(await state()) });
   }
-  const clientGrant = env.ALLOW_CLIENT_AD_CLAIM === "1" || testBuild;
-  let granted = false;
-  if (clientGrant) {
-    granted = await grantAdReward(env, user.id, "client:" + crypto.randomUUID(), "client");
+
+  // テスト版の申告: Apple の署名付き AppTransaction が必須
+  if (!jws) {
+    await logAdClaimRejected(env, user.id, "no_proof", detail);
+    return error(403, "テスト版の確認(AppTransaction)が送られていません。", "test_proof_required");
   }
-  return json({
-    points: await balance(env, user.id),
-    granted,
-    pending: !clientGrant,
-    ...(await adState(env, user.id)),
-  });
+  const payload = await verify(jws, { bundleID: env.APPLE_AUDIENCE });
+  if (!payload) {
+    await logAdClaimRejected(env, user.id, "bad_proof", detail);
+    return error(403, "テスト版の確認(AppTransaction)が正しくありません。", "test_proof_invalid");
+  }
+  if (!isSandbox(payload)) {
+    await logAdClaimRejected(env, user.id, "not_sandbox", { ...detail, environment: String(payload.environment || "").slice(0, 32) });
+    return error(403, "本番のアプリの広告は、AdMob の確認が届いてからポイントになります。", "not_test_build");
+  }
+
+  // 登録されたテスターのアカウントだけ(ALLOW_CLIENT_AD_CLAIM=1 のテスト期間は省く)
+  if (env.ALLOW_CLIENT_AD_CLAIM !== "1" && !testAdUsers(env).has(user.id)) {
+    await logAdClaimRejected(env, user.id, "not_test_user", detail);
+    return error(403, "テスト版では、登録されたテスターのアカウントだけがポイントを受け取れます。", "not_test_user");
+  }
+
+  const granted = await grantAdReward(env, user.id, "client:" + crypto.randomUUID(), "client");
+  if (!granted) {
+    await logAdClaimRejected(env, user.id, "daily_limit", detail);
+  }
+  return json({ granted, pending: false, ...(await state()) });
 }
 
 // ---------------------------------------------------------------------
@@ -431,7 +512,12 @@ const ALLOWED_EVENT_NAMES = new Set([
   "feedback", "metrics", "diagnostic",
   // クラッシュ・固まりの 1 件ごとの記録(種類・理由・スタックの先頭)と、カメラ画面の進み方(開いた・動いた・失敗・時間切れ)
   "crash", "hang", "camera",
+  // サーバーが残す: 広告のポイントの受け取りを断った回(adClaim)。アプリからは送れない
+  "ad_claim_rejected",
 ]);
+
+// アプリからの送信では受け付けない(サーバーだけが書く)出来事
+const SERVER_ONLY_EVENT_NAMES = new Set(["ad_claim_rejected"]);
 
 async function ingestEvents(request, env) {
   const body = await request.json().catch(() => null);
@@ -450,6 +536,7 @@ async function ingestEvents(request, env) {
   const statements = [];
   for (const e of events) {
     if (!e || typeof e.name !== "string" || !ALLOWED_EVENT_NAMES.has(e.name)) continue;
+    if (SERVER_ONLY_EVENT_NAMES.has(e.name)) continue;
     const params = {};
     if (e.params && typeof e.params === "object") {
       for (const [k, v] of Object.entries(e.params).slice(0, 12)) {
@@ -636,10 +723,10 @@ async function stats(url, env) {
       GROUP BY app_version ORDER BY app_version DESC LIMIT 20`,
     since
   );
-  // クラッシュ・固まり・カメラの記録(1 件ずつ。原因を追うため。カメラはうまくいかなかった回だけ。開いた・動いた・閉じたは「出来事の種類」の数で見る)
+  // クラッシュ・固まり・カメラ・広告の受け取り拒否の記録(1 件ずつ。原因を追うため。カメラはうまくいかなかった回だけ。開いた・動いた・閉じたは「出来事の種類」の数で見る)
   const incidents = (await q(
     `SELECT created_at, name, app_version, device, os_version, params FROM events
-      WHERE created_at >= ? AND (name IN ('crash', 'hang')
+      WHERE created_at >= ? AND (name IN ('crash', 'hang', 'ad_claim_rejected')
          OR (name = 'camera' AND json_extract(params, '$.step') IN ('failed', 'timeout', 'denied')))
       ORDER BY id DESC LIMIT 40`,
     since
@@ -693,6 +780,7 @@ async function stats(url, env) {
 
 /** アカウントの削除(Apple のトークンを失効させてから、ポイント・台帳・広告の記録をすべて消す) */
 async function deleteAccount(user, env) {
+  await ensureAdClaimAttemptsTable(env);
   // 失効に失敗しても削除は続ける
   if (appleSIWAConfigured(env)) {
     await ensureAppleRefreshColumn(env);
@@ -703,6 +791,7 @@ async function deleteAccount(user, env) {
   }
   await env.DB.batch([
     env.DB.prepare("DELETE FROM ad_rewards WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM ad_claim_attempts WHERE user_id = ?").bind(user.id),
     env.DB.prepare("DELETE FROM ledger WHERE user_id = ?").bind(user.id),
     env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id),
   ]);
@@ -1244,3 +1333,6 @@ async function chat(request, user, env) {
     headers: { "content-type": "application/json; charset=utf-8", "x-vm-points": String(await balance(env, user.id)) },
   });
 }
+
+// テスト(server/test)から呼ぶためのエクスポート。Workers のエントリは上の default export
+export { adClaim, grantAdReward, ingestEvents, ALLOWED_EVENT_NAMES, AD_CLAIM_ATTEMPTS_PER_DAY, POINTS };

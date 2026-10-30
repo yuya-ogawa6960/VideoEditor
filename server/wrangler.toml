@@ -7,8 +7,10 @@ compatibility_date = "2025-09-01"
 [vars]
 # アプリのバンドル ID(Apple でサインインのトークンの宛先チェック)
 APPLE_AUDIENCE = "com.yuyaogawa6960.videomania"
-# リワード広告: "1" ならすべてのアプリの申告(/v1/ads/claim)でポイントを足す。
-# "0"(本番)では、AdMob のサーバー側検証(/v1/ads/ssv)で足し、申告で足すのは TestFlight(x-vm-test-build: 1)だけ
+# リワード広告: 本番の広告は AdMob のサーバー側検証(/v1/ads/ssv)で足す。
+# アプリの申告(/v1/ads/claim)で足すのは、Apple が署名した AppTransaction で「テスト版(Sandbox / Xcode)」と
+# 確かめられ、かつアカウントが TEST_AD_USERS に入っているときだけ。
+# "1" にすると TEST_AD_USERS の条件を省く(テスト期間用。AppTransaction の確認は省かない)。本番は "0"
 ALLOW_CLIENT_AD_CLAIM = "0"
 
 # 毎日 18:00 UTC(日本時間 3:00)に scheduled() を動かし、90 日より古い使い方の統計(events)を消す

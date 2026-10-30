@@ -4,7 +4,8 @@
 // この JWS を /v1/ads/claim の本文(appTransaction)で送る。サーバーは次を確かめる:
 //   1) JWS の x5c の証明書の連鎖が、Apple のルート証明書(apple.com から取得)につながる
 //   2) 一番下の証明書の鍵で JWS の署名が正しい
-//   3) 中身の bundleId がこのアプリで、environment が Sandbox / Xcode
+//   3) 連鎖の各証明書が有効期間内(notBefore 〜 notAfter)
+//   4) 中身の bundleId がこのアプリで、environment が Sandbox / Xcode
 // 通れば「本当にテスト版で動いている」とみなし、テスト広告のポイントをアプリの申告で足せる。
 // 本番の App Store 版の JWS は environment が Production なので通らない(本番は AdMob の SSV で足す)。
 // =====================================================================
@@ -12,7 +13,7 @@
 const APPLE_ROOT_URL = "https://www.apple.com/certificateauthority/AppleRootCA-G3.cer";
 
 /** JWS を確かめて、通れば中身(payload)を返す。通らなければ null */
-export async function verifyAppTransaction(jws, { bundleID, fetchRoot = fetchAppleRoot } = {}) {
+export async function verifyAppTransaction(jws, { bundleID, fetchRoot = fetchAppleRoot, now = new Date() } = {}) {
   try {
     const parts = String(jws || "").split(".");
     if (parts.length !== 3) return null;
@@ -25,6 +26,11 @@ export async function verifyAppTransaction(jws, { bundleID, fetchRoot = fetchApp
     if (!root || !sameBytes(chain[chain.length - 1], root)) return null;
     for (let i = chain.length - 1; i > 0; i--) {
       if (!(await certificateSigned(chain[i - 1], chain[i]))) return null;
+    }
+    // 有効期間(期限切れの証明書で署名された JWS は通さない)
+    for (const der of chain) {
+      const { notBefore, notAfter } = parseCertificate(der);
+      if (!(notBefore instanceof Date) || !(notAfter instanceof Date) || now < notBefore || now > notAfter) return null;
     }
 
     // JWS 本体の署名(一番下の証明書の鍵、ES256)
@@ -115,7 +121,26 @@ export function parseCertificate(der) {
   const spkiTLV = tbsChildren[tbsChildren[0].tag === 0xa0 ? 6 : 5];
   const spkiAlg = children(der, children(der, spkiTLV)[0]);
   const curveOID = spkiAlg.length > 1 ? hex(slice(der, spkiAlg[1]).slice(2)) : "";
-  return { tbs: slice(der, tbs), algOID, signature, spki: slice(der, spkiTLV), curveOID };
+  // validity は subjectPublicKeyInfo の 2 つ前(SEQUENCE { notBefore, notAfter })
+  const validityTLV = tbsChildren[tbsChildren[0].tag === 0xa0 ? 4 : 3];
+  const [nb, na] = children(der, validityTLV);
+  return { tbs: slice(der, tbs), algOID, signature, spki: slice(der, spkiTLV), curveOID,
+           notBefore: readTime(der, nb), notAfter: readTime(der, na) };
+}
+
+/** UTCTime(YYMMDDHHMMSSZ)/ GeneralizedTime(YYYYMMDDHHMMSSZ)→ Date。読めなければ null */
+function readTime(der, tlv) {
+  const text = utf8(der.slice(tlv.start, tlv.end));
+  let m;
+  if (tlv.tag === 0x17 && (m = /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/.exec(text))) {
+    const yy = Number(m[1]);
+    const year = yy >= 50 ? 1900 + yy : 2000 + yy;
+    return new Date(Date.UTC(year, Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])));
+  }
+  if (tlv.tag === 0x18 && (m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/.exec(text))) {
+    return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6])));
+  }
+  return null;
 }
 
 /** child(証明書)が issuer(証明書)の鍵で署名されているか */
