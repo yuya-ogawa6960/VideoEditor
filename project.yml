@@ -273,6 +273,26 @@ targets:
         SKIP_INSTALL: "YES"
   # <<< share-extension
 
+  # 画面の自動チェック(UITests/)。アプリ(VideoEditor)に同居するテストバンドルで、SwiftUI の画面をシミュレータの窓に載せて
+  #   (a) 3 秒たっても描き直しが止まらない・メインスレッドが固まる(レイアウトの無限ループ)を失敗にし、
+  #   (b) 参照画像(UITests/__Snapshots__)と見比べて、見た目のくずれを失敗にする。
+  # 走らせ方は .github/workflows/ui-tests.yml と UITests/__Snapshots__/README.md
+  VideoEditorUITests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: UITests
+        excludes:
+          - "__Snapshots__/**"
+    dependencies:
+      - target: VideoEditor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yuyaogawa6960.videomania.uitests
+        GENERATE_INFOPLIST_FILE: "YES"
+        TARGETED_DEVICE_FAMILY: "1"
+
 schemes:
   VideoEditor:
     build:
@@ -282,3 +302,17 @@ schemes:
       config: Debug
     archive:
       config: Release
+  # 画面の自動チェック(シミュレータ)。日本語で走らせる(参照画像は日本語の表示で記録している)
+  VideoEditorUITests:
+    build:
+      targets:
+        VideoEditor: all
+        VideoEditorUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      language: ja
+      region: JP
+      targets:
+        - VideoEditorUITests
