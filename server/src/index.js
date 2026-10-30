@@ -429,6 +429,8 @@ const ALLOWED_EVENT_NAMES = new Set([
   "media_add", "transcribe_start", "transcribe_done", "transcribe_failed", "transcribe_cancelled",
   "panel_cancel", "undo", "disabled_tap", "search_pick", "search_no_result", "search_abandon",
   "feedback", "metrics", "diagnostic",
+  // クラッシュ・固まりの 1 件ごとの記録(種類・理由・スタックの先頭)と、カメラ画面の進み方(開いた・動いた・失敗・時間切れ)
+  "crash", "hang", "camera",
 ]);
 
 async function ingestEvents(request, env) {
@@ -634,6 +636,20 @@ async function stats(url, env) {
       GROUP BY app_version ORDER BY app_version DESC LIMIT 20`,
     since
   );
+  // クラッシュ・固まり・カメラの記録(1 件ずつ。原因を追うため。カメラはうまくいかなかった回だけ。開いた・動いた・閉じたは「出来事の種類」の数で見る)
+  const incidents = (await q(
+    `SELECT created_at, name, app_version, device, os_version, params FROM events
+      WHERE created_at >= ? AND (name IN ('crash', 'hang')
+         OR (name = 'camera' AND json_extract(params, '$.step') IN ('failed', 'timeout', 'denied')))
+      ORDER BY id DESC LIMIT 40`,
+    since
+  )).map((r) => {
+    let detail = r.params;
+    try {
+      detail = Object.entries(JSON.parse(r.params || "{}")).map(([k, v]) => k + "=" + v).join(" / ");
+    } catch (_) {}
+    return { ...r, params: detail };
+  });
   // 問い合わせ(最新 100 件。期間に関係なく)
   const contacts = (await q("SELECT id, created_at, kind, email, message FROM contacts ORDER BY id DESC LIMIT 100")).map((r) => ({
     ...r,
@@ -669,6 +685,7 @@ async function stats(url, env) {
 <h2>ひとことの感想</h2>${table(feedback, ["rating", "reason", "n"])}
 <h2>動作の重さ(MetricKit)</h2>${table(performance, ["app_version", "device", "reports", "launch_ms", "hang_ms", "hangs", "peak_mb", "abnormal_exits", "memory_exits"])}
 <h2>クラッシュ・固まり</h2>${table(diagnostics, ["app_version", "crashes", "hangs", "cpu", "disk"])}
+<h2>クラッシュ・固まり・カメラの記録(最新 40 件)</h2>${table(incidents, ["created_at", "name", "app_version", "device", "os_version", "params"])}
 <h1>問い合わせ(最新 100 件)</h1>${table(contacts, ["id", "created_at", "kind", "email", "message"])}
 </body></html>`;
   return html(page);

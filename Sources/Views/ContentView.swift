@@ -842,12 +842,15 @@ struct ContentView: View {
             let panelMax: CGFloat = max(160, fullHeight * 0.38)
             // 縦長(9:16・4:5)の作品を広い画面の横持ちで開いたときは、左にプレビューを縦いっぱい、右にタイムラインとツールを置く
             let splitPortrait: Bool = isLargeWindow && geo.size.width > geo.size.height && portraitPreviewRatio != nil
-            // iPhone Duo を開いたときにツールを右の列へ(パネルを開いている間は下にパネルが出るので、列は出さない)
-            let sideToolbar: Bool = isLargeWindow && toolbarOnSide && !panelOpen && !splitPortrait
+            // ツールを右の列へ: iPhone Duo を開いたとき、または閉じていても右端に時刻・電池が縦に並ぶ列(広いセーフエリア)がある画面
+            // (パネルを開いている間は下にパネルが出るので、列は出さない)
+            let sideColumn: Bool = geo.safeAreaInsets.trailing >= Self.sideColumnMinInset
+            let sideToolbar: Bool = (isLargeWindow || sideColumn) && toolbarOnSide && !panelOpen && !splitPortrait
             // 右の列の幅: 時刻・電池などが出る右端のセーフエリアと同じ幅(狭いときは 72pt)
             let sideWidth: CGFloat = max(72, geo.safeAreaInsets.trailing)
-            // 右の列はプレビューの横から画面の下まで縦いっぱいに出す。右上の時刻・電池と重ならないよう、その下から始める
-            let sideTop: CGFloat = max(0, Self.statusBarBottom() - geo.frame(in: .global).minY + 6)
+            // 右の列はプレビューの横から画面の下まで縦いっぱいに出す。右上に縦に並ぶ時刻・電池・電波と重ならないよう、その下から始める。
+            // iPhone Duo ではステータスバーの枠が取れない(0 になる)ことがあるので、少なくとも sideColumnStatusAllowance は空ける
+            let sideTop: CGFloat = max(0, max(Self.statusBarBottom() + 8, Self.sideColumnStatusAllowance) - geo.frame(in: .global).minY)
             let timelineHeight: CGFloat = frozenTimelineHeight ?? TimelineView.preferredHeight(for: project)
             // 左のプレビューの幅: 高さいっぱいに映る幅(+ 余白)。画面の 45% まで
             let previewWidth: CGFloat = min(geo.size.width * 0.45, fullHeight * (portraitPreviewRatio ?? 1) + 24)
@@ -1014,12 +1017,28 @@ struct ContentView: View {
             .frame(height: 44)
     }
 
-    /// 右上の時刻・電池(ステータスバー)の下端(ウインドウ座標)。出ていなければ 0
+    /// 右上の時刻・電池(ステータスバー)の下端(ウインドウ座標)。枠が取れなければ 0
     private static func statusBarBottom() -> CGFloat {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
-              let manager = scene.statusBarManager, !manager.isStatusBarHidden else { return 0 }
-        return manager.statusBarFrame.maxY
+              let manager = scene.statusBarManager else { return 0 }
+        let frame = manager.statusBarFrame
+        return frame.height > 0 ? frame.maxY : 0
+    }
+
+    /// 右端のセーフエリア(時刻・電池が縦に並ぶ列)がこの幅以上なら、閉じた iPhone Duo でもそこにツールを縦に並べられる
+    /// (ふつうの iPhone の横持ちは 59pt なので対象にならない)
+    static let sideColumnMinInset: CGFloat = 70
+    /// 右の列で、画面の上からここまでは時刻・電池・電波が縦に並ぶ場所として空けておく
+    /// (iPhone Duo を開いた横持ちでは約 115pt、閉じたときは約 160pt まで出る)
+    static let sideColumnStatusAllowance: CGFloat = 176
+
+    /// 右端のセーフエリアが広い(時刻・電池が縦に並ぶ列がある)か。「ツールを右に置く」を出す条件に使う
+    private static func trailingColumnAvailable() -> Bool {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
+              let window = scene.keyWindow ?? scene.windows.first else { return false }
+        return window.safeAreaInsets.right >= sideColumnMinInset
     }
 
     /// iPhone Duo を開いたときの右の列のツール(下のツールバーと同じ項目を縦に並べる)
@@ -2318,8 +2337,9 @@ struct ContentView: View {
                 safeZoneGuide = guide
             }
         }))
-        // iPhone Duo を開いたときだけ: 下のツールを右の列に置く / 下に戻す(設定の「Duo を開いたときはツールを右に」と同じ)
-        if isLargeWindow {
+        // iPhone Duo(開いたとき、または閉じていても右に時刻・電池の列がある画面): 下のツールを右の列に置く / 下に戻す
+        // (設定の「Duo を開いたときはツールを右に」と同じ)
+        if isLargeWindow || Self.trailingColumnAvailable() {
             items.append(EditorToolItem(toolbarOnSide ? String(localized: "ツールを下に戻す") : String(localized: "ツールを右に置く"),
                                         systemImage: toolbarOnSide ? "rectangle.bottomthird.inset.filled" : "sidebar.trailing",
                                         id: "toolbar-side") {

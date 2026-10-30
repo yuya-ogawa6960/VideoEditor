@@ -116,6 +116,16 @@ jobs:
             TIKTOK_CLIENT_KEY="$TIKTOK_CLIENT_KEY" \
             CURRENT_PROJECT_VERSION="$BUILD_NO"
 
+      # クラッシュの記録(MetricKit)はバイナリ名とオフセットだけなので、場所を読むための dSYM を 90 日残す
+      - name: Keep dSYMs
+        if: steps.check.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dSYMs-${{ github.run_number }}
+          path: build/VideoEditor.xcarchive/dSYMs
+          retention-days: 90
+          if-no-files-found: warn
+
       - name: Embed entitlements (Sign in with Apple)
         if: steps.check.outputs.ready == 'true'
         run: |

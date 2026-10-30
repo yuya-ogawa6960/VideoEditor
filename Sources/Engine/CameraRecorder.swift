@@ -54,6 +54,8 @@ final class CameraRecorder {
     private(set) var lastRecordingURL: URL?
     /// カメラを開始できなかったときの説明
     private(set) var startErrorMessage: String?
+    /// 開始できなかった理由の短い符号(使い方の統計用: denied / unavailable / output / no_response / other)
+    private(set) var startErrorCode: String?
     /// いま撮ると動画がどちら向きで保存されるか(端末の持ち方から決まる。90 / 270 なら縦、0 / 180 なら横)
     private(set) var captureRotationAngle: CGFloat = 90
 
@@ -163,25 +165,36 @@ final class CameraRecorder {
         guard !isRunning else { return }
         guard Self.cameraAuthorized else {
             startErrorMessage = CameraRecorderError.permissionDenied.errorDescription
+            startErrorCode = "denied"
             return
         }
         self.position = position
         self.frameRate = frameRate
         startErrorMessage = nil
+        startErrorCode = nil
         let session = self.session
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            var failure: String?
+            var failure: (message: String, code: String)?
             var device: AVCaptureDevice?
             do {
                 device = try self.configureIfNeeded(position: position, frameRate: frameRate)
+            } catch let error as CameraRecorderError {
+                let code: String
+                switch error {
+                case .permissionDenied: code = "denied"
+                case .cameraUnavailable: code = "unavailable"
+                case .sessionFailed: code = "output"
+                case .recorderFailed: code = "recorder"
+                }
+                failure = (error.localizedDescription, code)
             } catch {
-                failure = error.localizedDescription
+                failure = (error.localizedDescription, "other")
             }
             if failure == nil {
                 session.startRunning()
                 if !session.isRunning {
-                    failure = CameraRecorderError.sessionFailed(String(localized: "カメラが応答しません")).errorDescription
+                    failure = (CameraRecorderError.sessionFailed(String(localized: "カメラが応答しません")).errorDescription ?? "", "no_response")
                 }
             }
             let torch = device?.hasTorch ?? false
@@ -189,7 +202,8 @@ final class CameraRecorder {
                 guard let self else { return }
                 if let failure {
                     self.isRunning = false
-                    self.startErrorMessage = failure
+                    self.startErrorMessage = failure.message
+                    self.startErrorCode = failure.code
                     return
                 }
                 self.isRunning = true

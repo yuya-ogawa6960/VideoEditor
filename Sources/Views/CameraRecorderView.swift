@@ -32,6 +32,9 @@ struct CameraRecorderView: View {
     @State private var reviewPlayer: AVPlayer?
     /// 「使う」で渡した(閉じるときに一時ファイルを消さない)
     @State private var didUse = false
+    /// 開始してしばらく経ってもプレビューが出ず、失敗の説明も無い(原因がわからない)
+    @State private var startTimedOut = false
+    @State private var startWatchTask: Task<Void, Never>?
 
     @AppStorage(TeleprompterSettingsKey.script) private var script = ""
     @AppStorage(TeleprompterSettingsKey.countdown) private var countdown: CameraCountdown = .three
@@ -84,6 +87,24 @@ struct CameraRecorderView: View {
         .onChange(of: recorder.position) { _, position in
             usesFrontCamera = (position == .front)
         }
+        // 使い方の統計: カメラ画面がどこまで進んだか(開いた → 動いた / 失敗 / 時間切れ → 閉じた)。原因を追うため
+        .onChange(of: recorder.isRunning) { _, running in
+            if running {
+                startWatchTask?.cancel()
+                startWatchTask = nil
+                startTimedOut = false
+                Analytics.shared.track("camera", ["step": "running",
+                                                  "position": recorder.position == .front ? "front" : "back",
+                                                  "fps": String(recorder.frameRate.rawValue)])
+            }
+        }
+        .onChange(of: recorder.startErrorCode) { _, code in
+            if let code {
+                startWatchTask?.cancel()
+                startWatchTask = nil
+                Analytics.shared.track("camera", ["step": "failed", "code": code])
+            }
+        }
         .sheet(isPresented: $showScriptSheet) {
             TeleprompterScriptSheet()
         }
@@ -97,8 +118,10 @@ struct CameraRecorderView: View {
     // MARK: - 開始 / 終了
 
     private func startCamera() async {
+        Analytics.shared.track("camera", ["step": "open"])
         CameraRecorder.cleanUpTemporaryFiles()
         guard await recorder.requestPermissions() else {
+            Analytics.shared.track("camera", ["step": "denied"])
             phase = .denied
             return
         }
@@ -107,9 +130,20 @@ struct CameraRecorderView: View {
         }
         recorder.start(position: usesFrontCamera ? .front : .back, frameRate: frameRate)
         phase = .live
+        // 8 秒たってもプレビューが出ず、失敗の説明も無ければ、閉じてやり直せるように案内する
+        startWatchTask?.cancel()
+        startWatchTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, !recorder.isRunning, recorder.startErrorCode == nil else { return }
+            startTimedOut = true
+            Analytics.shared.track("camera", ["step": "timeout"])
+        }
     }
 
     private func closeCamera() {
+        Analytics.shared.track("camera", ["step": "close", "used": didUse ? "1" : "0"])
+        startWatchTask?.cancel()
+        startWatchTask = nil
         cancelCountdown()
         focusHideTask?.cancel()
         recorder.onFinished = nil
@@ -162,6 +196,12 @@ struct CameraRecorderView: View {
                 if let message = recorder.startErrorMessage {
                     VStack(spacing: 12) {
                         statusCard(message)
+                        Button("閉じる") { dismiss() }
+                            .buttonStyle(.bordered)
+                    }
+                } else if startTimedOut, !recorder.isRunning {
+                    VStack(spacing: 12) {
+                        statusCard(String(localized: "カメラが開きません。いったん閉じて、もう一度お試しください"))
                         Button("閉じる") { dismiss() }
                             .buttonStyle(.bordered)
                     }

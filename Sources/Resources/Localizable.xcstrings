@@ -18263,6 +18263,29 @@
         }
       }
     },
+    "カメラが開きません。いったん閉じて、もう一度お試しください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera isn't opening. Close this and try again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara no se abre. Ciérrala e inténtalo de nuevo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera não está abrindo. Feche e tente novamente"
+          }
+        }
+      }
+    },
     "カメラで撮る": {
       "extractionState": "manual",
       "localizations": {

@@ -203,6 +203,8 @@ struct EditorToolbar: View {
 
     /// 項目を並べる列の幅(広い画面では中央に寄せるため)
     @State private var rowWidth: CGFloat = 0
+    /// 右の列(縦)のスクロール部分の高さ。項目が少ないときに下へ寄せるために使う
+    @State private var verticalScrollHeight: CGFloat = 0
 
     /// 開いているグループの列(見つからなくなったら、たどれたところまで)
     private var resolved: (items: [EditorToolItem], groupTitle: String?) {
@@ -300,7 +302,8 @@ struct EditorToolbar: View {
         }
     }
 
-    /// 右の列(iPhone Duo を開いたとき)。上から ‹(グループ名)→ 項目の縦スクロール → 「その他」(下に固定)
+    /// 右の列(iPhone Duo)。上は時刻・電池・電波が縦に並ぶ場所なので、項目は下(親指の近く)に寄せる:
+    /// 項目の縦スクロール(少ないときは下寄せ) → ‹(戻る / 選択解除) → 「その他」「設定」(最上段だけ、いちばん下に固定)
     private var verticalBody: some View {
         let state = resolved
         let showsBack = !groupPath.isEmpty || onBack != nil
@@ -309,7 +312,25 @@ struct EditorToolbar: View {
         let scrolledItems: [EditorToolItem] = pinnedItems.isEmpty ? state.items : state.items.filter { !$0.isPinnedAtRoot }
 
         return VStack(spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 2) {
+                    ForEach(scrolledItems) { item in
+                        cell(item)
+                    }
+                }
+                .padding(.vertical, 6)
+                // 項目が少ないときは下に寄せる(上は時刻・電池に近いので空けておく)
+                .frame(minHeight: verticalScrollHeight, alignment: .bottom)
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { height in
+                verticalScrollHeight = height
+            }
+            .id(groupPath.joined(separator: "/"))
+
             if showsBack {
+                verticalDivider
                 Button {
                     EditorHaptics.tap()
                     goBack()
@@ -335,19 +356,7 @@ struct EditorToolbar: View {
                 .accessibilityShowsLargeContentViewer {
                     Label(state.groupTitle ?? String(localized: "選択を解除"), systemImage: "chevron.left")
                 }
-
-                verticalDivider
             }
-
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 2) {
-                    ForEach(scrolledItems) { item in
-                        cell(item)
-                    }
-                }
-                .padding(.vertical, 6)
-            }
-            .id(groupPath.joined(separator: "/"))
 
             if !pinnedItems.isEmpty {
                 verticalDivider
@@ -357,7 +366,7 @@ struct EditorToolbar: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         // 下の動画が透けないよう、黒の上に面の色を重ねる
         .background {
             ZStack {
