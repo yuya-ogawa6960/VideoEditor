@@ -81,9 +81,13 @@ Apple でサインインすると、自分の API キーがなくてもポイン
 ## 公開前にサーバー側でやること
 - AdMob のリワード広告ユニットの「サーバーサイド認証」に https://videomania-api.yuya-ogawa0906.workers.dev/v1/ads/ssv を登録
 - wrangler.toml の ALLOW_CLIENT_AD_CLAIM は "0"(済)。
-- TestFlight・App Review のテスト広告のポイントは、アプリが送る Apple 署名の AppTransaction(environment が Sandbox)を
-  サーバーが確かめて付ける(server/src/appTransaction.js)。証明が取れない端末のために、GitHub の secret `TEST_AD_USERS` の
-  アカウント ID(アプリの 設定 → バージョンを 5 回タップ → サポート用の情報 → アカウント ID)でも付く
+- TestFlight・Xcode のテスト広告のポイントは、「アプリが送る Apple 署名の AppTransaction(environment が Sandbox / Xcode)を
+  サーバーが確かめられる」かつ「アカウント ID が GitHub の secret `TEST_AD_USERS` に入っている」ときだけ付く
+  (server/src/appTransaction.js、index.js の adClaim)。どちらか一方では付かない。
+  アカウント ID は、アプリの 設定 → バージョンを 5 回タップ → サポート用の情報 → アカウント ID。
+  断った回は events(ad_claim_rejected)に残り、/stats の「クラッシュ・固まり・カメラの記録」で見られる。
+  1 アカウント 1 日 10 回を超える呼び出しは 429 で断る。App Review の審査員はこの条件に入らないので、
+  テスト広告を見てもポイントは付かない(「ポイントの反映を確認中です」と出る)
 
 ## 「共有」から受け取る拡張機能の設定(Apple Developer、最初に 1 回)
 

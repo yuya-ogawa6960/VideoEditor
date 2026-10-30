@@ -87,7 +87,15 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.check.outputs.ready == 'true'
         with:
-          node-version: "20"
+          node-version: "22"
+
+      # 文法と、広告のポイント周り(server/test)のテスト。通らなければデプロイしない
+      - name: Check and test
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          node --check src/index.js
+          node --check src/appTransaction.js
+          node --test
 
       - name: Create D1 database (first time only) and set its ID
         if: steps.check.outputs.ready == 'true'
