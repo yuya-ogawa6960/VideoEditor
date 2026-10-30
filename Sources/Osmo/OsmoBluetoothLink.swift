@@ -88,6 +88,8 @@ final class OsmoBluetoothLink: NSObject {
     private var waiters: [UUID: Waiter] = [:]
     /// 待つ前に届いた返事(ペアリングの許可が先に来ることがある)
     private var unclaimed: [OsmoDuml.Frame] = []
+    /// カメラが勝手に送ってくる通知(ジンバルの向き 0x04/0x05 など、1 秒に 10 回)は最初の 1 回だけログに出す
+    private var loggedNotifications: Set<UInt16> = []
 
     /// 画面のログ用
     var log: (String) -> Void = { _ in }
@@ -162,6 +164,7 @@ final class OsmoBluetoothLink: NSObject {
         writeQueue.removeAll()
         assemblers.removeAll()
         unclaimed.removeAll()
+        loggedNotifications.removeAll()
         finishConnect(OsmoError.gone)
         failWaiters(OsmoError.gone)
         if let p = connected { central.cancelPeripheralConnection(p) }
@@ -261,9 +264,12 @@ final class OsmoBluetoothLink: NSObject {
     }
 
     private func deliver(_ frame: OsmoDuml.Frame) {
-        if !(frame.cmdSet == 0 && frame.cmdId == 0x2B) {
-            log(String(format: "ble: recv 0x%02X/0x%02X flags=%02X %@", frame.cmdSet, frame.cmdId,
-                       frame.flags, Self.hex(frame.payload)))
+        let key = UInt16(frame.cmdSet) << 8 | UInt16(frame.cmdId)
+        let isNotification = frame.flags & 0xC0 == 0
+        if !(frame.cmdSet == 0 && frame.cmdId == 0x2B),
+           !isNotification || loggedNotifications.insert(key).inserted {
+            log(String(format: "ble: recv 0x%02X/0x%02X flags=%02X %@%@", frame.cmdSet, frame.cmdId,
+                       frame.flags, Self.hex(frame.payload), isNotification ? " (以後は省略)" : ""))
         }
         // 初回の許可(カメラの画面で OK)は 0x07/0x46 の「要求」として届く。すぐ返事をする
         if frame.cmdSet == 0x07, frame.cmdId == 0x46, frame.flags & 0x80 == 0 {
