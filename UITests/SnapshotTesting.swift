@@ -9,7 +9,7 @@ import UIKit
 //   1. 描き直しが落ち着く(2 回続けて同じ絵になる)まで待つ。settleTimeout(既定 3 秒)を超えたら
 //      「描き直しが止まらない」(レイアウトの無限ループ)として失敗。
 //      あわせて別スレッドからメインスレッドの応答を見張り、settleTimeout のあいだ応答が無ければ固まりとして失敗
-//      (完全に固まって戻ってこないときは xcodebuild の -default-test-execution-time-allowance が打ち切る)。
+//      (完全に固まって戻ってこないときは xcodebuild が 1 分で打ち切る)。
 //   2. 落ち着いた絵を PNG にして参照画像(UITests/__Snapshots__/<テストファイル名>/<名前>.png)と見比べる。
 //      画素ごとの差が perPixel 以下なら同じ、違う画素の割合が maxDifferentFraction 以下なら合格。
 //
@@ -170,7 +170,7 @@ class SnapshotTestCase: XCTestCase {
         super.setUp()
         continueAfterFailure = true
         // 完全に固まったとき(メインスレッドが戻ってこない)の打ち切り。xcodebuild に -test-timeouts-enabled YES が要る
-        executionTimeAllowance = 120
+        executionTimeAllowance = 60
         UIView.setAnimationsEnabled(false)
     }
 }

@@ -59,7 +59,9 @@ final class TeleprompterOverlayTests: SnapshotTestCase {
     }
 }
 
-/// 自分の高さを測って @State に入れ、その分だけ余白を増やす(1.12.76 より前のテレプロンプターと同じ形の循環)
+/// 自分の高さを測って @State に入れ、その分だけ余白を増やす(1.12.76 より前のテレプロンプターと同じ形の循環)。
+/// 値はひと呼吸おいて(次のメインの番で)入れる。その場で入れるとレイアウトの中で回り続けてメインスレッドが完全に止まり、
+/// テストごと打ち切られてしまうため(そうなる本物の不具合は、見張りが 3 秒で失敗を記録し、xcodebuild が 1 分で打ち切る)
 private struct FeedbackLoopView: View {
     @State private var measured: CGFloat = 0
 
@@ -70,7 +72,9 @@ private struct FeedbackLoopView: View {
                 .foregroundStyle(.white)
                 .padding(.top, measured.truncatingRemainder(dividingBy: 120))
                 .padding(.bottom, measured)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured = $0 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    DispatchQueue.main.async { measured = height }
+                }
         }
     }
 }

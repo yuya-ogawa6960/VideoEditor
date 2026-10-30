@@ -118,7 +118,7 @@ jobs:
           set -o pipefail
           mkdir -p "$ARTIFACTS"
           rm -rf "$RESULT_BUNDLE"
-          # 完全に固まったテストは 2 分で打ち切る(-test-timeouts-enabled)
+          # 完全に固まったテストは 1 分で打ち切る(-test-timeouts-enabled。1 分より短くはできない)
           xcodebuild test-without-building \
             -project VideoEditor.xcodeproj \
             -scheme VideoEditorUITests \
@@ -126,8 +126,8 @@ jobs:
             -derivedDataPath build/DerivedData \
             -resultBundlePath "$RESULT_BUNDLE" \
             -test-timeouts-enabled YES \
-            -default-test-execution-time-allowance 120 \
-            -maximum-test-execution-time-allowance 180 \
+            -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 120 \
             -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
             | tee build/test.log \
