@@ -234,6 +234,8 @@ struct SubtitleEditorView: View {
     @State private var isCancellingTranscription = false
     /// 字幕の自動作成が終わったときに少しのあいだ出す完了の表示(作った字幕の件数)
     @State private var captionDoneCount: Int?
+    /// そのとき取り除いた、続く同じ文・音声のない所の定型文の数(0 なら出さない)
+    @State private var captionDoneRemoved = 0
 
     private var isTranslating: Bool {
         translationRequest != nil || aiTranslationTask != nil
@@ -445,6 +447,12 @@ struct SubtitleEditorView: View {
                         Text(String(localized: "\(count) 件のキャプションを作りました"))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        if captionDoneRemoved > 0 {
+                            Text(String(localized: "重複・誤認識 \(captionDoneRemoved) 件を取り除きました"))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     .padding(24)
                     .frame(width: 280)
@@ -792,6 +800,7 @@ struct SubtitleEditorView: View {
 
     /// 字幕の自動作成が終わったことを少しのあいだ見せる(3 秒で自動で消える)
     private func showCaptionDone(count: Int) {
+        captionDoneRemoved = transcriber.lastCleanupReport.total
         withAnimation(.easeOut(duration: 0.25)) { captionDoneCount = count }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)

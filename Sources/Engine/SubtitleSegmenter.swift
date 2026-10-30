@@ -192,7 +192,8 @@ struct SubtitleSegmenter {
         }
         cues.sort { $0.start < $1.start }
         adjustTiming(&cues)
-        return cues
+        // adjustTiming は同時に始まる 2 つの字幕を重なったまま残す(前を 0.2 秒にするだけ)ので、次をずらして解消する
+        return CaptionCleanup.resolveOverlaps(cues)
     }
 
     // MARK: - 単語タイミング(カラオケ風テンプレート用)
