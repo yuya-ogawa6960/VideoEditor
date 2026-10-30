@@ -121,6 +121,10 @@ struct ContentView: View {
     @State private var showMediaPicker = false
     /// 「カメラで撮る」(CameraRecorderView。撮った動画は「ファイル」からの追加と同じ道で取り込む)
     @State private var showCameraRecorder = false
+    #if OSMO_LIVE
+    /// 「Osmo Pocket で撮る(実験)」(開発者モードのとき。録った動画はカメラで撮るときと同じ道で取り込む)
+    @State private var showOsmoRecorder = false
+    #endif
     /// タイムライン末尾の「+」から追加したときは末尾に足す(それ以外は再生位置のクリップの後ろに差し込む)
     @State private var importAppendsAtEnd = false
     /// ドロップで差し込む位置(タイムラインに落としたとき。importLocalFiles が一度だけ使う)
@@ -330,6 +334,17 @@ struct ContentView: View {
                 startLocalImport([url], securityScoped: false, deleteSourcesAfter: true)
             }
         }
+        #if OSMO_LIVE
+        .fullScreenCover(isPresented: $showOsmoRecorder) {
+            // 「Osmo Pocket で撮る(実験)」。録った .mp4 はカメラで撮ったときと同じ道で取り込む
+            NavigationStack {
+                OsmoLiveMonitorView { url in
+                    importSourceOverride = "osmo"
+                    startLocalImport([url], securityScoped: false, deleteSourcesAfter: true)
+                }
+            }
+        }
+        #endif
         // 文字起こしで編集(開くときに履歴を記録し、何も消さずに閉じたらその記録を捨てる)
         .sheet(isPresented: $showTranscriptEdit, onDismiss: { history.discardLastIfUnchanged(project) }) {
             TranscriptEditView(project: project, player: player,
@@ -1110,6 +1125,16 @@ struct ContentView: View {
         player.pause()
         showCameraRecorder = true
     }
+
+    #if OSMO_LIVE
+    /// 「Osmo Pocket で撮る(実験)」(OsmoLiveMonitorView)。録った動画はカメラで撮るときと同じように取り込む
+    private func requestOsmoAdd(appendAtEnd: Bool) {
+        guard !isImporting else { return }
+        importAppendsAtEnd = appendAtEnd
+        player.pause()
+        showOsmoRecorder = true
+    }
+    #endif
 
     /// 「カラーの画面」(EditorColorScreenPanel)。色と長さを選んだら insertColorScreen で差し込む
     private func requestColorScreenAdd(appendAtEnd: Bool) {
@@ -2021,6 +2046,13 @@ struct ContentView: View {
         sourceMenu.append(EditorToolMenuEntry(String(localized: "カメラで撮る"), systemImage: "camera") {
             requestCameraAdd(appendAtEnd: false)
         })
+        #if OSMO_LIVE
+        if AppSettings.shared.developerMode {
+            sourceMenu.append(EditorToolMenuEntry(String(localized: "Osmo Pocket で撮る(実験)"), systemImage: "camera.aperture") {
+                requestOsmoAdd(appendAtEnd: false)
+            })
+        }
+        #endif
         sourceMenu.append(EditorToolMenuEntry(String(localized: "カラーの画面"), systemImage: "rectangle.fill") {
             requestColorScreenAdd(appendAtEnd: false)
         })

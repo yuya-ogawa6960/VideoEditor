@@ -154,12 +154,13 @@ Pocket 4(Pro ではない)は機種番号 `0x21` で、手順は 4 Pro と同じ
 | `OsmoDatalink.swift` | TCP 7001・UDP 9004・ハンドシェイク・登録・窓 ACK・映像の受信 |
 | `OsmoVideoDecoder.swift` | VideoToolbox で HEVC / H.264 を復号して表示 |
 | `OsmoLiveMonitor.swift` | 全体の流れと状態 |
+| `OsmoCameraControl.swift` | カメラ本体の録画の開始・停止と録画状態(「録画の操作(調査)」) |
 | `OsmoLiveMonitorView.swift` | 画面(映像・状態・見つかったカメラ・ログ) |
 
 - すべて `#if OSMO_LIVE` で囲んでいます。`OSMO_LIVE` がオフのビルドには、コードも権限も利用目的の文も入りません。
 - 開き方: 「設定」のバージョンの行を **7 回** タップすると開発者モードがオンになります(もう 7 回でオフ)。5 回で出る「サポート用の情報」はそのままです。開発者モードの欄に「Osmo Pocket ライブビュー(実験)」が出ます。
 - `AppSettings.developerMode` は既定でオフです。
-- 入れていないもの: 再接続の細かい修復、カメラの操作(録画・設定・ズーム)、ジンバル、ファイルの取り込み、Pocket 3 の最初の絵の回避策、ライセンス表示の画面。
+- 入れていないもの: 再接続の細かい修復、カメラの操作(設定・ズーム。録画は下の「録画の操作(調査)」で試作、ボタンは未配置)、ジンバル、ファイルの取り込み、Pocket 3 の最初の絵の回避策、ライセンス表示の画面。
 
 ### ビルドに入れる方法
 
@@ -209,3 +210,78 @@ API キーに権限がなくて Hotspot をオンにできないときは、そ�
 
 - CineD: [OpenPocketCine: Free Open-Source Field Monitor App Brings Waveforms, False Color, and LUTs to DJI Osmo Cameras](https://www.cined.com/openpocketcine-free-open-source-field-monitor-app-brings-waveforms-false-color-and-luts-to-dji-osmo-cameras/)
 - OpenPocketCine の資料: <https://opencapture.org/openpocketcine/docs/>(プロトコル: connection / ble / wifi / duml-transport / live-view / commands / media)
+
+## 録画の操作(調査)
+
+> **状態: 調査と試作。実機ではまだ一度も試していません。** 調べたのは 2026-10-31。
+
+### 結論
+
+- **カメラ本体の SD カードへの録画は、DUML の `0x02/0x02` で始め・止めます。** 中身は 1 バイトで、`01` が開始、`00` が停止です。
+- 受け手はカメラ(`0x01`)、flags は `0x40`(要求)。**Bluetooth ではなく、Wi-Fi のデータリンク(UDP 9004)で送ります**(OpenCine がそうしている)。
+- トグルではありません。録画中にもう一度 `01` を送ると、カメラは `DF`(断る)を返します。
+- **録画しているかどうかは、カメラが勝手に送ってくる `0x02/0x80` で分かります。** 先頭の 4 バイト(u32 リトルエンディアン)の **bit 7(`0x80`)が 1 なら録画中**です。この状態は命令の返事より約 1 秒遅れて変わります。
+- 録画される映像はカメラの録画設定そのまま(フル画質)です。ライブビュー(720p)とは関係ありません。
+- 出どころは Apache 2.0 の OpenCine / OpenPocketCine で、Pocket 4 Pro と Pocket 3 の実機で DJI Mimo の通信を記録した資料があります。**信頼度は高め**と判断し、`Sources/Osmo/OsmoCameraControl.swift` に試作しました。
+
+### 見つけたもの
+
+| 出どころ | 中身 | ライセンス | 確かめた機種 | 信頼度 |
+| --- | --- | --- | --- | --- |
+| [OpenCine `Sources/OpenCineDJI/Commands.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e/Sources/OpenCineDJI/Commands.swift)(`dd77b69e`) | `recordStart` = `0x02/0x02` `[01]`、`recordStop` = `[00]`。受け手 `0x01`、flags `0x40`。「トグルではない。録画中の `01` には `df`」 | Apache 2.0 | OpenPocketCine が使う共通部品 | 高 |
+| [OpenCine `CameraStatus+DJIWire.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e/Sources/OpenCineDJI/CameraStatus%2BDJIWire.swift) | `0x02/0x80`(13 バイト以上): flags の `0x80` = 録画中、`0x4000_0000` = 再生中。@5 容量、@9 空き(MiB)、@17 u32 残り秒、@29 u16 経過秒、@57 撮影モード | Apache 2.0 | 同上 | 高 |
+| [OpenCine `DjiAppleControlExchange.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e/Sources/OpenCineDJIApple/DjiAppleControlExchange.swift) | 操作の命令は `via=datalink`。「録画の状態は ACK より約 1 秒遅れる」 | Apache 2.0 | 同上 | 高 |
+| [OpenCine `CameraControl+DJIWire.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e/Sources/OpenCineDJI/CameraControl%2BDJIWire.swift) `CaptureCommand` | 写真モードは `0x02/0x01` `[01]`。Pocket 3 のタイムラプスは `0x02/0x01` の `01`/`00`。それ以外(Pocket 4 のタイムラプスも)は `0x02/0x02` | Apache 2.0 | 同上 | 中(モード別は一部だけ) |
+| [OpenPocketCine handbook `protocol/commands.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/main/handbook/src/content/docs/protocol/commands.md)(`35f51dc`) | 「`0x02/0x02` record start/stop、`[01]` / `[00]`、Pocket 4 は `rcv=0x01`」 | Apache 2.0 | — | 高 |
+| [OpenPocketCine `devices/pocket-4-pro/slow-motion.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/main/handbook/src/content/docs/devices/pocket-4-pro/slow-motion.md) | Mimo の記録: 4K/240 で `02/02 [01]` → 録画状態がオン、`02/02 [00]` → オフ。1080p/120 では `[01]` を 2 回送り直し、返事 `00` のあと状態がオン | Apache 2.0 | **Pocket 4 Pro**(Mimo の通信の記録) | 高 |
+| [OpenPocketCine `devices/pocket-3/media.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/main/handbook/src/content/docs/devices/pocket-3/media.md)・[`connection.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/main/handbook/src/content/docs/devices/pocket-3/connection.md) | `0x02/0x02` が受け付けられ、録画状態が続いて変わった。OpenPocketCine 0.1.0 でも開始・停止し、SD のファイル(2.7K/25、HEVC)を確認 | Apache 2.0 | **Pocket 3**(Mimo と OpenPocketCine の両方) | 高 |
+| [dji-firmware-tools `dji-dumlv1-camera.lua`](https://github.com/o-gs/dji-firmware-tools/blob/master/comm_dissector/wireshark/dji-dumlv1-camera.lua) | 古い DJI 機(ドローン)の解析表。cmdset `0x02` の `0x01` = Do Capture Photo、`0x02` = Do Record、`0x80` = Camera State Info(Record State はマスク `0x00C0`) | **GPL-3.0**(コードは使っていない。番号の裏付けにだけ使った) | ドローンのカメラ(Pocket ではない) | 裏付けとして中 |
+| [Osmosis](https://github.com/KonradIT/osmosis) | DUML の命令表に録画は無い。別に DJI の R-SDK(`0x1D/0x03` で録画)を移植しているが、Osmo Action / 360 向け | MIT | Action / 360 | Pocket には使えない |
+| [DJI Osmo-GPS-Controller-Demo](https://github.com/dji-sdk/Osmo-GPS-Controller-Demo) | DJI 公式の BLE リモコン例(R-SDK、`0xAA` で始まる別の形式)。対応は **Osmo 360 / Action 6・5 Pro・4 のみ** | README は MIT 表記(GitHub の判定は NOASSERTION) | Action / 360 | **Pocket は対象外** |
+| [node-osmo](https://github.com/datagutt/node-osmo)・[osmo-live](https://github.com/KevinCowleys/osmo-live)・[lib-osmo-ble](https://github.com/yigitkonur/lib-osmo-ble) | ペアリング・Wi-Fi・RTMP 配信だけ。録画の命令は無い | MIT | Pocket 3 | 該当なし |
+
+- OpenPocketCine の README と CineD の記事にも「iOS 版は録画の開始・停止ができる」とあります。作者は「つながりを信用できるまで、録画はカメラ本体で確かめて」と書いています。
+- **Pocket 4(Pro ではない)での記録は見つかりませんでした。** 受け手 `0x01` は「Pocket 4」と書かれていますが、詳しい記録は 4 Pro と Pocket 3 のものです。手順は 4 Pro と同じとされています。
+
+### 命令の形
+
+```text
+送る(データリンク、pktType 0x05):
+  sender 0x02  receiver 0x01  flags 0x40  set 0x02  cmd 0x02  payload [01] 開始 / [00] 停止
+返事(pktType 0x03):
+  set 0x02  cmd 0x02  flags に 0x80  payload [00] 受け付け / [DF] 断り
+状態(カメラから勝手に届く):
+  set 0x02  cmd 0x80  payload の u32LE@0 の bit 7 (0x80) = 録画中
+                      u32LE@17 = 残り秒、u16LE@29 = 経過秒、@57 = 撮影モード(0x01 = Video)
+```
+
+注意:
+
+- **写真モードでは `0x02/0x02` ではなく `0x02/0x01`** です(Video モードで `0x02/0x01` を送ると `D9` が返る)。Pocket 3 のタイムラプスも `0x02/0x01`。この試作は Video 用の `0x02/0x02` だけで、撮影モードが Video(`0x01`)でないときはログに書きます。
+- Mimo は録画開始のあとに別の設定(美肌の 62 バイト)を送り、それに `DF` が返っても録画は続いていました。**`DF` がどの命令の返事かを取り違えない**ことが大事です。
+- Pocket 4 Pro では、返事が無いとき Mimo が `[01]` を送り直していました。試作も 1.5 秒返事が無ければ 1 回だけ送り直します(録画中の `01` は `DF` で無害とされる)。
+- 経過秒 `@29` を録画していないときに何が入るかは確かめていません。
+
+### 試作(`Sources/Osmo/OsmoCameraControl.swift`)
+
+- `#if OSMO_LIVE` の中です。`OsmoLiveMonitor.camera`(`OsmoCameraControl`)として使えます。
+- `startRecording()` / `stopRecording()`: 命令を送り、カメラの `0x02/0x80` で状態が変わるのを最長 4 秒待ちます。**画面の「録画中」は送った命令ではなく、カメラの報告だけで決めます。**
+- `recordingState`(`.unknown` / `.idle` / `.recording`)、`elapsedSeconds`、`remainingSeconds`、`shootingModeRaw`、`isBusy`、`lastMessage`、`onRecordingChanged`。
+- データリンクの `OsmoDatalink.sendCommand(_:)` を 1 つ足しました(元の送信は `private` だったため)。`OsmoLiveMonitor` はデータリンクを開いたら `camera.attach(link)`、切断で `camera.detach()`、`0x02/0x02`・`0x02/0x80` のフレームを `camera.handle(_:)` に渡します。
+- ボタンはまだ画面にありません(`OsmoLiveMonitorView.swift` は別の作業で変更中)。
+
+### 実機で確かめること(録画)
+
+**すべて未検証です。** SD カードを入れ、カメラを **Video モード** にしてから試してください。
+
+1. **ビルドが通るか。** `OSMO_LIVE` を on にした TestFlight のビルドで確かめます。
+2. ライブビューまでつないだあと、ログに `record: camera reports idle (flags …)` が出るか。出ない場合、`0x02/0x80` が届いていません(ログを送ってください)。
+3. 「録画開始」で、**カメラ本体の画面が録画中(赤い印と時間)になるか。** ログに `record: reply 0x02/0x02 00` と `record: camera reports RECORDING` が出るか。
+4. 録画中に経過秒が 1 秒ずつ増えるか(`elapsedSeconds`)。残り秒がそれらしい値か。
+5. 「録画停止」で、カメラ本体の録画が止まり、ログに `camera reports idle` が出るか。
+6. 撮ったファイルが **SD カードに、カメラの録画設定どおりの画質で** 残っているか(Mimo か SD カードで確認)。
+7. 録画中にもう一度「録画開始」を押したとき、`DF` が返り、録画が止まらないか。
+8. カメラ本体のボタンで録画を始め・止めたとき、アプリの表示がついてくるか(`0x02/0x80` の報告)。
+9. 写真モードで「録画開始」を押したとき、ログに `shooting mode 0x… is not Video` が出て、カメラが断る(`DF` など)だけで固まらないか。**固まったら電源を入れ直し、そのモードでは押さないでください。**
+10. 録画中にライブビューが止まらないか(fps が下がらないか)。
+11. (あれば)Pocket 3・Pocket 4(Pro ではない)でも同じことを試す。

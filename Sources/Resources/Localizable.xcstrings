@@ -8143,6 +8143,29 @@
         }
       }
     },
+    "Osmo Pocket で撮る(実験)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shoot with Osmo Pocket (Experimental)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabar con Osmo Pocket (experimental)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravar com Osmo Pocket (experimental)"
+          }
+        }
+      }
+    },
     "RGB 平均": {
       "extractionState": "manual",
       "localizations": {
@@ -9450,6 +9473,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Usa o reconhecimento de fala nativo do iOS. Sem internet, rápido e quase sem downloads extras. Precisão padrão; nomes próprios e fala rápida geram mais erros."
+          }
+        }
+      }
+    },
+    "iPhone に録画(ライブビューの画質)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record to iPhone (live view quality)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabar en el iPhone (calidad de vista en vivo)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravar no iPhone (qualidade da visualização ao vivo)"
+          }
+        }
+      }
+    },
+    "iPhone のマイクの音も録る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also record sound from the iPhone microphone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabar también el sonido del micrófono del iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravar também o som do microfone do iPhone"
           }
         }
       }
@@ -19781,6 +19850,29 @@
         }
       }
     },
+    "カメラで録画を始める": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start recording on the camera"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empezar a grabar en la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Começar a gravar na câmera"
+          }
+        }
+      }
+    },
     "カメラの使用が許可されていません": {
       "extractionState": "manual",
       "localizations": {
@@ -19846,6 +19938,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Analisa o tremor da câmera e o cancela ampliando um pouco a imagem. A análise pode demorar tanto quanto a duração do material."
+          }
+        }
+      }
+    },
+    "カメラの録画を止める": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop recording on the camera"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener la grabación de la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar a gravação da câmera"
           }
         }
       }
@@ -19938,6 +20053,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "troca de câmera"
+          }
+        }
+      }
+    },
+    "カメラ本体で撮った動画はカメラの SD カードに残ります。今は DJI Mimo か SD カードから取り込んでください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos recorded on the camera stay on its SD card. For now, import them with DJI Mimo or from the SD card."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los videos grabados en la cámara se quedan en su tarjeta SD. Por ahora, impórtalos con DJI Mimo o desde la tarjeta SD."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os vídeos gravados na câmera ficam no cartão SD dela. Por enquanto, importe-os pelo DJI Mimo ou pelo cartão SD."
+          }
+        }
+      }
+    },
+    "カメラ本体で録画(SD カード・本来の画質)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record on the camera (SD card, full quality)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabar en la cámara (tarjeta SD, calidad original)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravar na câmera (cartão SD, qualidade original)"
           }
         }
       }
@@ -32983,6 +33144,29 @@
         }
       }
     },
+    "プロジェクトに入れる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to Project"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir al proyecto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar ao projeto"
+          }
+        }
+      }
+    },
     "プロジェクトの BGM を使う": {
       "extractionState": "manual",
       "localizations": {
@@ -34202,6 +34386,29 @@
         }
       }
     },
+    "マイクが許可されていないので、音なしで録ります。設定アプリで「マイク」を許可できます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The microphone isn't allowed, so this will record without sound. You can allow \"Microphone\" in the Settings app."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El micrófono no está permitido, así que se grabará sin sonido. Puedes permitir el \"Micrófono\" en la app Ajustes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O microfone não está permitido, então a gravação será sem som. Você pode permitir o \"Microfone\" no app Ajustes."
+          }
+        }
+      }
+    },
     "マイクの使用が許可されていません。設定アプリでこのアプリの「マイク」を許可してください。": {
       "extractionState": "manual",
       "localizations": {
@@ -35210,6 +35417,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Luz"
+          }
+        }
+      }
+    },
+    "ライブビューの映像(約 1280×720)をそのまま保存します。カメラ本体の録画と同時に使えます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saves the live view video (about 1280×720) as is. You can use this together with recording on the camera."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guarda el video de la vista en vivo (unos 1280×720) tal cual. Puedes usarlo a la vez que la grabación en la cámara."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva o vídeo da visualização ao vivo (cerca de 1280×720) como está. Pode ser usado junto com a gravação na câmera."
           }
         }
       }
@@ -40343,6 +40573,29 @@
         }
       }
     },
+    "保存しています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardando…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvando…"
+          }
+        }
+      }
+    },
     "保存してね": {
       "extractionState": "manual",
       "localizations": {
@@ -40707,6 +40960,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "acelerar"
+          }
+        }
+      }
+    },
+    "停止": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar"
           }
         }
       }
@@ -43306,6 +43582,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "O acesso às fotos está limitado, então o vídeo foi copiado para o app"
+          }
+        }
+      }
+    },
+    "写真への保存が許可されていません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving to Photos isn't allowed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se permite guardar en Fotos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar em Fotos não está permitido"
           }
         }
       }
@@ -57041,6 +57340,52 @@
         }
       }
     },
+    "映像が届かなかったので、何も録れませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was recorded because no video arrived"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se grabó nada porque no llegó video"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada foi gravado porque nenhum vídeo chegou"
+          }
+        }
+      }
+    },
+    "映像が止まっています。録画は続けています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The video has stopped. Still recording."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El video se detuvo. La grabación continúa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vídeo parou. A gravação continua."
+          }
+        }
+      }
+    },
     "映像のデータ量": {
       "extractionState": "manual",
       "localizations": {
@@ -57083,6 +57428,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Recorta parte da imagem. 9:16 é vertical, 16:9 é horizontal."
+          }
+        }
+      }
+    },
+    "映像の大きさが変わったので、録画を止めました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording stopped because the video size changed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La grabación se detuvo porque cambió el tamaño del video"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A gravação parou porque o tamanho do vídeo mudou"
           }
         }
       }
@@ -76591,6 +76959,29 @@
         }
       }
     },
+    "録画しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording finished"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabación terminada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravação concluída"
+          }
+        }
+      }
+    },
     "録画の出力を用意できません": {
       "extractionState": "manual",
       "localizations": {
@@ -76610,6 +77001,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível preparar a saída da gravação"
+          }
+        }
+      }
+    },
+    "録画の準備をしています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting ready to record…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando la grabación…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando a gravação…"
+          }
+        }
+      }
+    },
+    "録画を保存できませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save the recording"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar la grabación"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível salvar a gravação"
           }
         }
       }
