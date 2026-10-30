@@ -331,6 +331,72 @@ enum OsmoCommands {
               flags: OsmoDuml.flagRequest, cmdSet: 0x02, cmdId: 0x68, payload: [0x08])
     }
 
+    // ---- 配信(RTMP)。BLE で送る。カメラが自分で Wi-Fi に入り、RTMP サーバー(ここでは iPhone)へ送る ----
+    // 出典: OpenPocketCine handbook(protocol/ble.md「Experimental livestream provisioning」、
+    // devices/pocket-3/livestream.md)と node-osmo(MIT)。Pocket 4 では未確認
+
+    /// `0x02/0xE1` 1A(受け手 0x08): 配信の撮影モードに入る
+    static func enterLivestreamMode() -> OsmoDuml.Frame {
+        .init(sender: OsmoDuml.senderApp, receiver: rx(type: 0x08, id: 0), seq: 0x8C12,
+              flags: OsmoDuml.flagRequest, cmdSet: 0x02, cmdId: 0xE1, payload: [0x1A])
+    }
+
+    /// `0x02/0xE1` 01(受け手 0x08): 普通の動画モードに戻す
+    static func enterVideoMode() -> OsmoDuml.Frame {
+        .init(sender: OsmoDuml.senderApp, receiver: rx(type: 0x08, id: 0), seq: 0x8C13,
+              flags: OsmoDuml.flagRequest, cmdSet: 0x02, cmdId: 0xE1, payload: [0x01])
+    }
+
+    /// `0x07/0x47`: カメラを Wi-Fi(家の Wi-Fi や iPhone のインターネット共有)に入れる。返事 `00 00` で成功
+    static func joinNetwork(ssid: String, password: String) -> OsmoDuml.Frame {
+        .init(sender: OsmoDuml.senderApp, receiver: OsmoDuml.rxWifi, seq: 0x8C19,
+              flags: OsmoDuml.flagRequest, cmdSet: 0x07, cmdId: 0x47,
+              payload: OsmoDuml.packString(ssid) + OsmoDuml.packString(password))
+    }
+
+    /// 配信の設定の 9 バイト `[解像度][ビットレート kbps u16le][02][画質 01=Auto][fps 02=25 03=30][00 00 00]`。
+    /// Pocket 3 で 1080p/25/Auto のとき `0A 70 17 02 01 02 00 00 00` が受け付けられた(OpenPocketCine)。
+    /// 解像度の値は 480p `47`・720p `04`・1080p `0A`(node-osmo)。2.7K `2D`・4K `10` は録画の設定の値を当てた推測
+    static func livestreamPreset(resolution: UInt8, bitrateKbps: Int, fps: Int) -> [UInt8] {
+        let kbps = UInt16(clamping: bitrateKbps)
+        return [resolution, UInt8(kbps & 0xFF), UInt8(kbps >> 8), 0x02, 0x01, fps == 30 ? 0x03 : 0x02, 0, 0, 0]
+    }
+
+    /// `0x08/0x78` 版 00(Pocket 3 で観察): `00 [本体の長さ u16le] [9 バイト] [URL の長さ u16le] [URL]`
+    static func configureLivestreamV0(preset: [UInt8], url: String) -> OsmoDuml.Frame {
+        let u = Array(url.utf8)
+        let bodyLength = preset.count + 2 + u.count
+        var p: [UInt8] = [0x00, UInt8(bodyLength & 0xFF), UInt8((bodyLength >> 8) & 0xFF)]
+        p += preset
+        p += [UInt8(u.count & 0xFF), UInt8((u.count >> 8) & 0xFF)]
+        p += u
+        return .init(sender: OsmoDuml.senderApp, receiver: rx(type: 0x08, id: 0), seq: 0x8C2C,
+                     flags: OsmoDuml.flagRequest, cmdSet: 0x08, cmdId: 0x78, payload: p)
+    }
+
+    /// `0x08/0x78` 版 01(Pocket 4 Pro で観察): `01 [本体の長さ u16le] [9 バイト] [JSON の長さ u16le] [JSON]`。
+    /// JSON のキー(rtmpAddress・codec・EnhancedRTMP・supportStopLive・watermark・orientation)は資料にあるが、
+    /// 値は公開されていないので推測。版 00 が断られたときだけ試す
+    static func configureLivestreamV1(preset: [UInt8], url: String, hevc: Bool) -> OsmoDuml.Frame {
+        let json = "{\"rtmpAddress\":\"\(url)\",\"codec\":\(hevc ? 1 : 0),\"EnhancedRTMP\":\(hevc ? 1 : 0),"
+            + "\"supportStopLive\":1,\"watermark\":0,\"orientation\":0}"
+        let j = Array(json.utf8)
+        let bodyLength = preset.count + 2 + j.count
+        var p: [UInt8] = [0x01, UInt8(bodyLength & 0xFF), UInt8((bodyLength >> 8) & 0xFF)]
+        p += preset
+        p += [UInt8(j.count & 0xFF), UInt8((j.count >> 8) & 0xFF)]
+        p += j
+        return .init(sender: OsmoDuml.senderApp, receiver: rx(type: 0x08, id: 0), seq: 0x8C2D,
+                     flags: OsmoDuml.flagRequest, cmdSet: 0x08, cmdId: 0x78, payload: p)
+    }
+
+    /// `0x02/0x8E` SET 0x001A = 01 開始 / 02 終了(受け手 0x08)
+    static func livestream(start: Bool) -> OsmoDuml.Frame {
+        .init(sender: OsmoDuml.senderApp, receiver: rx(type: 0x08, id: 0), seq: start ? 0x8C2E : 0xEAC8,
+              flags: OsmoDuml.flagRequest, cmdSet: 0x02, cmdId: 0x8E,
+              payload: [0x01, 0x01, 0x1A, 0x00, 0x01, start ? 0x01 : 0x02])
+    }
+
     /// `0x09/0xA8` ライブビュー開始(= キーフレームの要求)。Pocket は受け手 0x08。
     /// 毎秒送り直すとキーフレームが届かなくなる(黒い画面)。1 回だけ、止まったときに数秒あけて 1 回
     static func liveViewEnable() -> OsmoDuml.Frame {

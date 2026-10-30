@@ -141,6 +141,11 @@ struct AppSettingsView: View {
             } label: {
                 Text(verbatim: "Osmo Pocket ライブビュー(実験)")
             }
+            NavigationLink {
+                OsmoLivestreamView()
+            } label: {
+                Text(verbatim: "Osmo → iPhone に録画(配信・実験)")
+            }
             #else
             Text(verbatim: "このビルドには Osmo Pocket の実験は入っていません(リポジトリ変数 OSMO_LIVE)")
                 .font(.footnote)

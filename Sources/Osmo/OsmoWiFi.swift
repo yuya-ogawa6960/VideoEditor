@@ -74,6 +74,37 @@ enum OsmoWiFi {
         return false
     }
 
+    /// カメラに送り先として教える iPhone の IPv4。Wi-Fi(en0)とインターネット共有(bridge*)だけ。
+    /// カメラの Wi-Fi(192.168.2.x)・モバイル通信・VPN は除く
+    nonisolated static func streamTargetAddresses() -> [(label: String, ip: String)] {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return [] }
+        defer { freeifaddrs(head) }
+        var result: [(label: String, ip: String)] = []
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let entry = cursor {
+            defer { cursor = entry.pointee.ifa_next }
+            guard let addr = entry.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            let name = String(cString: entry.pointee.ifa_name)
+            let label: String
+            if name.hasPrefix("bridge") {
+                label = "インターネット共有"
+            } else if name == "en0" {
+                label = "Wi-Fi"
+            } else {
+                continue
+            }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(addr, socklen_t(addr.pointee.sa_len), &host, socklen_t(host.count),
+                              nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let ip = String(cString: host)
+            if ip.hasPrefix("192.168.2.") || ip.hasPrefix("169.254.") { continue }
+            if !result.contains(where: { $0.ip == ip }) { result.append((label, ip)) }
+        }
+        // インターネット共有を先に(カメラを iPhone につなぐときの既定)
+        return result.filter { $0.label == "インターネット共有" } + result.filter { $0.label != "インターネット共有" }
+    }
+
     /// カメラから DHCP でもらった iPhone の IPv4(192.168.2.2〜254)。無ければ nil
     nonisolated static func cameraLocalIPv4() -> String? {
         var head: UnsafeMutablePointer<ifaddrs>?

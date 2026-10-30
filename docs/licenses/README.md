@@ -5,6 +5,7 @@
 | 元 | ライセンス | 使った部分 |
 | --- | --- | --- |
 | [OpenCine](https://github.com/erik-sutton95/OpenCine)(commit `dd77b69e77b48bedc12f57e6be36a88e27c74007`) | Apache License 2.0 | DUML フレーム・CRC・UDP の包み・命令のバイト列・映像の組み立て(`OsmoDUML.swift`、`OsmoVideoDepacketizer.swift`)。Bluetooth・Wi-Fi・データリンク・復号は手順を参考に書き直し |
+| [node-osmo](https://github.com/datagutt/node-osmo) | MIT | コードは使っていない。配信の設定の解像度の値(480p `47`・720p `04`・1080p `0A`)と並び方を参考にした |
 | [OpenPocketCine](https://github.com/erik-sutton95/OpenPocketCine)(commit `35f51dc57277cef7a56e1504df415f716a9f98e2`) | Apache License 2.0 | プロトコルの資料(`handbook/`)。`docs/OsmoPocket.md` の説明のもと |
 
 - ライセンスの本文: [OpenCine-LICENSE.txt](OpenCine-LICENSE.txt)(OpenPocketCine も同じ本文)

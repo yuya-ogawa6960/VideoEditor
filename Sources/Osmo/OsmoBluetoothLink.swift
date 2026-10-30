@@ -223,9 +223,35 @@ final class OsmoBluetoothLink: NSObject {
     /// 送ってから、同じ cmdSet/cmdId の返事を待つ
     func request(_ frame: OsmoDuml.Frame, timeout: TimeInterval, label: String) async throws -> OsmoDuml.Frame {
         let set = frame.cmdSet, cmd = frame.cmdId
+        // 返事(flags の 0x80 が立つ)だけを待つ。前の同じ命令の遅れた返事は先に捨てる
+        let isReply: (OsmoDuml.Frame) -> Bool = { $0.cmdSet == set && $0.cmdId == cmd && $0.flags & 0x80 != 0 }
+        unclaimed.removeAll(where: isReply)
         // 返事は MainActor が空くまで届かず、先に届いても unclaimed に残るので、送ってから待ってよい
         send(frame)
-        return try await waitForFrame(timeout: timeout, label: label) { $0.cmdSet == set && $0.cmdId == cmd }
+        return try await waitForFrame(timeout: timeout, label: label, matching: isReply)
+    }
+
+    /// アプリのペアリング(Bluetooth の「ペアリング」とは別。カメラが app の識別子を覚える)。
+    /// つないだあとに呼ぶ。初回はカメラの画面での許可を待つ(`onAwaitingApproval` が呼ばれる)
+    func pairApp(onAwaitingApproval: () -> Void) async throws {
+        send(OsmoCommands.sessionWake())
+        let pin = try await request(OsmoCommands.setPairingPin(), timeout: 90, label: "SetPairingPIN")
+        let result = pin.payload.count >= 2 ? pin.payload[1] : 0xFF
+        log("pair: reply \(Self.hex(pin.payload))")
+        switch result {
+        case 0x01:
+            log("pair: already paired")
+        case 0x02:
+            onAwaitingApproval()
+            _ = try await waitForFrame(timeout: 90, label: "カメラでの許可") {
+                $0.cmdSet == 0x07 && $0.cmdId == 0x46
+            }
+            log("pair: approved on camera")
+        case 0x06:
+            throw OsmoError.refused("ペアリングを後回しにされました(00 06)。数秒待ってもう一度")
+        default:
+            log(String(format: "pair: unknown result %02X, continuing", result))
+        }
     }
 
     private func failWaiters(_ error: Error) {

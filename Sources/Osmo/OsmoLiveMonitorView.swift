@@ -106,7 +106,7 @@ struct OsmoLiveMonitorView: View {
 }
 
 /// AVSampleBufferDisplayLayer を SwiftUI に置く
-private struct OsmoVideoLayerView: UIViewRepresentable {
+struct OsmoVideoLayerView: UIViewRepresentable {
     let layer: AVSampleBufferDisplayLayer
 
     func makeUIView(context: Context) -> LayerHostView {

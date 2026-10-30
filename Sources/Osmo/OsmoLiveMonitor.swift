@@ -148,24 +148,7 @@ final class OsmoLiveMonitor {
 
         // 2. アプリのペアリング(Bluetooth の「ペアリング」とは別。カメラが app の識別子を覚える)
         phase = .pairing
-        bluetooth.send(OsmoCommands.sessionWake())
-        let pin = try await bluetooth.request(OsmoCommands.setPairingPin(), timeout: 90, label: "SetPairingPIN")
-        let result = pin.payload.count >= 2 ? pin.payload[1] : 0xFF
-        appendLog(String(format: "pair: reply %@", OsmoBluetoothLink.hex(pin.payload)))
-        switch result {
-        case 0x01:
-            appendLog("pair: already paired")
-        case 0x02:
-            phase = .awaitingApproval
-            _ = try await bluetooth.waitForFrame(timeout: 90, label: "カメラでの許可") {
-                $0.cmdSet == 0x07 && $0.cmdId == 0x46
-            }
-            appendLog("pair: approved on camera")
-        case 0x06:
-            throw OsmoError.refused("ペアリングを後回しにされました(00 06)。数秒待ってもう一度")
-        default:
-            appendLog(String(format: "pair: unknown result %02X, continuing", result))
-        }
+        try await bluetooth.pairApp { phase = .awaitingApproval }
 
         // 3. カメラの Wi-Fi を起こして、名前とパスワードを読む
         phase = .readingWiFi
