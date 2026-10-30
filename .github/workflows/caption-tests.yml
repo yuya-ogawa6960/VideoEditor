@@ -1,0 +1,29 @@
+# 字幕の重複・誤認識の掃除(Sources/Engine/CaptionCleanup.swift)の検査。
+# Xcode を使わず、Linux の Swift だけで Tests/CaptionCleanup/run.sh を実行する(数十秒で終わる)
+name: Caption cleanup tests
+
+on:
+  push:
+    paths:
+      - "Sources/Engine/CaptionCleanup.swift"
+      - "Sources/Model/CaptionIssues.swift"
+      - "Tests/CaptionCleanup/**"
+      - ".github/workflows/caption-tests.yml"
+  pull_request:
+    paths:
+      - "Sources/Engine/CaptionCleanup.swift"
+      - "Sources/Model/CaptionIssues.swift"
+      - "Tests/CaptionCleanup/**"
+      - ".github/workflows/caption-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: swift:6.0-noble
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run CaptionCleanup tests
+        run: Tests/CaptionCleanup/run.sh

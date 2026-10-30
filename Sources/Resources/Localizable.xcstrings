@@ -68449,6 +68449,29 @@
         }
       }
     },
+    "重複・誤認識 %lld 件を取り除きました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %lld duplicate or misheard captions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se quitaron %lld subtítulos duplicados o mal reconocidos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld legendas duplicadas ou mal reconhecidas foram removidas"
+          }
+        }
+      }
+    },
     "野原": {
       "extractionState": "manual",
       "localizations": {

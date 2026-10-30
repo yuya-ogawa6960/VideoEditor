@@ -37,8 +37,20 @@ enum CaptionIssueCheck {
     /// これより自信度が低い言葉を要確認にする(0〜1)
     static let lowConfidence: Double = 0.4
 
-    /// 音声のない所で出やすい定型文(認識結果と比べる文なので訳さない。1 行で書くと翻訳の抽出から外れる)
-    private static let commonMistakes: [String] = "ご視聴ありがとうございました|チャンネル登録|高評価|字幕作成|字幕制作|thanks for watching|thank you for watching|subtitles by|amara.org".components(separatedBy: "|")
+    /// 音声のない所で出やすい定型文(認識結果と比べる文なので訳さない。1 行で書くと翻訳の抽出から外れる)。
+    /// 要確認の印のほか、CaptionCleanup が文字起こしの直後に短いもの・重なるものを捨てるのにも使う
+    static let commonMistakes: [String] = "ご視聴ありがとうございました|チャンネル登録|高評価|字幕作成|字幕制作|thanks for watching|thank you for watching|subtitles by|amara.org".components(separatedBy: "|")
+
+    /// 文が定型文そのもの(前後に少し付いていてもよい)か
+    static func isCommonMistake(_ text: String) -> Bool {
+        let visible = visibleCharacters(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !visible.isEmpty else { return false }
+        let lowered = visible.lowercased()
+        return commonMistakes.contains { phrase in
+            let target = visibleCharacters(phrase).lowercased()
+            return lowered.contains(target) && visible.count <= target.count + 6
+        }
+    }
 
     /// 字幕ごとの要確認の理由(時刻順に並んだ字幕を渡す)
     static func issues(in cues: [SubtitleCue]) -> [UUID: CaptionIssue] {
@@ -59,11 +71,7 @@ enum CaptionIssueCheck {
         guard !text.isEmpty else { return nil }
         let visible = visibleCharacters(text)
 
-        let lowered = visible.lowercased()
-        if commonMistakes.contains(where: { phrase in
-            let target = visibleCharacters(phrase).lowercased()
-            return lowered.contains(target) && visible.count <= target.count + 6
-        }) {
+        if isCommonMistake(text) {
             return .commonMistake
         }
         if let previous, visible.count >= 2, visibleCharacters(previous.text) == visible {
