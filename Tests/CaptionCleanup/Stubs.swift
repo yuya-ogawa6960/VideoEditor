@@ -56,3 +56,12 @@ enum SubtitleSegmenter {
         }
     }
 }
+
+#if !canImport(Darwin)
+/// Linux の Foundation には String(localized:) が無い(CaptionIssue.message が使う)。検査では訳さずそのまま返す
+extension String {
+    init(localized value: String) {
+        self = value
+    }
+}
+#endif
