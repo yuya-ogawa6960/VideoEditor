@@ -103,7 +103,7 @@ struct OsmoRecordingSections: View {
                     Circle()
                         .fill(Color.red)
                         .frame(width: 10, height: 10)
-                    TimelineView(.periodic(from: startedAt, by: 0.5)) { context in
+                    SwiftUI.TimelineView(.periodic(from: startedAt, by: 0.5)) { context in
                         Text(verbatim: Self.clock(context.date.timeIntervalSince(startedAt)))
                             .monospacedDigit()
                     }
