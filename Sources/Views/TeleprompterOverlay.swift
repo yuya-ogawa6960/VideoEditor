@@ -71,56 +71,60 @@ struct TeleprompterOverlay: View {
     // MARK: - 文章
 
     private var textArea: some View {
-        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isScrolling)) { context in
-            let offset = currentOffset(at: context.date)
-            Text(script)
-                .font(.system(size: fontSize.pointSize, weight: .semibold))
-                .lineSpacing(fontSize.pointSize * 0.4)
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 16)
-                // 最初の行が読む位置から始まり、最後の行まで読む位置に来られるように上下を空ける
-                .padding(.top, guideY)
-                .padding(.bottom, max(0, areaHeight - guideY))
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { height in
-                    textHeight = height
+        // 文章は Color.clear の上に重ねる(overlay)。文章の高さが枠の高さに影響しないようにするため。
+        // 以前は 文章の高さ → 上下の余白 → 枠の高さ → 余白… と伸び続けて画面が固まった(台本が入っているとカメラ画面が開けなかった)
+        Color.clear
+            .overlay(alignment: .top) {
+                SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isScrolling)) { context in
+                    let offset = currentOffset(at: context.date)
+                    Text(script)
+                        .font(.system(size: fontSize.pointSize, weight: .semibold))
+                        .lineSpacing(fontSize.pointSize * 0.4)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 16)
+                        // 最初の行が読む位置から始まり、最後の行まで読む位置に来られるように上下を空ける
+                        .padding(.top, guideY)
+                        .padding(.bottom, max(0, areaHeight - guideY))
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.height
+                        } action: { height in
+                            textHeight = height
+                        }
+                        .offset(y: -offset)
                 }
-                .offset(y: -offset)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(alignment: .top) {
-            // 読む位置の目印
-            Rectangle()
-                .fill(BrandStyle.coral.opacity(0.8))
-                .frame(height: 2)
-                .padding(.horizontal, 8)
-                .padding(.top, guideY)
-                .allowsHitTesting(false)
-        }
-        .scaleEffect(x: isMirrored ? -1 : 1, y: 1)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 4)
-                .onChanged { value in
-                    dragOffset = -value.translation.height
-                }
-                .onEnded { value in
-                    fold(pointsPerSecond: pointsPerSecond)
-                    dragOffset = 0
-                    baseOffset = clamp(baseOffset - value.translation.height)
-                }
-        )
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.height
-        } action: { height in
-            areaHeight = height
-        }
-        .accessibilityLabel("台本")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(alignment: .top) {
+                // 読む位置の目印
+                Rectangle()
+                    .fill(BrandStyle.coral.opacity(0.8))
+                    .frame(height: 2)
+                    .padding(.horizontal, 8)
+                    .padding(.top, guideY)
+                    .allowsHitTesting(false)
+            }
+            .scaleEffect(x: isMirrored ? -1 : 1, y: 1)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 4)
+                    .onChanged { value in
+                        dragOffset = -value.translation.height
+                    }
+                    .onEnded { value in
+                        fold(pointsPerSecond: pointsPerSecond)
+                        dragOffset = 0
+                        baseOffset = clamp(baseOffset - value.translation.height)
+                    }
+            )
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { height in
+                areaHeight = height
+            }
+            .accessibilityLabel("台本")
     }
 
     /// いま表示する位置(流している分と指の分を足して、文章の範囲に収める)

@@ -19275,6 +19275,29 @@
         }
       }
     },
+    "キャプションを一覧で直す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix captions in the list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corregir subtítulos en la lista"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrigir legendas na lista"
+          }
+        }
+      }
+    },
     "キャプションを作っています": {
       "extractionState": "manual",
       "localizations": {
@@ -33347,6 +33370,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Lista (%lld)"
+          }
+        }
+      }
+    },
+    "一覧でそのまま直す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit in place"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar en la lista"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar na lista"
+          }
+        }
+      }
+    },
+    "一覧で直す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix in list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corregir en la lista"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrigir na lista"
           }
         }
       }
@@ -51659,6 +51728,29 @@
         }
       }
     },
+    "時刻や分割を直す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust timing or split"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar tiempo o dividir"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar tempo ou dividir"
+          }
+        }
+      }
+    },
     "時間": {
       "extractionState": "manual",
       "localizations": {
@@ -63086,6 +63178,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld para revisar"
+          }
+        }
+      }
+    },
+    "要確認だけ表示": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show flagged only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo los marcados"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só os marcados"
+          }
+        }
+      }
+    },
+    "要確認のキャプションはありません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No flagged captions."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay subtítulos marcados."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma legenda marcada."
           }
         }
       }

@@ -1070,6 +1070,14 @@ struct ContentView: View {
         }
     }
 
+    /// キャプションの一覧(生成した文と注意書き)を、その場で直すモードで開く。再生位置の行まで送られる
+    private func openCaptionList() {
+        history.record(project)
+        player.pause()
+        subtitleSheetSection = .list
+        activeSheet = .subtitles
+    }
+
     /// タイムラインの「+」から。写真ライブラリ(動画と写真)をすぐ開く
     private func requestOverlayAdd() {
         guard !isImporting else { return }
@@ -2069,6 +2077,11 @@ struct ContentView: View {
             history.record(project)
             activeSheet = .subtitles
         })
+        items.append(EditorToolItem(String(localized: "キャプションを一覧で直す"), systemImage: "list.bullet.rectangle", id: "text-caption-list",
+                                    enabled: !project.subtitles.isEmpty,
+                                    disabledReason: String(localized: "先にキャプションを作成してください")) {
+            openCaptionList()
+        })
         items.append(EditorToolItem(String(localized: "文字起こしで編集"), systemImage: "strikethrough", id: "text-transcript-edit") {
             openTranscriptEdit()
         })
@@ -2201,6 +2214,10 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "キャプションを作成"), systemImage: "text.bubble", id: "ai-captions") {
             history.record(project)
             activeSheet = .subtitles
+        })
+        items.append(EditorToolItem(String(localized: "キャプションを一覧で直す"), systemImage: "list.bullet.rectangle", id: "ai-caption-list",
+                                    enabled: !project.subtitles.isEmpty, disabledReason: needCaptions) {
+            openCaptionList()
         })
         items.append(EditorToolItem(String(localized: "中だるみ・編集チェック"), systemImage: "gauge.with.dots.needle.33percent",
                                     enabled: !running && !noClips,
@@ -2742,6 +2759,9 @@ struct ContentView: View {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem(String(localized: "文字を直す"), systemImage: "pencil") {
             openPanel(.textEdit(cueID))
+        })
+        items.append(EditorToolItem(String(localized: "一覧で直す"), systemImage: "list.bullet.rectangle", id: "subtitle-list") {
+            openCaptionList()
         })
         items.append(EditorToolItem(String(localized: "削除"), systemImage: "trash", destructive: true) {
             history.record(project)

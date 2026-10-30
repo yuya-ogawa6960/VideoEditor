@@ -100,6 +100,8 @@ fileprivate enum CaptionLook: String, CaseIterable, Identifiable {
 /// 開いたときに開いて見せる場所(編集画面の「キャプションを翻訳」などから渡す)
 enum SubtitleEditorSection {
     case translate
+    /// 一覧(その場で直すモード)。「キャプションを一覧で直す」から開いたとき
+    case list
 }
 
 struct SubtitleEditorView: View {
@@ -151,6 +153,8 @@ struct SubtitleEditorView: View {
 
     /// 操作列の行の id(「翻訳」から開いたときにここへスクロールする)
     private static let toolRowID = "captionTools"
+    /// 一覧の見出しの id(「一覧で直す」から開いたときにここへスクロールする)
+    private static let listHeaderID = "captionList"
 
     @State private var transcriber = TranscriptionService()
     /// 話している言語(訳を付けるかも含む)
@@ -214,6 +218,12 @@ struct SubtitleEditorView: View {
     // 字幕一覧の一括操作
     @State private var isDeleteAllPresented: Bool = false
     @State private var showsShiftTool: Bool = false
+    /// 一覧の行でそのまま文を直す(別画面に移らない)。「キャプションを一覧で直す」から開くとオン
+    @State private var inlineEditing: Bool = false
+    /// 一覧を要確認の行だけにする
+    @State private var showsIssuesOnly: Bool = false
+    /// 「要確認だけ表示」にしたときの要確認の行(直して印が消えても、閉じるまでは行を残す)
+    @State private var issuesOnlyIDs: Set<UUID> = []
     @State private var appliedShift: Double = 0
 
     private var isTranscribing: Bool {
@@ -523,6 +533,21 @@ struct SubtitleEditorView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                             withAnimation {
                                 proxy.scrollTo(SubtitleEditorView.toolRowID, anchor: .top)
+                            }
+                        }
+                    }
+                    // 「キャプションを一覧で直す」から開いたときは、その場で直すモードで一覧の再生位置の行へ
+                    if initialSection == .list, !project.subtitles.isEmpty {
+                        inlineEditing = true
+                        expandedTool = nil
+                        let cueID = currentCueID
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            withAnimation {
+                                if let cueID {
+                                    proxy.scrollTo(cueID, anchor: .top)
+                                } else {
+                                    proxy.scrollTo(SubtitleEditorView.listHeaderID, anchor: .top)
+                                }
                             }
                         }
                     }
@@ -1533,16 +1558,30 @@ struct SubtitleEditorView: View {
                     .foregroundStyle(.secondary)
             } else {
                 let highlightedID = currentCueID
-                ForEach(project.subtitles) { cue in
-                    cueRow(cue, isCurrent: cue.id == highlightedID, issue: issues[cue.id])
-                }
-                .onDelete { offsets in
-                    project.subtitles.remove(atOffsets: offsets)
+                if showsIssuesOnly {
+                    // 要確認だけ(切り替えたときの行を出し続ける。直している途中で行が消えないように)
+                    let flagged = project.subtitles.filter { issuesOnlyIDs.contains($0.id) }
+                    if flagged.isEmpty {
+                        Text("要確認のキャプションはありません。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(flagged) { cue in
+                        cueRow(cue, isCurrent: cue.id == highlightedID, issue: issues[cue.id])
+                    }
+                } else {
+                    ForEach(project.subtitles) { cue in
+                        cueRow(cue, isCurrent: cue.id == highlightedID, issue: issues[cue.id])
+                    }
+                    .onDelete { offsets in
+                        project.subtitles.remove(atOffsets: offsets)
+                    }
                 }
             }
         } header: {
             HStack {
                 Text("一覧 \(project.subtitles.count)")
+                    .id(Self.listHeaderID)
                 let issueCount = issues.count
                 if issueCount > 0 {
                     Label {
@@ -1556,6 +1595,18 @@ struct SubtitleEditorView: View {
                 Spacer()
                 if !project.subtitles.isEmpty {
                     Menu {
+                        Button {
+                            inlineEditing.toggle()
+                        } label: {
+                            Label("一覧でそのまま直す", systemImage: inlineEditing ? "checkmark" : "text.cursor")
+                        }
+                        Button {
+                            showsIssuesOnly.toggle()
+                            issuesOnlyIDs = showsIssuesOnly ? Set(issues.keys) : []
+                        } label: {
+                            Label("要確認だけ表示", systemImage: showsIssuesOnly ? "checkmark" : "exclamationmark.circle")
+                        }
+                        Divider()
                         Button {
                             appliedShift = 0
                             showsShiftTool = true
@@ -1653,7 +1704,97 @@ struct SubtitleEditorView: View {
     }
 
     /// issue: 要確認の理由(赤い背景と「!」。CaptionIssues.swift)
+    @ViewBuilder
     private func cueRow(_ cue: SubtitleCue, isCurrent: Bool, issue: CaptionIssue?) -> some View {
+        if inlineEditing, let binding = project.subtitleBinding(id: cue.id) {
+            inlineCueRow(cue, binding: binding, isCurrent: isCurrent, issue: issue)
+        } else {
+            tapCueRow(cue, isCurrent: isCurrent, issue: issue)
+        }
+    }
+
+    /// その場で直す行: 時刻(タップで再生位置へ)・注意書き・文の入力欄。要確認なら「問題なし」も
+    private func inlineCueRow(_ cue: SubtitleCue, binding: Binding<SubtitleCue>, isCurrent: Bool, issue: CaptionIssue?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Button {
+                    player.seek(to: cue.start)
+                } label: {
+                    Label {
+                        Text("\(subtitleTimeString(cue.start)) – \(subtitleTimeString(cue.end))")
+                            .font(.caption.monospacedDigit())
+                    } icon: {
+                        Image(systemName: isCurrent ? "play.fill" : "play")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.borderless)
+                if let issue {
+                    Text(issue.message)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 4)
+                if issue != nil {
+                    Button {
+                        if let index = project.subtitles.firstIndex(where: { $0.id == cue.id }) {
+                            project.subtitles[index].issueDismissed = true
+                        }
+                    } label: {
+                        Label("問題なし", systemImage: "checkmark.circle")
+                            .labelStyle(.iconOnly)
+                            .font(.title3)
+                            .foregroundStyle(.green)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("問題なし")
+                }
+                Button {
+                    editingCueID = cue.id
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.title3)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("時刻や分割を直す")
+            }
+            TextField("テキストを入力", text: binding.text, axis: .vertical)
+                .lineLimit(1...4)
+                .textFieldStyle(.plain)
+            if cue.translatedText != nil {
+                TextField("訳文", text: Binding(get: { binding.wrappedValue.translatedText ?? "" },
+                                               set: { binding.wrappedValue.translatedText = $0 }), axis: .vertical)
+                    .lineLimit(1...3)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.secondary)
+                    .textFieldStyle(.plain)
+            }
+        }
+        .padding(.vertical, 2)
+        .listRowBackground(issue != nil
+                           ? Color.red.opacity(isCurrent ? 0.32 : 0.22)
+                           : (isCurrent ? Color.accentColor.opacity(0.15) : Color(uiColor: .secondarySystemGroupedBackground)))
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                project.subtitles.removeAll { $0.id == cue.id }
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
+            if project.subtitles.last?.id != cue.id {
+                Button {
+                    mergeWithNext(cueID: cue.id)
+                } label: {
+                    Label("次と結合", systemImage: "arrow.triangle.merge")
+                }
+                .tint(.blue)
+            }
+        }
+    }
+
+    /// いつもの行: タップで再生位置へ、鉛筆で 1 件の編集画面
+    private func tapCueRow(_ cue: SubtitleCue, isCurrent: Bool, issue: CaptionIssue?) -> some View {
         HStack(spacing: 8) {
             if issue != nil {
                 Image(systemName: "exclamationmark.circle.fill")

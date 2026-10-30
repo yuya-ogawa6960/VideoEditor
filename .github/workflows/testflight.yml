@@ -11,8 +11,8 @@ name: TestFlight
 on:
   push:
     branches: [ main ]
-    # サーバー(server/)だけの変更ではアプリを作り直さない
-    paths-ignore: [ "server/**", ".github/workflows/deploy-server.yml" ]
+    # サーバー(server/)だけの変更や、確認用のワークフロー(asc-*, db-*)の変更ではアプリを作り直さない
+    paths-ignore: [ "server/**", ".github/workflows/deploy-server.yml", ".github/workflows/asc-*.yml", ".github/workflows/db-*.yml" ]
   workflow_dispatch:
 
 concurrency:

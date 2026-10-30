@@ -13,7 +13,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     # アプリと共有用の拡張機能で同じ番号にする(App Store の決まり)。上げるときはここだけ
-    MARKETING_VERSION: "1.12.75"
+    MARKETING_VERSION: "1.12.76"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: ""
