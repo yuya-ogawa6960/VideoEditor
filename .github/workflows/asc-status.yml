@@ -35,4 +35,18 @@ jobs:
               bd = beta.get(b["relationships"]["buildBetaDetail"]["data"]["id"], {}) if b["relationships"].get("buildBetaDetail", {}).get("data") else {}
               print(f'build {a["version"]}: processing={a["processingState"]} uploaded={a["uploadedDate"]} '
                     f'expired={a.get("expired")} internal={bd.get("internalBuildState")} encryption={a.get("usesNonExemptEncryption")}')
+          # App Store の審査状況(バージョンの状態と審査提出の状態)
+          apps = requests.get("https://api.appstoreconnect.apple.com/v1/apps", headers=h).json()["data"]
+          for app in apps:
+              print("app", app["attributes"]["bundleId"])
+              vs = requests.get(f'https://api.appstoreconnect.apple.com/v1/apps/{app["id"]}/appStoreVersions',
+                                params={"limit": 3, "fields[appStoreVersions]": "versionString,appVersionState,createdDate,releaseType"}, headers=h).json()
+              for v in vs.get("data", []):
+                  a = v["attributes"]
+                  print(f'  version {a.get("versionString")}: state={a.get("appVersionState")} created={a.get("createdDate")} release={a.get("releaseType")}')
+              rs = requests.get("https://api.appstoreconnect.apple.com/v1/reviewSubmissions",
+                                params={"filter[app]": app["id"], "limit": 3}, headers=h).json()
+              for sub in rs.get("data", []):
+                  a = sub["attributes"]
+                  print(f'  submission {sub["id"]}: state={a.get("state")} submitted={a.get("submittedDate")} platform={a.get("platform")}')
           EOF
