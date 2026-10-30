@@ -408,6 +408,8 @@ struct EditorPanelContainer<Content: View>: View {
     /// nil 以外なら左上に ✕「キャンセル」(開いたときの状態に戻して閉じる)を出す
     var onCancel: (() -> Void)? = nil
     let onClose: () -> Void
+    /// nil 以外ならヘッダーに「比較」(押している間だけ元の色。LookComparePreview.swift)を出す
+    var onCompare: ((Bool) -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
     /// キーボードが出ている間はヘッダーに「キーボードを閉じる」を出す(パネルの中の入力欄には閉じる手段がないため)
@@ -441,6 +443,9 @@ struct EditorPanelContainer<Content: View>: View {
                     .truncationMode(.tail)
                     .padding(.leading, onCancel == nil ? 10 : 0)
                 Spacer(minLength: 4)
+                if let onCompare {
+                    LookCompareHeaderButton(onCompare: onCompare)
+                }
                 if isKeyboardVisible {
                     Button {
                         EditorHaptics.tap()

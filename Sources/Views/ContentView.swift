@@ -840,6 +840,8 @@ struct ContentView: View {
                                           })
                 }
             }
+            // 色・ルック系のパネルを開いている間だけ、長押しで元の色を見る(LookComparePreview.swift)
+            .lookCompareHold(scope: isDrawingNew ? nil : activePanel?.lookCompareScope, player: player)
             // SNS の表示ガイド(TikTok などのボタンが重なる範囲)。プレビューだけで、書き出しには影響しない
             .overlay {
                 SafeZonePreviewLayer(guide: $safeZoneGuide, project: project,
@@ -1258,7 +1260,8 @@ struct ContentView: View {
                 EditorPanelContainer(title: panelTitle(panel),
                                      height: panelHeight,
                                      onCancel: cancelAction,
-                                     onClose: { closePanel(panel) }) {
+                                     onClose: { closePanel(panel) },
+                                     onCompare: LookCompare.action(for: panel, player: player)) {
                     panelContent(panel)
                 }
                 // トーストをパネルの上に出すため、高さを控えておく
