@@ -163,10 +163,21 @@ Pocket 4(Pro ではない)は機種番号 `0x21` で、手順は 4 Pro と同じ
 
 ### ビルドに入れる方法
 
-1. Apple Developer の Identifiers で `com.yuyaogawa6960.videomania` の **Hotspot** の機能をオンにします。オンにしないと TestFlight の書き出しで署名が失敗します。
-2. GitHub のリポジトリ変数 `OSMO_LIVE` を `on` にします(Settings → Secrets and variables → Actions → Variables)。
-3. TestFlight のワークフローを動かします。オフのあいだは、CI が `project.yml` の `# >>> osmo-live` と `# <<< osmo-live` のあいだを消して作ります。
-4. **審査に出す前に `OSMO_LIVE` をオフに戻します。** オンのままだと、Bluetooth とローカルネットワークの許可の文がアプリに入り、審査で使い道を聞かれます。
+**テスト用の 1 回だけ入れる(おすすめ)**
+
+1. GitHub の Actions → TestFlight → Run workflow を押します。
+2. Branch を選び、「Osmo Pocket の実験を入れる」にチェックを入れて実行します。
+3. ワークフローが App Store Connect API で App ID の **Hotspot** の機能をオンにします(すでにオンなら何もしません)。そのあとアプリを作って TestFlight に送ります。
+
+API キーに権限がなくて Hotspot をオンにできないときは、そのステップが失敗します。
+その場合は developer.apple.com の Identifiers → `com.yuyaogawa6960.videomania` で Hotspot にチェックを入れてください。
+
+**ずっと入れる**
+
+リポジトリ変数 `OSMO_LIVE` を `on` にすると、main への push でも入ります。**審査に出す前に必ず消してください。**
+
+`main` への push では、チェックも変数もなければ、CI が `project.yml` の `# >>> osmo-live` と `# <<< osmo-live` のあいだを消して作ります。
+コード・権限・利用目的の文のどれもビルドに入りません。
 
 ## リスク
 

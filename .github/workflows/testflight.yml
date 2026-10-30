@@ -14,6 +14,13 @@ on:
     # サーバー(server/)だけの変更や、確認用のワークフロー(asc-*, db-*)の変更ではアプリを作り直さない
     paths-ignore: [ "server/**", ".github/workflows/deploy-server.yml", ".github/workflows/asc-*.yml", ".github/workflows/db-*.yml" ]
   workflow_dispatch:
+    inputs:
+      osmo_live:
+        # Osmo Pocket のライブビュー(開発者モードの実験。docs/OsmoPocket.md)をこの 1 回だけ入れる。
+        # 審査に出すビルドではオフのまま(main への push では入らない)
+        description: "Osmo Pocket の実験を入れる(テスト用。審査に出すビルドではオフ)"
+        type: boolean
+        default: false
 
 concurrency:
   group: testflight
@@ -71,7 +78,7 @@ jobs:
       # Hotspot の権限を審査に出すビルドへ入れないよう、リポジトリ変数 OSMO_LIVE が on でないあいだは印のあいだを消す
       # (Sources/Osmo/ は #if OSMO_LIVE で守られているので、コードもビルドに入らない)
       - name: Leave out the Osmo Pocket experiment (until OSMO_LIVE is on)
-        if: steps.check.outputs.ready == 'true' && vars.OSMO_LIVE != 'on'
+        if: steps.check.outputs.ready == 'true' && vars.OSMO_LIVE != 'on' && inputs.osmo_live != true
         run: |
           sed -i '' -e '/# >>> osmo-live/,/# <<< osmo-live/d' project.yml
           if grep -nE "OSMO_LIVE|HotspotConfiguration|NSBluetoothAlwaysUsageDescription|NSLocalNetworkUsageDescription" project.yml; then
@@ -79,6 +86,43 @@ jobs:
             exit 1
           fi
           echo "Osmo Pocket experiment left out of this build (set the repository variable OSMO_LIVE to on to include it)"
+
+      # Osmo Pocket の実験を入れるときは、App ID の「Hotspot」の機能を App Store Connect API でオンにする
+      # (NEHotspotConfiguration の権限。オンでないと書き出しの署名が失敗する。すでにオンなら何もしない)
+      - name: Enable Hotspot for the App ID (Osmo Pocket experiment)
+        if: steps.check.outputs.ready == 'true' && (vars.OSMO_LIVE == 'on' || inputs.osmo_live == true)
+        run: |
+          pip3 install --quiet pyjwt cryptography requests || pip3 install --quiet --break-system-packages pyjwt cryptography requests
+          python3 - <<'PY'
+          import os, re, time, jwt, requests
+          raw = os.environ["ASC_KEY_P8"].replace("\r", "")
+          body = re.sub(r"\s", "", re.sub(r"-----[A-Z ]*-----", "", raw))
+          pem = "-----BEGIN PRIVATE KEY-----\n" + "\n".join(body[i:i+64] for i in range(0, len(body), 64)) + "\n-----END PRIVATE KEY-----\n"
+          now = int(time.time())
+          token = jwt.encode({"iss": os.environ["ASC_ISSUER_ID"], "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
+                             pem, algorithm="ES256", headers={"kid": os.environ["ASC_KEY_ID"], "typ": "JWT"})
+          h = {"Authorization": "Bearer " + token}
+          api = "https://api.appstoreconnect.apple.com/v1"
+          ident = "com.yuyaogawa6960.videomania"
+          r = requests.get(api + "/bundleIds", params={"filter[identifier]": ident, "include": "bundleIdCapabilities", "limit": 5}, headers=h)
+          r.raise_for_status()
+          ids = [d for d in r.json()["data"] if d["attributes"]["identifier"] == ident]
+          if not ids:
+              raise SystemExit(f"App ID {ident} not found")
+          bid = ids[0]["id"]
+          caps = [i["attributes"].get("capabilityType") for i in r.json().get("included", []) if i["type"] == "bundleIdCapabilities"]
+          print("capabilities:", caps)
+          if "HOT_SPOT" in caps:
+              print("Hotspot is already on")
+              raise SystemExit(0)
+          r = requests.post(api + "/bundleIdCapabilities", headers=h, json={"data": {
+              "type": "bundleIdCapabilities",
+              "attributes": {"capabilityType": "HOT_SPOT"},
+              "relationships": {"bundleId": {"data": {"type": "bundleIds", "id": bid}}}}})
+          print("enable Hotspot:", r.status_code, r.text[:500])
+          if r.status_code not in (200, 201, 409):
+              raise SystemExit("could not turn on Hotspot. Turn it on at developer.apple.com (Identifiers > " + ident + ")")
+          PY
 
       # TikTok のクライアントキーが無いときは、空の URL スキームを Info.plist に入れないよう project.yml の印のあいだを消す
       - name: Leave out the TikTok URL scheme (until TIKTOK_CLIENT_KEY is set)
