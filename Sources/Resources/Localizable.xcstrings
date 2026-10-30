@@ -30,19 +30,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "\\nOf %lld pieces, %lld are done. “Import” waits for the rest, then imports them."
+            "value": "\nOf %lld pieces, %lld are done. “Import” waits for the rest, then imports them."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "\\nDe %lld partes, %lld están listas. “Importar” espera el resto y luego las importa."
+            "value": "\nDe %lld partes, %lld están listas. “Importar” espera el resto y luego las importa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "\\nDe %lld partes, %lld estão concluídas. “Importar” aguarda o restante e depois importa."
+            "value": "\nDe %lld partes, %lld estão concluídas. “Importar” aguarda o restante e depois importa."
           }
         }
       }
@@ -122,19 +122,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": " ・ Longer ranges make a larger file"
+            "value": " · Longer ranges make a larger file"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": " ・ Un rango largo crea un archivo grande"
+            "value": " · Un rango largo crea un archivo grande"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": " ・ Trechos longos geram arquivos grandes"
+            "value": " · Trechos longos geram arquivos grandes"
           }
         }
       }
@@ -335,7 +335,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En %@ se añadió una narración de %@ s."
+            "value": "En %@ se agregó una narración de %@ s."
           }
         },
         "pt-BR": {
@@ -358,7 +358,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se añadió «%2$@» en %1$@."
+            "value": "Se agregó «%2$@» en %1$@."
           }
         },
         "pt-BR": {
@@ -755,7 +755,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrando a guia de tela de %@"
+            "value": "Mostrando o guia de exibição de %@"
           }
         }
       }
@@ -818,13 +818,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ funciona mejor en menos de %lld segundos (ahora %lld s). Pon la duración objetivo en %lld s en “Edición automática” para conservar solo lo mejor."
+            "value": "%@ funciona mejor en menos de %lld segundos (ahora %lld s). Pon la duración objetivo en %lld s en “Edición automática” para conservar solo los momentos destacados."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ funciona melhor em até %lld segundos (agora %lld s). Defina a duração desejada em %lld s em “Edição automática” para manter só os melhores momentos."
+            "value": "%@ funciona melhor em até %lld segundos (agora %lld s). Defina a duração desejada em %lld s em “Edição automática” para manter só os destaques."
           }
         }
       }
@@ -1019,19 +1019,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosaic applied to %lld faces"
+            "value": "Pixelated %lld faces"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se aplicó mosaico a %lld rostros"
+            "value": "Se pixelaron %lld rostros"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosaico aplicado a %lld rostos"
+            "value": "%lld rostos pixelizados"
           }
         }
       }
@@ -1249,13 +1249,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Added %lld voice-overs."
+            "value": "Added %lld narrations."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se agregaron %lld voces en off."
+            "value": "Se agregaron %lld narraciones."
           }
         },
         "pt-BR": {
@@ -1272,13 +1272,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Added %lld voice-overs. Adjust them with “Volume” and “Audio Effects”."
+            "value": "Added %lld narrations. Adjust them with “Volume” and “Audio Effects”."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se agregaron %lld voces en off. Ajústalas con “Volumen” y “Efectos de audio”."
+            "value": "Se agregaron %lld narraciones. Ajústalas con “Volumen” y “Efectos de audio”."
           }
         },
         "pt-BR": {
@@ -1324,7 +1324,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se añadieron %lld líneas dobladas."
+            "value": "Se agregaron %lld líneas dobladas."
           }
         },
         "pt-BR": {
@@ -1485,13 +1485,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld mejores momentos"
+            "value": "%lld momentos destacados"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld melhores momentos"
+            "value": "%lld destaques"
           }
         }
       }
@@ -1554,7 +1554,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se añadieron %lld capítulos. Selecciona un marcador para cambiarle el nombre."
+            "value": "Se agregaron %lld capítulos. Selecciona un marcador para cambiarle el nombre."
           }
         },
         "pt-BR": {
@@ -1761,7 +1761,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir %lld"
+            "value": "Agregar %lld"
           }
         },
         "pt-BR": {
@@ -2077,19 +2077,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld items could not be loaded.\n"
+            "value": "%lld media files could not be loaded.\n"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudieron cargar %lld elementos.\n"
+            "value": "No se pudieron cargar %lld archivos de material.\n"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld itens não puderam ser carregados.\n"
+            "value": "%lld arquivos de mídia não puderam ser carregados.\n"
           }
         }
       }
@@ -3164,13 +3164,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ancho de línea (se ajusta más allá de esto)"
+            "value": "Ancho de línea (lo más largo salta de línea)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Largura da linha (quebra além disso)"
+            "value": "Largura da linha (o que passar quebra de linha)"
           }
         }
       }
@@ -3607,7 +3607,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este vídeo tem mais de 8 minutos, mas só %lld capítulos. No YouTube, com 3 ou mais (o primeiro em 0:00, cada um com 10s ou mais) aparece um índice para pular direto. Com legendas, a IA sugere a estrutura."
+            "value": "Este vídeo tem mais de 8 minutos, mas só %lld capítulos. No YouTube, com 3 ou mais (o primeiro em 0:00, cada um com 10 s ou mais) aparece um índice para pular direto. Com legendas, a IA sugere a estrutura."
           }
         }
       }
@@ -3871,13 +3871,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not measure A (current edit). Press “Measure again”. (Details: "
+            "value": "Could not measure A (current edit). Tap “Measure again”. (Details: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo medir A (edición actual). Pulsa “Medir de nuevo”. (Detalles: "
+            "value": "No se pudo medir A (edición actual). Toca “Medir de nuevo”. (Detalles: "
           }
         },
         "pt-BR": {
@@ -3940,19 +3940,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Polish captions with AI"
+            "value": "Clean up captions with AI"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulir subtítulos con IA"
+            "value": "Acabado de subtítulos con IA"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refinar legendas com IA"
+            "value": "Acabamento de legendas com IA"
           }
         }
       }
@@ -3969,13 +3969,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Limpiar subtítulos con IA"
+            "value": "Acabado de subtítulos con IA"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Limpar legendas com IA"
+            "value": "Acabamento de legendas com IA"
           }
         }
       }
@@ -4262,19 +4262,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "AI polish, translation, scripts"
+            "value": "AI cleanup, translation, scripts"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulido con IA, traducción, guiones"
+            "value": "Acabado con IA, traducción, guiones"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refino com IA, tradução, roteiros"
+            "value": "Acabamento com IA, tradução, roteiros"
           }
         }
       }
@@ -4590,13 +4590,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "edición IA"
+            "value": "Edición con IA"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "edição com IA"
+            "value": "Edição com IA"
           }
         }
       }
@@ -4745,13 +4745,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "AI voice: turns the text you enter into speech and adds it at the playhead as a voice-over."
+            "value": "AI voice: turns the text you enter into speech and adds it at the playhead as narration."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voz con IA: convierte el texto que escribes en voz y lo agrega en la posición de reproducción como voz en off."
+            "value": "Voz con IA: convierte el texto que escribes en voz y lo agrega en la posición de reproducción como narración."
           }
         },
         "pt-BR": {
@@ -4768,13 +4768,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Insert with AI voice (voice-over)"
+            "value": "Insert with AI voice (narration)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Insertar con voz de IA (voz en off)"
+            "value": "Insertar con voz de IA (narración)"
           }
         },
         "pt-BR": {
@@ -6430,7 +6430,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir desde Google Fotos"
+            "value": "Agregar desde Google Fotos"
           }
         },
         "pt-BR": {
@@ -6493,19 +6493,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Select photos or videos in Google Photos, tap Share > Save to Files, then choose \"Files (Google Drive, etc.)\" when adding in Video Mania"
+            "value": "Select photos or videos in Google Photos, tap Share > Save to Files, then choose “Files (Google Drive, etc.)” when adding in Video Mania"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige fotos o videos en Google Fotos, toca Compartir > Guardar en Archivos y luego elige «Archivos (Google Drive, etc.)» al añadir en Video Mania"
+            "value": "Elige fotos o videos en Google Fotos, toca Compartir > Guardar en Archivos y luego elige «Archivos (Google Drive, etc.)» al agregar en Video Mania"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha fotos ou vídeos no Google Fotos, toque em Compartilhar > Salvar em Arquivos e depois escolha \"Arquivos (Google Drive etc.)\" ao adicionar no Video Mania"
+            "value": "Escolha fotos ou vídeos no Google Fotos, toque em Compartilhar > Salvar em Arquivos e depois escolha “Arquivos (Google Drive etc.)” ao adicionar no Video Mania"
           }
         }
       }
@@ -6545,7 +6545,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando eliges fotos o videos en Google Fotos, se descargan en este iPhone y se añaden a la línea de tiempo."
+            "value": "Cuando eliges fotos o videos en Google Fotos, se descargan en este iPhone y se agregan a la línea de tiempo."
           }
         },
         "pt-BR": {
@@ -6746,19 +6746,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't open Google Photos. Tap \"Open Google Photos again\"."
+            "value": "Couldn't open Google Photos. Tap “Open Google Photos again”."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo abrir Google Fotos. Toca «Abrir Google Fotos otra vez»."
+            "value": "No se pudo abrir Google Fotos. Toca “Abrir Google Fotos otra vez”."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível abrir o Google Fotos. Toque em \"Abrir o Google Fotos de novo\"."
+            "value": "Não foi possível abrir o Google Fotos. Toque em “Abrir o Google Fotos de novo”."
           }
         }
       }
@@ -6815,7 +6815,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "HDR is available only when the format is “Auto” or HEVC. If the footage is not HDR, it exports as normal video."
+            "value": "HDR is available only when the format is “Auto” or HEVC. If the media is not HDR, it exports as normal video."
           }
         },
         "es": {
@@ -6827,7 +6827,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "HDR só está disponível quando o formato é “Automático” ou HEVC. Se o material não for HDR, é exportado como vídeo normal."
+            "value": "HDR só está disponível quando o formato é “Automático” ou HEVC. Se a mídia não for HDR, é exportado como vídeo normal."
           }
         }
       }
@@ -7781,7 +7781,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finishes with OpenAI (gpt-4o-mini). The caption text is sent and a small fee applies."
+            "value": "Cleans up with OpenAI (gpt-4o-mini). The caption text is sent and a small fee applies."
           }
         },
         "es": {
@@ -7850,7 +7850,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Social media"
+            "value": "Social Media"
           }
         },
         "es": {
@@ -7988,19 +7988,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose an SRT or WebVTT file.\\n\\nDetails: "
+            "value": "Choose an SRT or WebVTT file.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige un archivo SRT o WebVTT.\\n\\nDetalles: "
+            "value": "Elige un archivo SRT o WebVTT.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha um arquivo SRT ou WebVTT.\\n\\nDetalhes: "
+            "value": "Escolha um arquivo SRT ou WebVTT.\n\nDetalhes: "
           }
         }
       }
@@ -8414,7 +8414,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Short de vlog 30s"
+            "value": "Short de vlog 30 s"
           }
         }
       }
@@ -9305,7 +9305,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mueve todos los subtítulos hacia atrás o adelante en pasos de 0.1 s"
+            "value": "Mueve todos los subtítulos hacia atrás o adelante en pasos de 0,1 s"
           }
         },
         "pt-BR": {
@@ -9414,19 +9414,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "* The media is short, so the actual maximum is %@"
+            "value": "※ The media is short, so the actual maximum is %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "* El material es corto, así que el máximo real es %@"
+            "value": "※ El material es corto, así que el máximo real es %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "* A mídia é curta, então o máximo real é %@"
+            "value": "※ A mídia é curta, então o máximo real é %@"
           }
         }
       }
@@ -9437,19 +9437,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "* There is no audio before the start of the media, so the actual maximum is %@"
+            "value": "※ There is no audio before the start of the media, so the actual maximum is %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "* No hay audio antes del inicio del material, así que el máximo real es %@"
+            "value": "※ No hay audio antes del inicio del material, así que el máximo real es %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "* Não há áudio antes do início da mídia, então o máximo real é %@"
+            "value": "※ Não há áudio antes do início da mídia, então o máximo real é %@"
           }
         }
       }
@@ -9460,19 +9460,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "* There is no audio after the end of the media, so the actual maximum is %@"
+            "value": "※ There is no audio after the end of the media, so the actual maximum is %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "* No hay audio después del final del material, así que el máximo real es %@"
+            "value": "※ No hay audio después del final del material, así que el máximo real es %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "* Não há áudio depois do fim da mídia, então o máximo real é %@"
+            "value": "※ Não há áudio depois do fim da mídia, então o máximo real é %@"
           }
         }
       }
@@ -9489,7 +9489,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toca ▶︎ para escuchar y Añadir para colocarlo en el cursor"
+            "value": "Toca ▶︎ para escuchar y Agregar para colocarlo en el cursor"
           }
         },
         "pt-BR": {
@@ -9627,7 +9627,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay seguridad sobre «%@»"
+            "value": "No hay seguridad sobre “%@”"
           }
         },
         "pt-BR": {
@@ -9828,13 +9828,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Applied “%@”. Add captions with “Create Captions” and they’ll use this template’s look."
+            "value": "Applied “%@”. Add captions with “Create Captions” and they'll use this template's look."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se aplicó “%@”. Si añades subtítulos con “Crear subtítulos”, usarán el estilo de esta plantilla."
+            "value": "Se aplicó “%@”. Si agregas subtítulos con “Crear subtítulos”, usarán el estilo de esta plantilla."
           }
         },
         "pt-BR": {
@@ -10012,13 +10012,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“Offset” is the timing difference between the other camera and the main video. Press “Auto sync” first to align by comparing the audio. To adjust by hand, use the ± buttons until the lips match the voice (+ moves the angle's video ahead)."
+            "value": "“Offset” is the timing difference between the other camera and the main video. Tap “Auto sync” first to align by comparing the audio. To adjust by hand, use the ± buttons until the lips match the voice (+ moves the angle's video ahead)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El “desfase” es la diferencia de tiempo entre la otra cámara y el video principal. Pulsa primero “Sincronizar automáticamente” para alinear comparando el audio. Para ajustar a mano, usa los botones ± hasta que los labios coincidan con la voz (+ adelanta el video del ángulo)."
+            "value": "El “desfase” es la diferencia de tiempo entre la otra cámara y el video principal. Toca primero “Sincronizar automáticamente” para alinear comparando el audio. Para ajustar a mano, usa los botones ± hasta que los labios coincidan con la voz (+ adelanta el video del ángulo)."
           }
         },
         "pt-BR": {
@@ -10219,13 +10219,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “To start” to move the playhead inside this clip, then press the switch button."
+            "value": "Tap “To start” to move the playhead inside this clip, then tap the switch button."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Al inicio” para mover la posición de reproducción dentro de este clip y luego pulsa el botón de cambio."
+            "value": "Toca “Al inicio” para mover la posición de reproducción dentro de este clip y luego toca el botón de cambio."
           }
         },
         "pt-BR": {
@@ -10265,19 +10265,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a .videomania file created with “Send to Another Device”. If it was damaged on the way, ask for it to be sent again.\\n\\nDetails: "
+            "value": "Choose a .videomania file created with “Send to Another Device”. If it was damaged on the way, ask for it to be sent again.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige un archivo .videomania creado con “Enviar a otro dispositivo”. Si se dañó en el camino, pide que lo envíen de nuevo.\\n\\nDetalles: "
+            "value": "Elige un archivo .videomania creado con “Enviar a otro dispositivo”. Si se dañó en el camino, pide que lo envíen de nuevo.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha um arquivo .videomania criado com “Enviar para outro aparelho”. Se tiver sido danificado no caminho, peça para enviarem de novo.\\n\\nDetalhes: "
+            "value": "Escolha um arquivo .videomania criado com “Enviar para outro aparelho”. Se tiver sido danificado no caminho, peça para enviarem de novo.\n\nDetalhes: "
           }
         }
       }
@@ -10317,7 +10317,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "“Importar” agrega los subtítulos según la opción “Subtítulos existentes” de “Rehacer automáticamente” (reemplazar / añadir)."
+            "value": "“Importar” agrega los subtítulos según la opción “Subtítulos existentes” de “Rehacer automáticamente” (reemplazar / agregar)."
           }
         },
         "pt-BR": {
@@ -10357,13 +10357,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Import” to create captions from the previous result."
+            "value": "Tap “Import” to create captions from the previous result."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Importar” para crear subtítulos a partir del resultado anterior."
+            "value": "Toca “Importar” para crear subtítulos a partir del resultado anterior."
           }
         },
         "pt-BR": {
@@ -10449,7 +10449,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“When shapes differ” decides, when the footage and the aspect ratio differ, whether to show everything with letterbox / blurred background or crop the overflow. Higher resolution is sharper and makes a larger file."
+            "value": "“When shapes differ” decides, when the media and the aspect ratio differ, whether to show everything with letterbox / blurred background or crop the overflow. Higher resolution is sharper and makes a larger file."
           }
         },
         "es": {
@@ -10461,7 +10461,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "“Quando as formas não batem” decide, se o material e a proporção forem diferentes, se tudo é mostrado com tarjas pretas / fundo desfocado ou se o excesso é cortado. Resolução maior é mais nítida e gera arquivo maior."
+            "value": "“Quando as formas não batem” decide, se a mídia e a proporção forem diferentes, se tudo é mostrado com tarjas pretas / fundo desfocado ou se o excesso é cortado. Resolução maior é mais nítida e gera arquivo maior."
           }
         }
       }
@@ -10484,7 +10484,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "“Quando as formas não batem” define como o material é encaixado quando a proporção difere da tela."
+            "value": "“Quando as formas não batem” define como a mídia é encaixada quando a proporção difere da tela."
           }
         }
       }
@@ -10518,19 +10518,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set Apple Intelligence or an OpenAI API key in “Transcription & AI Cleanup”.\\n\\nDetails: "
+            "value": "Set Apple Intelligence or an OpenAI API key in “Transcription & AI Cleanup”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configura Apple Intelligence o una clave de API de OpenAI en “Transcripción y acabado con IA”.\\n\\nDetalles: "
+            "value": "Configura Apple Intelligence o una clave de API de OpenAI en “Transcripción y acabado con IA”.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configure o Apple Intelligence ou uma chave de API da OpenAI em “Transcrição e acabamento com IA”.\\n\\nDetalhes: "
+            "value": "Configure o Apple Intelligence ou uma chave de API da OpenAI em “Transcrição e acabamento com IA”.\n\nDetalhes: "
           }
         }
       }
@@ -10679,13 +10679,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow adding to Photos under “Open Settings” → “Photos”, then press “Save to Photos” again.\n\nDetails: "
+            "value": "Allow adding to Photos under “Open Settings” → “Photos”, then tap “Save to Photos” again.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite agregar a Fotos en “Abrir Ajustes” → “Fotos” y pulsa “Guardar en Fotos” de nuevo.\n\nDetalles: "
+            "value": "Permite agregar a Fotos en “Abrir Ajustes” → “Fotos” y toca “Guardar en Fotos” de nuevo.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -10702,7 +10702,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on “Speech Recognition” under “Open Settings”, then press “Create automatically” again."
+            "value": "Turn on “Speech Recognition” under “Open Settings”, then tap “Create automatically” again."
           }
         },
         "es": {
@@ -10725,13 +10725,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on “Speech Recognition” under “Open Settings”, then press “Create captions automatically” again."
+            "value": "Turn on “Speech Recognition” under “Open Settings”, then tap “Create captions automatically” again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activa “Reconocimiento de voz” en “Abrir Ajustes” y pulsa “Crear subtítulos automáticamente” de nuevo."
+            "value": "Activa “Reconocimiento de voz” en “Abrir Ajustes” y toca “Crear subtítulos automáticamente” de nuevo."
           }
         },
         "pt-BR": {
@@ -10955,19 +10955,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How to say it"
+            "value": "Iekei ramen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cómo se dice"
+            "value": "Ramen iekei"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Como se diz"
+            "value": "Lámen iekei"
           }
         }
       }
@@ -11674,13 +11674,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "automátic"
+            "value": "automático"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "automátic"
+            "value": "automático"
           }
         }
       }
@@ -12450,7 +12450,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This template uses per-word timing. Press “Rebuild word timing” from “…” in the list."
+            "value": "This template uses per-word timing. Tap “Rebuild word timing” from “…” in the list."
           }
         },
         "es": {
@@ -12473,13 +12473,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This template uses per-word timing. Press “Rebuild word timing” from “…” in the caption list."
+            "value": "This template uses per-word timing. Tap “Rebuild word timing” from “…” in the caption list."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta plantilla usa tiempos por palabra. Pulsa “Rehacer tiempos por palabra” desde “…” en la lista de subtítulos."
+            "value": "Esta plantilla usa tiempos por palabra. Toca “Rehacer tiempos por palabra” desde “…” en la lista de subtítulos."
           }
         },
         "pt-BR": {
@@ -12519,13 +12519,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Levels the volume of this voice-over"
+            "value": "Levels the volume of this narration"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nivela el volumen de esta voz en off"
+            "value": "Nivela el volumen de esta narración"
           }
         },
         "pt-BR": {
@@ -12542,13 +12542,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Make this voice-over clearer"
+            "value": "Make this narration clearer"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hacer más clara esta voz en off"
+            "value": "Hacer más clara esta narración"
           }
         },
         "pt-BR": {
@@ -12709,7 +12709,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir a este proyecto"
+            "value": "Agregar a este proyecto"
           }
         },
         "pt-BR": {
@@ -12726,13 +12726,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All clips, captions, music, overlays, voice-overs, text, drawings and markers in this project will be removed and cannot be restored. The project itself stays in the list."
+            "value": "All clips, captions, music, overlays, narration, text, drawings and markers in this project will be removed and cannot be restored. The project itself stays in the list."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se eliminarán todos los clips, subtítulos, música, superposiciones, voces en off, textos, dibujos y marcadores de este proyecto y no se podrán recuperar. El proyecto permanece en la lista."
+            "value": "Se eliminarán todos los clips, subtítulos, música, superposiciones, narraciones, textos, dibujos y marcadores de este proyecto y no se podrán recuperar. El proyecto permanece en la lista."
           }
         },
         "pt-BR": {
@@ -12749,13 +12749,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All clips, captions, music, overlays, voice-overs, text, drawings and markers in this project will be removed and cannot be restored. The project itself stays in the list."
+            "value": "All clips, captions, music, overlays, narration, text, drawings and markers in this project will be removed and cannot be restored. The project itself stays in the list."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se eliminarán todos los clips, subtítulos, música, superposiciones, voces en off, textos, dibujos y marcadores de este proyecto y no se podrán recuperar. El proyecto permanece en la lista."
+            "value": "Se eliminarán todos los clips, subtítulos, música, superposiciones, narraciones, textos, dibujos y marcadores de este proyecto y no se podrán recuperar. El proyecto permanece en la lista."
           }
         },
         "pt-BR": {
@@ -12818,19 +12818,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Empty this project"
+            "value": "Empty Project"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vaciar este proyecto"
+            "value": "Vaciar proyecto"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esvaziar este projeto"
+            "value": "Esvaziar projeto"
           }
         }
       }
@@ -13031,7 +13031,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo cargar este video porque no está entre las fotos a las que diste acceso. En la app Ajustes, ve a Video Mania > Fotos y elige Acceso completo, o añade este video a las fotos permitidas, y vuelve a intentarlo."
+            "value": "No se pudo cargar este video porque no está entre las fotos a las que diste acceso. En la app Ajustes, ve a Video Mania > Fotos y elige Acceso completo, o agrega este video a las fotos permitidas, y vuelve a intentarlo."
           }
         },
         "pt-BR": {
@@ -14089,7 +14089,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Justo"
+            "value": "Ideal"
           }
         },
         "pt-BR": {
@@ -14227,7 +14227,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Desde dónde quieres añadir?"
+            "value": "¿Desde dónde quieres agregar?"
           }
         },
         "pt-BR": {
@@ -14290,7 +14290,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Which features are used, keyed by a random per-device ID, is sent to help improve the app. No videos, text or names are sent."
+            "value": "Which features are used is sent with a random per-device ID to help improve the app. No videos, text or names are sent."
           }
         },
         "es": {
@@ -14302,7 +14302,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quais recursos são usados, com um ID aleatório por aparelho, é enviado para melhorar o app. Vídeos, textos e nomes não são enviados."
+            "value": "Enviamos quais recursos são usados, com um ID aleatório por aparelho, para melhorar o app. Vídeos, textos e nomes não são enviados."
           }
         }
       }
@@ -14750,7 +14750,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usually 30. Fast-moving footage looks smoother at 60 (larger file)."
+            "value": "Usually 30. Fast-moving media looks smoother at 60 (larger file)."
           }
         },
         "es": {
@@ -14762,7 +14762,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Normalmente 30. Material com movimento rápido fica mais fluido em 60 (arquivo maior)."
+            "value": "Normalmente 30. Mídia com movimento rápido fica mais fluido em 60 (arquivo maior)."
           }
         }
       }
@@ -14871,7 +14871,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Cambiar también las otras %lld apariciones de «%@» por «%@»?"
+            "value": "¿Cambiar también las otras %lld apariciones de “%@” por “%@”?"
           }
         },
         "pt-BR": {
@@ -14894,7 +14894,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Eliminar también las otras %lld apariciones de «%@»?"
+            "value": "¿Eliminar también las otras %lld apariciones de “%@”?"
           }
         },
         "pt-BR": {
@@ -15026,19 +15026,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Or tap Share > Save to Files, then choose \"Files (Google Drive, etc.)\" when adding in Video Mania"
+            "value": "Or tap Share > Save to Files, then choose “Files (Google Drive, etc.)” when adding in Video Mania"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "O toca Compartir > Guardar en Archivos y luego elige «Archivos (Google Drive, etc.)» al añadir en Video Mania"
+            "value": "O toca Compartir > Guardar en Archivos y luego elige «Archivos (Google Drive, etc.)» al agregar en Video Mania"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ou toque em Compartilhar > Salvar em Arquivos e depois escolha \"Arquivos (Google Drive etc.)\" ao adicionar no Video Mania"
+            "value": "Ou toque em Compartilhar > Salvar em Arquivos e depois escolha “Arquivos (Google Drive etc.)” ao adicionar no Video Mania"
           }
         }
       }
@@ -15394,7 +15394,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “AI Translate” again."
+            "value": "Tap “AI Translate” again."
           }
         },
         "es": {
@@ -15417,13 +15417,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Insert with AI voice” again. If it keeps happening, change “Voice” to “Standard voice”.\n\nDetails: "
+            "value": "Tap “Insert with AI voice” again. If it keeps happening, change “Voice” to “Standard voice”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Insertar con voz de IA” de nuevo. Si sigue pasando, cambia “Voz” a “Voz estándar”.\n\nDetalles: "
+            "value": "Toca “Insertar con voz de IA” de nuevo. Si sigue pasando, cambia “Voz” a “Voz estándar”.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -15486,7 +15486,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Create Outline from Captions” again. If it keeps happening, check “Transcription & AI Cleanup”."
+            "value": "Tap “Create Outline from Captions” again. If it keeps happening, check “Transcription & AI Cleanup”."
           }
         },
         "es": {
@@ -15509,7 +15509,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Insert as Voice-over” again. If it keeps happening, set “Voice” to “Standard voice”."
+            "value": "Tap “Insert as Voice-over” again. If it keeps happening, set “Voice” to “Standard voice”."
           }
         },
         "es": {
@@ -15555,13 +15555,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Create” again. If it keeps happening, change the target length or use fewer clips.\n\nDetails: "
+            "value": "Tap “Create” again. If it keeps happening, change the target length or use fewer clips.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Crear” de nuevo. Si sigue pasando, cambia la duración objetivo o usa menos clips.\n\nDetalles: "
+            "value": "Toca “Crear” de nuevo. Si sigue pasando, cambia la duración objetivo o usa menos clips.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -15578,19 +15578,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Please tap \"Save to Photos\" again.\\n\\nDetails: "
+            "value": "Please tap \"Save to Photos\" again.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vuelve a tocar «Guardar en Fotos».\\n\\nDetalles: "
+            "value": "Vuelve a tocar «Guardar en Fotos».\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toque em \"Salvar em Fotos\" de novo.\\n\\nDetalhes: "
+            "value": "Toque em \"Salvar em Fotos\" de novo.\n\nDetalhes: "
           }
         }
       }
@@ -15624,19 +15624,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose again from “Receive from Another Device”.\\n\\nDetails: "
+            "value": "Choose again from “Receive from Another Device”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vuelve a elegir desde “Recibir de otro dispositivo”.\\n\\nDetalles: "
+            "value": "Vuelve a elegir desde “Recibir de otro dispositivo”.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha novamente em “Receber de outro aparelho”.\\n\\nDetalhes: "
+            "value": "Escolha novamente em “Receber de outro aparelho”.\n\nDetalhes: "
           }
         }
       }
@@ -15647,7 +15647,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Send to Another Device” again."
+            "value": "Tap “Send to Another Device” again."
           }
         },
         "es": {
@@ -15670,19 +15670,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap “Create video” again. If it keeps happening, change the length or use fewer clips.\\n\\nDetails: "
+            "value": "Tap “Create video” again. If it keeps happening, change the length or use fewer clips.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toca “Crear video” otra vez. Si sigue pasando, cambia la duración o usa menos clips.\\n\\nDetalles: "
+            "value": "Toca “Crear video” otra vez. Si sigue pasando, cambia la duración o usa menos clips.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toque em “Criar vídeo” de novo. Se continuar, mude a duração ou use menos clipes.\\n\\nDetalhes: "
+            "value": "Toque em “Criar vídeo” de novo. Se continuar, mude a duração ou use menos clipes.\n\nDetalhes: "
           }
         }
       }
@@ -15693,7 +15693,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Import” again. If it keeps happening, “Discard” and recreate automatically."
+            "value": "Tap “Import” again. If it keeps happening, “Discard” and recreate automatically."
           }
         },
         "es": {
@@ -15716,7 +15716,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Create script” again. If it keeps happening, check “Transcription & AI Cleanup”."
+            "value": "Tap “Create script” again. If it keeps happening, check “Transcription & AI Cleanup”."
           }
         },
         "es": {
@@ -15739,19 +15739,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose again from “Choose song”.\\n\\nDetails: "
+            "value": "Choose again from “Choose song”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vuelve a elegir desde “Elegir canción”.\\n\\nDetalles: "
+            "value": "Vuelve a elegir desde “Elegir canción”.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha de novo em “Escolher música”.\\n\\nDetalhes: "
+            "value": "Escolha de novo em “Escolher música”.\n\nDetalhes: "
           }
         }
       }
@@ -15762,13 +15762,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Export” again. If it keeps happening, lower the resolution or quality, or reopen the app and try again."
+            "value": "Tap “Export” again. If it keeps happening, lower the resolution or quality, or reopen the app and try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Exportar” de nuevo. Si sigue pasando, baja la resolución o la calidad, o vuelve a abrir la app e inténtalo de nuevo."
+            "value": "Toca “Exportar” de nuevo. Si sigue pasando, baja la resolución o la calidad, o vuelve a abrir la app e inténtalo de nuevo."
           }
         },
         "pt-BR": {
@@ -15785,19 +15785,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Translate” again. If it keeps happening, try “AI Translate”.\\n\\nDetails: "
+            "value": "Press “Translate” again. If it keeps happening, try “AI Translate”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toca “Traducir” de nuevo. Si sigue pasando, prueba “Traducción con IA”.\\n\\nDetalles: "
+            "value": "Toca “Traducir” de nuevo. Si sigue pasando, prueba “Traducción con IA”.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toque em “Traduzir” de novo. Se continuar, tente “Tradução com IA”.\\n\\nDetalhes: "
+            "value": "Toque em “Traduzir” de novo. Se continuar, tente “Tradução com IA”.\n\nDetalhes: "
           }
         }
       }
@@ -15808,7 +15808,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Create automatically” again. If it keeps happening, change the method in “Transcription & AI Cleanup”."
+            "value": "Tap “Create automatically” again. If it keeps happening, change the method in “Transcription & AI Cleanup”."
           }
         },
         "es": {
@@ -15831,19 +15831,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Add” again.\\n\\nDetails: "
+            "value": "Press “Add” again.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toca “Agregar” de nuevo.\\n\\nDetalles: "
+            "value": "Toca “Agregar” de nuevo.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toque em “Adicionar” de novo.\\n\\nDetalhes: "
+            "value": "Toque em “Adicionar” de novo.\n\nDetalhes: "
           }
         }
       }
@@ -15854,13 +15854,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Apply” again. If it keeps happening, try another template.\n\nDetails: "
+            "value": "Tap “Apply” again. If it keeps happening, try another template.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Aplicar” de nuevo. Si sigue pasando, prueba otra plantilla.\n\nDetalles: "
+            "value": "Toca “Aplicar” de nuevo. Si sigue pasando, prueba otra plantilla.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -15900,19 +15900,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Please try again. If it keeps happening, turn on “Natural with AI”.\\n\\nDetails: "
+            "value": "Please try again. If it keeps happening, turn on “Natural with AI”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inténtalo de nuevo. Si sigue pasando, activa “Natural con IA”.\\n\\nDetalles: "
+            "value": "Inténtalo de nuevo. Si sigue pasando, activa “Natural con IA”.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tente de novo. Se continuar, ative “Natural com IA”.\\n\\nDetalhes: "
+            "value": "Tente de novo. Se continuar, ative “Natural com IA”.\n\nDetalhes: "
           }
         }
       }
@@ -16935,7 +16935,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The upload was cancelled because the app was force-quit"
+            "value": "The upload was canceled because the app was force-quit"
           }
         },
         "es": {
@@ -17487,19 +17487,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "End Screen Tail"
+            "value": "End Screen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Espacio para pantalla final"
+            "value": "Pantalla final"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Espaço para tela final"
+            "value": "Tela final"
           }
         }
       }
@@ -17775,7 +17775,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reenquadramento automático"
+            "value": "Reenquadramento"
           }
         }
       }
@@ -17884,7 +17884,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir como superposición"
+            "value": "Agregar como superposición"
           }
         },
         "pt-BR": {
@@ -18137,13 +18137,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "portada"
+            "value": "cubrir"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "capa"
+            "value": "cobrir"
           }
         }
       }
@@ -18292,19 +18292,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Record with camera"
+            "value": "Camera"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grabar con la cámara"
+            "value": "Cámara"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gravar com a câmera"
+            "value": "Câmera"
           }
         }
       }
@@ -18568,19 +18568,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Color screen"
+            "value": "Color Clip"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pantalla de color"
+            "value": "Clip de color"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tela de cor"
+            "value": "Clipe de cor"
           }
         }
       }
@@ -18775,7 +18775,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Color Correction"
+            "value": "Color Correct"
           }
         },
         "es": {
@@ -18913,19 +18913,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A voice clip is made for each caption. The \"Standard\" voice uses no points."
+            "value": "A voice clip is made for each caption. The “Standard” voice uses no points."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se crea una voz por cada subtítulo. La voz \"Estándar\" no usa puntos."
+            "value": "Se crea una voz por cada subtítulo. La voz “Estándar” no usa puntos."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uma voz é criada para cada legenda. A voz \"Padrão\" não usa pontos."
+            "value": "Uma voz é criada para cada legenda. A voz “Padrão” não usa pontos."
           }
         }
       }
@@ -19281,19 +19281,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fix captions in the list"
+            "value": "Caption List"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Corregir subtítulos en la lista"
+            "value": "Lista de subtítulos"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Corrigir legendas na lista"
+            "value": "Lista de legendas"
           }
         }
       }
@@ -19373,7 +19373,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Create Captions"
+            "value": "Auto Captions"
           }
         },
         "es": {
@@ -19465,19 +19465,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Translate Captions"
+            "value": "Translate"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Traducir subtítulos"
+            "value": "Traducir"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Traduzir legendas"
+            "value": "Traduzir"
           }
         }
       }
@@ -19580,7 +19580,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "because it was cancelled"
+            "value": "because it was canceled"
           }
         },
         "es": {
@@ -19603,7 +19603,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelling…"
+            "value": "Canceling…"
           }
         },
         "es": {
@@ -19626,7 +19626,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled"
+            "value": "Canceled"
           }
         },
         "es": {
@@ -19649,7 +19649,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelled."
+            "value": "Canceled."
           }
         },
         "es": {
@@ -19672,7 +19672,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelling…"
+            "value": "Canceling…"
           }
         },
         "es": {
@@ -19977,7 +19977,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir fotograma clave"
+            "value": "Agregar fotograma clave"
           }
         },
         "pt-BR": {
@@ -20759,7 +20759,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir como clip"
+            "value": "Agregar como clip"
           }
         },
         "pt-BR": {
@@ -20960,7 +20960,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clips differ a lot in %@. When footage from different days or cameras is mixed, “Color Match” to a reference clip gives a consistent look."
+            "value": "Clips differ a lot in %@. When media from different days or cameras is mixed, “Color Match” to a reference clip gives a consistent look."
           }
         },
         "es": {
@@ -20972,7 +20972,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os clipes diferem muito em %@. Ao misturar material de dias ou câmeras diferentes, “Igualar cor” com um clipe de referência dá um visual uniforme."
+            "value": "Os clipes diferem muito em %@. Ao misturar mídia de dias ou câmeras diferentes, “Igualar cor” com um clipe de referência dá um visual uniforme."
           }
         }
       }
@@ -21075,19 +21075,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keeps your clip order, adds \"BEFORE\" on the first clip and \"AFTER\" on the last, with a white flash just before the After. Colors stay as they are."
+            "value": "Keeps your clip order, adds “BEFORE” on the first clip and “AFTER” on the last, with a white flash just before the After. Colors stay as they are."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantiene el orden de los clips, añade \"BEFORE\" al primero y \"AFTER\" al último, con un destello blanco justo antes del After. No cambia los colores."
+            "value": "Mantiene el orden de los clips, agrega \"BEFORE\" al primero y \"AFTER\" al último, con un destello blanco justo antes del After. No cambia los colores."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantém a ordem dos clipes, coloca \"BEFORE\" no primeiro e \"AFTER\" no último, com um flash branco logo antes do After. As cores não mudam."
+            "value": "Mantém a ordem dos clipes, coloca “BEFORE” no primeiro e “AFTER” no último, com um flash branco logo antes do After. As cores não mudam."
           }
         }
       }
@@ -23473,13 +23473,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "presentación"
+            "value": "deslizar"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "apresentação"
+            "value": "deslizar"
           }
         }
       }
@@ -23973,7 +23973,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zoom & pan"
+            "value": "Zoom & Pan"
           }
         },
         "es": {
@@ -24025,7 +24025,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Líneas"
+            "value": "Diálogos"
           }
         },
         "pt-BR": {
@@ -24295,7 +24295,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Time Remapping"
+            "value": "Time Remap"
           }
         },
         "es": {
@@ -24307,7 +24307,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remapeamento de tempo"
+            "value": "Remapear tempo"
           }
         }
       }
@@ -24686,19 +24686,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voice-over translation"
+            "value": "Dubbing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Doblar voz"
+            "value": "Doblaje"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dublar voz"
+            "value": "Dublagem"
           }
         }
       }
@@ -25054,13 +25054,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You can auto-level this voice-over with “Match loudness” or “Make clearer” in the toolbar."
+            "value": "You can auto-level this narration with “Match loudness” or “Make clearer” in the toolbar."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puedes nivelar esta voz en off automáticamente con “Igualar volumen” o “Hacer más claro” en la barra de herramientas."
+            "value": "Puedes nivelar esta narración automáticamente con “Igualar volumen” o “Hacer más claro” en la barra de herramientas."
           }
         },
         "pt-BR": {
@@ -25330,19 +25330,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "caption"
+            "value": "title"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "subtítulo"
+            "value": "rótulo"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "legenda"
+            "value": "letreiro"
           }
         }
       }
@@ -25353,7 +25353,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lower third not found. Choose one from the list below."
+            "value": "Title not found. Choose one from the list below."
           }
         },
         "es": {
@@ -25365,7 +25365,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legenda de nome não encontrada. Escolha uma na lista abaixo."
+            "value": "Letreiro não encontrado. Escolha um na lista abaixo."
           }
         }
       }
@@ -25382,7 +25382,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir título de capítulo como texto"
+            "value": "Agregar título de capítulo como texto"
           }
         },
         "pt-BR": {
@@ -25399,7 +25399,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No lower thirds yet"
+            "value": "No titles yet"
           }
         },
         "es": {
@@ -25411,7 +25411,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ainda não há legendas de nome"
+            "value": "Ainda não há letreiros"
           }
         }
       }
@@ -25422,7 +25422,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lower thirds"
+            "value": "Titles"
           }
         },
         "es": {
@@ -25434,7 +25434,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legendas de nome"
+            "value": "Letreiros"
           }
         }
       }
@@ -26388,13 +26388,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voice-over"
+            "value": "Narration"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voz en off"
+            "value": "Narración"
           }
         },
         "pt-BR": {
@@ -26411,13 +26411,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Insert as Voice-over"
+            "value": "Insert as Narration"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Insertar como voz en off"
+            "value": "Insertar como narración"
           }
         },
         "pt-BR": {
@@ -26434,13 +26434,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voice-over Edit"
+            "value": "Narration Edit"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edición de voz en off"
+            "value": "Edición de narración"
           }
         },
         "pt-BR": {
@@ -26457,13 +26457,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Measures the loudness of the voice-over and levels it for easy listening. Use Undo to go back."
+            "value": "Measures the loudness of the narration and levels it for easy listening. Use Undo to go back."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mide el volumen de la voz en off y lo nivela para que se escuche bien. Usa Deshacer para volver."
+            "value": "Mide el volumen de la narración y lo nivela para que se escuche bien. Usa Deshacer para volver."
           }
         },
         "pt-BR": {
@@ -27515,19 +27515,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Video Transition"
+            "value": "Transition"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transición de video"
+            "value": "Transición"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transição de vídeo"
+            "value": "Transição"
           }
         }
       }
@@ -27665,7 +27665,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sincronizar com a batida"
+            "value": "Sincronizar batida"
           }
         }
       }
@@ -28073,7 +28073,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir desde Archivos"
+            "value": "Agregar de Archivos"
           }
         },
         "pt-BR": {
@@ -28343,19 +28343,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not create the files: %@"
+            "value": "Could not create the file: %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudieron crear los archivos: %@"
+            "value": "No se pudo crear el archivo: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível criar os arquivos: %@"
+            "value": "Não foi possível criar o arquivo: %@"
           }
         }
       }
@@ -28458,19 +28458,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't open the file.\\n%@"
+            "value": "Couldn't open the file.\n%@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo abrir el archivo.\\n%@"
+            "value": "No se pudo abrir el archivo.\n%@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível abrir o arquivo.\\n%@"
+            "value": "Não foi possível abrir o arquivo.\n%@"
           }
         }
       }
@@ -28694,7 +28694,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rayas de película"
+            "value": "Rayones de película"
           }
         },
         "pt-BR": {
@@ -28723,7 +28723,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desbotado"
+            "value": "Fade"
           }
         }
       }
@@ -29194,7 +29194,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold Frame"
+            "value": "Freeze Frame"
           }
         },
         "es": {
@@ -29217,19 +29217,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not create the hold frame.\\n%@"
+            "value": "Could not create the hold frame.\n%@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo congelar el fotograma.\\n%@"
+            "value": "No se pudo congelar el fotograma.\n%@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível congelar o quadro.\\n%@"
+            "value": "Não foi possível congelar o quadro.\n%@"
           }
         }
       }
@@ -29240,7 +29240,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Creating hold frame"
+            "value": "Creating freeze frame"
           }
         },
         "es": {
@@ -29263,7 +29263,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold frame added"
+            "value": "Freeze frame added"
           }
         },
         "es": {
@@ -29298,7 +29298,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buzina (errado)"
+            "value": "Buzzer (errado)"
           }
         }
       }
@@ -29401,7 +29401,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blend: how it mixes with the video below. “Screen” suits light and smoke footage; “Multiply” suits black line art."
+            "value": "Blend: how it mixes with the video below. “Screen” suits light and smoke media; “Multiply” suits black line art."
           }
         },
         "es": {
@@ -29608,13 +29608,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trace on the preview with your finger to draw. Press “Done” and it shows for 3 seconds at the playhead."
+            "value": "Trace on the preview with your finger to draw. Tap “Done” and it shows for 3 seconds at the playhead."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Traza con el dedo en la vista previa para dibujar. Pulsa “Listo” y se mostrará 3 segundos en la posición de reproducción."
+            "value": "Traza con el dedo en la vista previa para dibujar. Toca “Listo” y se mostrará 3 segundos en la posición de reproducción."
           }
         },
         "pt-BR": {
@@ -29666,7 +29666,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arraste a forma pontilhada na prévia para mover, aperte com dois dedos para redimensionar e gire com dois dedos. Fora da forma fica preto."
+            "value": "Arraste a forma pontilhada na prévia para mover, aperte para redimensionar e gire com dois dedos. Fora da forma fica preto."
           }
         }
       }
@@ -30275,19 +30275,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This keeps running even if you go to the Home Screen or lock the screen."
+            "value": "Even if you go to the Home Screen or lock the screen,\nthis keeps running."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este proceso continúa aunque vayas a la pantalla de inicio o bloquees la pantalla."
+            "value": "Aunque vayas a la pantalla de inicio o bloquees la pantalla,\neste proceso continúa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este processo continua mesmo se você for para a tela inicial ou bloquear a tela."
+            "value": "Mesmo se você for para a tela inicial ou bloquear a tela,\neste processo continua."
           }
         }
       }
@@ -30298,19 +30298,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transcription continues even if you go to the Home Screen or lock the screen."
+            "value": "Even if you go to the Home Screen or lock the screen,\ntranscription continues."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La transcripción continúa aunque vayas a la pantalla de inicio o bloquees la pantalla."
+            "value": "Aunque vayas a la pantalla de inicio o bloquees la pantalla,\nla transcripción continúa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A transcrição continua mesmo se você for para a tela inicial ou bloquear a tela."
+            "value": "Mesmo se você for para a tela inicial ou bloquear a tela,\na transcrição continua."
           }
         }
       }
@@ -30321,19 +30321,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The export continues even if you go to the Home Screen or lock the screen."
+            "value": "Even if you go to the Home Screen or lock the screen,\nthe export continues."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La exportación continúa aunque vayas a la pantalla de inicio o bloquees la pantalla."
+            "value": "Aunque vayas a la pantalla de inicio o bloquees la pantalla,\nla exportación continúa."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A exportação continua mesmo se você for para a tela inicial ou bloquear a tela."
+            "value": "Mesmo se você for para a tela inicial ou bloquear a tela,\na exportação continua."
           }
         }
       }
@@ -30436,19 +30436,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voice-over Recording"
+            "value": "Voice-over"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grabación de voz en off"
+            "value": "Grabar voz en off"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gravação de narração"
+            "value": "Gravar narração"
           }
         }
       }
@@ -31080,7 +31080,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Multi-Camera"
+            "value": "Multicam"
           }
         },
         "es": {
@@ -31500,7 +31500,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pixelado"
+            "value": "Pixelar"
           }
         },
         "pt-BR": {
@@ -31517,19 +31517,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosaic Edit"
+            "value": "Pixelate Edit"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edición de mosaico"
+            "value": "Edición de pixelado"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edição do mosaico"
+            "value": "Edição de pixelização"
           }
         }
       }
@@ -31885,7 +31885,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auto loudness match cancelled"
+            "value": "Auto loudness match canceled"
           }
         },
         "es": {
@@ -31908,19 +31908,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auto Match Loudness"
+            "value": "Match Loudness"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Igualar volumen automáticamente"
+            "value": "Igualar volumen"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Igualar volume automaticamente"
+            "value": "Igualar volume"
           }
         }
       }
@@ -32483,7 +32483,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign-in was cancelled."
+            "value": "Sign-in was canceled."
           }
         },
         "es": {
@@ -32552,19 +32552,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logo & Watermark"
+            "value": "Logo/Watermark"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logo y marca de agua"
+            "value": "Logo/marca de agua"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logo e marca d'água"
+            "value": "Logo/marca d'água"
           }
         }
       }
@@ -32886,7 +32886,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "legenda de nome"
+            "value": "tarja de nome"
           }
         }
       }
@@ -33403,13 +33403,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fix in list"
+            "value": "Fix in List"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Corregir en la lista"
+            "value": "Corregir en lista"
           }
         },
         "pt-BR": {
@@ -33702,13 +33702,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “%@” below"
+            "value": "Tap “%@” below"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “%@” abajo"
+            "value": "Toca “%@” abajo"
           }
         },
         "pt-BR": {
@@ -33886,13 +33886,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete unneeded photos, videos or apps to free up space, or lower the quality, then press “Export” again."
+            "value": "Delete unneeded photos, videos or apps to free up space, or lower the quality, then tap “Export” again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elimina fotos, videos o apps que no necesites para liberar espacio, o baja la calidad, y pulsa “Exportar” de nuevo."
+            "value": "Elimina fotos, videos o apps que no necesites para liberar espacio, o baja la calidad, y toca “Exportar” de nuevo."
           }
         },
         "pt-BR": {
@@ -33978,19 +33978,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatic sync needs the same sound in both videos. Align by hand with the ± buttons.\\n\\nDetails: "
+            "value": "Automatic sync needs the same sound in both videos. Align by hand with the ± buttons.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La sincronización automática necesita el mismo sonido en ambos videos. Alinea a mano con los botones ±.\\n\\nDetalles: "
+            "value": "La sincronización automática necesita el mismo sonido en ambos videos. Alinea a mano con los botones ±.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A sincronização automática precisa do mesmo som nos dois vídeos. Alinhe à mão com os botões ±.\\n\\nDetalhes: "
+            "value": "A sincronização automática precisa do mesmo som nos dois vídeos. Alinhe à mão com os botões ±.\n\nDetalhes: "
           }
         }
       }
@@ -34139,19 +34139,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pacing & Edit Check"
+            "value": "Pacing Check"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ritmo y revisión de edición"
+            "value": "Revisión de ritmo"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ritmo e verificação da edição"
+            "value": "Checagem de ritmo"
           }
         }
       }
@@ -34697,7 +34697,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para añadirlos a un proyecto existente, elige Más tarde y luego abre ese proyecto."
+            "value": "Para agregarlos a un proyecto existente, elige Más tarde y luego abre ese proyecto."
           }
         },
         "pt-BR": {
@@ -34904,7 +34904,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Por ahora, puedes añadir fotos y videos de Google Fotos así:"
+            "value": "Por ahora, puedes agregar fotos y videos de Google Fotos así:"
           }
         },
         "pt-BR": {
@@ -35036,7 +35036,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Today’s ad points already claimed"
+            "value": "Today's ad points already claimed"
           }
         },
         "es": {
@@ -35082,7 +35082,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Today is nice weather"
+            "value": "Nice weather today"
           }
         },
         "es": {
@@ -35243,19 +35243,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adjust position and size by dragging or pinching the mosaic on the preview. Use “Tracking” to follow moving people or objects."
+            "value": "Adjust position and size by dragging or pinching the pixelated area on the preview. Use “Tracking” to follow moving people or objects."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajusta la posición y el tamaño arrastrando o pellizcando el mosaico en la vista previa. Usa “Seguimiento” para seguir a personas u objetos en movimiento."
+            "value": "Ajusta la posición y el tamaño arrastrando o pellizcando la zona pixelada en la vista previa. Usa “Seguimiento” para seguir a personas u objetos en movimiento."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajuste a posição e o tamanho arrastando ou apertando o mosaico na prévia. Use “Rastreamento” para seguir pessoas ou objetos em movimento."
+            "value": "Ajuste a posição e o tamanho arrastando ou apertando a área pixelizada na prévia. Use “Rastreamento” para seguir pessoas ou objetos em movimento."
           }
         }
       }
@@ -35335,19 +35335,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Position & Size"
+            "value": "Position/Size"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Posición y tamaño"
+            "value": "Posición/tamaño"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Posição e tamanho"
+            "value": "Posição/tamanho"
           }
         }
       }
@@ -35496,7 +35496,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not create the tail: %@"
+            "value": "Could not create the padding: %@"
           }
         },
         "es": {
@@ -35519,13 +35519,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The created speech is added as a voice-over and can be adjusted with “Volume” and “Audio Effects”."
+            "value": "The created speech is added as narration and can be adjusted with “Volume” and “Audio Effects”."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La voz creada se agrega como voz en off y se puede ajustar con “Volumen” y “Efectos de audio”."
+            "value": "La voz creada se agrega como narración y se puede ajustar con “Volumen” y “Efectos de audio”."
           }
         },
         "pt-BR": {
@@ -36054,13 +36054,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "p. ej. Octubre de 2026"
+            "value": "p. ej. octubre de 2026"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "ex.: Outubro de 2026"
+            "value": "ex.: outubro de 2026"
           }
         }
       }
@@ -36238,7 +36238,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ej.: alegre, susurrando"
+            "value": "p. ej. alegre, susurrando"
           }
         },
         "pt-BR": {
@@ -37083,19 +37083,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The source footage totals %@. When the target is shorter, highlights are picked and kept."
+            "value": "The source media totals %@. When the target is shorter, highlights are picked and kept."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El material original suma %@. Si el objetivo es más corto, se eligen y conservan los mejores momentos."
+            "value": "El material original suma %@. Si el objetivo es más corto, se eligen y conservan los momentos destacados."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O material original soma %@. Se o alvo for menor, os melhores momentos são escolhidos e mantidos."
+            "value": "A mídia original soma %@. Se o alvo for menor, os destaques são escolhidos e mantidos."
           }
         }
       }
@@ -37342,7 +37342,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Primero añade un video"
+            "value": "Primero agrega un video"
           }
         },
         "pt-BR": {
@@ -37658,13 +37658,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Levels the volume of all clips and voice-overs"
+            "value": "Levels the volume of all clips and narration"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nivela el volumen de todos los clips y voces en off"
+            "value": "Nivela el volumen de todos los clips y narraciones"
           }
         },
         "pt-BR": {
@@ -37865,19 +37865,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finishing Touches"
+            "value": "Final Polish"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acabado general"
+            "value": "Acabado final"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acabamento geral"
+            "value": "Acabamento final"
           }
         }
       }
@@ -38469,13 +38469,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cambia un valor en el cabezal para añadir un fotograma clave automáticamente"
+            "value": "Cambia un valor en el cabezal para agregar un fotograma clave automáticamente"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Altere um valor na agulha para adicionar um quadro-chave automaticamente"
+            "value": "Altere um valor na posição de reprodução para adicionar um quadro-chave automaticamente"
           }
         }
       }
@@ -38561,7 +38561,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se añade como narración en el cabezal."
+            "value": "Se agrega como narración en el cabezal."
           }
         },
         "pt-BR": {
@@ -38699,7 +38699,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se añadirán después del clip en la posición de reproducción."
+            "value": "Se agregarán después del clip en la posición de reproducción."
           }
         },
         "pt-BR": {
@@ -38716,19 +38716,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inserted %lld after the playhead"
+            "value": "Inserted %lld items after the playhead"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se insertaron %lld después de la posición de reproducción"
+            "value": "Se insertaron %lld elementos después de la posición de reproducción"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld inseridos após a posição de reprodução"
+            "value": "%lld itens inseridos após a posição de reprodução"
           }
         }
       }
@@ -38900,7 +38900,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cold Open"
+            "value": "Opening Hook"
           }
         },
         "es": {
@@ -39383,7 +39383,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not load the photos. Pick them again, then press “Create slideshow” again."
+            "value": "Could not load the photos. Pick them again, then tap “Create slideshow” again."
           }
         },
         "es": {
@@ -39406,13 +39406,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose the photos again and press “Create slideshow” once more (the photos could not be loaded)."
+            "value": "Choose the photos again and tap “Create slideshow” once more (the photos could not be loaded)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vuelve a elegir las fotos y pulsa “Crear presentación” de nuevo (no se pudieron cargar las fotos)."
+            "value": "Vuelve a elegir las fotos y toca “Crear presentación” de nuevo (no se pudieron cargar las fotos)."
           }
         },
         "pt-BR": {
@@ -39475,19 +39475,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't find the video saved to Photos. Tap \"Save to Photos\" and try again."
+            "value": "Couldn't find the video saved to Photos. Tap “Save to Photos” and try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontró el video guardado en Fotos. Toca «Guardar en Fotos» e inténtalo de nuevo."
+            "value": "No se encontró el video guardado en Fotos. Toca “Guardar en Fotos” e inténtalo de nuevo."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não encontramos o vídeo salvo no Fotos. Toque em \"Salvar em Fotos\" e tente novamente."
+            "value": "Não encontramos o vídeo salvo no Fotos. Toque em “Salvar em Fotos” e tente novamente."
           }
         }
       }
@@ -39510,7 +39510,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fototeca"
+            "value": "Biblioteca de fotos"
           }
         }
       }
@@ -39533,7 +39533,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não é possível ler este vídeo da fototeca, então os trechos deste ângulo mostram o vídeo principal. Permita o acesso às fotos e abra o projeto de novo para recuperá-lo."
+            "value": "Não é possível ler este vídeo da biblioteca de fotos, então os trechos deste ângulo mostram o vídeo principal. Permita o acesso às fotos e abra o projeto de novo para recuperá-lo."
           }
         }
       }
@@ -39981,7 +39981,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rejoin split"
+            "value": "Undo Split"
           }
         },
         "es": {
@@ -39993,7 +39993,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reunir divisão"
+            "value": "Desfazer divisão"
           }
         }
       }
@@ -40671,19 +40671,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Previous"
+            "value": "Earlier"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anterior"
+            "value": "Antes"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anterior"
+            "value": "Antes"
           }
         }
       }
@@ -40694,7 +40694,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move earlier"
+            "value": "Move Earlier"
           }
         },
         "es": {
@@ -40740,19 +40740,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compare with Previous"
+            "value": "Compare"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparar con el anterior"
+            "value": "Comparar"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comparar com anterior"
+            "value": "Comparar"
           }
         }
       }
@@ -40901,7 +40901,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Previous Transcripts"
+            "value": "Clear Previous Transcriptions"
           }
         },
         "es": {
@@ -41091,7 +41091,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadiendo fotogramas intermedios a partir del movimiento (%lldx fotogramas)"
+            "value": "Agregando fotogramas intermedios a partir del movimiento (%lldx fotogramas)"
           }
         },
         "pt-BR": {
@@ -41131,7 +41131,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sound effects"
+            "value": "Sound Effects"
           }
         },
         "es": {
@@ -41160,13 +41160,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Efecto: "
+            "value": "Efecto de sonido: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Efeito: "
+            "value": "Efeito sonoro: "
           }
         }
       }
@@ -41384,13 +41384,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No keyframes yet. Move the playhead, change the position or size, then press “Add keyframe here” to record the position, size, rotation and opacity at that time."
+            "value": "No keyframes yet. Move the playhead, change the position or size, then tap “Add keyframe here” to record the position, size, rotation and opacity at that time."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aún no hay fotogramas clave. Mueve la posición de reproducción, cambia la posición o el tamaño y pulsa “Agregar fotograma clave aquí” para registrar posición, tamaño, rotación y opacidad en ese momento."
+            "value": "Aún no hay fotogramas clave. Mueve la posición de reproducción, cambia la posición o el tamaño y toca “Agregar fotograma clave aquí” para registrar posición, tamaño, rotación y opacidad en ese momento."
           }
         },
         "pt-BR": {
@@ -41959,13 +41959,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Video storage"
+            "value": "Video Storage"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ubicación de los videos"
+            "value": "Ubicación de videos"
           }
         },
         "pt-BR": {
@@ -42310,7 +42310,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade un video para exportar"
+            "value": "Agrega un video para exportar"
           }
         },
         "pt-BR": {
@@ -42373,7 +42373,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Video/Photo"
+            "value": "Add Media"
           }
         },
         "es": {
@@ -42385,7 +42385,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicionar vídeo/foto"
+            "value": "Adicionar mídia"
           }
         }
       }
@@ -43086,13 +43086,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "AI fixes punctuation, removes hesitations and splits long captions."
+            "value": "AI fixes punctuation, removes filler words and splits long captions."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La IA corrige la puntuación, quita titubeos y divide los subtítulos largos."
+            "value": "La IA corrige la puntuación, quita muletillas y divide los subtítulos largos."
           }
         },
         "pt-BR": {
@@ -43121,7 +43121,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A IA corrige pontuação e vícios de fala, e divide legendas longas."
+            "value": "A IA corrige pontuação e hesitações, e divide legendas longas."
           }
         }
       }
@@ -43270,13 +43270,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No script yet. Enter a topic and press “Create script”."
+            "value": "No script yet. Enter a topic and tap “Create script”."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aún no hay guion. Escribe un tema y pulsa “Crear guion”."
+            "value": "Aún no hay guion. Escribe un tema y toca “Crear guion”."
           }
         },
         "pt-BR": {
@@ -43437,7 +43437,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir guion"
+            "value": "Agregar guion"
           }
         },
         "pt-BR": {
@@ -43776,13 +43776,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Measures the loudness of each clip and voice-over and levels them for easy listening. Use Undo to go back."
+            "value": "Measures the loudness of each clip and narration and levels them for easy listening. Use Undo to go back."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mide el volumen de cada clip y voz en off y los nivela para que se escuchen bien. Usa Deshacer para volver."
+            "value": "Mide el volumen de cada clip y narración y los nivela para que se escuchen bien. Usa Deshacer para volver."
           }
         },
         "pt-BR": {
@@ -43845,13 +43845,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds each line as a voice-over read at its time. If it overlaps the previous line, it is pushed later."
+            "value": "Adds each line as narration read at its time. If it overlaps the previous line, it is pushed later."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agrega cada línea como voz en off leída en su tiempo. Si se solapa con la línea anterior, se desplaza hacia adelante."
+            "value": "Agrega cada línea como narración leída en su tiempo. Si se solapa con la línea anterior, se desplaza hacia adelante."
           }
         },
         "pt-BR": {
@@ -43868,13 +43868,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Each line becomes a voice-over at its time. If it overlaps the previous line, it's pushed later."
+            "value": "Each line becomes narration at its time. If it overlaps the previous line, it's pushed later."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cada línea se convierte en una voz en off en su tiempo. Si se superpone a la anterior, se desplaza hacia después."
+            "value": "Cada línea se convierte en narración en su tiempo. Si se superpone a la anterior, se desplaza hacia después."
           }
         },
         "pt-BR": {
@@ -43983,7 +43983,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unchanged clips reuse their previous transcript instead of sending audio again."
+            "value": "Unchanged clips reuse their previous transcription instead of sending audio again."
           }
         },
         "es": {
@@ -44265,13 +44265,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rótulo inferior"
+            "value": "Rótulo de nombre"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legenda de nome"
+            "value": "Tarja de nome"
           }
         }
       }
@@ -45208,7 +45208,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir voz"
+            "value": "Agregar voz"
           }
         },
         "pt-BR": {
@@ -45892,19 +45892,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "female, energetic"
+            "value": "Female, energetic"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "femenina, enérgica"
+            "value": "Femenina, enérgica"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "feminina, animada"
+            "value": "Feminina, animada"
           }
         }
       }
@@ -45915,19 +45915,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "female, bright"
+            "value": "Female, bright"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "femenina, alegre"
+            "value": "Femenina, alegre"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "feminina, alegre"
+            "value": "Feminina, alegre"
           }
         }
       }
@@ -45961,19 +45961,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "female, clear"
+            "value": "Female, clear"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "femenina, clara"
+            "value": "Femenina, clara"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "feminina, clara"
+            "value": "Feminina, clara"
           }
         }
       }
@@ -46335,7 +46335,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadiendo traducciones a los subtítulos…"
+            "value": "Agregando traducciones a los subtítulos…"
           }
         },
         "pt-BR": {
@@ -46697,7 +46697,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Translate Captions"
+            "value": "Translate captions"
           }
         },
         "es": {
@@ -46996,7 +46996,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Letter Spacing"
+            "value": "Letter spacing"
           }
         },
         "es": {
@@ -47485,13 +47485,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refuerza los contornos en material pequeño o borroso para verlo más nítido."
+            "value": "Refuerza los contornos en videos pequeños o borrosos para que se vean más nítidos."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reforça os contornos em material pequeno ou desfocado para ficar mais nítido."
+            "value": "Reforça os contornos em vídeos pequenos ou desfocados para ficar mais nítido."
           }
         }
       }
@@ -48106,13 +48106,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Radio de la banda"
+            "value": "Radio de las esquinas de la banda"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Raio da faixa"
+            "value": "Raio dos cantos da faixa"
           }
         }
       }
@@ -48330,7 +48330,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Watch an Ad"
+            "value": "Watch an ad"
           }
         },
         "es": {
@@ -48813,19 +48813,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Next"
+            "value": "Later"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Siguiente"
+            "value": "Después"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Próximo"
+            "value": "Depois"
           }
         }
       }
@@ -48836,7 +48836,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move later"
+            "value": "Move Later"
           }
         },
         "es": {
@@ -49273,7 +49273,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drawing Edit"
+            "value": "Edit drawing"
           }
         },
         "es": {
@@ -49434,7 +49434,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wrap Width"
+            "value": "Wrap width"
           }
         },
         "es": {
@@ -49595,7 +49595,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Even if you press “Create” without searching, highlights are found automatically."
+            "value": "Even if you tap “Create” without searching, highlights are found automatically."
           }
         },
         "es": {
@@ -49687,7 +49687,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drawing mode"
+            "value": "Drawing Mode"
           }
         },
         "es": {
@@ -49785,13 +49785,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo analizar el temblor. El material es demasiado corto o no se pudo leer el movimiento."
+            "value": "No se pudo analizar el temblor. El video es demasiado corto o no se pudo leer el movimiento."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível analisar o tremor. O material é curto demais ou o movimento não pôde ser lido."
+            "value": "Não foi possível analisar o tremor. O vídeo é curto demais ou o movimento não pôde ser lido."
           }
         }
       }
@@ -50124,7 +50124,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit text"
+            "value": "Edit Text"
           }
         },
         "es": {
@@ -50308,19 +50308,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit by transcript"
+            "value": "Edit by Text"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar por transcripción"
+            "value": "Editar por texto"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar pela transcrição"
+            "value": "Editar por texto"
           }
         }
       }
@@ -50515,19 +50515,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use transcription, AI polish and read-aloud without your own API key. You get %lld pt when you first sign in."
+            "value": "Use transcription, AI cleanup and read-aloud without your own API key. You get %lld pt when you first sign in."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa la transcripción, el pulido con IA y la lectura sin tu propia clave de API. Recibes %lld pt al iniciar sesión por primera vez."
+            "value": "Usa la transcripción, el acabado con IA y la lectura sin tu propia clave de API. Recibes %lld pt al iniciar sesión por primera vez."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use transcrição, refino com IA e leitura sem sua própria chave de API. Você ganha %lld pt ao entrar pela primeira vez."
+            "value": "Use transcrição, acabamento com IA e leitura sem sua própria chave de API. Você ganha %lld pt ao entrar pela primeira vez."
           }
         }
       }
@@ -50906,19 +50906,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Action shots from your trip cut to the music's beat in 20 seconds. Vivid color, zoom-blur and whip transitions, and \"TRIP\" at the start."
+            "value": "Action shots from your trip cut to the music's beat in 20 seconds. Vivid color, zoom-blur and whip transitions, and “TRIP” at the start."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escenas con movimiento del viaje al ritmo de la música en 20 segundos. Color vivo, transiciones de zoom y barrido, y \"TRIP\" al inicio."
+            "value": "Escenas con movimiento del viaje al ritmo de la música en 20 segundos. Color vivo, transiciones de zoom y barrido, y “TRIP” al inicio."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cenas com movimento da viagem no ritmo da música em 20 segundos. Cor viva, transições de zoom e chicote, e \"TRIP\" no início."
+            "value": "Cenas com movimento da viagem no ritmo da música em 20 segundos. Cor viva, transições de zoom e chicote, e “TRIP” no início."
           }
         }
       }
@@ -50981,7 +50981,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir a los subtítulos existentes"
+            "value": "Agregar a los subtítulos existentes"
           }
         },
         "pt-BR": {
@@ -51780,13 +51780,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Also judges scenery beauty, expressions, mood such as laughter or nature sounds, scene changes, and the pace and pauses of speech. After changing strictness or AI, press “Again”."
+            "value": "Also judges scenery beauty, expressions, mood such as laughter or nature sounds, scene changes, and the pace and pauses of speech. After changing strictness or AI, tap “Again”."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "También evalúa la belleza del paisaje, las expresiones, el ambiente como risas o sonidos de la naturaleza, los cambios de escena y el ritmo y las pausas del habla. Tras cambiar el rigor o la IA, pulsa “De nuevo”."
+            "value": "También evalúa la belleza del paisaje, las expresiones, el ambiente como risas o sonidos de la naturaleza, los cambios de escena y el ritmo y las pausas del habla. Tras cambiar el rigor o la IA, toca “De nuevo”."
           }
         },
         "pt-BR": {
@@ -51809,13 +51809,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reduce el grano del material grabado con poca luz. Demasiado desenfoca los detalles finos."
+            "value": "Reduce el grano del video grabado con poca luz. Demasiado desenfoca los detalles finos."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reduz a granulação de material gravado com pouca luz. Em excesso, desfoca detalhes finos."
+            "value": "Reduz a granulação de vídeos gravados com pouca luz. Em excesso, desfoca detalhes finos."
           }
         }
       }
@@ -51941,7 +51941,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Change song"
+            "value": "Change Song"
           }
         },
         "es": {
@@ -52125,19 +52125,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep this app open until the export finishes.\\nIt stops about 30 s after you go to the Home Screen.\\nThe screen will not lock automatically."
+            "value": "Keep this app open until the export finishes.\nIt stops about 30 s after you go to the Home Screen.\nThe screen will not lock automatically."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantén esta app abierta hasta que termine la exportación.\\nSe detiene unos 30 s después de ir a la pantalla de inicio.\\nLa pantalla no se bloqueará automáticamente."
+            "value": "Mantén esta app abierta hasta que termine la exportación.\nSe detiene unos 30 s después de ir a la pantalla de inicio.\nLa pantalla no se bloqueará automáticamente."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantenha este app aberto até a exportação terminar.\\nEla para cerca de 30 s depois de ir para a tela inicial.\\nA tela não será bloqueada automaticamente."
+            "value": "Mantenha este app aberto até a exportação terminar.\nEla para cerca de 30 s depois de ir para a tela inicial.\nA tela não será bloqueada automaticamente."
           }
         }
       }
@@ -52700,7 +52700,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Export cancelled"
+            "value": "Export canceled"
           }
         },
         "es": {
@@ -52723,13 +52723,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Export stopped. Press the button below to export again."
+            "value": "Export stopped. Tap the button below to export again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exportación detenida. Pulsa el botón de abajo para exportar de nuevo."
+            "value": "Exportación detenida. Toca el botón de abajo para exportar de nuevo."
           }
         },
         "pt-BR": {
@@ -53373,7 +53373,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se añadieron %lld s de margen al final"
+            "value": "Se agregaron %lld s de margen al final"
           }
         },
         "pt-BR": {
@@ -53396,7 +53396,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se añadieron %lld s al final para la pantalla final"
+            "value": "Se agregaron %lld s al final para la pantalla final"
           }
         },
         "pt-BR": {
@@ -53419,7 +53419,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir 10 s al final"
+            "value": "Agregar 10 s al final"
           }
         },
         "pt-BR": {
@@ -53902,7 +53902,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir al final"
+            "value": "Agregar al final"
           }
         },
         "pt-BR": {
@@ -54241,7 +54241,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Horizontal 16:9"
+            "value": "Landscape 16:9"
           }
         },
         "es": {
@@ -54586,7 +54586,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The next clip is not the continuation of the same footage"
+            "value": "The next clip is not a continuation of the same media"
           }
         },
         "es": {
@@ -54598,7 +54598,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O próximo clipe não é a continuação do mesmo material"
+            "value": "O próximo clipe não é a continuação da mesma mídia"
           }
         }
       }
@@ -55000,13 +55000,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aspect"
+            "value": "Aspect Ratio"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relación"
+            "value": "Proporción"
           }
         },
         "pt-BR": {
@@ -55046,19 +55046,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off while the aspect ratio is Original"
+            "value": "Off while the aspect ratio is “Original”"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desactivado con la proporción Original"
+            "value": "Desactivado con la proporción “Original”"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desativado com a proporção Original"
+            "value": "Desativado com a proporção “Original”"
           }
         }
       }
@@ -55414,19 +55414,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Items that could not be measured:\n"
+            "value": "Media that could not be measured:\n"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elementos que no se pudieron medir:\n"
+            "value": "Material que no se pudo medir:\n"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Itens que não puderam ser medidos:\n"
+            "value": "Mídia que não pôde ser medida:\n"
           }
         }
       }
@@ -55650,13 +55650,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recorta silencios y muletillas, alterna planos cercanos y abiertos en cada corte y añade un destello sobreexpuesto al cambiar de tema. Subtítulos pequeños que resaltan en amarillo la palabra dicha."
+            "value": "Recorta silencios y muletillas, alterna planos cercanos y abiertos en cada corte y agrega un destello sobreexpuesto al cambiar de tema. Subtítulos pequeños que resaltan en amarillo la palabra dicha."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Corta silêncios e vícios de linguagem, alterna planos próximos e abertos a cada corte e adiciona um flash estourado na troca de assunto. Legendas pequenas destacam em amarelo a palavra falada."
+            "value": "Corta silêncios e hesitações, alterna planos próximos e abertos a cada corte e adiciona um flash estourado na troca de assunto. Legendas pequenas destacam em amarelo a palavra falada."
           }
         }
       }
@@ -56748,7 +56748,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enhance Quality"
+            "value": "Quality Boost"
           }
         },
         "es": {
@@ -57024,7 +57024,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t read the frame"
+            "value": "Couldn't read the frame"
           }
         },
         "es": {
@@ -57346,19 +57346,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The hype moments with commentary in 30 seconds. Crisp color, occasional glitch transitions, and bold outlined captions."
+            "value": "Lively talking moments in 30 seconds. Crisp color, occasional glitch transitions, and bold outlined captions."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los momentos más emocionantes con comentarios en 30 segundos. Color nítido, algunas transiciones glitch y subtítulos con contorno grueso."
+            "value": "Los momentos de charla más animados en 30 segundos. Color nítido, algunas transiciones glitch y subtítulos con contorno grueso."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os momentos mais empolgantes com narração em 30 segundos. Cor nítida, algumas transições glitch e legendas com contorno grosso."
+            "value": "Os momentos de conversa mais animados em 30 segundos. Cor nítida, algumas transições glitch e legendas com contorno grosso."
           }
         }
       }
@@ -57622,7 +57622,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Type & Strength"
+            "value": "Type/Strength"
           }
         },
         "es": {
@@ -57829,19 +57829,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check your free space and try again.\\n\\nDetails: "
+            "value": "Check your free space and try again.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Revisa el espacio libre e inténtalo de nuevo.\\n\\nDetalles: "
+            "value": "Revisa el espacio libre e inténtalo de nuevo.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verifique o espaço livre e tente novamente.\\n\\nDetalhes: "
+            "value": "Verifique o espaço livre e tente novamente.\n\nDetalhes: "
           }
         }
       }
@@ -57852,19 +57852,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check your free space and choose again. Apple Music songs can't be used.\\n\\nDetails: "
+            "value": "Check your free space and choose again. Apple Music songs can't be used.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Revisa el espacio libre y vuelve a elegir. No se pueden usar canciones de Apple Music.\\n\\nDetalles: "
+            "value": "Revisa el espacio libre y vuelve a elegir. No se pueden usar canciones de Apple Music.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verifique o espaço livre e escolha de novo. Músicas do Apple Music não podem ser usadas.\\n\\nDetalhes: "
+            "value": "Verifique o espaço livre e escolha de novo. Músicas do Apple Music não podem ser usadas.\n\nDetalhes: "
           }
         }
       }
@@ -58036,13 +58036,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check the free space on your device and press “Export project” again.\n\nDetails: "
+            "value": "Check the free space on your device and tap “Export project” again.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Revisa el espacio libre del dispositivo y pulsa “Exportar proyecto” de nuevo.\n\nDetalles: "
+            "value": "Revisa el espacio libre del dispositivo y toca “Exportar proyecto” de nuevo.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -58059,19 +58059,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check the free space on your device and press “Send to Another Device” again.\\n\\nDetails: "
+            "value": "Check the free space on your device and press “Send to Another Device” again.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Revisa el espacio libre del dispositivo y toca “Enviar a otro dispositivo” de nuevo.\\n\\nDetalles: "
+            "value": "Revisa el espacio libre del dispositivo y toca “Enviar a otro dispositivo” de nuevo.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verifique o espaço livre do aparelho e toque em “Enviar para outro aparelho” de novo.\\n\\nDetalhes: "
+            "value": "Verifique o espaço livre do aparelho e toque em “Enviar para outro aparelho” de novo.\n\nDetalhes: "
           }
         }
       }
@@ -58163,7 +58163,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usa a IA do dispositivo somente quando disponível."
+            "value": "Usa a IA do aparelho somente quando disponível."
           }
         }
       }
@@ -58209,7 +58209,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ocorreu um erro com a IA do dispositivo: %@"
+            "value": "Ocorreu um erro com a IA do aparelho: %@"
           }
         }
       }
@@ -58232,7 +58232,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A IA do dispositivo não está disponível neste aparelho"
+            "value": "A IA do aparelho não está disponível neste aparelho"
           }
         }
       }
@@ -58255,7 +58255,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "IA do dispositivo: %@"
+            "value": "IA do aparelho: %@"
           }
         }
       }
@@ -58496,13 +58496,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shorten the range or reduce the width, then press “Create GIF” again. (Details: "
+            "value": "Shorten the range or reduce the width, then tap “Create GIF” again. (Details: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acorta el rango o reduce el ancho y pulsa “Crear GIF” de nuevo. (Detalles: "
+            "value": "Acorta el rango o reduce el ancho y toca “Crear GIF” de nuevo. (Detalles: "
           }
         },
         "pt-BR": {
@@ -58887,19 +58887,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The source footage totals %@. When the target is shorter, highlights are kept."
+            "value": "Your media totals %@. When the target is shorter, highlights are kept."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El material suma %@. Si el objetivo es más corto, se conservan los mejores momentos."
+            "value": "El material suma %@. Si el objetivo es más corto, se conservan los momentos destacados."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O material soma %@. Se o alvo for menor, os melhores momentos são mantidos."
+            "value": "A mídia soma %@. Se o alvo for menor, os destaques são mantidos."
           }
         }
       }
@@ -59163,19 +59163,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep this app open until it finishes.\\nIt stops about 30 s after you go to the Home Screen.\\nThe screen will not lock automatically."
+            "value": "Keep this app open until it finishes.\nIt stops about 30 s after you go to the Home Screen.\nThe screen will not lock automatically."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantén esta app abierta hasta que termine.\\nSe detiene unos 30 s después de ir a la pantalla de inicio.\\nLa pantalla no se bloqueará automáticamente."
+            "value": "Mantén esta app abierta hasta que termine.\nSe detiene unos 30 s después de ir a la pantalla de inicio.\nLa pantalla no se bloqueará automáticamente."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantenha este app aberto até terminar.\\nEle para cerca de 30 s depois de ir para a tela inicial.\\nA tela não será bloqueada automaticamente."
+            "value": "Mantenha este app aberto até terminar.\nEle para cerca de 30 s depois de ir para a tela inicial.\nA tela não será bloqueada automaticamente."
           }
         }
       }
@@ -59209,19 +59209,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep this screen open until it finishes.\\nIt pauses about 30 s after you go to the Home Screen.\\nThe screen will not lock automatically."
+            "value": "Keep this screen open until it finishes.\nIt pauses about 30 s after you go to the Home Screen.\nThe screen will not lock automatically."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantén esta pantalla abierta hasta que termine.\\nSe pausa unos 30 s después de ir a la pantalla de inicio.\\nLa pantalla no se bloqueará automáticamente."
+            "value": "Mantén esta pantalla abierta hasta que termine.\nSe pausa unos 30 s después de ir a la pantalla de inicio.\nLa pantalla no se bloqueará automáticamente."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantenha esta tela aberta até terminar.\\nPausa cerca de 30 s depois de ir para a tela inicial.\\nA tela não será bloqueada automaticamente."
+            "value": "Mantenha esta tela aberta até terminar.\nPausa cerca de 30 s depois de ir para a tela inicial.\nA tela não será bloqueada automaticamente."
           }
         }
       }
@@ -59537,13 +59537,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "edici"
+            "value": "edición"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "edi"
+            "value": "edição"
           }
         }
       }
@@ -60980,7 +60980,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove Background"
+            "value": "Remove BG"
           }
         },
         "es": {
@@ -61561,13 +61561,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automático"
+            "value": "Creación automática"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automático"
+            "value": "Criação automática"
           }
         }
       }
@@ -61900,19 +61900,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pick a color and length, then tap Add to insert it after the playhead"
+            "value": "Pick a color and length, then tap “Add” to insert it after the playhead"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige un color y una duración y toca Añadir para insertarla después del cursor"
+            "value": "Elige un color y una duración y toca Agregar para insertarla después del cursor"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha uma cor e uma duração e toque em Adicionar para inserir após o cursor"
+            "value": "Escolha uma cor e uma duração e toque em “Adicionar” para inserir após o cursor"
           }
         }
       }
@@ -62774,7 +62774,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display time"
+            "value": "Display Time"
           }
         },
         "es": {
@@ -62820,19 +62820,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display guide"
+            "value": "Safe Zones"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guía de pantalla"
+            "value": "Zonas seguras"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guia de tela"
+            "value": "Zonas seguras"
           }
         }
       }
@@ -62970,7 +62970,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Objeto"
+            "value": "Assunto"
           }
         }
       }
@@ -63073,7 +63073,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Multi-select"
+            "value": "Multi-Select"
           }
         },
         "es": {
@@ -63286,13 +63286,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mejores momentos"
+            "value": "Momentos destacados"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melhores momentos"
+            "value": "Destaques"
           }
         }
       }
@@ -63355,13 +63355,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscando los mejores momentos"
+            "value": "Buscando momentos destacados"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Procurando os melhores momentos"
+            "value": "Procurando destaques"
           }
         }
       }
@@ -63378,13 +63378,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar los mejores momentos"
+            "value": "Buscar momentos destacados"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Procurar os melhores momentos"
+            "value": "Procurar destaques"
           }
         }
       }
@@ -63418,19 +63418,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not find highlights. Press “Create” anyway to pick evenly from the whole video.\n\nDetails: "
+            "value": "Could not find highlights. Tap “Create” anyway to pick evenly from the whole video.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontraron los mejores momentos. Pulsa “Crear” de todos modos para elegir de forma uniforme en todo el video.\n\nDetalles: "
+            "value": "No se encontraron momentos destacados. Toca “Crear” de todos modos para elegir de forma uniforme en todo el video.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível encontrar os melhores momentos. Toque em “Criar” mesmo assim para escolher de forma uniforme em todo o vídeo.\n\nDetalhes: "
+            "value": "Não foi possível encontrar destaques. Toque em “Criar” mesmo assim para escolher de forma uniforme em todo o vídeo.\n\nDetalhes: "
           }
         }
       }
@@ -63441,19 +63441,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't search for highlights. Tap “Create video” to build it from evenly spaced picks.\\n\\nDetails: "
+            "value": "Couldn't search for highlights. Tap “Create video” to build it from evenly spaced picks.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudieron buscar momentos destacados. Toca “Crear video” para hacerlo con partes repartidas por igual.\\n\\nDetalles: "
+            "value": "No se pudieron buscar momentos destacados. Toca “Crear video” para hacerlo con partes repartidas por igual.\n\nDetalles: "
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível buscar destaques. Toque em “Criar vídeo” para montar com trechos distribuídos por igual.\\n\\nDetalhes: "
+            "value": "Não foi possível buscar destaques. Toque em “Criar vídeo” para montar com trechos distribuídos por igual.\n\nDetalhes: "
           }
         }
       }
@@ -63470,13 +63470,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontraron los mejores momentos. “Crear” elegirá de forma uniforme en todo el video."
+            "value": "No se encontraron momentos destacados. “Crear” elegirá de forma uniforme en todo el video."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhum melhor momento encontrado. “Criar” escolherá de forma uniforme em todo o vídeo."
+            "value": "Nenhum destaque encontrado. “Criar” escolherá de forma uniforme em todo o vídeo."
           }
         }
       }
@@ -63844,7 +63844,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vícios de linguagem"
+            "value": "Hesitações"
           }
         }
       }
@@ -63855,7 +63855,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No fillers found"
+            "value": "No filler words found"
           }
         },
         "es": {
@@ -63890,7 +63890,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selecionar todos os vícios"
+            "value": "Selecionar todas as hesitações"
           }
         }
       }
@@ -63913,7 +63913,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selecionar todos os vícios (%lld)"
+            "value": "Selecionar todas as hesitações (%lld)"
           }
         }
       }
@@ -63924,7 +63924,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filler Cut"
+            "value": "Remove Fillers"
           }
         },
         "es": {
@@ -64108,13 +64108,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow this app to add to “Photos” in Settings, then press “Save to Photos” again.\n\nDetails: "
+            "value": "Allow this app to add to “Photos” in Settings, then tap “Save to Photos” again.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite que esta app agregue a “Fotos” en Ajustes y pulsa “Guardar en Fotos” de nuevo.\n\nDetalles: "
+            "value": "Permite que esta app agregue a “Fotos” en Ajustes y toca “Guardar en Fotos” de nuevo.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -65264,7 +65264,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Leer y añadir"
+            "value": "Leer y agregar"
           }
         },
         "pt-BR": {
@@ -65287,13 +65287,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Leer y añadir · %lldpt"
+            "value": "Leer y agregar · %lldpt"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Narrar e adicionar · %lldpt"
+            "value": "Ler e adicionar · %lldpt"
           }
         }
       }
@@ -65580,19 +65580,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Loaded"
+            "value": "loaded"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cargado"
+            "value": "cargados"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Carregado"
+            "value": "carregadas"
           }
         }
       }
@@ -66109,7 +66109,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy adjustments"
+            "value": "Copy Look"
           }
         },
         "es": {
@@ -66155,19 +66155,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paste look"
+            "value": "Paste adjustments"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pegar aspecto"
+            "value": "Pegar ajustes"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colar aparência"
+            "value": "Colar ajustes"
           }
         }
       }
@@ -66178,19 +66178,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apply adjustments to all clips"
+            "value": "Apply to All"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aplicar ajustes a todos los clips"
+            "value": "Aplicar a todos"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aplicar ajustes a todos os clipes"
+            "value": "Aplicar a todos"
           }
         }
       }
@@ -66224,7 +66224,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paste adjustments"
+            "value": "Paste Look"
           }
         },
         "es": {
@@ -66460,7 +66460,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Si tienes dudas, “Apple” es suficiente. Con todos los métodos, los resultados se dividen por frase y los muletillas (“eh”, etc.) se quitan automáticamente."
+            "value": "Si tienes dudas, “Apple” es suficiente. Con todos los métodos, los resultados se dividen por frase y las muletillas (“eh”, etc.) se quitan automáticamente."
           }
         },
         "pt-BR": {
@@ -66552,7 +66552,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadiendo…"
+            "value": "Agregando…"
           }
         },
         "pt-BR": {
@@ -66569,19 +66569,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Added"
+            "value": "added"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agregado"
+            "value": "agregados"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicionado"
+            "value": "adicionadas"
           }
         }
       }
@@ -67351,13 +67351,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Import” again where you have a connection. If it keeps happening, “Discard” and recreate the captions automatically.\n\nDetails: "
+            "value": "Tap “Import” again where you have a connection. If it keeps happening, “Discard” and recreate the captions automatically.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Importar” de nuevo donde tengas conexión. Si sigue pasando, “Descarta” y rehaz los subtítulos automáticamente.\n\nDetalles: "
+            "value": "Toca “Importar” de nuevo donde tengas conexión. Si sigue pasando, “Descarta” y rehaz los subtítulos automáticamente.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -67374,13 +67374,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Create script” again where you have a connection. If it keeps happening, check “AI Settings”.\n\nDetails: "
+            "value": "Tap “Create script” again where you have a connection. If it keeps happening, check “AI Settings”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Crear guion” de nuevo donde tengas conexión. Si sigue pasando, revisa “Ajustes de IA”.\n\nDetalles: "
+            "value": "Toca “Crear guion” de nuevo donde tengas conexión. Si sigue pasando, revisa “Ajustes de IA”.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -67397,13 +67397,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Translate” again where you have a connection. If it does not work, try “Translate with AI”.\n\nDetails: "
+            "value": "Tap “Translate” again where you have a connection. If it does not work, try “Translate with AI”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Traducir” de nuevo donde tengas conexión. Si no funciona, prueba “Traducir con IA”.\n\nDetalles: "
+            "value": "Toca “Traducir” de nuevo donde tengas conexión. Si no funciona, prueba “Traducir con IA”.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -67420,13 +67420,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press “Create captions automatically” again where you have a connection. If it keeps happening, change the method in “Transcription method & AI cleanup”.\n\nDetails: "
+            "value": "Tap “Create captions automatically” again where you have a connection. If it keeps happening, change the method in “Transcription method & AI cleanup”.\n\nDetails: "
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa “Crear subtítulos automáticamente” de nuevo donde tengas conexión. Si sigue pasando, cambia el método en “Método de transcripción y acabado con IA”.\n\nDetalles: "
+            "value": "Toca “Crear subtítulos automáticamente” de nuevo donde tengas conexión. Si sigue pasando, cambia el método en “Método de transcripción y acabado con IA”.\n\nDetalles: "
           }
         },
         "pt-BR": {
@@ -68047,7 +68047,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toca uno para añadir 3 segundos desde el cabezal. Cambia la duración en la línea de tiempo."
+            "value": "Toca uno para agregar 3 segundos desde el cabezal. Cambia la duración en la línea de tiempo."
           }
         },
         "pt-BR": {
@@ -68271,19 +68271,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your rooms in 45 seconds. Bright color that keeps white walls clean, whip transitions from room to room, and \"ROOM TOUR\" at the start."
+            "value": "Your rooms in 45 seconds. Bright color that keeps white walls clean, whip transitions from room to room, and “ROOM TOUR” at the start."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tus espacios en 45 segundos. Color luminoso para paredes blancas limpias, transiciones de barrido entre habitaciones y \"ROOM TOUR\" al inicio."
+            "value": "Tus espacios en 45 segundos. Color luminoso para paredes blancas limpias, transiciones de barrido entre habitaciones y “ROOM TOUR” al inicio."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seus cômodos em 45 segundos. Cor clara que mantém as paredes brancas limpas, transições de chicote entre cômodos e \"ROOM TOUR\" no início."
+            "value": "Seus cômodos em 45 segundos. Cor clara que mantém as paredes brancas limpas, transições de chicote entre cômodos e “ROOM TOUR” no início."
           }
         }
       }
@@ -68622,7 +68622,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La grabación se interrumpió, así que se añadió lo grabado hasta ese momento."
+            "value": "La grabación se interrumpió, así que se agregó lo grabado hasta ese momento."
           }
         },
         "pt-BR": {
@@ -68645,7 +68645,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La grabación se interrumpió. Era demasiado corta, así que no se añadió."
+            "value": "La grabación se interrumpió. Era demasiado corta, así que no se agregó."
           }
         },
         "pt-BR": {
@@ -68685,13 +68685,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The recorded voice-over is added to the timeline at the playhead. Afterwards you can adjust it with “Volume” or “Match loudness”."
+            "value": "The recorded narration is added to the timeline at the playhead. Afterwards you can adjust it with “Volume” or “Match loudness”."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La voz en off grabada se agrega a la línea de tiempo en la posición de reproducción. Después puedes ajustarla con “Volumen” o “Igualar volumen”."
+            "value": "La narración grabada se agrega a la línea de tiempo en la posición de reproducción. Después puedes ajustarla con “Volumen” o “Igualar volumen”."
           }
         },
         "pt-BR": {
@@ -69019,7 +69019,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Duração %@ (até %@ restantes no material)"
+            "value": "Duração %@ (até %@ restantes na mídia)"
           }
         }
       }
@@ -69812,19 +69812,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scores highlights from loudness, speech, motion and faces. If you press “Create” without searching, it searches automatically."
+            "value": "Scores highlights from loudness, speech, motion and faces. If you tap “Create” without searching, it searches automatically."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puntúa los mejores momentos según volumen, voz, movimiento y rostros. Si pulsas “Crear” sin buscar, busca automáticamente."
+            "value": "Puntúa los momentos destacados según volumen, voz, movimiento y rostros. Si tocas “Crear” sin buscar, busca automáticamente."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pontua os melhores momentos por volume, fala, movimento e rostos. Se tocar em “Criar” sem procurar, a busca é automática."
+            "value": "Pontua os destaques por volume, fala, movimento e rostos. Se tocar em “Criar” sem procurar, a busca é automática."
           }
         }
       }
@@ -70387,13 +70387,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No clips or voice-overs with audio"
+            "value": "No clips or narration with audio"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay clips ni voces en off con audio"
+            "value": "No hay clips ni narraciones con audio"
           }
         },
         "pt-BR": {
@@ -70410,13 +70410,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No clips or voice-overs with audio."
+            "value": "No clips or narration with audio."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay clips ni voces en off con audio."
+            "value": "No hay clips ni narraciones con audio."
           }
         },
         "pt-BR": {
@@ -70801,13 +70801,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "After turning speech into text, AI fixes punctuation, removes hesitations and splits long captions. On-device (Apple Intelligence) works only on devices with Apple Intelligence enabled on iOS 26 or later. Cloud needs an OpenAI API key and sends the caption text."
+            "value": "After turning speech into text, AI fixes punctuation, removes filler words and splits long captions. On-device (Apple Intelligence) works only on devices with Apple Intelligence enabled on iOS 26 or later. Cloud needs an OpenAI API key and sends the caption text."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tras convertir la voz en texto, la IA corrige la puntuación, quita titubeos y divide los subtítulos largos. En el dispositivo (Apple Intelligence) solo funciona con Apple Intelligence activado en iOS 26 o posterior. La nube requiere una clave de API de OpenAI y envía el texto de los subtítulos."
+            "value": "Tras convertir la voz en texto, la IA corrige la puntuación, quita muletillas y divide los subtítulos largos. En el dispositivo (Apple Intelligence) solo funciona con Apple Intelligence activado en iOS 26 o posterior. La nube requiere una clave de API de OpenAI y envía el texto de los subtítulos."
           }
         },
         "pt-BR": {
@@ -71790,19 +71790,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auto Mosaic Faces"
+            "value": "Face Pixelate"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosaico automático en rostros"
+            "value": "Pixelar rostros"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosaico automático em rostos"
+            "value": "Pixelizar rostos"
           }
         }
       }
@@ -72273,19 +72273,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Black bar caption"
+            "value": "Black bar title"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subtítulo con barra negra"
+            "value": "Rótulo con barra negra"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legenda com tarja preta"
+            "value": "Letreiro com tarja preta"
           }
         }
       }
