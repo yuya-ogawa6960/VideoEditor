@@ -339,6 +339,12 @@ final class CameraRecorder {
         rebuildRotationCoordinator()
     }
 
+    /// プレビューがウインドウに乗ったとき(CameraPreviewHostView.didMoveToWindow)。向きの計算を画面の向きで作り直す
+    func previewDidMoveToWindow() {
+        applyPreviewSettings()
+        rebuildRotationCoordinator()
+    }
+
     /// 前カメラのプレビューだけ鏡にする(録画は鏡にしない)
     private func applyPreviewSettings() {
         guard let connection = previewLayer?.connection else { return }

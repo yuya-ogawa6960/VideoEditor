@@ -20,6 +20,8 @@ struct CameraRecorderView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var recorder = CameraRecorder()
     @State private var phase: Phase = .starting
     @State private var countdownRemaining = 0
@@ -160,34 +162,47 @@ struct CameraRecorderView: View {
 
     private var liveView: some View {
         GeometryReader { geo in
+            // iPhone Duo を開いた横持ち(縦横とも regular)では、左にプレビュー、右に台本と操作を分けて置く
+            // (後ろのカメラで撮りながら、隣の画面で映りと台本を確かめられる)
+            let split = horizontalSizeClass == .regular && verticalSizeClass == .regular && geo.size.width > geo.size.height
+            let previewWidth = (geo.size.width * 0.58).rounded()
             ZStack {
-                CameraPreviewView(recorder: recorder)
-                    .overlay {
-                        if let focusPoint {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(Color.yellow, lineWidth: 1.5)
-                                .frame(width: 72, height: 72)
-                                .position(focusPoint)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .onTapGesture { location in
-                        guard phase == .live, recorder.isRunning else { return }
-                        recorder.focus(atLayerPoint: location)
-                        showFocusMark(at: location)
-                    }
-                    .ignoresSafeArea()
+                // プレビューは分岐の外に 1 つだけ置く(回転のたびに作り直すと、画面に乗る前に向きを決めてしまい 90° ずれる)
+                previewSurface
+                    .frame(maxWidth: split ? previewWidth : .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .ignoresSafeArea(edges: split ? [.leading, .vertical] : .all)
 
-                VStack(spacing: 0) {
-                    topBar
-                    TeleprompterOverlay(script: script, isScrolling: recorder.isRecording) {
-                        showScriptSheet = true
+                if split {
+                    HStack(spacing: 0) {
+                        Color.clear
+                            .frame(width: previewWidth)
+                        VStack(spacing: 0) {
+                            topBar
+                            TeleprompterOverlay(script: script, isScrolling: recorder.isRecording) {
+                                showScriptSheet = true
+                            }
+                            .frame(maxHeight: script.isEmpty ? nil : .infinity)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            Spacer(minLength: 0)
+                            bottomBar
+                        }
+                        .frame(maxWidth: .infinity)
+                        .background(Color.black)
                     }
-                    .frame(height: script.isEmpty ? nil : geo.size.height * 0.36)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    Spacer(minLength: 0)
-                    bottomBar
+                } else {
+                    VStack(spacing: 0) {
+                        topBar
+                        TeleprompterOverlay(script: script, isScrolling: recorder.isRecording) {
+                            showScriptSheet = true
+                        }
+                        .frame(height: script.isEmpty ? nil : geo.size.height * 0.36)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                        Spacer(minLength: 0)
+                        bottomBar
+                    }
                 }
 
                 if recorder.isInterrupted {
@@ -211,6 +226,25 @@ struct CameraRecorderView: View {
                 }
             }
         }
+    }
+
+    /// カメラの映像(タップでピント)
+    private var previewSurface: some View {
+        CameraPreviewView(recorder: recorder)
+            .overlay {
+                if let focusPoint {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.yellow, lineWidth: 1.5)
+                        .frame(width: 72, height: 72)
+                        .position(focusPoint)
+                        .allowsHitTesting(false)
+                }
+            }
+            .onTapGesture { location in
+                guard phase == .live, recorder.isRunning else { return }
+                recorder.focus(atLayerPoint: location)
+                showFocusMark(at: location)
+            }
     }
 
     private var topBar: some View {
@@ -564,6 +598,10 @@ struct CameraPreviewView: UIViewRepresentable {
         let view = CameraPreviewHostView()
         view.backgroundColor = .black
         recorder.attachPreviewLayer(view.previewLayer)
+        // 画面に乗ってから向きを決め直す(乗る前に作った回転の計算は縦向きのままになる)
+        view.onMovedToWindow = { [recorder] in
+            recorder.previewDidMoveToWindow()
+        }
         return view
     }
 
@@ -572,6 +610,16 @@ struct CameraPreviewView: UIViewRepresentable {
 
 final class CameraPreviewHostView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+
+    /// ウインドウに乗ったとき(CameraRecorder が回転の計算を作り直す)
+    var onMovedToWindow: (() -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            onMovedToWindow?()
+        }
+    }
 
     var previewLayer: AVCaptureVideoPreviewLayer {
         // layerClass で指定しているので必ず AVCaptureVideoPreviewLayer

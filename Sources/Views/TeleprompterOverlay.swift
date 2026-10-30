@@ -83,6 +83,8 @@ struct TeleprompterOverlay: View {
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
+                        // 枠より長い文章も切らずに全部並べる(overlay は枠の高さを提案してくるので、そのままだと末尾が「…」になる)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 16)
                         // 最初の行が読む位置から始まり、最後の行まで読む位置に来られるように上下を空ける
                         .padding(.top, guideY)
