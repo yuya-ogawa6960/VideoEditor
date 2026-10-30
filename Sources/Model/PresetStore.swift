@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 // =====================================================================
-// 書き出しプリセット(ユーザー保存)。Documents/presets.json に保存する。
+// 書き出しプリセット(ユーザー保存)。Application Support/presets.json に保存する。
 // 組み込みプリセット(builtIns)はファイルには保存しない。書き出し画面のチップには出さない(画質は書き出し画面のタイルで選ぶ)。
 // プリセットは画質まわりだけを変え、比率と収め方(aspect / scaling)は上書きしない(比率は編集画面と新規作成で決める)。
 // 保存形式は ProjectStore.swift の StoredCanvas / StoredSubtitleStyle / StoredDocumentary を使う。
@@ -46,8 +46,7 @@ final class PresetStore {
     private let queue = DispatchQueue(label: "PresetStore.write", qos: .utility)
 
     static var fileURL: URL {
-        let docs = StorageLocations.applicationSupport
-        return docs.appendingPathComponent("presets.json")
+        AppDirectories.applicationSupport.appendingPathComponent("presets.json")
     }
 
     private init() {

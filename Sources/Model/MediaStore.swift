@@ -28,15 +28,9 @@ enum MediaStoreError: LocalizedError {
 // MARK: - 素材の保存・読み込み
 
 enum MediaStore {
-    /// Application Support/Media(必要に応じて作成)
-    static var mediaDirectory: URL {
-        let docs = StorageLocations.applicationSupport
-        let dir = docs.appendingPathComponent("Media", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-        return dir
-    }
+    /// Application Support/Media(必要に応じて作成。場所は AppDirectories で決める)。
+    /// 保存データは素材をファイル名だけで持つ(ProjectStore.resolveMedia)ので、このフォルダが動いても開ける
+    static var mediaDirectory: URL { AppDirectories.media }
 
     /// mediaDirectory 内の重複しない保存先(UUID_元の名前)
     static func uniqueDestination(forFileName fileName: String) -> URL {

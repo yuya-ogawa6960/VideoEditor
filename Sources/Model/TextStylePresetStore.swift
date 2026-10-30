@@ -109,7 +109,7 @@ final class TextStylePresetStore {
     private let queue = DispatchQueue(label: "TextStylePresetStore.write", qos: .utility)
 
     static var fileURL: URL {
-        StorageLocations.applicationSupport.appendingPathComponent("text_styles.json")
+        AppDirectories.applicationSupport.appendingPathComponent("text_styles.json")
     }
 
     private init() {

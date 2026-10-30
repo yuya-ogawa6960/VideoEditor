@@ -680,8 +680,7 @@ struct ProjectLibraryView: View {
 
     /// AirDrop などで、このアプリの Documents/Inbox にコピーされて渡されたファイルか
     private static func isInInbox(_ url: URL) -> Bool {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let inbox = documents.appendingPathComponent("Inbox", isDirectory: true).resolvingSymlinksInPath().path
+        let inbox = AppDirectories.documentsInbox.resolvingSymlinksInPath().path
         return url.resolvingSymlinksInPath().path.hasPrefix(inbox + "/")
     }
 }

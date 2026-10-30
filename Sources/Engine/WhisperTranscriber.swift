@@ -67,12 +67,8 @@ final class WhisperTranscriber {
         #endif
     }
 
-    /// モデルの保存先(Application Support/WhisperKit)
-    static var modelsDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("WhisperKit", isDirectory: true)
-    }
+    /// モデルの保存先(Application Support/WhisperKit。バックアップから除外。AppDirectories.prepare が印を付ける)
+    static var modelsDirectory: URL { AppDirectories.whisperModels }
 
     /// 1 回に WhisperKit へ渡す音声の長さ(秒)。進捗の単位でもある
     static let pieceSeconds: Double = 300

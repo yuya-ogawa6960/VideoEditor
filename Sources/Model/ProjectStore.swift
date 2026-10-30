@@ -5,14 +5,15 @@ import Photos
 
 // =====================================================================
 // プロジェクトの自動保存と復元(プロジェクトごとに別ファイル)。
-//   Documents/Projects/<uuid>/project.json   … 編集内容
-//   Documents/Projects/<uuid>/thumbnail.jpg  … 一覧用サムネイル
-//   Documents/Projects/library.json          … 一覧のメタデータ(ProjectLibrary が管理)
+//   Application Support/Projects/<uuid>/project.json   … 編集内容
+//   Application Support/Projects/<uuid>/thumbnail.jpg  … 一覧用サムネイル
+//   Application Support/Projects/library.json          … 一覧のメタデータ(ProjectLibrary が管理)
+// (1.12.68 までは Documents/Projects。起動時に AppDirectories.prepare が移す)
 // CapCut の口コミで多い「編集中に落ちて作業が消える」への対策として、
 // 変更のたびに(0.5 秒にまとめて)保存し、プロジェクトを開いたときに読み込む。
 // 素材ファイルは MediaStore.mediaDirectory にあるので、ファイル名だけを保存する
 // (アプリ更新でコンテナのパスが変わっても復元できるように)。
-// 旧バージョンの単一ファイル Documents/Projects/current.json は、一覧が空のときに
+// 旧バージョンの単一ファイル Projects/current.json は、一覧が空のときに
 // ProjectLibrary が 1 回だけ取り込んで削除する(importLegacyProject)。
 //
 // 保存形式(project.json)は version 2。第3弾で増えた項目(トランジション、アニメーション、
@@ -27,14 +28,8 @@ import Photos
 // =====================================================================
 
 enum ProjectStore {
-    static var projectsDirectory: URL {
-        let docs = StorageLocations.applicationSupport
-        let dir = docs.appendingPathComponent("Projects", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
-        return dir
-    }
+    /// Application Support/Projects(必要に応じて作成。場所は AppDirectories で決める)
+    static var projectsDirectory: URL { AppDirectories.projects }
 
     /// 旧バージョン(単一プロジェクト)の保存ファイル。移行後は削除される
     static var legacyCurrentURL: URL { projectsDirectory.appendingPathComponent("current.json") }

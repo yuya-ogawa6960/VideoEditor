@@ -4,7 +4,7 @@ import UIKit
 
 // =====================================================================
 // フォーマット(オープニング・クロージング・ディバイダー)の保管庫。
-// Documents/formats.json に保存。初回起動時に組み込みのひな形(starters)を入れる。
+// Application Support/formats.json に保存。初回起動時に組み込みのひな形(starters)を入れる。
 // ブロックの挿入は「背景色の静止画クリップ(生成した単色 PNG)」+ 章タイトル/テキストで行う。
 // 単色 PNG は Caches に作る(black.png など。消えても作り直す。ProjectStore が復元時に解決する)。
 // 呼び出しはメインスレッドから(EditorProject を触るため)。
@@ -66,8 +66,7 @@ final class FormatKitStore {
     private let queue = DispatchQueue(label: "FormatKitStore.write", qos: .utility)
 
     static var fileURL: URL {
-        let docs = StorageLocations.applicationSupport
-        return docs.appendingPathComponent("formats.json")
+        AppDirectories.applicationSupport.appendingPathComponent("formats.json")
     }
 
     private init() {
