@@ -1,0 +1,109 @@
+OpenCine
+Copyright 2026 Erik Sutton and OpenCine contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Third-party software distributed with this product is listed in THIRD-PARTY-NOTICES.md
+(Sora, Lucide, Tabler-derived View Assist glyphs, KCP, Luna protocol reference).
+
+OpenCine combines the former OpenCineCore, OpenCineUI, OpenCineMulticam, OpenCineDJI,
+OpenCineNikon, OpenCineInsta360 and OpenCineHarness repositories and the opencapture-atlas
+workspace (Apache 2.0, same authors), with their history. Their notices follow, unchanged
+except for each one's name, copyright and license lines, which the header above replaces.
+
+Core (OpenCineCore, OpenCineCoreTestSupport, OpenCineMedia, OpenCineFrameIO, OpenCineMotion,
+OpenCineRelay, OpenCineApple; Android core, media, vulkan)
+----------------------------------------------------------
+The contracts are informed by OpenPocketCine, OpenInstaCine and OpenZCine (Apache 2.0,
+same authors). No third-party code and no manufacturer SDK or documentation is included.
+
+OpenCineMedia moves media math out of OpenPocketCine and OpenInstaCine (Apache 2.0, same
+authors). The `.cube` parser (`CubeLUT`), `FrameRateSampler`, the custom LUT index and the
+traffic-light meter are adapted from OpenZCine (Apache 2.0, same authors), as are the merged
+CubeLUT and frame-rate tests.
+
+OpenCineFrameIO moves the Frame.io request planning, OAuth PKCE, response models and their
+tests from OpenZCine, and the iOS upload client from OpenZCine and OpenPocketCine (Apache 2.0,
+same authors). It talks to the public Frame.io Platform API v4 and Adobe IMS; no Adobe SDK or
+documentation is included. Frame.io and Adobe are trademarks of Adobe, used for identification
+only.
+
+Transfer curve constants are implemented from published specifications: ITU-R BT.709-6,
+ITU-R BT.2100 and BT.2408 (HLG); the DJI D-Log / D-Gamut white paper (2017); the D-Log2 white
+paper by Gamut (Revision 1.0, 2026-06-30); and the Insta360 10-bit I-Log white paper (June
+2026). The D-Log M curve is an empirical neutral-channel fit taken from Thatcher Freeman's
+Pocket 3 DCTL (github.com/thatcherfreeman/dwg-transforms, revision 22f2134e); only the
+numeric fit is used, no code from that repository. Camera Rec.709 cubes and the grey-axis
+curves derived from them stay in each app.
+
+Test fixtures name camera families ("DJI-like", "Nikon-like", "Luna-like") only to describe
+the behavior they imitate, and curve names (D-Log, D-Log2, D-Log M, I-Log) identify published
+transfer functions. DJI, Nikon, Insta360 and Luna are trademarks of their respective
+owners, used for identification only. This project is not affiliated with or endorsed by them.
+
+UI (MonitorPresentation, MonitorUI; Android monitor-ui)
+-------------------------------------------------------
+It was extracted from OpenPocketCine (Apache 2.0), commit
+27b15028e86d93798c802ddb56c7c474a30bb4c7.
+Third-party software distributed with this product is listed in THIRD-PARTY-NOTICES.md.
+
+Bundled UI typefaces (SIL Open Font License 1.1; copies in
+`Sources/MonitorUI/Resources/Fonts/` and `Android/monitor-ui/src/main/assets/`):
+- Sora, Copyright 2019 The Sora Project Authors (https://github.com/sora-xor/sora-font)
+
+Bundled HUD icons from Lucide (ISC; Feather-derived glyphs also MIT; copies in
+Sources/MonitorUI/Resources/Icons/lucide/ and
+Android/monitor-ui/src/main/assets/icons/lucide/):
+- Lucide, Copyright 2026 Lucide Icons and Contributors
+  (https://github.com/lucide-icons/lucide)
+
+Custom View Assist glyphs extracted from the approved Field Monitor design include
+Tabler-derived paths (MIT; LICENSE-Tabler.txt in the shared assist icon folders):
+- Copyright (c) 2020-2026 Paweł Kuna (https://github.com/tabler/tabler-icons)
+
+Multicam (OpenCineMulticam; Android multicam)
+---------------------------------------------
+The engine generalizes multicam behavior from OpenPocketCine (record confirmation context,
+per-tile recovery budget, controls-only editor admission) and OpenZCine (group record plan and
+mixed results, multicam eligibility), both Apache 2.0, same authors. No third-party code and no
+manufacturer SDK or documentation is included.
+
+Test fixtures from OpenCineCoreTestSupport name camera families ("DJI-like", "Nikon-like",
+"Luna-like") only to describe the behavior they imitate. DJI, Nikon, Insta360 and Luna are
+trademarks of their respective owners, used for identification only. This project is not
+affiliated with or endorsed by them.
+
+DJI integration (OpenCineDJI)
+-----------------------------
+The sources were moved from OpenPocketCine (`Sources/OpenPocketViewCore`, Apache 2.0, same
+authors) without behavior change. No third-party code is included.
+
+This project is not affiliated with or endorsed by SZ DJI Technology Co., Ltd.
+"DJI", "Osmo", "Osmo Pocket", and "Mimo" are trademarks of SZ DJI Technology Co., Ltd.,
+used for identification only.
+No DJI SDK or proprietary DJI documentation is included in, distributed with, or required
+by this project.
+
+Nikon integration (OpenCineNikon)
+---------------------------------
+Sources moved from OpenZCine (Apache 2.0, same authors).
+
+Insta360 integration (Insta360Protocol, CKcp, Insta360Apple, Insta360AppleTestSupport;
+Android insta360-shell, insta360-luna)
+--------------------------------------
+Third-party software distributed with this product is listed in THIRD-PARTY-NOTICES.md
+(KCP, MIT, in Sources/CKcp; Luna protocol implementation reference luna-ai-cut, MIT).
+
+The sources moved here from OpenInstaCine (Adapters/Insta360Protocol, Adapters/Insta360Apple and
+the CameraBackend seam formerly in Sources/MonitorContracts), Apache 2.0, same authors, at
+OpenInstaCine opencine/integration e93c48f.
+
+This project is not affiliated with, endorsed by, or supported by Insta360.
+"Insta360" and "Luna" identify compatible cameras and are trademarks of their
+respective owners. No official Insta360 SDK or proprietary protocol document
+is included in this project.
+
+Harness (HarnessEngine, HarnessComposition, HarnessTests; developer-only)
+-------------------------------------------------------------------------
+Developer test harness only; it contains no third-party code. It is not affiliated with,
+endorsed by, or supported by DJI, Nikon or Insta360. "DJI", "Osmo Pocket", "Nikon", "Insta360"
+and "Luna" identify compatible cameras and are trademarks of their respective owners.

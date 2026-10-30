@@ -46,6 +46,11 @@ jobs:
       - name: Leave out the TikTok URL scheme
         run: sed -i '' -e '/# >>> tiktok-url-scheme/,/# <<< tiktok-url-scheme/d' project.yml
 
+      # Osmo Pocket のライブビュー(開発者モードの実験。docs/OsmoPocket.md)。リポジトリ変数 OSMO_LIVE が on のときだけ入れる
+      - name: Leave out the Osmo Pocket experiment (until OSMO_LIVE is on)
+        if: vars.OSMO_LIVE != 'on'
+        run: sed -i '' -e '/# >>> osmo-live/,/# <<< osmo-live/d' project.yml
+
       - name: Generate Xcode project
         run: xcodegen generate --spec project.yml
 
