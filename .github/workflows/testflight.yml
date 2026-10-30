@@ -67,6 +67,19 @@ jobs:
           fi
           echo "Share Extension left out of this build (set the repository variable SHARE_EXTENSION to on to include it)"
 
+      # Osmo Pocket のライブビュー(開発者モードの実験。docs/OsmoPocket.md)。Bluetooth・ローカルネットワークの利用目的と
+      # Hotspot の権限を審査に出すビルドへ入れないよう、リポジトリ変数 OSMO_LIVE が on でないあいだは印のあいだを消す
+      # (Sources/Osmo/ は #if OSMO_LIVE で守られているので、コードもビルドに入らない)
+      - name: Leave out the Osmo Pocket experiment (until OSMO_LIVE is on)
+        if: steps.check.outputs.ready == 'true' && vars.OSMO_LIVE != 'on'
+        run: |
+          sed -i '' -e '/# >>> osmo-live/,/# <<< osmo-live/d' project.yml
+          if grep -nE "OSMO_LIVE|HotspotConfiguration|NSBluetoothAlwaysUsageDescription|NSLocalNetworkUsageDescription" project.yml; then
+            echo "::error::the Osmo Pocket experiment was not fully removed from project.yml"
+            exit 1
+          fi
+          echo "Osmo Pocket experiment left out of this build (set the repository variable OSMO_LIVE to on to include it)"
+
       # TikTok のクライアントキーが無いときは、空の URL スキームを Info.plist に入れないよう project.yml の印のあいだを消す
       - name: Leave out the TikTok URL scheme (until TIKTOK_CLIENT_KEY is set)
         if: steps.check.outputs.ready == 'true' && env.TIKTOK_CLIENT_KEY == ''
