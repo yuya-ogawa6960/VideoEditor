@@ -46,6 +46,11 @@ final class OsmoVideoDecoder: @unchecked Sendable {
         q.async { [self] in decodeOnQueue(accessUnit) }
     }
 
+    /// 高画質モード(RTMP)から。符号化方式はコンテナで分かっているので渡す(H.264 の SPS が 0x67 以外で始まっても見分けられる)
+    func decode(accessUnit: [UInt8], codecHint: OsmoVideoCodec?) {
+        q.async { [self] in decodeOnQueue(accessUnit, codecHint: codecHint) }
+    }
+
     func reset() {
         q.sync {
             if let session { VTDecompressionSessionInvalidate(session) }
@@ -65,10 +70,10 @@ final class OsmoVideoDecoder: @unchecked Sendable {
 
     // MARK: q の上
 
-    private func decodeOnQueue(_ au: [UInt8]) {
+    private func decodeOnQueue(_ au: [UInt8], codecHint: OsmoVideoCodec? = nil) {
         let nals = OsmoNAL.nalUnits(au)
         if codec == nil {
-            guard let detected = OsmoNAL.detectCodec(nals) else { return }  // パラメーターセット待ち
+            guard let detected = codecHint ?? OsmoNAL.detectCodec(nals) else { return }  // パラメーターセット待ち
             codec = detected
             log("decoder: codec \(detected.rawValue)")
         }

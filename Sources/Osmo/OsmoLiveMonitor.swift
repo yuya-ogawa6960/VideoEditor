@@ -68,6 +68,8 @@ final class OsmoLiveMonitor {
     let decoder = OsmoVideoDecoder()
     /// カメラ本体の録画(OsmoCameraControl.swift)。データリンクが開いているあいだだけ使える
     let camera = OsmoCameraControl()
+    /// カメラに保存された動画の一覧と取り込み(OsmoMediaBrowser.swift)。データリンクが開いているあいだだけ使える
+    let media = OsmoMediaLibrary()
 
     /// iPhone 側の録画(受けた映像をそのまま .mp4 に書く。OsmoStreamRecorder.swift)
     enum StreamRecordingState: Equatable {
@@ -86,6 +88,8 @@ final class OsmoLiveMonitor {
     /// 録画について知らせること(保存できなかった など)
     private(set) var streamRecordingMessage: String?
     let streamRecorder = OsmoStreamRecorder()
+    /// 高画質モード(RTMP、OsmoRTMPSession.swift)。ライブビューとは同時に使えないので stop() で一緒に止める
+    let rtmp = OsmoRTMPSession()
     private let bluetooth = OsmoBluetoothLink()
     @ObservationIgnored private var datalink: OsmoDatalink?
     @ObservationIgnored private var scanTask: Task<Void, Never>?
@@ -101,6 +105,12 @@ final class OsmoLiveMonitor {
         bluetooth.log = { [weak self] in self?.appendLog($0) }
         decoder.onLog = { [weak self] in self?.appendLog($0) }
         camera.onLog = { [weak self] in self?.appendLog($0) }
+        rtmp.onLog = { [weak self] in self?.appendLog($0) }
+        media.onLog = { [weak self] in self?.appendLog($0) }
+        media.onReturnToLive = { [weak self] in
+            // 再生モードを抜けたら、すぐにライブビューを頼み直す
+            self?.requestKeyframe(reason: "back from camera media", minimumInterval: 0)
+        }
         decoder.onFrame = { [weak self] width, height in
             guard let self else { return }
             self.decodedFrames += 1
@@ -243,14 +253,27 @@ final class OsmoLiveMonitor {
         }
         link.onLog = { [weak self] s in Task { @MainActor in self?.appendLog(s) } }
         let camera = self.camera
+        let media = self.media
+        let mediaChunks = media.collector
         link.onFrame = { frame in
-            guard OsmoCameraControl.isRelevant(frame) else { return }
-            Task { @MainActor in camera.handle(frame) }
+            // 一覧の塊(0x00/0x27)は届いた順につなぐので、キューの上でそのまま集める
+            if frame.cmdSet == 0x00, frame.cmdId == 0x27 {
+                mediaChunks.ingest(frame)
+                return
+            }
+            let forCamera = OsmoCameraControl.isRelevant(frame)
+            let forMedia = OsmoMediaLibrary.isRelevant(frame)
+            guard forCamera || forMedia else { return }
+            Task { @MainActor in
+                if forCamera { camera.handle(frame) }
+                if forMedia { media.handle(frame) }
+            }
         }
         datalink = link
         try await link.open()
         try Task.checkCancellation()
         camera.attach(link)
+        media.attach(link)
         lastEnableAt = Date()
         link.enableLiveView(prepare: true)
         startWatchdog()
@@ -296,7 +319,8 @@ final class OsmoLiveMonitor {
                 self.framesThisSecond = 0
                 self.codec = self.decoder.codecName
                 let since = Date().timeIntervalSince(self.lastFrameAt ?? self.lastEnableAt)
-                if since > 5 {
+                // カメラの動画を見ているあいだ(再生モード)は映像が来ないのが正常なので、頼み直さない
+                if since > 5, !self.media.holdsPlayback {
                     // 登録が切れると映像だけ止まる(テレメトリーは続く)。登録を送り直す
                     link.reRegister()
                     self.requestKeyframe(reason: "no picture for \(Int(since)) s")
@@ -379,6 +403,7 @@ final class OsmoLiveMonitor {
         bluetooth.stopScan()
         teardown()
         phase = .idle
+        rtmp.stop()
     }
 
     private func teardown() {
@@ -387,6 +412,7 @@ final class OsmoLiveMonitor {
         // 録画中に切れたら、そこまでをファイルとして閉じる
         stopStreamRecording()
         camera.detach()
+        media.detach()
         datalink?.close(); datalink = nil
         decoder.reset()
         bluetooth.disconnect()

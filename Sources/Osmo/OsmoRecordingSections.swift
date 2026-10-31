@@ -5,6 +5,8 @@
 //   止めたら「プロジェクトに入れる」「写真に保存」「破棄」。マイクの音も入れられる(既定はオン)
 // - 「カメラ本体で録画」: カメラに録画の命令を送る(OsmoCameraControl)。ファイルはカメラの SD カードに残る
 // 2 つは別々に動くので、同時に使える。
+// - 「カメラの動画を取り込む」: カメラに保存された元のファイルを Wi-Fi で取り込む(OsmoMediaBrowser)。
+//   カメラの録画を止めた直後は「今撮った動画を取り込む」で一番新しい動画をすぐに取り込める
 // 編集画面から開くので、ここの文字は翻訳する。実機ではまだ一度も試していない
 // =====================================================================
 
@@ -23,6 +25,10 @@ struct OsmoRecordingSections: View {
     @State private var microphoneNote: String?
     @State private var photoMessage: String?
     @State private var isSavingToPhotos = false
+    /// カメラの動画の画面(nil = 閉じている)
+    @State private var mediaBrowserMode: OsmoMediaBrowserMode?
+    /// 取り込み終えたファイル。カメラの動画の画面が閉じてから渡す(画面を 2 枚同時に閉じないように)
+    @State private var pendingCameraFile: URL?
     @Environment(\.dismiss) private var dismiss
 
     init(monitor: OsmoLiveMonitor, onUse: ((URL) -> Void)? = nil) {
@@ -45,9 +51,56 @@ struct OsmoRecordingSections: View {
             } header: {
                 Text("カメラ本体で録画(SD カード・本来の画質)")
             } footer: {
-                Text("カメラ本体で撮った動画はカメラの SD カードに残ります。今は DJI Mimo か SD カードから取り込んでください。")
+                Text("カメラ本体で撮った動画はカメラに残ります。下の「カメラの動画を取り込む」で、本来の画質のまま取り込めます。")
             }
         }
+
+        if onUse != nil, monitor.media.isAttached {
+            Section {
+                Button {
+                    mediaBrowserMode = .browse
+                } label: {
+                    Label("カメラの動画を取り込む", systemImage: "square.and.arrow.down.on.square")
+                }
+                .disabled(!canOpenMediaBrowser)
+                .sheet(item: $mediaBrowserMode, onDismiss: handOverCameraFile) { mode in
+                    NavigationStack {
+                        OsmoMediaBrowserView(library: monitor.media, mode: mode) { url in
+                            useCameraFile(url)
+                        }
+                    }
+                }
+            } header: {
+                Text("カメラの動画を取り込む(本来の画質)")
+            } footer: {
+                Text(canOpenMediaBrowser
+                     ? String(localized: "カメラに保存された動画を、カメラの Wi-Fi でそのままの画質で取り込みます。取り込むあいだ、ライブビューは止まります。")
+                     : String(localized: "録画中は取り込めません。録画を止めてから開いてください。"))
+            }
+        }
+    }
+
+    /// カメラの動画の画面を開けるか(カメラ本体・iPhone のどちらかで録画中は開かない。再生モードにすると録画が止まるおそれがあるため)
+    private var canOpenMediaBrowser: Bool {
+        monitor.camera.recordingState != .recording && monitor.streamRecordingState == .idle
+    }
+
+    /// カメラから取り込んだファイルを渡して閉じる(取り込み側がコピーして消す)
+    private func useCameraFile(_ url: URL) {
+        pendingCameraFile = url
+        mediaBrowserMode = nil
+    }
+
+    /// カメラの動画の画面が閉じたあと: 取り込み終えたファイルがあれば渡して、この画面も閉じる
+    private func handOverCameraFile() {
+        guard let url = pendingCameraFile else { return }
+        pendingCameraFile = nil
+        guard let onUse else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        onUse(url)
+        dismiss()
     }
 
     // MARK: iPhone に録画
@@ -223,6 +276,16 @@ struct OsmoRecordingSections: View {
             Text(verbatim: message)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+        // 録画を止めた直後: 一番新しい動画をすぐに取り込む
+        if onUse != nil, monitor.media.isAttached, monitor.camera.recordingState == .idle,
+           monitor.camera.lastStoppedAt != nil {
+            Button {
+                mediaBrowserMode = .newest
+            } label: {
+                Label("今撮った動画を取り込む", systemImage: "square.and.arrow.down")
+            }
+            .disabled(!canOpenMediaBrowser)
         }
     }
 

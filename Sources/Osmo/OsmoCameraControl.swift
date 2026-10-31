@@ -50,6 +50,8 @@ final class OsmoCameraControl {
     private(set) var isBusy = false
     /// 直近の結果(画面に出す短い文)
     private(set) var lastMessage: String?
+    /// カメラが「録画が止まった」と報告した時刻(「今撮った動画を取り込む」を出すのに使う)
+    private(set) var lastStoppedAt: Date?
 
     /// 録画状態が変わったとき(カメラの報告による)。true = 録画中
     @ObservationIgnored var onRecordingChanged: ((Bool) -> Void)?
@@ -81,6 +83,7 @@ final class OsmoCameraControl {
         shootingModeRaw = nil
         lastReply = nil
         pendingStart = nil
+        lastStoppedAt = nil
     }
 
     var isConnected: Bool { link != nil }
@@ -197,6 +200,7 @@ final class OsmoCameraControl {
         if newState != recordingState {
             let first = recordingState == .unknown
             recordingState = newState
+            if !first, !recording { lastStoppedAt = Date() }
             log(String(format: "record: camera reports %@ (flags %08X)", recording ? "RECORDING" : "idle", flags))
             if !first || recording { onRecordingChanged?(recording) }
         }

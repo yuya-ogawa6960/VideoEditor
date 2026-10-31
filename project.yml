@@ -13,7 +13,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     # アプリと共有用の拡張機能で同じ番号にする(App Store の決まり)。上げるときはここだけ
-    MARKETING_VERSION: "1.12.83"
+    MARKETING_VERSION: "1.12.84"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: ""
@@ -128,7 +128,11 @@ targets:
         NSCameraUsageDescription: 動画を撮ってプロジェクトに入れるためにカメラを使用します。
         # >>> osmo-live(Osmo Pocket の実験。OSMO_LIVE が on でないとき CI が消す)
         NSBluetoothAlwaysUsageDescription: DJI Osmo Pocket を探して接続するために Bluetooth を使用します(開発者モードの実験機能)。
-        NSLocalNetworkUsageDescription: DJI Osmo Pocket の Wi-Fi に接続してライブビューを受け取るためにローカルネットワークを使用します(開発者モードの実験機能)。
+        # 高画質モード(RTMP)では、インターネット共有に入ったカメラからの接続を TCP 1935 で受ける(Bonjour は使わないので NSBonjourServices は不要)
+        NSLocalNetworkUsageDescription: DJI Osmo Pocket の Wi-Fi に接続してライブビューを受け取り、カメラの動画を取り込み、カメラから送られる映像(RTMP)をこの iPhone で受けるためにローカルネットワークを使用します(開発者モードの実験機能)。
+        # カメラの動画は http://192.168.2.1/v2 から取る(暗号化なしの HTTP。ローカルネットワークだけ許可する。OpenPocketCine と同じ)
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         # <<< osmo-live
         # 広告(AdMob)
         GADApplicationIdentifier: ca-app-pub-5816286661245536~3399107309

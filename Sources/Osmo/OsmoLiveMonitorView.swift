@@ -46,6 +46,7 @@ struct OsmoLiveMonitorView: View {
             }
 
             OsmoRecordingSections(monitor: monitor, onUse: onUse)
+            OsmoRTMPSection(monitor: monitor, onUse: onUse)
 
             Section {
                 LabeledContent { Text(verbatim: monitor.phase.label) } label: { Text(verbatim: "状態") }
@@ -116,7 +117,7 @@ struct OsmoLiveMonitorView: View {
             if onUse != nil {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { dismiss() }
-                        .disabled(monitor.streamRecordingState != .idle)
+                        .disabled(monitor.streamRecordingState != .idle || monitor.rtmp.recordingState != .idle)
                 }
             }
         }

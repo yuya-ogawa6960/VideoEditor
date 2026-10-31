@@ -128,7 +128,7 @@ struct OsmoVideoDepacketizer {
     }
 }
 
-enum OsmoVideoCodec: String {
+enum OsmoVideoCodec: String, Sendable {
     case hevc = "HEVC"
     case avc = "H.264"
 }

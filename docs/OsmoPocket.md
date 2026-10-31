@@ -115,7 +115,7 @@ Pocket の Bluetooth の名前は Wi-Fi 名と同じです。Wi-Fi 名が読め�
 
 | 機種 | 符号化 | 大きさ |
 | --- | --- | --- |
-| Pocket 4 / 4 Pro | HEVC(H.265 Main) | 1280×720、約 25fps、約 4Mbps。録画の設定とは別 |
+| Pocket 4 / 4 Pro | HEVC(H.265 Main) | 1280×720、約 25fps、約 4Mbps(資料は 4 Pro で観測)。**持ち主の Pocket 4 では 1920×1080 で届いた**。録画の設定とは別。「ライブビューの画質を上げる(調査)」を参照 |
 | Pocket 3 | H.264 が観測されている | 720p、約 25fps |
 
 - 1 枚は `00 00 01 ff` + 長さ(u32 リトルエンディアン)+ 8 バイトの 16 バイトのヘッダーで始まります。そのあとが Annex-B です。
@@ -127,7 +127,7 @@ Pocket の Bluetooth の名前は Wi-Fi 名と同じです。Wi-Fi 名が読め�
 
 ### 7. ファイルの取り込み(今後)
 
-カメラの Wi-Fi の上で `GET http://192.168.2.1/v2?storage={0|1}&path=…` でファイルを取れます。一覧は DUML の `0x00/0x26`・`0x00/0x27` です。今回は作っていません。
+カメラの Wi-Fi の上で `GET http://192.168.2.1/v2?storage={0|1}&path=…` でファイルを取れます。一覧は DUML の `0x00/0x26`・`0x00/0x27` です。試作しました(下の「SD カードの動画を Wi-Fi で取り込む(調査)」)。
 
 ## Pocket 4 と Pocket 3 の違い
 
@@ -156,6 +156,10 @@ Pocket 4(Pro ではない)は機種番号 `0x21` で、手順は 4 Pro と同じ
 | `OsmoLiveMonitor.swift` | 全体の流れと状態 |
 | `OsmoCameraControl.swift` | カメラ本体の録画の開始・停止と録画状態(「録画の操作(調査)」) |
 | `OsmoLiveMonitorView.swift` | 画面(映像・状態・見つかったカメラ・ログ) |
+| `OsmoRTMPServer.swift` | iPhone の中の RTMP サーバー(TCP 1935。「RTMP で受ける」) |
+| `OsmoRTMPLink.swift` | Bluetooth で「インターネット共有に入って RTMP で送って」と頼む命令 |
+| `OsmoRTMPSession.swift` | 高画質モードの全体(サーバー・命令・表示・録画) |
+| `OsmoRTMPSection.swift` | 「高画質モード(RTMP・最大 1080p)」の欄 |
 
 - すべて `#if OSMO_LIVE` で囲んでいます。`OSMO_LIVE` がオフのビルドには、コードも権限も利用目的の文も入りません。
 - 開き方: 「設定」のバージョンの行を **7 回** タップすると開発者モードがオンになります(もう 7 回でオフ)。5 回で出る「サポート用の情報」はそのままです。開発者モードの欄に「Osmo Pocket ライブビュー(実験)」が出ます。
@@ -285,3 +289,242 @@ API キーに権限がなくて Hotspot をオンにできないときは、そ�
 9. 写真モードで「録画開始」を押したとき、ログに `shooting mode 0x… is not Video` が出て、カメラが断る(`DF` など)だけで固まらないか。**固まったら電源を入れ直し、そのモードでは押さないでください。**
 10. 録画中にライブビューが止まらないか(fps が下がらないか)。
 11. (あれば)Pocket 3・Pocket 4(Pro ではない)でも同じことを試す。
+
+## ライブビューの画質を上げる(調査)
+
+> **状態: 調査のみ。コードは変えていません。** 調べたのは 2026-10-31。
+
+### 結論
+
+- **ライブビュー(UDP 9004 の映像)の解像度やビットレートを上げる DUML 命令は、公開資料には見つかりませんでした。** 1080p 高ビットレート・2.7K・4K に切り替える方法は、今のところ分かっていません。
+- そのため、`setLiveViewQuality(_:)` と画面の「ライブビューの画質」は **作っていません**(当て推量の命令は送らない方針)。
+- 持ち主の Pocket 4 では、ライブビューが **1080p** で届いています。資料(Pocket 4 Pro で観測)は 1280×720・約 25fps・約 4Mbps と書いています。機種(Pocket 4 と 4 Pro)かファームウェアの違いと思われますが、確かめた記録はありません。**アプリ側で何かを変えた結果ではありません。**
+- ライブビューは **録画の設定とは別** です。資料には「4K 50p で録画していても、モニターは約 25fps のまま」とあります。録画の解像度を上げても、ライブビューは上がりません。
+- **フル画質がほしいときは、カメラ本体の SD カードに録画し(`0x02/0x02`)、あとで Wi-Fi の HTTP(`GET http://192.168.2.1/v2?...`)で取り込む** のが確かな方法です。iPhone でライブビューを録るのは「控え」や「すぐ使う短い動画」向きです。
+
+### 調べたもの
+
+| 出どころ | 中身 | ライセンス | 確かめた機種 | 信頼度 |
+| --- | --- | --- | --- | --- |
+| [OpenPocketCine handbook `protocol/live-view.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/main/handbook/src/content/docs/protocol/live-view.md) | Pocket 4 / 4 Pro: 1280×720・約 25fps・約 4Mbps、録画の形式とは無関係。Pocket 3: 720p。**ライブビューの画質を変える設定は書かれていない。** 設定を変える命令(録画・FORMAT・COLOR など)で映像が一瞬止まることはある | Apache 2.0 | Pocket 4 Pro(実測)、Pocket 3 | 高(「命令が無い」ことの裏付けとして) |
+| [OpenPocketCine handbook `protocol/commands.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/main/handbook/src/content/docs/protocol/commands.md) | 命令表にライブビューの画質の項目は無い。`0x09/0xA8` は「ライブビュー開始(キーフレーム要求)」だけ | Apache 2.0 | — | 高 |
+| [OpenCine `Sources/OpenCineDJI/Commands.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e/Sources/OpenCineDJI/Commands.swift)(`dd77b69e`) | `liveViewEnable` = `0x09/0xA8`、受け手 `0x08`、中身 `00 04 02 00 00 00 00 00 00 00`(Mimo の通信をそのまま写したもの。**各バイトの意味は書かれていない**)。`liveViewPrepare` = `0x02/0x68` `[08]`(実は AE の命令と同じバイト列) | Apache 2.0 | Pocket 4 Pro ほか | 高(画質の引数があるとは書いていない) |
+| [OpenPocketCine `devices/pocket-3/livestream.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/main/handbook/src/content/docs/devices/pocket-3/livestream.md) | **RTMP 配信**(ライブビューとは別物)。`0x08/0x78` で設定、Mimo の選択肢は 480p / 720p / 1080p、25 / 30fps。1080p/25 の設定バイト `0A 70 17 02 01 02 00 00 00`(`0A` = 1080p、`70 17` = 0x1770 = 6000 kbps と読めるが資料は意味を確定していない)。カメラが **ローカルネットワークの RTMP サーバーへ直接** 送る。受け手で 1920×1080 H.264 High 25fps を確認 | Apache 2.0 | **Pocket 3 だけ**。Pocket 4 Pro は設定の形式が違う(版 01 の JSON)とだけ書かれ、詳細なし | 中(Pocket 4 では未確認) |
+| [Osmosis `osmosis_cmds.kt`](https://github.com/KonradIT/osmosis)(djictl の移植) | RTMP 設定 `0x08/0x78` の解像度は 480p `0x47`・720p `0x04`・1080p `0x0A` のみ。「2.7K / 4K の選択肢は無い」。ビットレートは kbps(u16)、fps は 30 固定 | MIT | Action 系・Pocket 3 | 中 |
+| [node-osmo](https://github.com/datagutt/node-osmo)・[osmo-live](https://github.com/KevinCowleys/osmo-live)・[lib-osmo-ble](https://github.com/yigitkonur/lib-osmo-ble) | RTMP 配信の手順だけ(上と同じ `0x08/0x78`)。iPhone へのライブビューは扱っていない | MIT | Pocket 3 | 該当なし |
+| [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) の解析表 | cmdset `0x02` に `0x8B` "Racing Liveview Format Set"、`0x93` "TransCode Control"。cmdset `0x09`(HD Link)に `0x14` "Max Video Bandwidth Set"、`0x39` "Liveview Config Set" など。cmdset `0x07`(Wi-Fi)に `0x2C` "Ap Code Rate Set"。**名前だけで中身の形式は無く、ドローン用。** `0x09/0xA8` は表に無い | GPL-3.0(コードは使わない) | 古いドローン | **低**(Pocket で使える根拠なし) |
+| DJI 公式 SDK(Mobile / Onboard / Payload SDK) | ドローン向け。Osmo Pocket は対象外 | — | — | 該当なし |
+| CineD の Pocket 4 発表記事 | Pocket 4 は Wi-Fi 6、Mimo への転送は最大 90MB/s。有線(USB-C)の映像出力で最大 4K/60 の配信ができる | 記事 | Pocket 4 | 参考 |
+
+ウェブ検索でも、Pocket 4 のライブビュー解像度を変える方法の記事は見つかりませんでした。DJI Mimo にも「ライブビューの画質」の設定は見当たりません(配信の画質設定は RTMP 配信用)。
+
+### 候補(確かめていない。実装しない)
+
+- **`0x09/0xA8` の中身の `04` や `02`。** 意味の分からないバイトです。画質の指定の可能性はありますが、Mimo がこの値以外を送った記録はありません。変えるとライブビューが始まらない恐れがあります。
+- **`0x02/0x93`・`0x02/0x8B`・`0x09/0x14`・`0x09/0x39`。** ドローン時代の名前だけです。中身の形式が分からず、送ると何が起きるか分かりません。
+- **RTMP 配信(`0x08/0x78`)を iPhone の中の RTMP サーバーで受ける。** 1080p・約 6Mbps の H.264 は Pocket 3 で確認済みです。ただし (1) 最大でも 1080p(2.7K / 4K は無い)、(2) Pocket 4 では設定の形式が違い詳細不明、(3) カメラが「ネットワークに入る」(`0x07/0x47`)前提で、iPhone がカメラの Wi-Fi に入っている今の形とは別の接続になる、(4) iPhone で RTMP サーバーを動かす実装が要る、という壁があります。今のライブビュー(すでに 1080p)より大きく良くなる保証もありません。→ その後、持ち主の希望で試作しました(下の「RTMP で受ける」)。
+
+### Wi-Fi で運べる量の目安
+
+- カメラの Wi-Fi(Pocket 4 は Wi-Fi 6)は、ファイル転送で数十 MB/s 出ます。電波の空きとしては 4K の録画ビットレート(100Mbps 前後)でも運べる計算です。
+- **ただし、ライブビューは UDP で、欠けたパケットは送り直されません。** この試作は 1 枚の途中が欠けるとその 1 枚を捨てます。ビットレートが上がるほど 1 枚あたりのパケットが増え、捨てる枚数が増えます。実用の上限は電波より **カメラのライブビュー用エンコーダー** が決めていると考えられ、資料の実測は約 4Mbps(720p)でした。
+- iPhone 側の録画(`OsmoStreamRecorder`)は届いた映像をそのまま MP4 に入れるだけ(再エンコードしない)なので、画質はカメラが送る映像で決まります。
+
+### 録画中に解像度が変わったとき
+
+- `OsmoStreamRecorder` は、パラメーターセットの大きさが変わると(例: 1280×720 → 1920×1080)**そのファイルを閉じます**(ログ `recorder: size changed …, finishing`)。今後もし画質の切り替えを作るなら、**録画中は切り替えを無効にする** 必要があります。
+
+### 持ち主に確かめてほしいこと
+
+1. ライブビュー画面の表示(`幅×高さ`)が、**毎回** 1920×1080 になるか。カメラの録画設定(4K / 2.7K / 1080p、fps、Normal / D-Log)を変えると変わるか。
+2. iPhone で **ちょうど 60 秒** 録ったファイルの大きさ。大きさ(MB)× 8 ÷ 60 が実際のビットレート(Mbps)です。例: 30MB なら約 4Mbps。
+3. そのときの fps(画面の表示)。25 か 30 か、落ちることがあるか。
+4. 機種名とファームウェアの版(Mimo の「デバイス情報」)。Pocket 4 Pro の資料(720p)との違いを説明するのに使います。
+5. (できれば)DJI Mimo でつないだときのライブビューが同じ 1080p に見えるか。
+6. 画質に満足できないときは、カメラ本体の SD 録画(`0x02/0x02`)+ あとで取り込み、の流れを優先して作るか決めてください。
+
+## RTMP で受ける
+
+> **状態: 試作。実機ではまだ一度も試していません。コンパイルもできていません。** 作ったのは 2026-10-31。
+> 持ち主の話では、前に Pocket 4 で RTMP 配信ができていた(DJI Mimo からと思われる)ので、カメラは 1080p の RTMP を送れます。
+
+### 考え方
+
+- カメラが **iPhone のインターネット共有(ホットスポット)に入り**、RTMP で **iPhone の中の RTMP サーバー** に送ります。URL は `rtmp://172.20.10.1:1935/live/videomania`(インターネット共有での iPhone の住所はいつも `172.20.10.1`)。
+- UDP 9004 のライブビューより画質が高い(最大 1080p、ビットレートも高い)。**RTMP には 2.7K / 4K がありません**(Mimo の選択肢も、node-osmo・djictl の値も 480p / 720p / 1080p だけ)。
+- ライブビューとは同時に使えません(ライブビューは iPhone がカメラの Wi-Fi に入る。RTMP はカメラが iPhone に入る)。高画質モードを始めるとライブビューは止まり、ライブビューを始めると高画質モードは止まります。
+- 届いた映像は再エンコードせずに `.mp4` に入れます(`OsmoStreamRecorder` をそのまま使う)。カメラの音(AAC)が届けばそれを入れ、届かなければ iPhone のマイクを使えます。
+
+### 始め方は 2 つ
+
+1. **Bluetooth で頼む(主な方法)**: 画面にインターネット共有の名前とパスワードを入れて「開始」。Keychain に保存します(この端末だけ。ログには文字数しか出しません)。
+2. **DJI Mimo から始める(Bluetooth の命令を使わない)**: 「受信だけ始める」を押し、DJI Mimo の「ライブ配信」→「RTMP」に画面の URL(コピーできる)を入れて開始し、すぐ Video Mania に戻る。Mimo で配信が始まっている間、Video Mania は裏にいるので、受けられるのは 30 秒ほど(`beginBackgroundTask`)です。間に合わないときは、Mimo を別の端末(iPad など)で動かす方法もあります(未確認)。
+
+### Bluetooth の命令(資料にあるものだけ)
+
+| 順 | 命令 | 受け手 | 中身 | 返事 | 出どころ |
+| --- | --- | --- | --- | --- | --- |
+| 0 | ペアリング `0x07/0x45` ほか | `07` | ライブビューと同じ | `00 01` / `00 02` | 既存 |
+| 1 | `0x02/0xE1` ライブ配信のモード | `08` | `1A` | `00` | OpenPocketCine `devices/pocket-3/livestream.md`、`protocol/ble.md` |
+| 2 | `0x07/0x47` Wi-Fi に入る | `07` | `[長さ][名前][長さ][パスワード]` | `00 00`(4 Pro は `00 00 00` も)。`01 FF` は 5 秒待ってやり直し(最大 3 回) | 同上、OpenCine `MulticamJoinPolicy`、node-osmo、lib-osmo-ble |
+| 3 | `0x08/0x78` RTMP の設定 | `08` | 下の表 | `00` | 同上、OpenPocketCine commit `137433b` の `MulticamCommands.swift` |
+| 4 | `0x02/0x8E` 開始 | `08` | `01 01 1A 00 01 01` | `00` | 同上 |
+| 止める | `0x02/0x8E` 終わり | `08` | `01 01 1A 00 01 02` | (記録なし。RTMP が閉じる) | 同上 |
+
+`0x08/0x78` の中身は機種で違います。
+
+| 機種 | 形 | 9 バイトの設定 | 出どころ・確かさ |
+| --- | --- | --- | --- |
+| Pocket 3 | 版 00: `00 [本体の長さ u16le] [9 バイト] [URL の長さ u16le] [URL]`(本体 = 9 + 2 + URL) | Mimo が 1080p/25 で送ったのは `0A 70 17 02 01 02 00 00 00`。この試作は node-osmo の読み方(`0A` = 1080p、`70 17` = 6000kbps、6 バイト目 = fps、25 = `02`・30 = `03`)で **ビットレートと fps だけ** を変える。既定は 1080p・30fps・20Mbps、選べるのは 20 / 16 / 10Mbps(30fps)と Mimo と同じ 6Mbps(25fps) | 形は OpenPocketCine の Mimo の記録(Pocket 3 で確認)。30fps と高いビットレートは node-osmo の読み方による推測を含む |
+| Pocket 4 / 4 Pro | 版 01: `01 [本体の長さ u16le] [9 バイト] [JSON の長さ u16le] [JSON]`(本体は先頭 3 バイトを除く) | Pocket 3 と同じ `0A 70 17 02 01 02 00 00 00`(1080p・25fps・6000kbps)をそのまま。JSON は `{"EnhancedRTMP":false,"codec":"HEVC","orientation":"landscape","rtmpAddress":"<URL>","supportStopLive":false,"watermark":0}`(キーを並べ、`/` をエスケープしない) | OpenPocketCine の試作(commit `137433b`、2026-09-23)。資料では Pocket 4 Pro で「設定・開始とも `00`」。**Pocket 4(Pro ではない)では記録が無い**。30fps や別のビットレートの値は分からないので送らない |
+
+- 機種は Bluetooth の広告(`0x21` / `0x22` = Pocket 4 系、`0x20` = Pocket 3)と名前で決め、分からなければ Pocket 3 として扱います(Pocket 3 は広告に機種を入れないため)。画面の「カメラの機種」で選び直せます。
+- DJI の公式資料では、Pocket 4 系の Mimo の RTMP は 1080p30 まで、3 または 6Mbps です(OpenPocketCine `docs/research-multicam-networking.md` が引く DJI のヘルプ)。6Mbps は Pocket 4 の上限と思われます。
+- **Pocket 4 の 1080p/30 の値と、JSON の `EnhancedRTMP: true` にしたときの動きは分かっていません。** 確かめるには、DJI Mimo で 1080p/30 を選んで配信したときの Bluetooth の通信の記録(iPhone の sysdiagnose か Android の HCI ログ)が要ります。
+
+### RTMP サーバー(`OsmoRTMPServer.swift`)
+
+DJI の RTMP の送り手がどの実装かは分からないので、ふつうの送り手の違いをなるべく受けるようにしました。
+
+- ハンドシェイク: 単純な方式と、Flash 方式(C1 のダイジェストを HMAC-SHA256 で確かめ、S1/S2 にもダイジェストを付ける)の両方。
+- チャンク: fmt 0〜3、1〜3 バイトのチャンク ID、拡張タイムスタンプ(続きの塊で繰り返す送り手・繰り返さない送り手の両方)、Set Chunk Size(最大 16MB)、Abort、Window Ack Size、受領の返事、Ping、集約メッセージ。
+- 命令: `connect` → Window Ack Size・Set Peer Bandwidth・Set Chunk Size 4096・`_result`。`releaseStream` / `FCPublish`(`onFCPublish` も)/ `createStream` / `publish` → Stream Begin・`onStatus NetStream.Publish.Start`。アプリ名・配信キーは何でも受けます。
+- 映像: 旧来の FLV の AVC(ID 7)、旧来の HEVC(ID 12。Pocket 4 Pro の JSON は `codec: HEVC`・`EnhancedRTMP: false` なので、これで届く可能性が高い)、Enhanced RTMP の `hvc1` / `avc1`(SequenceStart・CodedFrames・CodedFramesX)。設定やフレームが Annex-B で届いても受けます。
+- 音: AAC(AudioSpecificConfig・生のフレーム、ADTS 付きも)、Enhanced RTMP の `mp4a`。
+- `@setDataFrame onMetaData` の幅・高さ・fps・ビットレートはログに出します(画面の数字は実際に届いた映像から数えます)。
+- 新しい送り手が配信を始めたら古い接続を切ります(カメラのつなぎ直し)。20 秒黙った接続、30 秒たっても配信を始めない接続は閉じます。
+- チャンクと AMF0 の読み方は OpenPocketCine の試作(commit `d2851068` の `RTMPIngest.swift`・`MultiviewRTMPServer.swift`、Apache 2.0)を参考に書き直しました。
+
+### 録画と表示
+
+- 表示は `OsmoVideoDecoder`(ライブビューと同じ部品)。キーフレームには設定のパラメーターセットを前に付けて渡します。
+- 録画は `OsmoStreamRecorder` に足した入口(`observe(accessUnit:timestampMs:compositionMs:codec:)`、`setCameraAudioFormat`、`observeCameraAudio`)で書きます。時刻はカメラが付けた RTMP の時刻をホストの時計に写したもの。B フレームのための composition time も入れます。カメラの AAC はそのまま(パススルー)入れます。
+- 止めたら「プロジェクトに入れる」「写真に保存」「破棄」。録画中は「停止」と「閉じる」を押せません。アプリが裏に回ると録画はそこまでで閉じます。
+- 受信中は画面を自動で消しません(`IdleTimerGuard`)。
+- 権限: `NSLocalNetworkUsageDescription` の文に RTMP を足しました(`project.yml` の `# >>> osmo-live` の中)。Bonjour は使わないので `NSBonjourServices` は要りません。
+
+### 実機で確かめること(RTMP)
+
+**すべて未検証です。** ログ(画面の「ログを共有」)の `rtmp:` の行を送ってください。
+
+1. **ビルドが通るか**(`OSMO_LIVE` を on にした TestFlight)。
+2. iPhone の「設定」→「インターネット共有」で「ほかの人の接続を許可」と「互換性を優先」をオンにする。
+3. 「高画質モード」に名前とパスワードを入れて「開始」。状態が「カメラ接続中(カメラを探しています…)」→「ペアリング中…」→(初回はカメラの画面で許可)→「ライブ配信の準備をしています…」と進むか。ログの `rtmp: camera … -> config v01 JSON (Pocket 4)` で機種の判定が合っているか。
+4. `rtmp: prepare reply 00` が出るか。カメラの画面がライブ配信の画面に変わるか。
+5. `rtmp: join reply 00 00` が出て、インターネット共有の画面に「1 台接続中」が出るか。`01 FF` のあと成功するか。失敗したら返事の値を。
+6. `rtmp: configure reply 00`、`rtmp: start reply 00` が出るか。
+7. 初回は「ローカルネットワーク」の許可が出るか(出ないまま `listener waiting` が出たら設定アプリで許可)。
+8. `rtmp: connection from 172.20.10.x` → `rtmp: handshake …` → `rtmp: connect app=live …` → `rtmp: publish …` と進むか。どこで止まるか。**`handshake with digest` か `simple` か** も知りたいです。
+9. `rtmp: video HEVC` か `H.264` か、`rtmp: metadata …` の中身(width・height・framerate・videodatarate・encoder)。`rtmp: unsupported …` が出たらその行を。
+10. 映像が出て、状態が「受信中 1920×1080 25fps 6.0Mbps」のようになるか。fps とビットレートの数字。
+11. 「録画」→ 60 秒 → 「停止」で、ファイルが写真アプリで再生できるか。音がカメラの音か(ログ `recorder: started … + camera audio`)。ファイルの大きさ(MB × 8 ÷ 60 = Mbps)。
+12. 「プロジェクトに入れる」で編集画面に入るか。
+13. 「停止」でカメラの配信が終わるか(`rtmp: sent stop`、カメラの画面が戻るか)。もう一度「開始」できるか。
+14. 10 分以上続けて止まらないか。iPhone とカメラが熱くならないか。電池の減り。
+15. **DJI Mimo から**: 「受信だけ始める」→ Mimo の「ライブ配信」→「RTMP」に URL を貼って開始 → すぐ Video Mania に戻る。映像が来るか。来なければ Mimo の画面のエラーと、ログの `rtmp: connection from` の有無を。
+16. (Pocket 3 があれば)画質「1080p 30fps 20Mbps」で `configure reply 00` になるか。断られたら 16 / 10Mbps、それでもだめなら「25fps 6Mbps(Mimo と同じ)」で。
+17. (分かれば)DJI Mimo で 1080p/30 を選んで配信したときの Bluetooth の記録。Pocket 4 の 30fps の値を知るのに使います。
+
+## SD カードの動画を Wi-Fi で取り込む(調査)
+
+> **状態: 調査と試作。実機ではまだ一度も試していません。** 調べたのは 2026-10-31。
+> 試作は `Sources/Osmo/OsmoMediaBrowser.swift`(`#if OSMO_LIVE` の中)。ライブビュー画面の「カメラの動画を取り込む」から開きます。
+
+### 結論
+
+- **できます(公開資料で裏付けあり)。** カメラの Wi-Fi に入ったまま、**`GET http://192.168.2.1/v2?storage={0|1}&path=<カメラの中のパス>`** で元のファイルをそのまま取れます。サーバーは lighttpd/1.4.55、ポート 80、**認証もトークンも無し**(カメラの Wi-Fi に入れること自体が鍵)。
+- **HTTP には一覧が無い。** `/v2` 以外の URL は接続を切られ、フォルダーの一覧も返しません。一覧は **DUML のデータリンク(UDP 9004)で `0x00/0x26` を送り、`0x00/0x27` の塊で受ける** しかありません。つまり今のライブビューの接続(BLE → Wi-Fi → UDP 9004 の登録)が前提です。
+- **最新の 45 件は「再生モード」なしでも読めます。** 古いページを読む・Pocket 3 で一覧が欠けないようにするには、先に `0x02/0x0C` `01 01 00 01` で再生モードに入ります。**再生モードに入るとライブビューは止まり(Pocket 4 はジンバルを畳む)、録画中なら録画が止まるとされます。** 試作は録画中は開けないようにしました。
+- **Range(206)で続きから取れます。** Mimo の取り込みも約 1MB ずつの Range でした。Pocket 3 では HTTP で取った 20 本以上の元ファイルが SD カードの中身と SHA-256 で一致しています(OpenPocketCine の実測)。
+- **Pocket 4 は本体に 107GB の保存領域があり、そこにある動画は `storage=1`。** microSD は `storage=0`。Pocket 3 は microSD だけで常に `storage=0`。外れたらもう一方で試せば足ります(OpenCine と同じ)。
+- 速さ: DJI の公表は Pocket 4 + Wi-Fi 6 + Mimo で **最大 90MB/s**。独立した実測は見つかりませんでした。数十 MB/s 出れば、4K の 1 分(約 0.7〜1GB)が数十秒です。
+- ライセンス: OpenCine / OpenPocketCine は Apache 2.0、Osmosis は MIT。どちらも app に入れてよい条件です(表示を付ける)。**信頼できて、ライセンスも合うと判断し、試作を作りました。**
+
+### 調べたもの
+
+| 出どころ | 中身 | ライセンス | 確かめた機種 | 信頼度 |
+| --- | --- | --- | --- | --- |
+| [OpenPocketCine handbook `protocol/media.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/35f51dc57277cef7a56e1504df415f716a9f98e2/handbook/src/content/docs/protocol/media.md) | `/v2` の形、サムネイル `MISC/THM/…/.scr`(JPEG)、一覧 `0x00/0x26`・`0x00/0x27`、再生モード `0x02/0x0C`、番号 1 = SD・2 = 本体、待ち時間(1 秒の静けさ・全体 12 秒) | Apache 2.0 | Pocket 3・Pocket 4 Pro・Nano ほか | 高 |
+| [OpenPocketCine handbook `devices/pocket-3/media.md`](https://github.com/erik-sutton95/OpenPocketCine/blob/35f51dc57277cef7a56e1504df415f716a9f98e2/handbook/src/content/docs/devices/pocket-3/media.md) | HTTP で取った元ファイル 24〜25 本が Mimo の取り込み・SD カードの中身と **SHA-256 で一致**。どの転送も 206 の連続した Range で、ETag と全長が一貫。**パスの `/` を `%2F` にすると 404**。入れ子のパス(`DCIM/TIMELAPSE/…/TIMELAPSE_0001.DNG`)も取れた | Apache 2.0 | **Pocket 3(実測)** | 高 |
+| [OpenCine `Sources/OpenCineDJI/MediaManifest+DJIWire.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e77b48bedc12f57e6be36a88e27c74007/Sources/OpenCineDJI/MediaManifest+DJIWire.swift) | 一覧の命令のバイト列(41 バイトの雛形、@4 番号、@10–13 カーソル)・きっかけ `4a040e10…`・塊の組み立て・CompositePack の読み方(パス・サムネイル・大きさ・秒・解像度・fps) | Apache 2.0 | Pocket 3 / 4 / 4 Pro(アプリで使用中) | 高 |
+| [OpenCine `Sources/OpenCineCameraVocabulary/MediaManifest.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e77b48bedc12f57e6be36a88e27c74007/Sources/OpenCineCameraVocabulary/MediaManifest.swift)・[`DJIMediaHTTPSource.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e77b48bedc12f57e6be36a88e27c74007/Sources/OpenCineDJI/DJIMediaHTTPSource.swift) | `/v2` の URL の作り方(URLComponents)、storage の決め方(番号 → handle の bit `0x40000000` → Pocket 3 は 0)、**404 ならもう一方の storage で試す** | Apache 2.0 | 同上 | 高 |
+| [OpenCine `Sources/OpenCineDJIApple/DjiAppleMediaService.swift`](https://github.com/erik-sutton95/OpenCine/blob/dd77b69e77b48bedc12f57e6be36a88e27c74007/Sources/OpenCineDJIApple/DjiAppleMediaService.swift)・`DjiAppleMediaLiveReturn.swift` | 順番: 再生モード(900ms × 3 回)→ SD を頼む → きっかけ → 本体を頼む → SD が空ならもう 1 回。閉じたら再生モードを抜けて `0x09/0xA8` | Apache 2.0 | 同上 | 高 |
+| [Osmosis `MEDIA_PROTOCOL.md`](https://github.com/KonradIT/osmosis/blob/main/MEDIA_PROTOCOL.md)・`docs/01-protocol-map.md` | lighttpd/1.4.55、`/v2` 以外は切断、HEAD と Range 可。**Pocket 4 は本体の保存領域 = `storage=1`、handle は `0x40100000` から 0x40 刻み、代理ファイル(.LRF)は一覧に無い、カードが無くても保存先が 2 つの機種、再生モードは 2 回目で入ることがある、再生モード中はジンバルを畳む。** 再生モードは返事ではなく `0x02/0x80` bit 30 で確かめる。入った直後は保存先がまだ読めず約 1.7 秒待つ。**ジンバル機は再生モード中は撮らない**。Pocket 3 は `0x02/0x0C` に E0(別の命令 `0x01/0x01` で入る)。前の接続のセッションが残ると一覧に答えないことがある | MIT | Nano・Action 5 Pro / Xtra(実測)、Pocket 3 / 4(表に記載) | 中〜高(Pocket 4 の行は短い記述) |
+| CineD・heliguy・DJI の販売ページ | Pocket 4: Wi-Fi 6、Mimo への無線転送 **最大 90MB/s**、USB 3.1 で最大 800MB/s、本体 107GB + microSD | 記事 | Pocket 4 | 参考(公表値) |
+| [node-osmo](https://github.com/datagutt/node-osmo)・[osmo-live](https://github.com/KevinCowleys/osmo-live)・[lib-osmo-ble](https://github.com/yigitkonur/lib-osmo-ble) | BLE と RTMP 配信だけ。**メディアの一覧・HTTP の取り込みは扱っていない**(ファイル構成で確認) | MIT | Pocket 3 | 該当なし |
+| [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) | ドローン向けの DUML の辞書。Osmo の HTTP `/v2` についての記述は無い | GPL-3.0(使わない) | 古いドローン | 該当なし |
+
+### 命令とリクエストの形
+
+```text
+(ライブビューと同じ接続: BLE ペアリング → カメラの Wi-Fi → UDP 9004 のハンドシェイクと登録。登録 0x00/0x88 は 1 秒ごと)
+
+再生モードに入る   0x02/0x0C  受け手 0x01  flags 0x40  [01 01 00 01]   (返事 [00] は「受け取った」だけ)
+                  確かめ: 0x02/0x80 の u32-LE @0 の bit 30 (0x40000000) = 再生モード中
+                  入らなければ 900ms ごとに 3 回まで。Pocket 4 は 2 回目で入ることがある。Pocket 3 は E0
+                  入ったら約 1.7 秒待つ(保存先がまだ読めず、空の答えになるため)
+抜ける            0x02/0x0C  [01 01 00 00]
+
+一覧(最新 45 件)  0x00/0x26  受け手 0x01  flags 0x40
+  SD    : 4A 00 2A 10 | 01 00 00 00 00 00 | 01 00 00 00 | 2D 00 0D 01 00 | FF×8 | 00 01 00×7 | 00×5
+          (@4 = 番号 1、@10–13 = カーソル 0x00000001)
+  きっかけ: 4A 04 0E 10 01 00 00 00 00 00 01 00 00 00
+  本体  : 雛形の @4 = 02、@10–13 = 0x40000001
+答え              0x00/0x27  payload = [4A][種類][..][..][番号][..][seq u16-LE][..][..] + 塊
+                  種類 04 = 始まり、01 = データ、03 = 終わり。番号ごとに、頭 10 バイトを外して届いた順につなぐ
+                  (4A 01 で始まる別の通知があるので、必ず 0x00/0x27 で選ぶ)
+                  始まりだけでデータが無い = その保存先は空
+中身(CompositePack): [u32-LE このページの件数] + 記録 × 件数
+  0d <len> "<名前>.<拡張子>"                 ← 拡張子はここだけ
+  1a <全長> 00 00 00 01 "DCIM/DJI_001/DJI_<YYYYMMDDHHMMSS>_<NNNN>_D"   ← 媒体パス(拡張子なし)
+  1a <全長> 00 00 00 02 "MISC/THM/DJI_001/…"  ← サムネイル(+ ".scr")
+  印 [03 ff] 19 06(T = 19 06 の位置): T-14 大きさ u32、T-10 handle u32、T-6 秒 u16、T-4 fps 番号、T-3 解像度番号
+
+ファイル          GET http://192.168.2.1/v2?storage=<0|1>&path=DCIM/DJI_001/DJI_20261031123456_0012_D.MP4
+                  (/ はそのまま。%2F は 404)。Range: bytes=<n>-  → 206 + Content-Range。ETag あり
+サムネイル        GET http://192.168.2.1/v2?storage=<0|1>&path=MISC/THM/DJI_001/DJI_…_D.scr  → JPEG
+storage           SD(番号 1 の答え)= 0、本体(番号 2)= 1。番号が無いときは handle の bit 0x40000000 → 1。
+                  Pocket 3 は常に 0。404 ならもう一方で試す
+```
+
+### 答え(聞かれたことごとに)
+
+| 質問 | 答え | 信頼度 |
+| --- | --- | --- |
+| HTTP のアドレス・ポート | `192.168.2.1:80`(iPhone は DHCP で 192.168.2.x)。192.168.42.1 などではない | 高 |
+| 一覧・サムネイル・元ファイルのエンドポイント | 一覧は HTTP に無い(DUML `0x00/0x26`)。サムネイルと元ファイルはどちらも `/v2?storage=&path=` | 高 |
+| 先に要る命令・トークン | HTTP に認証は無い。一覧にはデータリンクの登録(今のライブビューと同じ)が要り、確実にするなら再生モード `0x02/0x0C` | 高 |
+| 録画を止める必要 | ファイルは録画が止まって閉じるまで取れない。**再生モードに入ると録画が止まるとされる**(Osmosis: ジンバル機は再生モード中は撮らない)。Action 4 は撮影中の一覧に `d8`、Pocket 3 は撮影中だと一覧が欠ける。→ 止めてから取り込む | 中 |
+| ファイルの形式 | Pocket 3 の実物: MP4。HEVC 10-bit(HLG / D-Log M、4K・2.7K・3K 正方形)、互換モードは H.264 8-bit。音は AAC 48kHz(モノ/ステレオ)。スローモーションは音なしで、別に AAC のファイル。`.LRF` は 1280×720 の H.264 のプレビュー。Pocket 4: パスは `DCIM/DJI_001/DJI_…_D.MP4`、代理ファイルは一覧に無い。中身のコーデックの実物の記録は無い(録画設定どおりと考えられる) | Pocket 3 高、Pocket 4 中 |
+| 速さ | Pocket 4 の公表値は最大 90MB/s(Wi-Fi 6・Mimo)。実測の記録なし。Osmo Nano では SD から 760MB 付近で転送が切れ、Range で続きを取る必要があった | 中 |
+| DJI Mimo のやり方 | Mimo のアルバムも同じ `/v2` を約 1MB ずつの Range で取っている(Pocket 3 の通信の記録)。一覧の命令も Mimo と同じバイト列。再生モード + 1 秒ごとの登録で保つ | 高(Pocket 3) |
+
+### 試作(`Sources/Osmo/OsmoMediaBrowser.swift`)
+
+- `OsmoMediaLibrary`(`OsmoLiveMonitor.media`): データリンクが開いたら `attach`、切断で `detach`。`0x00/0x27` はデータリンクのキューの上で `OsmoMediaChunkCollector` に直接入れる(届いた順を崩さないため)。`0x02/0x80`・`0x02/0x0C` は MainActor で見る。
+- 一覧: 再生モードに入る(bit 30 か返事 `00` で「入った」)→ 1.7 秒待つ → SD・きっかけ・本体 → 終わりの印を待つ(全体 12 秒まで)→ CompositePack を読み、**動画(MP4/MOV)だけを新しい順** に。サムネイル・長さ・解像度・fps・大きさを出す。件数より読めた数が少ないと「一部が届きませんでした」。
+- 取り込み: `URLSession` の代理で、届いた分を **そのまま一時フォルダーの `.part` に書く(メモリにためない)**。切れたら `Range: bytes=<今の大きさ>-` と `If-Range: <ETag>` で続きから(6 回まで。進んでいれば数え直し)。206 の開始位置が違えば失敗、200 なら最初から書き直す。最初の 1 バイトの前に 404 なら、もう一方の storage で。モバイル通信は使わない(`allowsCellularAccess = false`)。「やめる」でも `.part` は残り、同じ動画をタップすると続きから。2 日より前の残りは消す。取り込み中は自動ロックを止める。
+- 終わったら `.part` を元の名前(`DJI_….MP4`)に変え、ライブビュー画面の `onUse` → `startLocalImport(… deleteSourcesAfter: true)` に渡す(iPhone で録ったときと同じ道)。
+- 画面: ライブビュー画面の「カメラの動画を取り込む(本来の画質)」の欄。カメラの録画を止めた直後は「今撮った動画を取り込む」(一覧を読んで一番新しい動画をすぐ取り込む)。**カメラ・iPhone のどちらかで録画中は開けない。** 画面を閉じると再生モードを抜け、ライブビューを頼み直す。開いているあいだは、ライブビューの止まり検知(キーフレームの頼み直し)を止める。編集画面から開いたとき(`onUse` があるとき)だけ出す。
+- `project.yml` の osmo-live の印の中に `NSAppTransportSecurity` → `NSAllowsLocalNetworking: true` を足した(暗号化なしの HTTP を 192.168.2.1 に出すため。OpenPocketCine も同じ)。ローカルネットワークの説明文にも「動画を取り込む」を足した。
+- ライセンス表示: `docs/licenses/README.md` に Osmosis(MIT)を足し、本文を `docs/licenses/Osmosis-LICENSE.txt` に置いた。
+- 入れていないもの: 46 件目より古いページ(ページ送り)、写真、削除・お気に入り、プレビュー再生、Pocket 3 の別の再生モード命令 `0x01/0x01`(Pocket 3 は再生モードなしで最新 45 件を読む)、複数本まとめての取り込み。
+
+### 実機で確かめること(取り込み)
+
+**すべて未検証です。** カメラを Video モードにして、何本か短く撮ってから試してください。ログ(「ログを共有」)の `media:` の行が手がかりです。
+
+1. **ビルドが通るか**(`OSMO_LIVE` を on にした TestFlight)。
+2. 編集画面の「追加」→「Osmo Pocket で撮る(実験)」でライブビューまでつなぎ、「カメラの動画を取り込む」が出るか。
+3. 開くと、カメラ本体が再生モードになり(ジンバルを畳む)、ログに `media: camera reports playback ON` が出るか。出なければ `media: reply 0x02/0x0C …` の値を送ってください。
+4. 一覧が出るか。ログの `media: answer sd … B, internal … B` と `… files, … videos` の数。**本体(107GB)に撮った動画と microSD に撮った動画の両方が出るか**(Pocket 4)。
+5. 日時・長さ・解像度(3840×2160 など)・fps・大きさが、カメラ本体のアルバムの表示と合うか。サムネイルが出るか。
+6. 1 本タップして取り込めるか。**速さ(MB/s)** を教えてください(画面の表示)。1GB 前後のファイルで、かかった時間も。
+7. 取り込んだ動画がプロジェクトに入り、**画質が本来のまま(4K・10-bit なら 10-bit)** か。Mimo で取り込んだものと見比べて。大きさ(バイト数)がカメラ本体の表示と一致するか。
+8. 途中で「やめる」→ もう一度タップで **続きから** 進むか(ログ `download … from <途中のバイト数> B`)。
+9. 途中でアプリを裏に回す・カメラから離れるなどで切れたとき、戻ってタップすると続きから取れるか。
+10. 一覧の画面を閉じたら、カメラが再生モードを抜けて(`camera reports playback off`)ライブビューが戻るか。戻らなければ時間とログを。
+11. カメラ本体で録画を止めた直後に「今撮った動画を取り込む」で、**今撮った動画** が自動で取り込まれるか(1 つ前の動画にならないか)。
+12. 録画中は「カメラの動画を取り込む」が押せないか。
+13. 閉じてもう一度開いたときも一覧が読めるか。一覧に答えないときは、カメラの電源を入れ直して試す(前の接続が残ると答えないことがある)。
+14. (あれば)Pocket 3 でも。Pocket 3 は再生モードに入らず(ログ `playback not confirmed`)最新 45 件を読みます。一覧が欠けないか。

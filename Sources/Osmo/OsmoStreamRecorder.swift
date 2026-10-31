@@ -8,6 +8,8 @@
 // - 時刻は届いた時刻(ホストの時計)。録画を始めた最初のキーフレームを 0 にする。
 //   キーフレームより前の絵は捨てる(定期的なキーフレームが無いので、始めるときに 1 回頼む)。
 // - iPhone のマイクの音は AAC にして同じファイルに入れる(任意)。
+// - 高画質モード(RTMP、OsmoRTMPSession)からも使う: 時刻はカメラが付けたもの(ミリ秒)をホストの時計に写して使い、
+//   B フレームの表示の時刻(composition time)も入れる。カメラの AAC は作り直さずにそのまま入れる(マイクより優先)。
 // - 1 枚ずつすぐ書くので、ストリーム全体をためない。
 // - 実機ではまだ一度も試していない
 // =====================================================================
@@ -66,6 +68,19 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
     private var audioClock: CMClock?
     private var armTimeout: DispatchWorkItem?
     private var audioAppendFailed = false
+    // RTMP(OsmoRTMPSession)から: カメラが付けた時刻とカメラの音
+    /// カメラの時刻(ミリ秒)の基準と、それにあたるホストの時刻
+    private var cameraClockBase: (ms: Int64, host: CMTime)?
+    private var cameraAudioFormat: CMAudioFormatDescription?
+    /// この録画でカメラの音を使いたい(start の cameraAudio)
+    private var prefersCameraAudio = false
+    /// いまの録画の音がカメラの音
+    private var usesCameraAudio = false
+    private var cameraAudioNextPTS: CMTime = .invalid
+    /// 表示の時刻のいちばん後ろ(B フレームがあると最後に書いた絵より後ろのことがある)
+    private var lastPresentationPTS: CMTime = .invalid
+    /// 最後に絵を書いた本当の時刻(止まっているかの判定。RTMP ではカメラの時刻と少しずれるため別に持つ)
+    private var lastWriteRealTime: CMTime = .invalid
     // ---- micQueue の上だけで触る ----
     private var captureSession: AVCaptureSession?
 
@@ -80,11 +95,50 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
         q.async { [self] in handle(au, arrival: arrival) }
     }
 
-    /// 録画を始める。マイクを使うときは、マイクの音が届いてからキーフレームを待つ(音の形式を知るため)
-    func start(url: URL, microphone: Bool) {
+    /// RTMP の 1 枚(Annex-B。キーフレームにはパラメーターセットを付けて渡す)。時刻はカメラが付けた復号の時刻(ミリ秒)、
+    /// compositionMs は表示の時刻との差(B フレーム)。codec はコンテナで分かっている符号化方式
+    func observe(accessUnit au: [UInt8], timestampMs: Int64, compositionMs: Int32, codec hint: OsmoVideoCodec) {
+        q.async { [self] in
+            let dts = cameraHostTime(timestampMs)
+            handle(au, arrival: dts, composition: CMTime(value: Int64(compositionMs), timescale: 1000), codecHint: hint)
+        }
+    }
+
+    /// カメラの音の形式(RTMP の AudioSpecificConfig から makeAACFormat で作ったもの)。nil で忘れる
+    func setCameraAudioFormat(_ format: CMAudioFormatDescription?) {
+        q.async { [self] in cameraAudioFormat = format }
+    }
+
+    /// カメラの音(生の AAC 1 フレーム)。時刻はカメラが付けたもの(ミリ秒)
+    func observeCameraAudio(_ frame: [UInt8], timestampMs: Int64) {
+        q.async { [self] in appendCameraAudio(frame, at: cameraHostTime(timestampMs)) }
+    }
+
+    /// 新しい RTMP の配信が始まったとき。カメラの時刻の基準を取り直す(録画していなければ符号化方式も忘れる)
+    func resetCameraClock() {
+        q.async { [self] in
+            cameraClockBase = nil
+            cameraAudioFormat = nil
+            cameraAudioNextPTS = .invalid
+            if state == .idle {
+                codec = nil
+                vps = nil; sps = nil; pps = nil
+                format = nil
+            }
+        }
+    }
+
+    /// 録画を始める。マイクを使うときは、マイクの音が届いてからキーフレームを待つ(音の形式を知るため)。
+    /// cameraAudio: カメラの音(setCameraAudioFormat)が届いていればそれを使う(RTMP のとき)
+    func start(url: URL, microphone: Bool, cameraAudio: Bool = false) {
         q.async { [self] in
             guard state == .idle else { return }
             outputURL = url
+            prefersCameraAudio = cameraAudio
+            usesCameraAudio = false
+            cameraAudioNextPTS = .invalid
+            lastPresentationPTS = .invalid
+            lastWriteRealTime = .invalid
             wantsMicrophone = microphone
             audioFormat = nil
             audioClock = nil
@@ -124,8 +178,8 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
         q.sync {
             let now = Self.hostNow()
             var s = Snapshot()
-            if state == .writing, lastFrameHostTime.isValid {
-                s.secondsSinceLastFrame = CMTimeGetSeconds(CMTimeSubtract(now, lastFrameHostTime))
+            if state == .writing, lastWriteRealTime.isValid {
+                s.secondsSinceLastFrame = CMTimeGetSeconds(CMTimeSubtract(now, lastWriteRealTime))
             }
             if (state == .waitingForKeyframe || (state == .writing && needsKeyframe)), waitingSince.isValid {
                 s.secondsWaitingForKeyframe = CMTimeGetSeconds(CMTimeSubtract(now, waitingSince))
@@ -162,10 +216,11 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
         needsKeyframeNow("recording start")
     }
 
-    private func handle(_ au: [UInt8], arrival: CMTime) {
+    /// composition: 表示の時刻 − 復号の時刻(RTMP の B フレーム。ライブビューは 0)。codecHint: RTMP で分かっている符号化方式
+    private func handle(_ au: [UInt8], arrival: CMTime, composition: CMTime = .zero, codecHint: OsmoVideoCodec? = nil) {
         let nals = OsmoNAL.nalUnits(au)
         if codec == nil {
-            guard let detected = OsmoNAL.detectCodec(nals) else { return }
+            guard let detected = codecHint ?? OsmoNAL.detectCodec(nals) else { return }
             codec = detected
         }
         guard let codec else { return }
@@ -207,7 +262,7 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
                 skipsLeadingPictures = false
             }
         }
-        appendVideo(pictures, isKey: isKey, arrival: arrival, format: format)
+        appendVideo(pictures, isKey: isKey, arrival: arrival, composition: composition, format: format)
     }
 
     private func updateParameterSets(_ nals: [[UInt8]], codec: OsmoVideoCodec) {
@@ -276,7 +331,20 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
         }
         w.add(v)
         var a: AVAssetWriterInput?
-        if wantsMicrophone, let af = audioFormat,
+        usesCameraAudio = false
+        if prefersCameraAudio, let caf = cameraAudioFormat {
+            // カメラの AAC を作り直さずにそのまま書く(RTMP)
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil, sourceFormatHint: caf)
+            input.expectsMediaDataInRealTime = true
+            if w.canAdd(input) {
+                w.add(input)
+                a = input
+                usesCameraAudio = true
+                cameraAudioNextPTS = .invalid
+            } else {
+                log("recorder: cannot add camera audio input, recording without sound")
+            }
+        } else if wantsMicrophone, let af = audioFormat,
            let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(af)?.pointee {
             let channels = max(1, min(2, Int(asbd.mChannelsPerFrame)))
             let settings: [String: Any] = [
@@ -306,22 +374,29 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
         startHostTime = arrival
         state = .writing
         let dims = CMVideoFormatDescriptionGetDimensions(format)
-        log("recorder: started \(codec?.rawValue ?? "?") \(dims.width)x\(dims.height)\(a == nil ? "" : " + mic")")
+        log("recorder: started \(codec?.rawValue ?? "?") \(dims.width)x\(dims.height)\(a == nil ? "" : (usesCameraAudio ? " + camera audio" : " + mic"))")
         let handler = onStarted
         DispatchQueue.main.async { handler?() }
         return true
     }
 
-    private func appendVideo(_ pictures: [[UInt8]], isKey: Bool, arrival: CMTime, format: CMVideoFormatDescription) {
+    private func appendVideo(_ pictures: [[UInt8]], isKey: Bool, arrival: CMTime, composition: CMTime = .zero,
+                             format: CMVideoFormatDescription) {
         guard let writer, let videoInput, writer.status == .writing else {
             finish(message: String(localized: "録画を保存できませんでした"))
             return
         }
-        // 届いた時刻 − 始めた時刻。必ず前の絵より後ろにする
-        var pts = CMTimeConvertScale(CMTimeSubtract(arrival, startHostTime), timescale: 90_000,
+        // 復号の時刻 = 届いた時刻(RTMP ではカメラの時刻)− 始めた時刻。必ず前の絵より後ろにする
+        var dts = CMTimeConvertScale(CMTimeSubtract(arrival, startHostTime), timescale: 90_000,
                                      method: .roundHalfAwayFromZero)
-        if lastVideoPTS.isValid, CMTimeCompare(pts, lastVideoPTS) <= 0 {
-            pts = CMTimeAdd(lastVideoPTS, CMTime(value: 1, timescale: 90_000))
+        if lastVideoPTS.isValid, CMTimeCompare(dts, lastVideoPTS) <= 0 {
+            dts = CMTimeAdd(lastVideoPTS, CMTime(value: 1, timescale: 90_000))
+        }
+        // 表示の時刻(B フレームのときだけ復号の時刻とずれる)。復号の時刻より前にはしない
+        var pts = dts
+        if CMTimeCompare(composition, .zero) != 0 {
+            pts = CMTimeConvertScale(CMTimeAdd(dts, composition), timescale: 90_000, method: .roundHalfAwayFromZero)
+            if CMTimeCompare(pts, dts) < 0 { pts = dts }
         }
         guard videoInput.isReadyForMoreMediaData else {
             // 1 枚でも抜けると次のキーフレームまで絵が壊れるので、キーフレームから書き直す
@@ -333,15 +408,108 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
             }
             return
         }
-        guard let sample = Self.makeSample(pictures, format: format, pts: pts, isKey: isKey) else { return }
+        guard let sample = Self.makeSample(pictures, format: format, pts: pts, dts: dts, isKey: isKey) else { return }
         guard videoInput.append(sample) else {
             log("recorder: append failed \(writer.error?.localizedDescription ?? "")")
             finish(message: String(localized: "録画を保存できませんでした"))
             return
         }
-        lastVideoPTS = pts
+        lastVideoPTS = dts
+        if !lastPresentationPTS.isValid || CMTimeCompare(pts, lastPresentationPTS) > 0 { lastPresentationPTS = pts }
         lastFrameHostTime = arrival
+        lastWriteRealTime = Self.hostNow()
         writtenFrames += 1
+    }
+
+    // MARK: カメラの音(RTMP、q の上)
+
+    /// カメラの時刻(ミリ秒)をホストの時計に写す。最初に届いた時刻を基準にする
+    private func cameraHostTime(_ ms: Int64) -> CMTime {
+        if cameraClockBase == nil { cameraClockBase = (ms, Self.hostNow()) }
+        guard let base = cameraClockBase else { return Self.hostNow() }
+        return CMTimeAdd(base.host, CMTime(value: ms - base.ms, timescale: 1000))
+    }
+
+    private func appendCameraAudio(_ frame: [UInt8], at hostTime: CMTime) {
+        guard usesCameraAudio, state == .writing, let audioInput, let writer, writer.status == .writing,
+              startHostTime.isValid, let fmt = cameraAudioFormat,
+              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fmt)?.pointee,
+              asbd.mSampleRate > 0
+        else { return }
+        let rate = CMTimeScale(asbd.mSampleRate.rounded())
+        let framesPerPacket = Int64(asbd.mFramesPerPacket > 0 ? asbd.mFramesPerPacket : 1024)
+        var pts = CMTimeConvertScale(CMTimeSubtract(hostTime, startHostTime), timescale: rate,
+                                     method: .roundHalfAwayFromZero)
+        // 0 秒より前の音は捨てる
+        guard CMTimeCompare(pts, .zero) >= 0 else { return }
+        // RTMP の時刻はミリ秒に丸められている。ずれが小さいあいだはサンプル数で進めて、つなぎ目に隙間や重なりを作らない
+        if cameraAudioNextPTS.isValid {
+            let gap = CMTimeGetSeconds(CMTimeSubtract(pts, cameraAudioNextPTS))
+            if abs(gap) < 0.1 {
+                pts = cameraAudioNextPTS
+            } else if gap < 0 {
+                return  // 前の音と重なる(時刻が戻った)ものは捨てる
+            }
+        }
+        cameraAudioNextPTS = CMTimeAdd(pts, CMTime(value: framesPerPacket, timescale: rate))
+        // 音は少し欠けても困らないので、受けられなければ捨てる
+        guard audioInput.isReadyForMoreMediaData else { return }
+        guard let sample = Self.makeAACSample(frame, format: fmt, pts: pts) else { return }
+        if !audioInput.append(sample), !audioAppendFailed {
+            audioAppendFailed = true
+            log("recorder: camera audio append failed \(writer.error?.localizedDescription ?? "")")
+        }
+    }
+
+    /// AAC の AudioSpecificConfig から音の形式を作る(カメラの音を作り直さずに書くため)。
+    /// マジッククッキーは MP4 の esds と同じ形(ES_Descriptor の中に AudioSpecificConfig)にする
+    static func makeAACFormat(audioSpecificConfig asc: [UInt8]) -> CMAudioFormatDescription? {
+        guard asc.count >= 2, asc.count < 100 else { return nil }
+        let rates: [Double] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
+        let objectType = Int(asc[0] >> 3)
+        let rateIndex = Int((asc[0] & 0x07) << 1 | asc[1] >> 7)
+        let channels = Int((asc[1] >> 3) & 0x0F)
+        guard objectType > 0, objectType < 31, rateIndex < rates.count, (1...6).contains(channels) else { return nil }
+        var asbd = AudioStreamBasicDescription(
+            mSampleRate: rates[rateIndex], mFormatID: kAudioFormatMPEG4AAC, mFormatFlags: UInt32(objectType),
+            mBytesPerPacket: 0, mFramesPerPacket: 1024, mBytesPerFrame: 0,
+            mChannelsPerFrame: UInt32(channels), mBitsPerChannel: 0, mReserved: 0)
+        func descriptor(_ tag: UInt8, _ body: [UInt8]) -> [UInt8] { [tag, UInt8(body.count)] + body }
+        // DecoderConfigDescriptor: 0x40 = MPEG-4 Audio、0x15 = 音のストリーム、バッファと平均・最大ビットレートは 0
+        let decoderConfig = descriptor(0x04, [0x40, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] + descriptor(0x05, asc))
+        let cookie = descriptor(0x03, [0x00, 0x00, 0x00] + decoderConfig + descriptor(0x06, [0x02]))
+        var out: CMAudioFormatDescription?
+        let status = cookie.withUnsafeBytes { raw in
+            CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &asbd, layoutSize: 0, layout: nil,
+                                           magicCookieSize: raw.count, magicCookie: raw.baseAddress,
+                                           extensions: nil, formatDescriptionOut: &out)
+        }
+        return status == noErr ? out : nil
+    }
+
+    /// 生の AAC 1 フレームを 1 つのサンプルにする
+    private static func makeAACSample(_ frame: [UInt8], format: CMAudioFormatDescription, pts: CMTime) -> CMSampleBuffer? {
+        guard !frame.isEmpty else { return nil }
+        var block: CMBlockBuffer?
+        guard CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: frame.count,
+            blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0,
+            dataLength: frame.count, flags: 0, blockBufferOut: &block) == kCMBlockBufferNoErr,
+            let block
+        else { return nil }
+        let copied = frame.withUnsafeBytes { raw in
+            CMBlockBufferReplaceDataBytes(with: raw.baseAddress!, blockBuffer: block,
+                                          offsetIntoDestination: 0, dataLength: frame.count)
+        }
+        guard copied == kCMBlockBufferNoErr else { return nil }
+        var packet = AudioStreamPacketDescription(mStartOffset: 0, mVariableFramesInPacket: 0,
+                                                  mDataByteSize: UInt32(frame.count))
+        var sample: CMSampleBuffer?
+        guard CMAudioSampleBufferCreateReadyWithPacketDescriptions(
+            allocator: kCFAllocatorDefault, dataBuffer: block, formatDescription: format, sampleCount: 1,
+            presentationTimeStamp: pts, packetDescriptions: &packet, sampleBufferOut: &sample) == noErr
+        else { return nil }
+        return sample
     }
 
     // MARK: 音(q の上)
@@ -361,6 +529,8 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
     }
 
     private func appendAudio(_ sampleBuffer: CMSampleBuffer) {
+        // カメラの AAC をそのまま書いている入力に、マイクの PCM を混ぜない(形式が違うと書き込みが失敗する)
+        guard !usesCameraAudio else { return }
         guard let audioInput, let writer, writer.status == .writing, startHostTime.isValid else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         guard pts.isValid else { return }
@@ -448,9 +618,11 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
             }
             videoInput?.markAsFinished()
             audioInput?.markAsFinished()
-            // 最後の絵にも 1 枚分(約 25fps)の長さを付ける
-            if lastVideoPTS.isValid {
-                writer.endSession(atSourceTime: CMTimeAdd(lastVideoPTS, CMTime(value: 1, timescale: 25)))
+            // 最後の絵にも 1 枚分(約 25fps)の長さを付ける(B フレームがあれば表示の時刻のいちばん後ろから)
+            let lastEnd = lastPresentationPTS.isValid && CMTimeCompare(lastPresentationPTS, lastVideoPTS) > 0
+                ? lastPresentationPTS : lastVideoPTS
+            if lastEnd.isValid {
+                writer.endSession(atSourceTime: CMTimeAdd(lastEnd, CMTime(value: 1, timescale: 25)))
             }
             writer.finishWriting { [weak self] in
                 guard let self else { return }
@@ -475,6 +647,8 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
         outputURL = nil
         startHostTime = .invalid
         lastFrameHostTime = .invalid
+        lastWriteRealTime = .invalid
+        usesCameraAudio = false
         needsKeyframe = false
         state = .idle
         report(ok ? url : nil, message)
@@ -530,7 +704,7 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
     /// 絵の NAL を 4 バイトの長さ付き(HVCC/AVCC)に並べて 1 つのサンプルにする。
     /// パラメーターセットはファイルの先頭(形式の説明)に入るので、サンプルには入れない
     private static func makeSample(_ nals: [[UInt8]], format: CMVideoFormatDescription,
-                                   pts: CMTime, isKey: Bool) -> CMSampleBuffer? {
+                                   pts: CMTime, dts: CMTime, isKey: Bool) -> CMSampleBuffer? {
         var bytes = [UInt8]()
         bytes.reserveCapacity(nals.reduce(0) { $0 + $1.count + 4 })
         for nal in nals {
@@ -550,8 +724,8 @@ final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDe
                                           offsetIntoDestination: 0, dataLength: bytes.count)
         }
         guard copied == kCMBlockBufferNoErr else { return nil }
-        // ライブビューに B フレームは無い前提(届いた順 = 表示の順)。長さは次の絵との差で決まる
-        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: pts, decodeTimeStamp: pts)
+        // ライブビューに B フレームは無い前提(pts = dts)。RTMP は composition time から pts を作る。長さは次の絵との差で決まる
+        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: pts, decodeTimeStamp: dts)
         var sizes = [bytes.count]
         var sample: CMSampleBuffer?
         guard CMSampleBufferCreateReady(

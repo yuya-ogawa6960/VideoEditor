@@ -2991,6 +2991,29 @@
         }
       }
     },
+    "1. 先に「受信だけ始める」を押します。\n2. DJI Mimo で、カメラのネットワークにこの iPhone のインターネット共有を選び、上の URL を入れて配信を始めます。\n3. すぐに Video Mania に戻ると、映像が出ます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. First tap \"Start Receiving Only\".\n2. In DJI Mimo, choose this iPhone's Personal Hotspot as the camera's network, enter the URL above and start streaming.\n3. Come back to Video Mania right away and the video will appear."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Primero toca \"Solo empezar a recibir\".\n2. En DJI Mimo, elige el Punto de acceso personal de este iPhone como red de la cámara, introduce la URL de arriba y empieza a transmitir.\n3. Vuelve enseguida a Video Mania y aparecerá el video."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Primeiro toque em \"Só começar a receber\".\n2. No DJI Mimo, escolha o Acesso Pessoal deste iPhone como rede da câmera, insira a URL acima e comece a transmitir.\n3. Volte logo para o Video Mania e o vídeo aparecerá."
+          }
+        }
+      }
+    },
     "1.15 倍・4 秒ごと": {
       "extractionState": "manual",
       "localizations": {
@@ -6004,6 +6027,52 @@
         }
       }
     },
+    "Bluetooth で接続中…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting via Bluetooth…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando por Bluetooth…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando via Bluetooth…"
+          }
+        }
+      }
+    },
+    "Bluetooth を準備しています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting Bluetooth ready…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando el Bluetooth…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando o Bluetooth…"
+          }
+        }
+      }
+    },
     "Bradley Hand(手書き風)": {
       "extractionState": "manual",
       "localizations": {
@@ -6092,6 +6161,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chalkduster (giz)"
+          }
+        }
+      }
+    },
+    "DJI Mimo から配信するとき": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Streaming from DJI Mimo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al transmitir desde DJI Mimo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao transmitir pelo DJI Mimo"
+          }
+        }
+      }
+    },
+    "DJI Mimo の『ライブ配信』→『RTMP』にこの URL を入れて開始": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In DJI Mimo, go to \"Livestream\" > \"RTMP\", enter this URL and start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En DJI Mimo, ve a \"Transmisión en directo\" > \"RTMP\", introduce esta URL y empieza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No DJI Mimo, vá em \"Transmissão ao vivo\" > \"RTMP\", insira esta URL e comece"
           }
         }
       }
@@ -7568,6 +7683,29 @@
         }
       }
     },
+    "Mimo で始めたら、すぐに Video Mania に戻ってください。裏にいるあいだは 30 秒ほどしか受けられません。配信を終えるときは Mimo の「ライブ配信を終了」も押してください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After you start in Mimo, come back to Video Mania right away. While it's in the background, it can only receive for about 30 seconds. When you finish, also tap \"End Livestream\" in Mimo."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de empezar en Mimo, vuelve enseguida a Video Mania. Mientras está en segundo plano solo puede recibir unos 30 segundos. Al terminar, toca también \"Finalizar transmisión\" en Mimo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depois de começar no Mimo, volte logo para o Video Mania. Em segundo plano, ele só consegue receber por cerca de 30 segundos. Ao terminar, toque também em \"Encerrar transmissão\" no Mimo."
+          }
+        }
+      }
+    },
     "Netflix風": {
       "extractionState": "manual",
       "localizations": {
@@ -8741,6 +8879,29 @@
         }
       }
     },
+    "URL をコピー": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar URL"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar URL"
+          }
+        }
+      }
+    },
     "VHS": {
       "extractionState": "manual",
       "localizations": {
@@ -9500,6 +9661,52 @@
         }
       }
     },
+    "iPhone に録画(高画質モード)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record to iPhone (High Quality Mode)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabar en el iPhone (modo de alta calidad)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravar no iPhone (modo de alta qualidade)"
+          }
+        }
+      }
+    },
+    "iPhone の「設定」→「インターネット共有」で「ほかの人の接続を許可」と「互換性を優先」をオンにしてください。名前とパスワードはその画面に出ています。Pocket 4 は DJI Mimo で記録された設定(1080p・25fps・6Mbps)で送ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the iPhone's Settings > Personal Hotspot, turn on \"Allow Others to Join\" and \"Maximize Compatibility\". The name and password are shown on that screen. Pocket 4 sends with the settings recorded from DJI Mimo (1080p, 25fps, 6Mbps)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Ajustes > Punto de acceso personal del iPhone, activa \"Permitir a otros conectarse\" y \"Maximizar compatibilidad\". El nombre y la contraseña aparecen en esa pantalla. La Pocket 4 envía con los ajustes registrados de DJI Mimo (1080p, 25fps, 6Mbps)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em Ajustes > Acesso Pessoal do iPhone, ative \"Permitir Outros\" e \"Maximizar Compatibilidade\". O nome e a senha aparecem nessa tela. A Pocket 4 envia com as configurações registradas do DJI Mimo (1080p, 25fps, 6Mbps)."
+          }
+        }
+      }
+    },
     "iPhone のマイクの音も録る": {
       "extractionState": "manual",
       "localizations": {
@@ -9542,6 +9749,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "A IA que roda no seu iPhone (transcrição da Apple, Whisper, vozes do aparelho etc.) não usa pontos."
+          }
+        }
+      }
+    },
+    "iPhone の空き容量が足りません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough free space on the iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay suficiente espacio libre en el iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há espaço livre suficiente no iPhone"
           }
         }
       }
@@ -12053,6 +12283,29 @@
         }
       }
     },
+    "うまくいきませんでした: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algo salió mal: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algo deu errado: %@"
+          }
+        }
+      }
+    },
     "うまくいきませんでした。": {
       "extractionState": "manual",
       "localizations": {
@@ -14027,6 +14280,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Isto não pode ser desfeito."
+          }
+        }
+      }
+    },
+    "この映像の形式には対応していません(%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video format isn't supported (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este formato de video no es compatible (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este formato de vídeo não é compatível (%@)"
           }
         }
       }
@@ -17182,6 +17458,29 @@
         }
       }
     },
+    "もう一度タップすると、続きから取り込みます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap again to continue where it left off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca de nuevo para continuar donde se quedó."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque de novo para continuar de onde parou."
+          }
+        }
+      }
+    },
     "もう一度ファイルを選び直してください。\n\n詳細: ": {
       "extractionState": "manual",
       "localizations": {
@@ -17366,6 +17665,29 @@
         }
       }
     },
+    "もう一度読む": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intentar de nuevo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentar de novo"
+          }
+        }
+      }
+    },
     "もう一度調べる": {
       "extractionState": "manual",
       "localizations": {
@@ -17454,6 +17776,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chaleira"
+          }
+        }
+      }
+    },
+    "やめても、もう一度タップすると続きから取り込みます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you stop, tap the video again to continue where it left off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si lo detienes, toca el video de nuevo para continuar donde se quedó."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se parar, toque no vídeo de novo para continuar de onde parou."
           }
         }
       }
@@ -18723,6 +19068,75 @@
         }
       }
     },
+    "インターネット共有のパスワード": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personal Hotspot password"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraseña del Punto de acceso personal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senha do Acesso Pessoal"
+          }
+        }
+      }
+    },
+    "インターネット共有の名前": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personal Hotspot name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre del Punto de acceso personal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome do Acesso Pessoal"
+          }
+        }
+      }
+    },
+    "インターネット共有の名前を確かめてください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the Personal Hotspot name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba el nombre del Punto de acceso personal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique o nome do Acesso Pessoal"
+          }
+        }
+      }
+    },
     "インパクト": {
       "extractionState": "manual",
       "localizations": {
@@ -19781,6 +20195,213 @@
         }
       }
     },
+    "カメラから届いた映像と音を、作り直さずにそのまま保存します。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saves the video and sound from the camera as is, without re-encoding."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guarda el video y el sonido de la cámara tal cual, sin volver a codificarlos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva o vídeo e o som da câmera como estão, sem recodificar."
+          }
+        }
+      }
+    },
+    "カメラから届いた映像を、作り直さずにそのまま保存します。カメラの音が届かないときは iPhone のマイクで録れます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saves the video from the camera as is, without re-encoding. If no sound comes from the camera, you can record with the iPhone microphone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guarda el video de la cámara tal cual, sin volver a codificarlo. Si no llega sonido de la cámara, puedes grabar con el micrófono del iPhone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva o vídeo da câmera como está, sem recodificar. Se não chegar som da câmera, você pode gravar com o microfone do iPhone."
+          }
+        }
+      }
+    },
+    "カメラから思わぬ返事が来ました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera sent an unexpected reply"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara envió una respuesta inesperada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera enviou uma resposta inesperada"
+          }
+        }
+      }
+    },
+    "カメラから映像が届きません。カメラがこの iPhone のインターネット共有に入っているか確かめてください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No video is arriving from the camera. Check that the camera has joined this iPhone's Personal Hotspot."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No llega video de la cámara. Comprueba que la cámara esté conectada al Punto de acceso personal de este iPhone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum vídeo está chegando da câmera. Verifique se a câmera entrou no Acesso Pessoal deste iPhone."
+          }
+        }
+      }
+    },
+    "カメラがこの iPhone のインターネット共有に入り、映像を直接送ります。ライブビューより高い画質で受けられます。RTMP では 4K は使えません(最大 1080p)。ライブビューとは同時に使えません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera joins this iPhone's Personal Hotspot and sends its video directly. You get higher quality than the live view. 4K isn't available over RTMP (up to 1080p). This can't be used at the same time as the live view."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara se conecta al Punto de acceso personal de este iPhone y envía el video directamente. Recibes más calidad que con la vista en vivo. El 4K no está disponible por RTMP (hasta 1080p). No se puede usar a la vez que la vista en vivo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera entra no Acesso Pessoal deste iPhone e envia o vídeo diretamente. Você recebe qualidade maior que a da visualização ao vivo. 4K não está disponível por RTMP (até 1080p). Não pode ser usado ao mesmo tempo que a visualização ao vivo."
+          }
+        }
+      }
+    },
+    "カメラがインターネット共有に入れませんでした(%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera couldn't join the Personal Hotspot (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara no pudo conectarse al Punto de acceso personal (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera não conseguiu entrar no Acesso Pessoal (%@)"
+          }
+        }
+      }
+    },
+    "カメラがインターネット共有に入れませんでした。名前とパスワード、「互換性を優先」がオンかを確かめてください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera couldn't join the Personal Hotspot. Check the name and password, and that \"Maximize Compatibility\" is on."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara no pudo conectarse al Punto de acceso personal. Comprueba el nombre y la contraseña, y que \"Maximizar compatibilidad\" esté activado."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera não conseguiu entrar no Acesso Pessoal. Verifique o nome e a senha, e se \"Maximizar Compatibilidade\" está ativado."
+          }
+        }
+      }
+    },
+    "カメラがファイルを渡しませんでした(%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera didn't send the file (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara no envió el archivo (%lld)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera não enviou o arquivo (%lld)"
+          }
+        }
+      }
+    },
+    "カメラが一覧を返しませんでした。カメラの電源を入れ直してから、もう一度つないでください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera didn't return the list. Turn the camera off and on, then connect again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara no devolvió la lista. Apaga y enciende la cámara y vuelve a conectarte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera não retornou a lista. Desligue e ligue a câmera e conecte de novo."
+          }
+        }
+      }
+    },
     "カメラが応答しません": {
       "extractionState": "manual",
       "localizations": {
@@ -19800,6 +20421,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "A câmera não responde"
+          }
+        }
+      }
+    },
+    "カメラが見つかりませんでした。電源を入れて近くに置いてください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No camera was found. Turn it on and keep it nearby."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró ninguna cámara. Enciéndela y mantenla cerca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma câmera foi encontrada. Ligue-a e deixe-a por perto."
           }
         }
       }
@@ -19873,6 +20517,121 @@
         }
       }
     },
+    "カメラにつながっていません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected to the camera"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No está conectado a la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não está conectado à câmera"
+          }
+        }
+      }
+    },
+    "カメラにファイルが見つかりませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file wasn't found on the camera"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró el archivo en la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo não foi encontrado na câmera"
+          }
+        }
+      }
+    },
+    "カメラに保存された元のファイルを、そのままの画質で取り込みます。大きいファイルは時間がかかるので、終わるまでこの画面を開いたままにしてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imports the original file saved on the camera at full quality. Large files take time, so keep this screen open until it finishes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa el archivo original guardado en la cámara con su calidad completa. Los archivos grandes tardan, así que mantén esta pantalla abierta hasta que termine."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa o arquivo original salvo na câmera com a qualidade completa. Arquivos grandes demoram, então mantenha esta tela aberta até terminar."
+          }
+        }
+      }
+    },
+    "カメラに保存された動画を、カメラの Wi-Fi でそのままの画質で取り込みます。取り込むあいだ、ライブビューは止まります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imports videos saved on the camera over the camera's Wi-Fi at full quality. The live view stops while importing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa los videos guardados en la cámara por el Wi-Fi de la cámara con su calidad completa. La vista en vivo se detiene mientras se importa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa os vídeos salvos na câmera pelo Wi-Fi da câmera com a qualidade completa. A visualização ao vivo para durante a importação."
+          }
+        }
+      }
+    },
+    "カメラに動画が見つかりませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No videos found on the camera"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron videos en la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum vídeo encontrado na câmera"
+          }
+        }
+      }
+    },
     "カメラの使用が許可されていません": {
       "extractionState": "manual",
       "localizations": {
@@ -19919,6 +20678,98 @@
         }
       }
     },
+    "カメラの動画": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera Videos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos de la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeos da câmera"
+          }
+        }
+      }
+    },
+    "カメラの動画の一覧を読んでいます…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading the list of videos on the camera…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leyendo la lista de videos de la cámara…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lendo a lista de vídeos da câmera…"
+          }
+        }
+      }
+    },
+    "カメラの動画を取り込む": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Camera Videos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar videos de la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar vídeos da câmera"
+          }
+        }
+      }
+    },
+    "カメラの動画を取り込む(本来の画質)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import camera videos (full quality)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar videos de la cámara (calidad completa)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar vídeos da câmera (qualidade completa)"
+          }
+        }
+      }
+    },
     "カメラの揺れを調べて、映像を少し拡大しながら揺れを打ち消します。調べるのに映像の長さと同じくらいの時間がかかることがあります。": {
       "extractionState": "manual",
       "localizations": {
@@ -19938,6 +20789,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Analisa o tremor da câmera e o cancela ampliando um pouco a imagem. A análise pode demorar tanto quanto a duração do material."
+          }
+        }
+      }
+    },
+    "カメラの機種": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera model"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo de cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo da câmera"
+          }
+        }
+      }
+    },
+    "カメラの画面で接続を許可してください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow the connection on the camera's screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite la conexión en la pantalla de la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permita a conexão na tela da câmera"
           }
         }
       }
@@ -19965,6 +20862,29 @@
         }
       }
     },
+    "カメラをインターネット共有につないでいます…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting the camera to the Personal Hotspot…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando la cámara al Punto de acceso personal…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando a câmera ao Acesso Pessoal…"
+          }
+        }
+      }
+    },
     "カメラを使えません(電話やほかのアプリが使っています)": {
       "extractionState": "manual",
       "localizations": {
@@ -19988,6 +20908,29 @@
         }
       }
     },
+    "カメラを再生モードにしています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching the camera to playback mode…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiando la cámara al modo de reproducción…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudando a câmera para o modo de reprodução…"
+          }
+        }
+      }
+    },
     "カメラを切り替え": {
       "extractionState": "manual",
       "localizations": {
@@ -20007,6 +20950,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Trocar de câmera"
+          }
+        }
+      }
+    },
+    "カメラを探しています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking for the camera…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando la cámara…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procurando a câmera…"
           }
         }
       }
@@ -20053,6 +21019,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "troca de câmera"
+          }
+        }
+      }
+    },
+    "カメラ接続中": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to the camera"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando con la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando à câmera"
+          }
+        }
+      }
+    },
+    "カメラ接続中(%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to the camera (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando con la cámara (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando à câmera (%@)"
+          }
+        }
+      }
+    },
+    "カメラ接続中(映像を待っています)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to the camera (waiting for video)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando con la cámara (esperando el video)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando à câmera (aguardando o vídeo)"
+          }
+        }
+      }
+    },
+    "カメラ本体で撮った動画はカメラに残ります。下の「カメラの動画を取り込む」で、本来の画質のまま取り込めます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos recorded on the camera stay on the camera. Use \"Import Camera Videos\" below to import them at full quality."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los videos grabados en la cámara se quedan en la cámara. Usa \"Importar videos de la cámara\" abajo para importarlos con su calidad completa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os vídeos gravados na câmera ficam na câmera. Use \"Importar vídeos da câmera\" abaixo para importá-los com a qualidade completa."
           }
         }
       }
@@ -29832,6 +30890,29 @@
         }
       }
     },
+    "パスワードは 8〜63 文字です": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The password must be 8–63 characters"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La contraseña debe tener entre 8 y 63 caracteres"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A senha deve ter de 8 a 63 caracteres"
+          }
+        }
+      }
+    },
     "パチパチ(拍手)": {
       "extractionState": "manual",
       "localizations": {
@@ -33374,6 +34455,52 @@
         }
       }
     },
+    "ペアリングを後回しにされました。数秒待ってもう一度試してください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera postponed pairing. Wait a few seconds and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara pospuso el emparejamiento. Espera unos segundos e inténtalo de nuevo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera adiou o pareamento. Aguarde alguns segundos e tente de novo."
+          }
+        }
+      }
+    },
+    "ペアリング中…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparejando…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pareando…"
+          }
+        }
+      }
+    },
     "ペット": {
       "extractionState": "manual",
       "localizations": {
@@ -35467,6 +36594,52 @@
         }
       }
     },
+    "ライブ配信の準備をしています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the livestream…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando la transmisión en directo…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando a transmissão ao vivo…"
+          }
+        }
+      }
+    },
+    "ライブ配信の準備を断られました(%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera refused to prepare the livestream (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara rechazó preparar la transmisión en directo (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera recusou preparar a transmissão ao vivo (%@)"
+          }
+        }
+      }
+    },
     "ラウドネス": {
       "extractionState": "manual",
       "localizations": {
@@ -37261,6 +38434,52 @@
         }
       }
     },
+    "一覧の一部が届きませんでした。古い動画が抜けているかもしれません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Part of the list didn't arrive. Some older videos may be missing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parte de la lista no llegó. Puede que falten videos más antiguos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parte da lista não chegou. Alguns vídeos mais antigos podem estar faltando."
+          }
+        }
+      }
+    },
+    "一覧を読むあいだ、カメラは再生モードになり、ライブビューは止まります。閉じると戻ります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While the list is being read, the camera is in playback mode and the live view stops. It comes back when you close this screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mientras se lee la lista, la cámara está en modo de reproducción y la vista en vivo se detiene. Vuelve al cerrar esta pantalla."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enquanto a lista é lida, a câmera fica no modo de reprodução e a visualização ao vivo para. Ela volta ao fechar esta tela."
+          }
+        }
+      }
+    },
     "丁寧": {
       "extractionState": "manual",
       "localizations": {
@@ -38798,6 +40017,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Por enquanto, você pode adicionar fotos e vídeos do Google Fotos assim:"
+          }
+        }
+      }
+    },
+    "今撮った動画を取り込む": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import the Video You Just Shot"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar el video que acabas de grabar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar o vídeo que você acabou de gravar"
           }
         }
       }
@@ -40546,6 +41788,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Logos salvos (seus, até 5)"
+          }
+        }
+      }
+    },
+    "保存した名前とパスワードを消す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete the saved name and password"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar el nombre y la contraseña guardados"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagar o nome e a senha salvos"
           }
         }
       }
@@ -47496,6 +48761,29 @@
         }
       }
     },
+    "取り込んでいます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importando"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importando"
+          }
+        }
+      }
+    },
     "受け取った数 ": {
       "extractionState": "manual",
       "localizations": {
@@ -47584,6 +48872,144 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível receber"
+          }
+        }
+      }
+    },
+    "受信だけ始める": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Receiving Only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo empezar a recibir"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só começar a receber"
+          }
+        }
+      }
+    },
+    "受信の準備ができませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't get ready to receive"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo preparar la recepción"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível preparar a recepção"
+          }
+        }
+      }
+    },
+    "受信の準備ができませんでした(%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't get ready to receive (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo preparar la recepción (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível preparar a recepção (%@)"
+          }
+        }
+      }
+    },
+    "受信の準備をしています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getting ready to receive…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando la recepción…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando a recepção…"
+          }
+        }
+      }
+    },
+    "受信中 %@ %@fps %@Mbps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Receiving %@ %@fps %@Mbps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recibiendo %@ %@fps %@Mbps"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recebendo %@ %@fps %@Mbps"
+          }
+        }
+      }
+    },
+    "受信中(最初の映像を待っています)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Receiving (waiting for the first picture)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recibiendo (esperando la primera imagen)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recebendo (aguardando a primeira imagem)"
           }
         }
       }
@@ -56742,6 +58168,29 @@
         }
       }
     },
+    "新しい順": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Newest first"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más recientes primero"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais recentes primeiro"
+          }
+        }
+      }
+    },
     "新しく作る": {
       "extractionState": "manual",
       "localizations": {
@@ -57428,6 +58877,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nada foi gravado porque nenhum vídeo chegou"
+          }
+        }
+      }
+    },
+    "映像が止まっています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The video has stopped"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El video se detuvo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vídeo parou"
           }
         }
       }
@@ -61181,6 +62653,29 @@
         }
       }
     },
+    "次のキーフレームを待っています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the next keyframe…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando el siguiente fotograma clave…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando o próximo quadro-chave…"
+          }
+        }
+      }
+    },
     "次のクリップが同じ素材の続きではありません": {
       "extractionState": "manual",
       "localizations": {
@@ -62929,6 +64424,29 @@
         }
       }
     },
+    "状態": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        }
+      }
+    },
     "状態: 使えます": {
       "extractionState": "manual",
       "localizations": {
@@ -63753,6 +65271,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Qualidade"
+          }
+        }
+      }
+    },
+    "画質(Pocket 3)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quality (Pocket 3)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calidad (Pocket 3)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualidade (Pocket 3)"
           }
         }
       }
@@ -73509,6 +75050,29 @@
         }
       }
     },
+    "読み直す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a cargar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarregar"
+          }
+        }
+      }
+    },
     "読み込み": {
       "extractionState": "manual",
       "localizations": {
@@ -75694,6 +77258,29 @@
         }
       }
     },
+    "通信が何度も切れたので、やめました。もう一度タップすると続きから取り込みます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped because the connection dropped too many times. Tap again to continue where it left off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se detuvo porque la conexión se cortó demasiadas veces. Toca de nuevo para continuar donde se quedó."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parou porque a conexão caiu muitas vezes. Toque de novo para continuar de onde parou."
+          }
+        }
+      }
+    },
     "通信できる場所で、もう一度「取り込む」を押してください。続くときは「破棄」して、自動で字幕を作り直してください。\n\n詳細: ": {
       "extractionState": "manual",
       "localizations": {
@@ -76798,6 +78385,75 @@
         }
       }
     },
+    "配信の設定を断られました(%@)。画質を下げるか、機種を選び直してください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera refused the stream settings (%@). Lower the quality or choose the model again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cámara rechazó los ajustes de la transmisión (%@). Baja la calidad o vuelve a elegir el modelo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera recusou as configurações da transmissão (%@). Reduza a qualidade ou escolha o modelo de novo."
+          }
+        }
+      }
+    },
+    "配信の設定を送っています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending the stream settings…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviando los ajustes de la transmisión…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviando as configurações da transmissão…"
+          }
+        }
+      }
+    },
+    "配信を始めています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting the stream…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando la transmisión…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando a transmissão…"
+          }
+        }
+      }
+    },
     "配置": {
       "extractionState": "manual",
       "localizations": {
@@ -77185,6 +78841,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível iniciar a gravação: %@"
+          }
+        }
+      }
+    },
+    "録画中は取り込めません。録画を止めてから開いてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't import while recording. Stop recording first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede importar mientras se graba. Detén la grabación primero."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível importar durante a gravação. Pare a gravação primeiro."
           }
         }
       }
@@ -77783,6 +79462,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "O quarto lacrado"
+          }
+        }
+      }
+    },
+    "開始": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar"
           }
         }
       }
@@ -78818,6 +80520,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tom (+1 sobe um semitom)"
+          }
+        }
+      }
+    },
+    "音はカメラのマイクから録ります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sound is recorded from the camera's microphone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El sonido se graba con el micrófono de la cámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O som é gravado pelo microfone da câmera"
           }
         }
       }
@@ -81187,6 +82912,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Salvar em alta qualidade"
+          }
+        }
+      }
+    },
+    "高画質モード(RTMP・最大 1080p)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High Quality Mode (RTMP, up to 1080p)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de alta calidad (RTMP, hasta 1080p)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de alta qualidade (RTMP, até 1080p)"
           }
         }
       }

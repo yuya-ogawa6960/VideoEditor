@@ -413,15 +413,38 @@ enum CompositionBuilder {
                     guard let angleSource = source else { continue }
 
                     // アングル素材上の範囲(素材の長さに収める)
-                    let rangeStartSec = max(run.start + angle.offset, angleSource.timeRange.start.seconds)
-                    let rangeEndSec = min(run.end + angle.offset, angleSource.timeRange.end.seconds)
+                    var rangeStartSec = max(run.start + angle.offset, angleSource.timeRange.start.seconds)
+                    var rangeEndSec = min(run.end + angle.offset, angleSource.timeRange.end.seconds)
                     guard rangeEndSec - rangeStartSec > 0.02 else { continue }
 
                     // 出力タイムライン上の位置(速度カーブを考慮)
-                    guard let outSSec = outputTime(forSource: rangeStartSec - angle.offset, plan: plan),
-                          let outESec = outputTime(forSource: rangeEndSec - angle.offset, plan: plan) else { continue }
-                    let segOutStart = compositionTime(outSSec, method: .roundHalfAwayFromZero)
-                    var segOutEnd = compositionTime(outESec, method: .roundHalfAwayFromZero)
+                    guard let rawOutS = outputTime(forSource: rangeStartSec - angle.offset, plan: plan),
+                          let rawOutE = outputTime(forSource: rangeEndSec - angle.offset, plan: plan),
+                          rawOutE - rawOutS > 0.02 else { continue }
+                    // 切替点をコマの頭にそろえる。止めた位置で「アングル」を押すと切替点がいま映っているコマの途中になり、
+                    // そのコマ(止めている間に見えている絵)がメインのまま残って「押しても変わらない」ように見えていた
+                    let sourcePerOutput = (rangeEndSec - rangeStartSec) / (rawOutE - rawOutS)
+                    let frameRate = Double(min(max(snapshot.canvas.frameRate, 1), 120))
+                    var outSSec = rawOutS
+                    var outESec = rawOutE
+                    if run.start > srcStartSec + 0.001 {
+                        let snapped = max(frameStart(rawOutS, fps: frameRate), outStart.seconds)
+                        let shifted = rangeStartSec - (rawOutS - snapped) * sourcePerOutput
+                        if shifted >= angleSource.timeRange.start.seconds {
+                            outSSec = snapped
+                            rangeStartSec = shifted
+                        }
+                    }
+                    if run.end < srcEndSec - 0.001 {
+                        let snapped = frameStart(rawOutE, fps: frameRate)
+                        if snapped > outSSec {
+                            rangeEndSec -= (rawOutE - snapped) * sourcePerOutput
+                            outESec = snapped
+                        }
+                    }
+                    guard rangeEndSec - rangeStartSec > 0.02 else { continue }
+                    let segOutStart = compositionTime(outSSec, method: .roundTowardNegativeInfinity)
+                    var segOutEnd = compositionTime(outESec, method: .roundTowardNegativeInfinity)
                     if segOutEnd > outEnd { segOutEnd = outEnd }
                     guard (segOutEnd - segOutStart).seconds > 0.02 else { continue }
                     let segOut = segOutEnd - segOutStart
@@ -1427,6 +1450,12 @@ enum CompositionBuilder {
         if currentEnd < time {
             track.insertEmptyTimeRange(CMTimeRange(start: currentEnd, end: time))
         }
+    }
+
+    /// 出力時刻 t を含むコマの頭(1/fps の格子に切り下げる)
+    private static func frameStart(_ t: Double, fps: Double) -> Double {
+        guard fps > 0, t.isFinite else { return t }
+        return (t * fps + 1e-6).rounded(.down) / fps
     }
 
     /// 元素材上の範囲 [sourceStart, sourceEnd) をアングル番号ごとの区間に分割する
