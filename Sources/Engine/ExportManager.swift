@@ -1056,9 +1056,10 @@ final class ExportManager {
 
     // MARK: - Files / Photos
 
+    /// 書き出した動画の置き場所(Documents/Exports)。ユーザーの作品なので、
+    /// 「ファイル」アプリに見える Documents に意図的に残す(AppDirectories 参照)
     static func exportsDirectory() throws -> URL {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let directory = documents.appendingPathComponent("Exports", isDirectory: true)
+        let directory = AppDirectories.documents.appendingPathComponent("Exports", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }

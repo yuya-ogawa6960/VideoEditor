@@ -4,8 +4,8 @@ import UIKit
 
 // =====================================================================
 // プロジェクト一覧(CapCut のホーム画面に相当)のメタデータ。
-// 編集内容そのものは ProjectStore が Documents/Projects/<uuid>/ に保存し、
-// ここでは名前・日時・長さ・クリップ数だけを Documents/Projects/library.json に持つ。
+// 編集内容そのものは ProjectStore が Application Support/Projects/<uuid>/ に保存し、
+// ここでは名前・日時・長さ・クリップ数だけを Application Support/Projects/library.json に持つ。
 // `projects` は常に updatedAt の新しい順。
 // 書き込みは touch() のような頻繁な更新は 1 秒にまとめ、作成/削除などはすぐに行う。
 // =====================================================================

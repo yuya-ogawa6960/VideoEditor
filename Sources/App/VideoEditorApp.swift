@@ -7,8 +7,9 @@ struct VideoEditorApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
-        // 作業ファイルを Documents から Application Support へ移す(1 回だけ。ほかの保存先を使う前に)
-        StorageLocations.prepare()
+        // 保存先の用意。Documents に残っている内部データを Application Support へ移す
+        // (1 回だけ。プロジェクトを開く前・ほかの保存先を使う前に終わる。Sources/Engine/AppDirectories.swift)
+        AppDirectories.prepare()
         AppLifecycle.shared.start()
         // マナーモードでも動画の音が鳴るように(.playback)
         AudioSessionSetup.ensurePlayback()
