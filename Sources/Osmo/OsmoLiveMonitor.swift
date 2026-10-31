@@ -66,6 +66,26 @@ final class OsmoLiveMonitor {
     private(set) var fps: Double = 0
 
     let decoder = OsmoVideoDecoder()
+    /// カメラ本体の録画(OsmoCameraControl.swift)。データリンクが開いているあいだだけ使える
+    let camera = OsmoCameraControl()
+
+    /// iPhone 側の録画(受けた映像をそのまま .mp4 に書く。OsmoStreamRecorder.swift)
+    enum StreamRecordingState: Equatable {
+        case idle
+        /// マイクの準備・最初のキーフレーム待ち
+        case preparing
+        /// 書いている(最初のキーフレームを書いた時刻)
+        case recording(Date)
+        case finishing
+    }
+    private(set) var streamRecordingState: StreamRecordingState = .idle
+    /// 録画中に映像が 2 秒より長く止まっている
+    private(set) var streamRecordingStalled = false
+    /// 録り終えたファイル(「プロジェクトに入れる」「写真に保存」「破棄」を待つ)
+    private(set) var finishedStreamRecording: URL?
+    /// 録画について知らせること(保存できなかった など)
+    private(set) var streamRecordingMessage: String?
+    let streamRecorder = OsmoStreamRecorder()
     private let bluetooth = OsmoBluetoothLink()
     @ObservationIgnored private var datalink: OsmoDatalink?
     @ObservationIgnored private var scanTask: Task<Void, Never>?
@@ -80,6 +100,7 @@ final class OsmoLiveMonitor {
     init() {
         bluetooth.log = { [weak self] in self?.appendLog($0) }
         decoder.onLog = { [weak self] in self?.appendLog($0) }
+        camera.onLog = { [weak self] in self?.appendLog($0) }
         decoder.onFrame = { [weak self] width, height in
             guard let self else { return }
             self.decodedFrames += 1
@@ -91,6 +112,21 @@ final class OsmoLiveMonitor {
         }
         decoder.onNeedsKeyframe = { [weak self] reason in
             self?.requestKeyframe(reason: reason)
+        }
+        streamRecorder.onLog = { [weak self] in self?.appendLog($0) }
+        streamRecorder.onStarted = { [weak self] in
+            self?.streamRecordingState = .recording(Date())
+        }
+        streamRecorder.onNeedsKeyframe = { [weak self] reason in
+            // 録画を始めるときは 1 回だけすぐ頼む(毎秒は送らない)
+            self?.requestKeyframe(reason: reason, minimumInterval: 2)
+        }
+        streamRecorder.onFinished = { [weak self] url, message in
+            guard let self else { return }
+            self.streamRecordingState = .idle
+            self.streamRecordingStalled = false
+            self.finishedStreamRecording = url
+            self.streamRecordingMessage = message
         }
     }
 
@@ -200,11 +236,21 @@ final class OsmoLiveMonitor {
         phase = .openingDatalink
         let link = OsmoDatalink(localIPv4: localIP)
         let decoder = self.decoder
-        link.onAccessUnit = { au in decoder.decode(accessUnit: au) }
+        let streamRecorder = self.streamRecorder
+        link.onAccessUnit = { au in
+            decoder.decode(accessUnit: au)
+            streamRecorder.observe(accessUnit: au)
+        }
         link.onLog = { [weak self] s in Task { @MainActor in self?.appendLog(s) } }
+        let camera = self.camera
+        link.onFrame = { frame in
+            guard OsmoCameraControl.isRelevant(frame) else { return }
+            Task { @MainActor in camera.handle(frame) }
+        }
         datalink = link
         try await link.open()
         try Task.checkCancellation()
+        camera.attach(link)
         lastEnableAt = Date()
         link.enableLiveView(prepare: true)
         startWatchdog()
@@ -255,16 +301,74 @@ final class OsmoLiveMonitor {
                     link.reRegister()
                     self.requestKeyframe(reason: "no picture for \(Int(since)) s")
                 }
+                self.checkStreamRecording()
             }
         }
     }
 
-    /// 0x09/0xA8 をもう一度。毎秒送るとキーフレームが届かなくなるので 6 秒以上あける
-    private func requestKeyframe(reason: String) {
-        guard let link = datalink, Date().timeIntervalSince(lastEnableAt) > 6 else { return }
+    /// 0x09/0xA8 をもう一度。毎秒送るとキーフレームが届かなくなるので、ふだんは 6 秒以上あける
+    private func requestKeyframe(reason: String, minimumInterval: TimeInterval = 6) {
+        guard let link = datalink, Date().timeIntervalSince(lastEnableAt) > minimumInterval else { return }
         lastEnableAt = Date()
         appendLog("keyframe request (\(reason))")
         link.enableLiveView(prepare: false)
+    }
+
+    // MARK: iPhone に録画
+
+    /// 録画を始める(ライブビューが出ているときだけ)。最初のキーフレームから書く
+    func startStreamRecording(microphone: Bool) {
+        guard phase == .live, streamRecordingState == .idle, finishedStreamRecording == nil else { return }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let url = OsmoStreamRecorder.directory.appendingPathComponent("Osmo \(formatter.string(from: Date())).mp4")
+        streamRecordingMessage = nil
+        streamRecordingStalled = false
+        streamRecordingState = .preparing
+        appendLog("recorder: start (mic \(microphone ? "on" : "off"))")
+        streamRecorder.start(url: url, microphone: microphone)
+    }
+
+    /// 録画を止める。ファイルを閉じたら finishedStreamRecording に入る
+    func stopStreamRecording() {
+        switch streamRecordingState {
+        case .preparing, .recording:
+            streamRecordingState = .finishing
+            streamRecorder.stop()
+        case .idle, .finishing:
+            break
+        }
+    }
+
+    /// 「プロジェクトに入れる」: ファイルを渡す(このあとは取り込み側が消す)
+    func takeFinishedStreamRecording() -> URL? {
+        let url = finishedStreamRecording
+        finishedStreamRecording = nil
+        streamRecordingMessage = nil
+        return url
+    }
+
+    /// 「破棄」
+    func discardFinishedStreamRecording() {
+        if let url = finishedStreamRecording { try? FileManager.default.removeItem(at: url) }
+        finishedStreamRecording = nil
+        streamRecordingMessage = nil
+    }
+
+    /// 1 秒ごと: 止まっていないか見る。止まっていたらキーフレームを頼む(届けば次のキーフレームから書き直す)
+    private func checkStreamRecording() {
+        guard streamRecordingState != .idle, streamRecordingState != .finishing else {
+            if streamRecordingStalled { streamRecordingStalled = false }
+            return
+        }
+        let s = streamRecorder.snapshot()
+        let stalled = (s.secondsSinceLastFrame ?? 0) > OsmoStreamRecorder.stallSeconds
+        if stalled != streamRecordingStalled { streamRecordingStalled = stalled }
+        if stalled {
+            requestKeyframe(reason: "recording stalled", minimumInterval: 3)
+        } else if let waiting = s.secondsWaitingForKeyframe, waiting > 3 {
+            requestKeyframe(reason: "recording waits for keyframe")
+        }
     }
 
     // MARK: 止める
@@ -280,6 +384,9 @@ final class OsmoLiveMonitor {
     private func teardown() {
         watchdogTask?.cancel(); watchdogTask = nil
         bleKeepaliveTask?.cancel(); bleKeepaliveTask = nil
+        // 録画中に切れたら、そこまでをファイルとして閉じる
+        stopStreamRecording()
+        camera.detach()
         datalink?.close(); datalink = nil
         decoder.reset()
         bluetooth.disconnect()

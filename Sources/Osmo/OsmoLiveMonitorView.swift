@@ -1,7 +1,10 @@
 // =====================================================================
 // 「Osmo Pocket ライブビュー(実験)」の画面。開発者モードのときだけ「設定」から開ける
 //
+// 編集画面の「追加」→「Osmo Pocket で撮る(実験)」からも開ける(onUse で録画をプロジェクトに入れる)。
+//
 // 開発者向けの画面なので、文字は翻訳の対象にしない(Text(verbatim:))。
+// ただし録画まわり(OsmoRecordingSections)は編集画面から使うので翻訳する。
 // 実機ではまだ一度も試していない。docs/OsmoPocket.md の「実機で確かめること」を参照。
 // =====================================================================
 
@@ -11,8 +14,18 @@ import SwiftUI
 import UIKit
 
 struct OsmoLiveMonitorView: View {
+    /// 「プロジェクトに入れる」。nil(「設定」から開いたとき)はボタンを出さない
+    var onUse: ((URL) -> Void)? = nil
+
     @State private var monitor = OsmoLiveMonitor()
     @State private var showsLog = false
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+
+    // private な @State があっても外から OsmoLiveMonitorView { url in … } / OsmoLiveMonitorView() で作れるように
+    init(onUse: ((URL) -> Void)? = nil) {
+        self.onUse = onUse
+    }
 
     var body: some View {
         List {
@@ -31,6 +44,8 @@ struct OsmoLiveMonitorView: View {
                     }
                     .listRowInsets(EdgeInsets())
             }
+
+            OsmoRecordingSections(monitor: monitor, onUse: onUse)
 
             Section {
                 LabeledContent { Text(verbatim: monitor.phase.label) } label: { Text(verbatim: "状態") }
@@ -96,7 +111,25 @@ struct OsmoLiveMonitorView: View {
         }
         .navigationTitle(Text(verbatim: "Osmo ライブビュー(実験)"))
         .navigationBarTitleDisplayMode(.inline)
-        .onDisappear { monitor.stop() }
+        .toolbar {
+            // 編集画面から全画面で開いたときだけ「閉じる」を出す(録画中は押せない)
+            if onUse != nil {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { dismiss() }
+                        .disabled(monitor.streamRecordingState != .idle)
+                }
+            }
+        }
+        .onAppear { OsmoStreamRecorder.cleanUpTemporaryFiles() }
+        .onChange(of: scenePhase) { _, newPhase in
+            // 裏に回ると映像が止まるので、そこまでをファイルとして閉じる
+            if newPhase == .background { monitor.stopStreamRecording() }
+        }
+        .onDisappear {
+            monitor.stop()
+            // 選ばずに閉じた録画は残さない(録画中に閉じたものは次に開いたとき 10 分以上前なら消す)
+            monitor.discardFinishedStreamRecording()
+        }
     }
 
     private var isFailed: Bool {

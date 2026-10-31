@@ -1824,6 +1824,8 @@ private struct StoredNarration: Codable {
     /// フェードイン・フェードアウト(秒。後から追加したので省略可能。nil = 0)
     var fadeIn: Double?
     var fadeOut: Double?
+    /// レシピで作った効果音の id(省略可能。後から追加)
+    var soundRecipeID: String?
 
     init(_ n: NarrationClip) {
         id = n.id
@@ -1837,11 +1839,15 @@ private struct StoredNarration: Codable {
         effects = StoredAudioEffects(n.effects)
         fadeIn = n.fadeIn > 0 ? n.fadeIn : nil
         fadeOut = n.fadeOut > 0 ? n.fadeOut : nil
+        soundRecipeID = n.soundRecipeID
     }
 
     /// 音声ファイルが消えていれば nil(内蔵の効果音は Caches から消えていても作り直す)
     func makeNarration() -> NarrationClip? {
-        guard let url = ProjectStore.resolveMedia(file) ?? SoundEffectLibrary.generatedURL(fileName: file) else { return nil }
+        let restored = ProjectStore.resolveMedia(file)
+            ?? SoundEffectLibrary.generatedURL(fileName: file)
+            ?? soundRecipeID.flatMap { SoundEffectLibrary.url(forRecipeID: $0) }
+        guard let url = restored else { return nil }
         var n = NarrationClip(id: id, url: url, name: name, start: start, duration: duration)
         n.sourceStart = sourceStart
         n.volume = volume
@@ -1849,6 +1855,7 @@ private struct StoredNarration: Codable {
         n.effects = effects?.value ?? AudioEffects()
         n.fadeIn = fadeIn ?? 0
         n.fadeOut = fadeOut ?? 0
+        n.soundRecipeID = soundRecipeID
         return n
     }
 }

@@ -449,6 +449,19 @@ final class PlayerController {
         redrawPausedFrame()
     }
 
+    /// 元の色を見ている(長押し中)か。プレビューに「元の色」を出すのに使う
+    private(set) var bypassLookActive: Bool = false
+
+    /// 長押しで元の色を見る: 合成を作り直さずに、色・ルック・エフェクトを飛ばして描く(clipID が nil なら全部)。
+    /// 再生中なら次のコマから効く。止めているときはいまのコマを描き直す。書き出しには影響しない
+    func setBypassLook(_ on: Bool, clipID: UUID?) {
+        guard bypassLookActive != on || on else { return }
+        bypassLookActive = on
+        guard let compositor = player.currentItem?.customVideoCompositor as? VideoCompositor else { return }
+        compositor.setBypassLook(on, clipID: clipID)
+        redrawPausedFrame()
+    }
+
     /// 止めているときに、いまのコマをもう一度描く(合成の値を直接変えたあと用)
     private func redrawPausedFrame() {
         guard !isPlaying, !scrubAudioActive, player.currentItem != nil, scrubTarget == nil else { return }

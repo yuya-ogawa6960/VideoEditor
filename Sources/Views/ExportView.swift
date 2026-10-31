@@ -117,6 +117,8 @@ struct ExportView: View {
     @State private var comparePlayer: PlayerController?
     /// 履歴から消そうとしている書き出し(ファイルも消えるので、確認してから消す)
     @State private var historyToDelete: [ExportRecord] = []
+    /// 「書き出した動画を整理」(ExportFilesView)を開いているか
+    @State private var showExportFiles: Bool = false
 
     // GIF
     @State private var showGIFPanel: Bool = false
@@ -210,6 +212,18 @@ struct ExportView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showExportFiles) {
+                // 書き出し済みの動画の整理(消すと履歴からも消える)
+                NavigationStack {
+                    ExportFilesView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("閉じる") { showExportFiles = false }
+                            }
+                        }
+                }
+                .preferredColorScheme(.dark)
             }
             .sheet(item: $compareTarget) { record in
                 CompareView(project: project,
@@ -654,6 +668,15 @@ struct ExportView: View {
                 .buttonStyle(.borderless)
                 .frame(minHeight: 44)
                 .disabled(!canStart)
+                // 要らなくなった書き出し済みの動画を消す(ExportFilesView)
+                Button {
+                    showExportFiles = true
+                } label: {
+                    Label("書き出した動画を整理", systemImage: "folder.badge.minus")
+                }
+                .font(.subheadline)
+                .buttonStyle(.borderless)
+                .frame(minHeight: 44)
             } else {
                 Button {
                     startExport()

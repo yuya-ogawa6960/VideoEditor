@@ -412,6 +412,11 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
     /// レタッチのパネルで動かしている途中の値(クリップごと)。合成を作り直さずに、いまの映像へそのまま効かせる。
     /// 新しい合成(新しい VideoCompositor)に入れ替わると消える(そのときは snapshot の値が最新)。lock で守る
     private var liveRetouchByClip: [UUID: ClipRetouch] = [:]
+    /// 長押しで元の色を見る(プレビューだけ)。ここに入っているクリップは色・ルック・エフェクトを飛ばして描く。
+    /// 形(切り抜き・配置・速度・マスク・文字)はそのまま。書き出しは別の VideoCompositor なので影響しない。lock で守る
+    private var bypassLookClipIDs: Set<UUID> = []
+    /// true なら全部のクリップと画面全体のルック(映像エフェクト・質感)も飛ばす。lock で守る
+    private var bypassAllLooks = false
 
     override init() {
         super.init()
@@ -475,6 +480,36 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return liveRetouchByClip.isEmpty ? nil : liveRetouchByClip[clipID]
+    }
+
+    /// 元の色を見る(長押し)のオン・オフ。clipID が nil なら全部。オフで nil なら全部の指定を消す
+    func setBypassLook(_ on: Bool, clipID: UUID?) {
+        lock.lock()
+        if let clipID {
+            if on {
+                bypassLookClipIDs.insert(clipID)
+            } else {
+                bypassLookClipIDs.remove(clipID)
+            }
+        } else {
+            bypassAllLooks = on
+            if !on { bypassLookClipIDs.removeAll() }
+        }
+        lock.unlock()
+    }
+
+    /// このクリップの色・ルックを飛ばすか
+    private func bypassesLook(for clipID: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return bypassAllLooks || bypassLookClipIDs.contains(clipID)
+    }
+
+    /// 画面全体のルック(映像エフェクト・質感)を飛ばすか
+    private func bypassesAllLooks() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return bypassAllLooks
     }
 
     func cancelAllPendingVideoCompositionRequests() {
@@ -541,12 +576,16 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             }
 
             // 2.5 映像エフェクト(メイン映像とオーバーレイを合わせた画面全体。質感・文字・キャプションにはかけない)
-            if !scene.videoEffects.isEmpty {
+            // (元の色を見る長押しで「全部」のときは、映像エフェクトと質感を飛ばす)
+            let bypassAll = bypassesAllLooks()
+            if !scene.videoEffects.isEmpty, !bypassAll {
                 frame = VideoEffectRenderer.apply(scene.videoEffects, to: frame, time: seconds, canvasSize: size)
             }
 
             // 3. 周辺減光 → フィルム粒子 → 章タイトル / テロップ
-            frame = DocumentaryRenderer.applyTexture(frame, time: seconds, info: documentary, canvasSize: size)
+            if !bypassAll {
+                frame = DocumentaryRenderer.applyTexture(frame, time: seconds, info: documentary, canvasSize: size)
+            }
             frame = DocumentaryRenderer.applyOverlays(frame, time: seconds, info: documentary, canvasSize: size)
 
             // 4. 手書き
@@ -652,14 +691,17 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             image = Self.stabilized(image, sample: sample, track: layer.stabilization)
         }
 
+        // 元の色を見る(長押し)の間は、色・ルック・エフェクトを飛ばす(形はそのまま)
+        let bypassLook = bypassesLook(for: layer.clipID)
+
         // 画質補正(ノイズ除去 → 美肌)。フィルタより前
-        if !layer.enhance.isIdentity {
+        if !bypassLook, !layer.enhance.isIdentity {
             image = EnhanceFilters.applyPreFilters(layer.enhance, to: image)
         }
 
         // レタッチ(顔の形・メイク・体型)。切り抜き・配置の前に、向き反映済みのソースで顔を探す
         let retouch = liveRetouch(for: layer.clipID) ?? layer.retouch
-        if !retouch.isIdentity {
+        if !bypassLook, !retouch.isIdentity {
             image = retouchRenderer.apply(retouch, to: image, clipID: layer.clipID,
                                           time: time, isStill: isStill, accurate: scene.postsFrames)
         }
@@ -683,7 +725,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         }
 
         image = GeometryMath.applyClipGeometry(image, geometry: layer.geometry)
-        image = FilterEngine.apply(layer.filter, to: image)
+        if !bypassLook {
+            image = FilterEngine.apply(layer.filter, to: image)
+        }
         let sourceExtent = image.extent
 
         // キャンバスへの配置(自動リフレームが効く条件ならクロップ窓を切り出して埋める)
@@ -710,7 +754,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         }
 
         // 簡易高画質化(配置後。拡大されていればアンシャープマスク、そうでなければ弱いシャープ)
-        if layer.enhance.sharpenUpscale > 0.001, sourceExtent.width >= 1, sourceExtent.height >= 1, !sourceExtent.isInfinite {
+        if !bypassLook, layer.enhance.sharpenUpscale > 0.001, sourceExtent.width >= 1, sourceExtent.height >= 1, !sourceExtent.isInfinite {
             let fitScale = min(size.width / sourceExtent.width, size.height / sourceExtent.height)
             placed = EnhanceFilters.sharpen(placed, amount: layer.enhance.sharpenUpscale, upscaled: fitScale > 1.02)
                 .cropped(to: canvas)
@@ -730,10 +774,12 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         }
 
         // 全体のルック(余白は透明のままなので黒帯は黒のまま)
-        placed = DocumentaryRenderer.applyLook(placed, info: scene.documentary)
+        if !bypassLook {
+            placed = DocumentaryRenderer.applyLook(placed, info: scene.documentary)
+        }
 
         // 被写体フラッシュ(人物・被写体だけ光らせる。光っている間だけ切り抜きを作る)
-        let flashAmount = layer.subjectFlash.intensity(atLocalTime: time - layer.start)
+        let flashAmount = bypassLook ? 0 : layer.subjectFlash.intensity(atLocalTime: time - layer.start)
         if flashAmount > 0.01 {
             placed = SubjectFlashRenderer.apply(layer.subjectFlash, amount: flashAmount, to: placed, canvasSize: size)
         }

@@ -726,6 +726,8 @@ final class ExportManager {
         currentPipeline = nil
         currentAudioSession = nil
         lastOutputURL = outputURL
+        // この起動中に書き出したものは「古いものをまとめて削除」や自動削除で消さない
+        ExportFileStore.noteExported(outputURL)
         appendHistory(url: outputURL, duration: duration, canvasDescription: canvasDescription)
         // 写真に保存できなかった理由は、縦横同時の 1 本目の分も最後まで残す(結果の画面で知らせる)
         if let photoError {

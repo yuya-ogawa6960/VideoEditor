@@ -17,6 +17,8 @@ struct AudioSettingsView: View {
         NavigationStack {
             Form {
                 bgmSection
+                // アプリが作る曲(BGMLibrarySection.swift)
+                BGMLibrarySection(project: project)
                 volumeSection
             }
             .navigationTitle("BGM・音量")
