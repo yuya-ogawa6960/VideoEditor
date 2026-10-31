@@ -141,6 +141,14 @@ final class OsmoDatalink: @unchecked Sendable {
         }
     }
 
+    /// 任意の DUML 命令を 1 回送る(OsmoCameraControl の録画など)。seq は送るときに振り直す
+    func sendCommand(_ frame: OsmoDuml.Frame) {
+        q.async { [self] in
+            guard !closed, handshakeAcked else { return }
+            sendDumlOnQueue(frame)
+        }
+    }
+
     func close() {
         q.sync {
             closed = true

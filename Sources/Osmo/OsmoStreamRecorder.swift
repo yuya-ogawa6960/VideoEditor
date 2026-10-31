@@ -1,11 +1,15 @@
 // =====================================================================
-// RTMP で届いた映像と音声を、iPhone の中に動画ファイルとして保存する(実験中・開発者向け)
+// Osmo のライブビューを、作り直さず(再エンコードせず)そのまま .mp4 に録る(実験中・開発者向け)
 //
-// - 映像は圧縮されたまま書く(作り直さないので画質は落ちず、電池も使わない)。AVAssetWriter の passthrough
-// - 音声(AAC)は ADTS の .aac に書き、止めたときに映像と 1 つの .mov にまとめる(作り直しなし)。
-//   まとめるのに失敗したら、映像だけの .mov と .aac をそのまま残す
-// - 保存先: 書類/Osmo(「ファイル」アプリの「このiPhone内」→ Video Mania → Osmo から見える)
-// - 実機のカメラとはまだ一度も試していない
+// - データリンクが組み立てた 1 枚(Annex-B)を受け取り、パラメーターセット(HEVC の VPS/SPS/PPS、
+//   H.264 の SPS/PPS)から CMVideoFormatDescription を作る。
+// - NAL を 4 バイトの長さ付き(HVCC/AVCC)に並べ替えて CMSampleBuffer にし、
+//   AVAssetWriterInput(outputSettings: nil)にそのまま渡す(パススルー)。
+// - 時刻は届いた時刻(ホストの時計)。録画を始めた最初のキーフレームを 0 にする。
+//   キーフレームより前の絵は捨てる(定期的なキーフレームが無いので、始めるときに 1 回頼む)。
+// - iPhone のマイクの音は AAC にして同じファイルに入れる(任意)。
+// - 1 枚ずつすぐ書くので、ストリーム全体をためない。
+// - 実機ではまだ一度も試していない
 // =====================================================================
 
 #if OSMO_LIVE
@@ -13,237 +17,494 @@ import AVFoundation
 import CoreMedia
 import Foundation
 
-final class OsmoStreamRecorder: @unchecked Sendable {
-    var onLog: (@Sendable (String) -> Void)?
+final class OsmoStreamRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+    /// 1 枚目のキーフレームを書いた(メインスレッド)
+    var onStarted: (() -> Void)?
+    /// キーフレームが要る(メインスレッド)。理由
+    var onNeedsKeyframe: ((String) -> Void)?
+    /// 書き終わった(メインスレッド)。保存できたファイル(無ければ nil)と、知らせること
+    var onFinished: ((URL?, String?) -> Void)?
+    var onLog: ((String) -> Void)?
+
+    struct Snapshot {
+        /// 最後に絵を書いてからの秒数(書いていなければ nil)
+        var secondsSinceLastFrame: Double?
+        /// キーフレームを待っている秒数(待っていなければ nil)
+        var secondsWaitingForKeyframe: Double?
+    }
+
+    private enum State { case idle, arming, waitingForKeyframe, writing, finishing }
 
     private let q = DispatchQueue(label: "videomania.osmo.recorder")
+    private let micQueue = DispatchQueue(label: "videomania.osmo.recorder.mic")
     // ---- 以下は q の上だけで触る ----
-    private var videoFormat: CMVideoFormatDescription?
-    private var nalLengthSize = 4
-    private var asc: [UInt8]?
+    // パラメーターセットは録画していなくても覚えておく(キーフレームの直前に別の塊で届くことが多い)
+    private var codec: OsmoVideoCodec?
+    private var vps: [UInt8]?
+    private var sps: [UInt8]?
+    private var pps: [UInt8]?
+    private var format: CMVideoFormatDescription?
+    private var state: State = .idle
+    private var outputURL: URL?
     private var writer: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
-    private var audioHandle: FileHandle?
-    /// 書類/Osmo/Osmo-日時(拡張子なし)。映像は「.video.mov」、音声は「.aac」、まとめたものは「.mov」
-    private var baseURL: URL?
-    private var startDTS: Int64?
-    private var firstAudioTS: Int64?
-    private var droppedVideo = 0
-    private(set) var isRecording = false
+    private var audioInput: AVAssetWriterInput?
+    /// 0 秒にあたるホストの時刻(最初のキーフレームが届いた時刻)
+    private var startHostTime: CMTime = .invalid
+    private var lastVideoPTS: CMTime = .invalid
+    private var lastFrameHostTime: CMTime = .invalid
+    /// 途中で絵が抜けたあと、次のキーフレームまで書かない
+    private var needsKeyframe = false
+    private var waitingSince: CMTime = .invalid
+    /// HEVC: 始めた直後や BLA のあとの RASL(単独では絵にならない前の絵)を捨てる
+    private var skipsLeadingPictures = false
+    private var writtenFrames = 0
+    private var finishMessage: String?
+    // マイク
+    private var wantsMicrophone = false
+    private var audioFormat: CMAudioFormatDescription?
+    private var audioClock: CMClock?
+    private var armTimeout: DispatchWorkItem?
+    private var audioAppendFailed = false
+    // ---- micQueue の上だけで触る ----
+    private var captureSession: AVCaptureSession?
 
-    static var folder: URL {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return docs.appendingPathComponent("Osmo", isDirectory: true)
+    /// 止まったとみなす秒数(このあとは次のキーフレームから書き直す)
+    static let stallSeconds: Double = 2
+
+    // MARK: 外から
+
+    /// データリンクのキューから呼ぶ。届いた時刻はここで取る
+    func observe(accessUnit au: [UInt8]) {
+        let arrival = Self.hostNow()
+        q.async { [self] in handle(au, arrival: arrival) }
     }
 
-    private func log(_ s: String) { onLog?(s) }
-
-    // MARK: 届いたものを受ける(RTMP のキューから呼んでよい)
-
-    func setVideoConfig(codec: OsmoVideoCodec, parameterSets: [[UInt8]], nalLengthSize: Int) {
+    /// 録画を始める。マイクを使うときは、マイクの音が届いてからキーフレームを待つ(音の形式を知るため)
+    func start(url: URL, microphone: Bool) {
         q.async { [self] in
-            guard let format = Self.makeFormat(codec: codec, sets: parameterSets) else {
-                log("recorder: could not build \(codec.rawValue) format")
+            guard state == .idle else { return }
+            outputURL = url
+            wantsMicrophone = microphone
+            audioFormat = nil
+            audioClock = nil
+            audioAppendFailed = false
+            finishMessage = nil
+            writtenFrames = 0
+            lastVideoPTS = .invalid
+            lastFrameHostTime = .invalid
+            startHostTime = .invalid
+            needsKeyframe = false
+            if microphone {
+                state = .arming
+                startMicrophone()
+                // 2 秒たってもマイクの音が来なければ、音なしで始める
+                let item = DispatchWorkItem { [weak self] in
+                    guard let self, self.state == .arming else { return }
+                    self.log("recorder: no microphone audio in 2 s, recording without sound")
+                    self.wantsMicrophone = false
+                    self.stopMicrophone()
+                    self.arm()
+                }
+                armTimeout = item
+                q.asyncAfter(deadline: .now() + 2, execute: item)
+            } else {
+                arm()
+            }
+        }
+    }
+
+    /// 録画を止めてファイルを閉じる。結果は onFinished で返す
+    func stop() {
+        q.async { [self] in finish(message: nil) }
+    }
+
+    /// 画面の数字用(メインスレッドから)
+    func snapshot() -> Snapshot {
+        q.sync {
+            let now = Self.hostNow()
+            var s = Snapshot()
+            if state == .writing, lastFrameHostTime.isValid {
+                s.secondsSinceLastFrame = CMTimeGetSeconds(CMTimeSubtract(now, lastFrameHostTime))
+            }
+            if (state == .waitingForKeyframe || (state == .writing && needsKeyframe)), waitingSince.isValid {
+                s.secondsWaitingForKeyframe = CMTimeGetSeconds(CMTimeSubtract(now, waitingSince))
+            }
+            return s
+        }
+    }
+
+    static var directory: URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("OsmoRecordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// 前に開いたときの残り(10 分より古いもの)を消す
+    static func cleanUpTemporaryFiles() {
+        let dir = directory
+        guard let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        let limit = Date().addingTimeInterval(-10 * 60)
+        for item in items {
+            let modified = (try? item.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            guard modified < limit else { continue }
+            try? FileManager.default.removeItem(at: item)
+        }
+    }
+
+    // MARK: 映像(q の上)
+
+    private func arm() {
+        armTimeout?.cancel()
+        armTimeout = nil
+        state = .waitingForKeyframe
+        waitingSince = Self.hostNow()
+        needsKeyframeNow("recording start")
+    }
+
+    private func handle(_ au: [UInt8], arrival: CMTime) {
+        let nals = OsmoNAL.nalUnits(au)
+        if codec == nil {
+            guard let detected = OsmoNAL.detectCodec(nals) else { return }
+            codec = detected
+        }
+        guard let codec else { return }
+        updateParameterSets(nals, codec: codec)
+        guard state == .waitingForKeyframe || state == .writing, let format else { return }
+
+        let pictures = nals.filter { OsmoNAL.isPicture($0, codec: codec) }
+        guard !pictures.isEmpty else { return }
+        let isKey = pictures.contains { OsmoNAL.isRandomAccess($0, codec: codec) }
+
+        if state == .writing, lastFrameHostTime.isValid, !needsKeyframe,
+           CMTimeGetSeconds(CMTimeSubtract(arrival, lastFrameHostTime)) > Self.stallSeconds, !isKey {
+            // 2 秒より長く止まったあとは、途中の絵が抜けている。次のキーフレームから書き直す
+            needsKeyframe = true
+            waitingSince = arrival
+            log("recorder: stream stalled, waiting for a keyframe")
+            needsKeyframeNow("recording stalled")
+        }
+
+        var resumed = false
+        if state == .waitingForKeyframe {
+            guard isKey else { return }
+            guard startWriter(format: format, at: arrival) else { return }
+            resumed = true
+        } else if needsKeyframe {
+            guard isKey else { return }
+            needsKeyframe = false
+            resumed = true
+            log("recorder: resumed at keyframe")
+        }
+
+        if codec == .hevc {
+            if isKey {
+                let bla = pictures.contains { (16...18).contains(OsmoNAL.hevcType($0[0])) }
+                skipsLeadingPictures = resumed || bla
+            } else if skipsLeadingPictures {
+                let rasl = pictures.allSatisfy { [8, 9].contains(OsmoNAL.hevcType($0[0])) }
+                if rasl { return }
+                skipsLeadingPictures = false
+            }
+        }
+        appendVideo(pictures, isKey: isKey, arrival: arrival, format: format)
+    }
+
+    private func updateParameterSets(_ nals: [[UInt8]], codec: OsmoVideoCodec) {
+        var newVPS = vps, newSPS = sps, newPPS = pps
+        for nal in nals where OsmoNAL.isParameterSet(nal, codec: codec) {
+            guard let b = nal.first else { continue }
+            switch codec {
+            case .hevc:
+                switch OsmoNAL.hevcType(b) {
+                case 32: newVPS = nal
+                case 33: newSPS = nal
+                default: newPPS = nal
+                }
+            case .avc:
+                if OsmoNAL.avcType(b) == 7 { newSPS = nal } else { newPPS = nal }
+            }
+        }
+        guard newVPS != vps || newSPS != sps || newPPS != pps else { return }
+        vps = newVPS; sps = newSPS; pps = newPPS
+        guard let s = sps, let p = pps else { return }
+        let made: CMVideoFormatDescription?
+        switch codec {
+        case .hevc:
+            guard let v = vps else { return }
+            made = Self.makeFormat([v, s, p], hevc: true)
+        case .avc:
+            made = Self.makeFormat([s, p], hevc: false)
+        }
+        guard let made else {
+            log("recorder: could not build format from parameter sets")
+            return
+        }
+        if state == .writing, let old = format {
+            let a = CMVideoFormatDescriptionGetDimensions(old)
+            let b = CMVideoFormatDescriptionGetDimensions(made)
+            if a.width != b.width || a.height != b.height {
+                // 1 つのファイルに大きさの違う絵は入れられない。ここまでで閉じる
+                log("recorder: size changed \(a.width)x\(a.height) -> \(b.width)x\(b.height), finishing")
+                format = made
+                finish(message: String(localized: "映像の大きさが変わったので、録画を止めました"))
                 return
             }
-            if isRecording, let old = videoFormat, !CMFormatDescriptionEqual(old, otherFormatDescription: format) {
-                log("recorder: video format changed while recording (kept the first one)")
-                return
-            }
-            videoFormat = format
-            self.nalLengthSize = nalLengthSize
+            log("recorder: parameter sets changed (same size)")
         }
+        format = made
     }
 
-    func setAudioConfig(_ asc: [UInt8]) {
-        q.async { [self] in self.asc = asc }
-    }
-
-    func appendVideo(data: [UInt8], dts: Int64, pts: Int64, keyframe: Bool) {
-        q.async { [self] in appendVideoOnQueue(data: data, dts: dts, pts: pts, keyframe: keyframe) }
-    }
-
-    func appendAudio(data: [UInt8], timestamp: Int64) {
-        q.async { [self] in appendAudioOnQueue(data: data, timestamp: timestamp) }
-    }
-
-    // MARK: 録画の開始・終了
-
-    /// 映像の形式(パラメーターセット)が届いていないと始められない
-    func start() async -> Bool {
-        await withCheckedContinuation { cont in
-            q.async { [self] in cont.resume(returning: startOnQueue()) }
-        }
-    }
-
-    /// 止めて 1 つのファイルにまとめる。できたファイルの URL
-    func stop() async -> URL? {
-        let parts: (URL, URL?, Int64, Int64?)? = await withCheckedContinuation { cont in
-            q.async { [self] in
-                guard isRecording, let writer, let videoInput, let base = baseURL else {
-                    cont.resume(returning: nil)
-                    return
-                }
-                isRecording = false
-                try? audioHandle?.close()
-                audioHandle = nil
-                let audioURL = Self.url(base, ".aac")
-                let hasAudio = firstAudioTS != nil
-                let audioStart = firstAudioTS
-                guard let start = startDTS else {
-                    // キーフレームが 1 枚も来なかった
-                    writer.cancelWriting()
-                    try? FileManager.default.removeItem(at: audioURL)
-                    try? FileManager.default.removeItem(at: writer.outputURL)
-                    log("recorder: no keyframe arrived, nothing saved")
-                    cont.resume(returning: nil)
-                    return
-                }
-                // 音声が 1 つも来なかったら空の .aac は消す
-                if !hasAudio { try? FileManager.default.removeItem(at: audioURL) }
-                videoInput.markAsFinished()
-                writer.finishWriting { [self] in
-                    if writer.status != .completed {
-                        log("recorder: finishWriting failed \(writer.error?.localizedDescription ?? "")")
-                    }
-                    cont.resume(returning: (writer.outputURL, hasAudio ? audioURL : nil, start, audioStart))
-                }
-            }
-        }
-        guard let parts else { return nil }
-        let (videoURL, audioURL, start, audioStart) = parts
-        guard let audioURL, let audioStart else { return videoURL }
-        return await merge(videoURL: videoURL, audioURL: audioURL, offsetMs: audioStart - start)
-    }
-
-    // MARK: q の上
-
-    private func startOnQueue() -> Bool {
-        guard !isRecording else { return true }
-        guard let format = videoFormat else {
-            log("recorder: no video format yet")
+    private func startWriter(format: CMVideoFormatDescription, at arrival: CMTime) -> Bool {
+        guard let url = outputURL else { return false }
+        try? FileManager.default.removeItem(at: url)
+        let w: AVAssetWriter
+        do {
+            w = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        } catch {
+            log("recorder: AVAssetWriter failed \(error.localizedDescription)")
+            finish(message: String(localized: "録画を保存できませんでした"))
             return false
         }
-        do {
-            try FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
-            let f = DateFormatter()
-            f.dateFormat = "yyyyMMdd-HHmmss"
-            let base = Self.folder.appendingPathComponent("Osmo-\(f.string(from: Date()))")
-            let videoURL = Self.url(base, ".video.mov")
-            let w = try AVAssetWriter(outputURL: videoURL, fileType: .mov)
-            let input = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: format)
+        // 作り直さずにそのまま書く(outputSettings: nil)
+        let v = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: format)
+        v.expectsMediaDataInRealTime = true
+        guard w.canAdd(v) else {
+            log("recorder: cannot add video input")
+            finish(message: String(localized: "録画を保存できませんでした"))
+            return false
+        }
+        w.add(v)
+        var a: AVAssetWriterInput?
+        if wantsMicrophone, let af = audioFormat,
+           let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(af)?.pointee {
+            let channels = max(1, min(2, Int(asbd.mChannelsPerFrame)))
+            let settings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: asbd.mSampleRate,
+                AVNumberOfChannelsKey: channels,
+                AVEncoderBitRateKey: 64_000 * channels,
+            ]
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings, sourceFormatHint: af)
             input.expectsMediaDataInRealTime = true
-            guard w.canAdd(input) else {
-                log("recorder: writer cannot take this video format")
-                return false
+            if w.canAdd(input) {
+                w.add(input)
+                a = input
+            } else {
+                log("recorder: cannot add audio input, recording without sound")
             }
-            w.add(input)
-            guard w.startWriting() else {
-                log("recorder: startWriting failed \(w.error?.localizedDescription ?? "")")
-                return false
-            }
-            writer = w
-            videoInput = input
-            baseURL = base
-            startDTS = nil
-            firstAudioTS = nil
-            droppedVideo = 0
-            let audioURL = Self.url(base, ".aac")
-            FileManager.default.createFile(atPath: audioURL.path, contents: nil)
-            audioHandle = try FileHandle(forWritingTo: audioURL)
-            isRecording = true
-            log("recorder: started \(base.lastPathComponent) (waiting for a keyframe)")
-            return true
-        } catch {
-            log("recorder: \(error.localizedDescription)")
+        }
+        guard w.startWriting() else {
+            log("recorder: startWriting failed \(w.error?.localizedDescription ?? "")")
+            finish(message: String(localized: "録画を保存できませんでした"))
             return false
         }
+        w.startSession(atSourceTime: .zero)
+        writer = w
+        videoInput = v
+        audioInput = a
+        startHostTime = arrival
+        state = .writing
+        let dims = CMVideoFormatDescriptionGetDimensions(format)
+        log("recorder: started \(codec?.rawValue ?? "?") \(dims.width)x\(dims.height)\(a == nil ? "" : " + mic")")
+        let handler = onStarted
+        DispatchQueue.main.async { handler?() }
+        return true
     }
 
-    private func appendVideoOnQueue(data: [UInt8], dts: Int64, pts: Int64, keyframe: Bool) {
-        guard isRecording, let writer, let videoInput, let format = videoFormat else { return }
-        if startDTS == nil {
-            // キーフレームから書き始める
-            guard keyframe else { return }
-            startDTS = dts
-            writer.startSession(atSourceTime: CMTime(value: pts - dts, timescale: 1000))
-            log("recorder: first keyframe")
+    private func appendVideo(_ pictures: [[UInt8]], isKey: Bool, arrival: CMTime, format: CMVideoFormatDescription) {
+        guard let writer, let videoInput, writer.status == .writing else {
+            finish(message: String(localized: "録画を保存できませんでした"))
+            return
         }
-        guard let start = startDTS else { return }
-        let payload = nalLengthSize == 4 ? data : Self.toFourByteLengths(data, from: nalLengthSize)
-        guard let sample = Self.makeSample(payload, format: format,
-                                           dts: CMTime(value: dts - start, timescale: 1000),
-                                           pts: CMTime(value: pts - start, timescale: 1000),
-                                           keyframe: keyframe) else { return }
-        if videoInput.isReadyForMoreMediaData {
-            if !videoInput.append(sample) {
-                log("recorder: append failed \(writer.error?.localizedDescription ?? "")")
+        // 届いた時刻 − 始めた時刻。必ず前の絵より後ろにする
+        var pts = CMTimeConvertScale(CMTimeSubtract(arrival, startHostTime), timescale: 90_000,
+                                     method: .roundHalfAwayFromZero)
+        if lastVideoPTS.isValid, CMTimeCompare(pts, lastVideoPTS) <= 0 {
+            pts = CMTimeAdd(lastVideoPTS, CMTime(value: 1, timescale: 90_000))
+        }
+        guard videoInput.isReadyForMoreMediaData else {
+            // 1 枚でも抜けると次のキーフレームまで絵が壊れるので、キーフレームから書き直す
+            if !isKey {
+                needsKeyframe = true
+                waitingSince = arrival
+                log("recorder: writer busy, dropped a frame; waiting for a keyframe")
+                needsKeyframeNow("writer busy")
             }
+            return
+        }
+        guard let sample = Self.makeSample(pictures, format: format, pts: pts, isKey: isKey) else { return }
+        guard videoInput.append(sample) else {
+            log("recorder: append failed \(writer.error?.localizedDescription ?? "")")
+            finish(message: String(localized: "録画を保存できませんでした"))
+            return
+        }
+        lastVideoPTS = pts
+        lastFrameHostTime = arrival
+        writtenFrames += 1
+    }
+
+    // MARK: 音(q の上)
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+        if let f = CMSampleBufferGetFormatDescription(sampleBuffer) { audioFormat = f }
+        switch state {
+        case .arming:
+            log("recorder: microphone ready")
+            arm()
+        case .writing:
+            appendAudio(sampleBuffer)
+        default:
+            break
+        }
+    }
+
+    private func appendAudio(_ sampleBuffer: CMSampleBuffer) {
+        guard let audioInput, let writer, writer.status == .writing, startHostTime.isValid else { return }
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        guard pts.isValid else { return }
+        // マイクの時刻をホストの時計にそろえる(たいていは同じ時計)
+        let hostPTS = audioClock.map { CMSyncConvertTime(pts, from: $0, to: CMClockGetHostTimeClock()) } ?? pts
+        let newPTS = CMTimeSubtract(hostPTS, startHostTime)
+        // 0 秒より前の音は捨てる
+        guard CMTimeCompare(newPTS, .zero) >= 0 else { return }
+        // 音は少し欠けても困らないので、受けられなければ捨てる
+        guard audioInput.isReadyForMoreMediaData else { return }
+        guard let retimed = Self.retime(sampleBuffer, by: CMTimeSubtract(pts, newPTS)) else { return }
+        if !audioInput.append(retimed), !audioAppendFailed {
+            audioAppendFailed = true
+            log("recorder: audio append failed \(writer.error?.localizedDescription ?? "")")
+        }
+    }
+
+    private func startMicrophone() {
+        micQueue.async { [weak self] in
+            guard let self else { return }
+            let session = AVCaptureSession()
+            guard let mic = AVCaptureDevice.default(for: .audio),
+                  let input = try? AVCaptureDeviceInput(device: mic) else {
+                self.q.async { self.microphoneFailed("no microphone input") }
+                return
+            }
+            let output = AVCaptureAudioDataOutput()
+            session.beginConfiguration()
+            guard session.canAddInput(input), session.canAddOutput(output) else {
+                session.commitConfiguration()
+                self.q.async { self.microphoneFailed("cannot add microphone") }
+                return
+            }
+            session.addInput(input)
+            session.addOutput(output)
+            output.setSampleBufferDelegate(self, queue: self.q)
+            session.commitConfiguration()
+            session.startRunning()
+            self.captureSession = session
+            let clock = session.synchronizationClock
+            self.q.async { self.audioClock = clock }
+        }
+    }
+
+    private func stopMicrophone() {
+        micQueue.async { [weak self] in
+            guard let self, let session = self.captureSession else { return }
+            session.stopRunning()
+            self.captureSession = nil
+            // 録音用に変わったカテゴリを再生用に戻す(CameraRecorder と同じ)
+            let audio = AVAudioSession.sharedInstance()
+            try? audio.setCategory(.playback, mode: .default, options: [])
+            try? audio.setActive(true)
+        }
+    }
+
+    private func microphoneFailed(_ reason: String) {
+        log("recorder: \(reason), recording without sound")
+        wantsMicrophone = false
+        if state == .arming { arm() }
+    }
+
+    // MARK: 終わり(q の上)
+
+    private func finish(message: String?) {
+        armTimeout?.cancel()
+        armTimeout = nil
+        switch state {
+        case .idle, .finishing:
+            return
+        case .arming, .waitingForKeyframe:
+            stopMicrophone()
+            state = .idle
+            if let url = outputURL { try? FileManager.default.removeItem(at: url) }
+            outputURL = nil
+            log("recorder: stopped before the first keyframe")
+            report(nil, message ?? String(localized: "映像が届かなかったので、何も録れませんでした"))
+        case .writing:
+            stopMicrophone()
+            state = .finishing
+            finishMessage = message
+            guard let writer, writer.status == .writing else {
+                completeFinish()
+                return
+            }
+            videoInput?.markAsFinished()
+            audioInput?.markAsFinished()
+            // 最後の絵にも 1 枚分(約 25fps)の長さを付ける
+            if lastVideoPTS.isValid {
+                writer.endSession(atSourceTime: CMTimeAdd(lastVideoPTS, CMTime(value: 1, timescale: 25)))
+            }
+            writer.finishWriting { [weak self] in
+                guard let self else { return }
+                self.q.async { self.completeFinish() }
+            }
+        }
+    }
+
+    private func completeFinish() {
+        let url = outputURL
+        let ok = writer?.status == .completed && writtenFrames > 0
+        if !ok {
+            log("recorder: finish failed \(writer?.error?.localizedDescription ?? "status \(writer?.status.rawValue ?? -1)")")
+            if let url { try? FileManager.default.removeItem(at: url) }
         } else {
-            droppedVideo += 1
-            if droppedVideo % 25 == 1 { log("recorder: writer busy, dropped \(droppedVideo) video frames") }
+            log("recorder: saved \(writtenFrames) frames, \(String(format: "%.1f", CMTimeGetSeconds(lastVideoPTS))) s")
         }
+        let message = ok ? finishMessage : String(localized: "録画を保存できませんでした")
+        writer = nil
+        videoInput = nil
+        audioInput = nil
+        outputURL = nil
+        startHostTime = .invalid
+        lastFrameHostTime = .invalid
+        needsKeyframe = false
+        state = .idle
+        report(ok ? url : nil, message)
     }
 
-    private func appendAudioOnQueue(data: [UInt8], timestamp: Int64) {
-        guard isRecording, startDTS != nil, let asc, asc.count >= 2, let audioHandle else { return }
-        if firstAudioTS == nil { firstAudioTS = timestamp }
-        try? audioHandle.write(contentsOf: Data(Self.adtsHeader(asc: asc, payloadLength: data.count) + data))
+    private func report(_ url: URL?, _ message: String?) {
+        let handler = onFinished
+        DispatchQueue.main.async { handler?(url, message) }
     }
 
-    // MARK: まとめる
+    private func needsKeyframeNow(_ reason: String) {
+        let handler = onNeedsKeyframe
+        DispatchQueue.main.async { handler?(reason) }
+    }
 
-    private func merge(videoURL: URL, audioURL: URL, offsetMs: Int64) async -> URL {
-        let name = videoURL.lastPathComponent.replacingOccurrences(of: ".video.mov", with: ".mov")
-        let finalURL = videoURL.deletingLastPathComponent().appendingPathComponent(name)
-        do {
-            let comp = AVMutableComposition()
-            let vAsset = AVURLAsset(url: videoURL)
-            guard let vTrack = try await vAsset.loadTracks(withMediaType: .video).first,
-                  let cv = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
-            else { return videoURL }
-            let vRange = try await vTrack.load(.timeRange)
-            try cv.insertTimeRange(vRange, of: vTrack, at: .zero)
-            let duration = vRange.duration
-
-            let aAsset = AVURLAsset(url: audioURL)
-            if let aTrack = try await aAsset.loadTracks(withMediaType: .audio).first,
-               let ca = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                let aRange = try await aTrack.load(.timeRange)
-                let offset = CMTime(value: offsetMs, timescale: 1000)
-                // 音声が映像より後に始まったら後ろにずらし、先に始まったら頭を切る
-                var source = aRange
-                var at = CMTime.zero
-                if offset > .zero { at = offset } else { source.start = source.start - offset; source.duration = source.duration + offset }
-                let room = duration - at
-                if source.duration > room { source.duration = room }
-                if source.duration > .zero { try ca.insertTimeRange(source, of: aTrack, at: at) }
-            }
-
-            try? FileManager.default.removeItem(at: finalURL)
-            guard let export = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough) else {
-                return videoURL
-            }
-            try await export.export(to: finalURL, as: .mov)
-            try? FileManager.default.removeItem(at: videoURL)
-            try? FileManager.default.removeItem(at: audioURL)
-            log("recorder: saved \(finalURL.lastPathComponent)")
-            return finalURL
-        } catch {
-            log("recorder: merge failed (\(error.localizedDescription)); kept video and .aac separately")
-            return videoURL
-        }
+    private func log(_ s: String) {
+        let handler = onLog
+        DispatchQueue.main.async { handler?(s) }
     }
 
     // MARK: 部品
 
-    private static func url(_ base: URL, _ suffix: String) -> URL {
-        base.deletingLastPathComponent().appendingPathComponent(base.lastPathComponent + suffix)
+    private static func hostNow() -> CMTime {
+        CMClockGetTime(CMClockGetHostTimeClock())
     }
 
-    static func makeFormat(codec: OsmoVideoCodec, sets: [[UInt8]]) -> CMVideoFormatDescription? {
+    private static func makeFormat(_ sets: [[UInt8]], hevc: Bool) -> CMVideoFormatDescription? {
+        // 作り終わるまで全部のポインタを生かしておく
         let buffers = sets.map { set -> UnsafeMutablePointer<UInt8> in
-            let p = UnsafeMutablePointer<UInt8>.allocate(capacity: max(1, set.count))
+            let p = UnsafeMutablePointer<UInt8>.allocate(capacity: set.count)
             p.initialize(from: set, count: set.count)
             return p
         }
@@ -252,13 +513,12 @@ final class OsmoStreamRecorder: @unchecked Sendable {
         let sizes = sets.map { $0.count }
         var fmt: CMFormatDescription?
         let status: OSStatus
-        switch codec {
-        case .hevc:
+        if hevc {
             status = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
                 allocator: kCFAllocatorDefault, parameterSetCount: pointers.count,
                 parameterSetPointers: pointers, parameterSetSizes: sizes,
                 nalUnitHeaderLength: 4, extensions: nil, formatDescriptionOut: &fmt)
-        case .avc:
+        } else {
             status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
                 allocator: kCFAllocatorDefault, parameterSetCount: pointers.count,
                 parameterSetPointers: pointers, parameterSetSizes: sizes,
@@ -267,41 +527,17 @@ final class OsmoStreamRecorder: @unchecked Sendable {
         return status == noErr ? fmt : nil
     }
 
-    /// NAL の長さを 4 バイトにそろえる
-    static func toFourByteLengths(_ data: [UInt8], from size: Int) -> [UInt8] {
-        var out: [UInt8] = []
-        var i = 0
-        while i + size <= data.count {
-            var n = 0
-            for k in 0..<size { n = n << 8 | Int(data[i + k]) }
-            i += size
-            guard i + n <= data.count else { break }
-            out += [UInt8((n >> 24) & 0xFF), UInt8((n >> 16) & 0xFF), UInt8((n >> 8) & 0xFF), UInt8(n & 0xFF)]
-            out += data[i..<(i + n)]
-            i += n
+    /// 絵の NAL を 4 バイトの長さ付き(HVCC/AVCC)に並べて 1 つのサンプルにする。
+    /// パラメーターセットはファイルの先頭(形式の説明)に入るので、サンプルには入れない
+    private static func makeSample(_ nals: [[UInt8]], format: CMVideoFormatDescription,
+                                   pts: CMTime, isKey: Bool) -> CMSampleBuffer? {
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(nals.reduce(0) { $0 + $1.count + 4 })
+        for nal in nals {
+            let n = UInt32(nal.count)
+            bytes += [UInt8(n >> 24), UInt8((n >> 16) & 0xFF), UInt8((n >> 8) & 0xFF), UInt8(n & 0xFF)]
+            bytes += nal
         }
-        return out
-    }
-
-    /// 長さ付きの NAL(4 バイト)を Annex-B(00 00 00 01)にする。画面の表示用
-    static func annexB(fromLengthPrefixed data: [UInt8], nalLengthSize size: Int) -> [UInt8] {
-        var out: [UInt8] = []
-        var i = 0
-        while i + size <= data.count {
-            var n = 0
-            for k in 0..<size { n = n << 8 | Int(data[i + k]) }
-            i += size
-            guard n > 0, i + n <= data.count else { break }
-            out += [0, 0, 0, 1]
-            out += data[i..<(i + n)]
-            i += n
-        }
-        return out
-    }
-
-    private static func makeSample(_ bytes: [UInt8], format: CMVideoFormatDescription,
-                                   dts: CMTime, pts: CMTime, keyframe: Bool) -> CMSampleBuffer? {
-        guard !bytes.isEmpty else { return nil }
         var block: CMBlockBuffer?
         guard CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: bytes.count,
@@ -314,7 +550,8 @@ final class OsmoStreamRecorder: @unchecked Sendable {
                                           offsetIntoDestination: 0, dataLength: bytes.count)
         }
         guard copied == kCMBlockBufferNoErr else { return nil }
-        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: pts, decodeTimeStamp: dts)
+        // ライブビューに B フレームは無い前提(届いた順 = 表示の順)。長さは次の絵との差で決まる
+        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: pts, decodeTimeStamp: pts)
         var sizes = [bytes.count]
         var sample: CMSampleBuffer?
         guard CMSampleBufferCreateReady(
@@ -323,7 +560,8 @@ final class OsmoStreamRecorder: @unchecked Sendable {
             sampleSizeEntryCount: 1, sampleSizeArray: &sizes, sampleBufferOut: &sample) == noErr,
             let sample
         else { return nil }
-        if !keyframe,
+        // キーフレーム以外は「単独では絵にならない」と書いておく(早送りや頭出しで使われる)
+        if !isKey,
            let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true),
            CFArrayGetCount(attachments) > 0 {
             let dict = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
@@ -334,21 +572,28 @@ final class OsmoStreamRecorder: @unchecked Sendable {
         return sample
     }
 
-    /// AAC の 1 フレームの前に付ける 7 バイト(CRC なし)。AudioSpecificConfig から作る
-    static func adtsHeader(asc: [UInt8], payloadLength: Int) -> [UInt8] {
-        let objectType = Int(asc[0] >> 3)
-        let freqIndex = Int(asc[0] & 0x07) << 1 | Int(asc[1] >> 7)
-        let channels = Int(asc[1] >> 3) & 0x0F
-        let profile = max(0, objectType - 1) & 0x03
-        let length = 7 + payloadLength
-        return [
-            0xFF, 0xF1,
-            UInt8(profile << 6 | freqIndex << 2 | channels >> 2),
-            UInt8((channels & 0x03) << 6 | (length >> 11) & 0x03),
-            UInt8((length >> 3) & 0xFF),
-            UInt8((length & 0x07) << 5 | 0x1F),
-            0xFC,
-        ]
+    /// 音のサンプルの時刻を offset だけ前にずらす
+    private static func retime(_ sampleBuffer: CMSampleBuffer, by offset: CMTime) -> CMSampleBuffer? {
+        var count: CMItemCount = 0
+        _ = CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: 0, arrayToFill: nil,
+                                                   entriesNeededOut: &count)
+        guard count > 0 else { return nil }
+        var timings = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
+        guard CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: count, arrayToFill: &timings,
+                                                     entriesNeededOut: &count) == noErr
+        else { return nil }
+        for i in timings.indices {
+            timings[i].presentationTimeStamp = CMTimeSubtract(timings[i].presentationTimeStamp, offset)
+            if timings[i].decodeTimeStamp.isValid {
+                timings[i].decodeTimeStamp = CMTimeSubtract(timings[i].decodeTimeStamp, offset)
+            }
+        }
+        var out: CMSampleBuffer?
+        guard CMSampleBufferCreateCopyWithNewTiming(
+            allocator: kCFAllocatorDefault, sampleBuffer: sampleBuffer, sampleTimingEntryCount: count,
+            sampleTimingArray: &timings, sampleBufferOut: &out) == noErr
+        else { return nil }
+        return out
     }
 }
 #endif

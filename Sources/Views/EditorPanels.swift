@@ -153,11 +153,11 @@ enum EditorPanel: Hashable {
 
     var title: String {
         switch self {
-        case .speed: return String(localized: "速度・デュレーション")
-        case .volume: return String(localized: "ボリューム")
+        case .speed: return String(localized: "速度")
+        case .volume: return String(localized: "音量")
         case .filter: return String(localized: "カラープリセット")
         case .textEdit: return String(localized: "文字を直す")
-        case .subtitleStyle: return String(localized: "キャプションのデザイン")
+        case .subtitleStyle: return String(localized: "字幕デザイン")
         case .aspect: return String(localized: "比率")
         case .bgmVolume: return String(localized: "BGM の音量")
         case .documentary: return String(localized: "全体の仕上げ")
@@ -167,18 +167,18 @@ enum EditorPanel: Hashable {
         case .colorAdjust: return String(localized: "カラー補正")
         case .overlayPlacement: return String(localized: "位置・サイズ")
         case .overlayKenBurns: return String(localized: "ズーム・パン")
-        case .overlayVolume: return String(localized: "ボリューム")
-        case .overlaySpeed: return String(localized: "速度・デュレーション")
+        case .overlayVolume: return String(localized: "音量")
+        case .overlaySpeed: return String(localized: "速度")
         case .overlayFilter: return String(localized: "カラープリセット")
-        case .narrationVolume: return String(localized: "ボリューム")
-        case .narrationRecord: return String(localized: "ボイスオーバー録音")
+        case .narrationVolume: return String(localized: "音量")
+        case .narrationRecord: return String(localized: "ナレーション")
         case .slip: return String(localized: "スリップ")
-        case .transition: return String(localized: "ビデオトランジション")
+        case .transition: return String(localized: "トランジション")
         case .clipAnimation: return String(localized: "アニメーション")
-        case .geometry: return String(localized: "モーション・クロップ")
+        case .geometry: return String(localized: "位置・クロップ")
         case .speedCurve: return String(localized: "タイムリマップ")
-        case .audioEffects: return String(localized: "オーディオエフェクト")
-        case .beatDetect: return String(localized: "ビートに合わせる")
+        case .audioEffects: return String(localized: "音声効果")
+        case .beatDetect: return String(localized: "ビート合わせ")
         case .hsl: return String(localized: "HSL セカンダリ")
         case .lut: return String(localized: "LUT")
         case .colorMatch: return String(localized: "カラーマッチ")
@@ -190,15 +190,15 @@ enum EditorPanel: Hashable {
         case .colorScreen: return String(localized: "カラーの画面")
         case .overlayKeyframes: return String(localized: "キーフレーム")
         case .overlayBlend: return String(localized: "描画モード")
-        case .overlayTransition: return String(localized: "ビデオトランジション")
+        case .overlayTransition: return String(localized: "トランジション")
         case .overlayOpacity: return String(localized: "不透明度")
-        case .narrationEffects: return String(localized: "オーディオエフェクト")
+        case .narrationEffects: return String(localized: "音声効果")
         case .drawingCanvas: return String(localized: "手書き")
         case .drawingStyle: return String(localized: "色・太さ")
         case .drawingTiming: return String(localized: "表示する時間")
         case .markerName: return String(localized: "マーカーの名前")
         case .markerKind: return String(localized: "色・種類")
-        case .captionTemplate: return String(localized: "キャプションのデザイン")
+        case .captionTemplate: return String(localized: "字幕デザイン")
         case .watermark: return String(localized: "ロゴ・透かし")
         case .formatKit: return String(localized: "パーツ")
         case .textToSpeech: return String(localized: "AI読み上げ")
@@ -213,7 +213,7 @@ enum EditorPanel: Hashable {
         case .clipKeyframes: return String(localized: "キーフレーム")
         case .textTracking, .overlayTracking: return String(localized: "トラッキング")
         case .mosaic: return String(localized: "モザイク")
-        case .pacing: return String(localized: "中だるみ・編集チェック")
+        case .pacing: return String(localized: "編集チェック")
         case .autoEditTemplates: return String(localized: "おまかせテンプレ")
         case .dubbing: return String(localized: "吹き替え")
         case .soundEffects: return String(localized: "効果音")
@@ -408,6 +408,8 @@ struct EditorPanelContainer<Content: View>: View {
     /// nil 以外なら左上に ✕「キャンセル」(開いたときの状態に戻して閉じる)を出す
     var onCancel: (() -> Void)? = nil
     let onClose: () -> Void
+    /// nil 以外ならヘッダーに「比較」(押している間だけ元の色。LookComparePreview.swift)を出す
+    var onCompare: ((Bool) -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
     /// キーボードが出ている間はヘッダーに「キーボードを閉じる」を出す(パネルの中の入力欄には閉じる手段がないため)
@@ -441,6 +443,9 @@ struct EditorPanelContainer<Content: View>: View {
                     .truncationMode(.tail)
                     .padding(.leading, onCancel == nil ? 10 : 0)
                 Spacer(minLength: 4)
+                if let onCompare {
+                    LookCompareHeaderButton(onCompare: onCompare)
+                }
                 if isKeyboardVisible {
                     Button {
                         EditorHaptics.tap()
@@ -701,7 +706,7 @@ struct EditorSpeedPanel: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text("速度・デュレーション")
+                    Text("速度")
                         .font(.caption)
                     Spacer()
                     Text(String(format: "%.2fx", clip.speed))
@@ -756,7 +761,7 @@ struct EditorVolumePanel: View {
             }
 
             // このクリップだけの音量(0〜200%)。全クリップの音量は「BGM・音量」のシートで変える
-            EditorSliderRow(title: String(localized: "ボリューム"),
+            EditorSliderRow(title: String(localized: "音量"),
                             value: $clip.audio.volume,
                             range: 0...2,
                             display: "\(Int((clip.audio.volume * 100).rounded()))%")
@@ -941,7 +946,7 @@ struct EditorTextEditPanel: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 fieldHeader(String(localized: "テキスト"), field: .text)
-                TextField("キャプションを入力", text: $cue.text, axis: .vertical)
+                TextField("字幕を入力", text: $cue.text, axis: .vertical)
                     .lineLimit(1...3)
                     .focused($focusedField, equals: .text)
                     .textFieldStyle(.plain)

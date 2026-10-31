@@ -73,7 +73,7 @@ struct TranscriptEditView: View {
                     transcript
                 }
             }
-            .navigationTitle("文字起こしで編集")
+            .navigationTitle("文字起こし編集")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -124,13 +124,13 @@ struct TranscriptEditView: View {
             Image(systemName: "text.bubble")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
-            Text("キャプションがありません")
+            Text("字幕がありません")
                 .font(.headline)
-            Text("先にキャプションを作成すると、文字を読みながら不要な部分を消せます。")
+            Text("先に「自動字幕」で字幕を作ると、文字を読みながら不要な部分を消せます。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("キャプションを作成") {
+            Button("自動字幕") {
                 dismiss()
                 // シートが閉じてから字幕のシートを開く(重ねて出すと開けない)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

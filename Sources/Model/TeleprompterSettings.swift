@@ -89,8 +89,8 @@ enum CameraFrameRate: Int, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .fps30: return "1080p / 30fps"
-        case .fps60: return "1080p / 60fps"
+        case .fps30: return String(localized: "最高画質 / 30fps")
+        case .fps60: return String(localized: "最高画質 / 60fps")
         }
     }
 

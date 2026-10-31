@@ -27,6 +27,8 @@ struct NarrationClip: Identifiable, Equatable {
     /// フェードイン・フェードアウト(秒、0〜3。0 = なし)
     var fadeIn: Double = 0
     var fadeOut: Double = 0
+    /// レシピで作った効果音なら、その id(ファイルが消えても作り直せる)
+    var soundRecipeID: String? = nil
 
     /// 出力タイムライン上の終了秒
     var end: Double { start + duration }

@@ -177,6 +177,12 @@ struct AutoEditSettings: Equatable {
     var applyLook: Bool = true
     var preferFaces: Bool = true
     var preferSpeech: Bool = true
+    /// 話していない所(声の無い区間・言いよどみ)を詰める(TalkCleanup.swift)
+    var cutNonSpeech: Bool = true
+    /// 言い直しは最後の回だけ残す
+    var cutRetakes: Bool = true
+    /// 調べ物の場面(声の無い 2 秒以上)を切る。当たりはずれがあるのでふだんはオフ
+    var cutLookups: Bool = false
 }
 
 /// 自動ハイライトの候補

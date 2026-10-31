@@ -487,6 +487,7 @@ final class CameraRecorder {
         }
         session.beginConfiguration()
         defer { session.commitConfiguration() }
+        // 形式はカメラごとに「いちばん高画質」を選ぶ(applyFrameRate)。プリセットはその前の初期値として置くだけ
         if session.canSetSessionPreset(.hd1920x1080) {
             session.sessionPreset = .hd1920x1080
         }
@@ -505,9 +506,7 @@ final class CameraRecorder {
             throw CameraRecorderError.sessionFailed(String(localized: "録画の出力を用意できません"))
         }
         session.addOutput(movieOutput)
-        if let connection = movieOutput.connection(with: .video), connection.isVideoStabilizationSupported {
-            connection.preferredVideoStabilizationMode = .auto
-        }
+        applyStabilization(for: device)
         isConfigured = true
         return device
     }
@@ -532,33 +531,73 @@ final class CameraRecorder {
         session.addInput(input)
         videoInput = input
         Self.applyFrameRate(frameRate, to: device)
+        // 出力がもうあるときは(カメラの切り替え)手ブレ補正も付け直す
+        if movieOutput.connection(with: .video) != nil {
+            applyStabilization(for: device)
+        }
         return device
     }
 
-    /// 1080p のまま fps を合わせる。60fps は対応する形式があるときだけ(無ければそのまま)
+    /// 手ブレ補正: 後ろのカメラは自動、前のカメラは切る(前は切り抜きでやわらかくなるだけで、自撮りには不要)
+    private func applyStabilization(for device: AVCaptureDevice) {
+        guard let connection = movieOutput.connection(with: .video), connection.isVideoStabilizationSupported else { return }
+        connection.preferredVideoStabilizationMode = device.position == .front ? .off : .auto
+    }
+
+    /// いちばん高画質の形式を選んで fps を合わせる: 4K(3840×2160)まで・画素数が多い・10bit HDR・ビニングなし を優先。
+    /// 60fps に対応する形式が無いカメラでは 30fps で探し直す。何も無ければ既定のまま
     private static func applyFrameRate(_ rate: CameraFrameRate, to device: AVCaptureDevice) {
-        let fps = Double(rate.rawValue)
+        var fps = Double(rate.rawValue)
         do {
             try device.lockForConfiguration()
             defer { device.unlockForConfiguration() }
-            if !supports(fps: fps, format: device.activeFormat) {
-                let candidate = device.formats.first { format in
-                    let dims = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-                    guard dims.width == 1920, dims.height == 1080 else { return false }
-                    // 8 bit(HDR でない)の形式に限る
-                    guard CMFormatDescriptionGetMediaSubType(format.formatDescription)
-                            == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange else { return false }
-                    return supports(fps: fps, format: format)
-                }
-                guard let candidate else { return }
-                device.activeFormat = candidate
+            var best = bestFormat(for: device, fps: fps)
+            if best == nil, rate == .fps60 {
+                fps = 30
+                best = bestFormat(for: device, fps: fps)
             }
-            let duration = CMTime(value: 1, timescale: CMTimeScale(rate.rawValue))
+            guard let best else { return }
+            if best != device.activeFormat {
+                device.activeFormat = best
+            }
+            // HDR の形式なら HDR で撮る(対応していれば自動で入る)
+            if best.isVideoHDRSupported, device.automaticallyAdjustsVideoHDREnabled == false {
+                device.automaticallyAdjustsVideoHDREnabled = true
+            }
+            let duration = CMTime(value: 1, timescale: CMTimeScale(fps))
             device.activeVideoMinFrameDuration = duration
             device.activeVideoMaxFrameDuration = duration
         } catch {
             // 設定できなければ既定のまま
         }
+    }
+
+    /// 形式の点数: 画素数(4K 上限)を基本に、10bit HDR とビニングなしを加点。fps に対応しない形式は除く
+    private static func bestFormat(for device: AVCaptureDevice, fps: Double) -> AVCaptureDevice.Format? {
+        let maxPixels = 3840 * 2160
+        var best: (format: AVCaptureDevice.Format, score: Double)?
+        for format in device.formats {
+            guard supports(fps: fps, format: format) else { continue }
+            // 写真用の高解像度や、動画に使えない特殊な形式は除く
+            let desc = format.formatDescription
+            guard CMFormatDescriptionGetMediaType(desc) == kCMMediaType_Video else { continue }
+            let dims = CMVideoFormatDescriptionGetDimensions(desc)
+            let pixels = Int(dims.width) * Int(dims.height)
+            guard pixels <= maxPixels, pixels >= 1280 * 720 else { continue }
+            // 16:9 以外(4:3 のフル画角など)は使わない(プロジェクトは横長・縦長の 16:9 が基本)
+            let ratio = Double(dims.width) / Double(dims.height)
+            guard abs(ratio - 16.0 / 9.0) < 0.05 else { continue }
+            var score = Double(pixels) / Double(maxPixels)
+            let subType = CMFormatDescriptionGetMediaSubType(desc)
+            let tenBit = subType == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+                || subType == kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+            if tenBit || format.isVideoHDRSupported { score += 0.3 }
+            if !format.isVideoBinned { score += 0.1 }
+            if best == nil || score > best!.score {
+                best = (format, score)
+            }
+        }
+        return best?.format
     }
 
     private static func supports(fps: Double, format: AVCaptureDevice.Format) -> Bool {

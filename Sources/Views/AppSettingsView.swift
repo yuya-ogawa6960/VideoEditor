@@ -15,6 +15,8 @@ struct AppSettingsView: View {
     // 用語・読み方の登録の件数
     @State private var termCount: Int = 0
     @State private var readingCount: Int = 0
+    /// 書き出した動画(Documents/Exports)の合計の大きさ(「書き出した動画の整理」の行に出す)
+    @State private var exportsSizeText: String = ""
 
     // サポート用の情報(ロック中の継続・バックグラウンド送信・広告)
     @State private var diagnosticBundleID: String = ""
@@ -64,6 +66,28 @@ struct AppSettingsView: View {
             Section {
                 Toggle("Duo を開いたときはツールを右に", isOn: $toolbarOnSide)
             }
+            // 書き出した動画の整理(「ファイル」アプリに出る Documents/Exports)。開いて戻ったら合計を出し直す
+            Section {
+                NavigationLink {
+                    ExportFilesView()
+                        .onDisappear { exportsSizeText = ExportFileStore.totalSizeText() }
+                } label: {
+                    LabeledContent("書き出した動画の整理") {
+                        Text(exportsSizeText)
+                            .monospacedDigit()
+                    }
+                }
+                Picker("書き出した動画を自動で消す", selection: Binding(
+                    get: { settings.exportAutoCleanupDays },
+                    set: { settings.exportAutoCleanupDays = $0 }
+                )) {
+                    ForEach(ExportAutoCleanup.allCases) { choice in
+                        Text(choice.displayName).tag(choice.rawValue)
+                    }
+                }
+            } footer: {
+                Text("書き出してから選んだ日数がたった動画を、アプリを開いたときに消します")
+            }
             AdPrivacySection()
             Section {
                 Button {
@@ -99,6 +123,7 @@ struct AppSettingsView: View {
         .onAppear {
             termCount = CaptionTermDictionary.load().count
             readingCount = ReadingDictionary.load().count
+            exportsSizeText = ExportFileStore.totalSizeText()
         }
     }
 

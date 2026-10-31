@@ -33,8 +33,8 @@ struct AutoEditSheetView: View {
     @Bindable var project: EditorProject
     let player: PlayerController
     let history: EditorHistory
-    /// 置き換えが終わった後に呼ぶ(サムネイルの読み直しなど)
-    let onApplied: () -> Void
+    /// 置き換えが終わった後に呼ぶ(サムネイルの読み直しなど)。話の整理をした結果の一言があれば渡す
+    let onApplied: (String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -225,6 +225,13 @@ struct AutoEditSheetView: View {
                 Toggle("スタイルに合った色味にする", isOn: $settings.applyLook)
                 Toggle("顔が映っている場面を優先", isOn: $settings.preferFaces)
                 Toggle("話している場面を優先", isOn: $settings.preferSpeech)
+                // 話の整理(TalkCleanup.swift)。作ったあとに声の無い所などを詰める
+                talkCleanupToggle("話していない所を切る", isOn: $settings.cutNonSpeech,
+                                  footer: String(localized: "声の無い間と「えー」「あのー」を詰めます"))
+                talkCleanupToggle("言い直しは最後だけ残す", isOn: $settings.cutRetakes,
+                                  footer: String(localized: "同じ出だしをすぐ話し直した所は、前の回を切ります"))
+                talkCleanupToggle("調べ物の場面を切る", isOn: $settings.cutLookups,
+                                  footer: String(localized: "黙って手元を見ている 2 秒以上の所を切ります。切った所にはマーカーが付きます"))
 
                 Button {
                     analyzeHighlights()
@@ -252,6 +259,16 @@ struct AutoEditSheetView: View {
             } label: {
                 Text("詳細")
             }
+        }
+    }
+
+    /// スイッチの下に一行の説明を付ける
+    private func talkCleanupToggle(_ title: LocalizedStringKey, isOn: Binding<Bool>, footer: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle(title, isOn: isOn)
+            Text(footer)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -365,17 +382,38 @@ struct AutoEditSheetView: View {
         let current = settings
         let chosen = highlights
         player.pause()
+        let cleanup = TalkCleanupOptions(settings: current)
         analysis.run(title: String(localized: "自動編集を作成中")) { report in
             let result = try await AutoEditor.build(snapshot: snapshot,
                                                     settings: current,
                                                     highlights: chosen,
-                                                    progress: report)
+                                                    progress: { fraction in
+                                                        report(cleanup.isEnabled ? 0.8 * fraction : fraction)
+                                                    })
             if Task.isCancelled { return }
+            // 話の整理(声の無い所・言い直し・調べ物)。「全部使う」でも同じようにかける。
+            // 整理に失敗しても作った動画はそのまま使う(途中で止めたときだけ何もしない)
+            var plan = TalkCleanupPlan()
+            if cleanup.isEnabled {
+                do {
+                    plan = try await TalkCleanup.plan(snapshot: result, subtitles: result.subtitles, options: cleanup) { fraction in
+                        report(0.8 + 0.2 * fraction)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch {
+                    plan = TalkCleanupPlan()
+                }
+                if Task.isCancelled { return }
+            }
             history.record(project)
             project.restore(result)
+            if !plan.isEmpty {
+                TalkCleanup.apply(plan, to: project)
+            }
             player.seek(to: 0)
             dismiss()
-            onApplied()
+            onApplied(plan.summaryText)
         } onError: { error in
             errorText = String(localized: "もう一度「動画を作る」を押してください。続くときは、長さを変えるかクリップを減らしてお試しください。\n\n詳細: ") + error.localizedDescription
         }
@@ -491,12 +529,15 @@ struct EditorAutoEditTemplatePanel: View {
         let chosenSettings = settings
         let name = template.name
         let finish = template.finish
+        // 話の整理(TalkCleanup.swift)は、話を優先するテンプレだけにかける(風景中心のテンプレを刻まないように)
+        let cleanup = chosenSettings.preferSpeech ? TalkCleanupOptions(settings: chosenSettings) : TalkCleanupOptions(cutNonSpeech: false, cutRetakes: false, cutLookups: false)
+        let buildShare: Double = (finish == nil && !cleanup.isEnabled) ? 1 : 0.7
         analysis.run(title: String(localized: "テンプレートを適用中")) { report in
             let result = try await AutoEditor.build(snapshot: snapshot,
                                                     settings: chosenSettings,
                                                     highlights: nil,
                                                     progress: { fraction in
-                                                        report(finish == nil ? fraction : 0.7 * fraction)
+                                                        report(buildShare * fraction)
                                                     })
             if Task.isCancelled { return }
             history.record(project)
@@ -506,18 +547,46 @@ struct EditorAutoEditTemplatePanel: View {
                 // 途中で止めたら、適用前に戻す(履歴は上で 1 回だけ記録済み)
                 do {
                     _ = try await ReelFinisher.apply(finish, to: project) { fraction in
-                        report(0.7 + 0.3 * fraction)
+                        report(0.7 + (cleanup.isEnabled ? 0.2 : 0.3) * fraction)
                     }
                 } catch {
                     project.restore(snapshot)
                     throw error
                 }
             }
+            var cleanupNote: String?
+            if cleanup.isEnabled {
+                // 仕上げのあとに話の整理。途中で止めたら適用前に戻し、ほかの失敗はそのまま使う
+                do {
+                    let current = project.snapshot()
+                    // 仕上げが無いときは、組み立ての続き(buildShare)から進める
+                    let base = finish == nil ? buildShare : 0.9
+                    let plan = try await TalkCleanup.plan(snapshot: current, subtitles: current.subtitles, options: cleanup) { fraction in
+                        report(base + (1 - base) * fraction)
+                    }
+                    if Task.isCancelled {
+                        project.restore(snapshot)
+                        return
+                    }
+                    if !plan.isEmpty {
+                        TalkCleanup.apply(plan, to: project)
+                        cleanupNote = plan.summaryText
+                    }
+                } catch is CancellationError {
+                    project.restore(snapshot)
+                    throw CancellationError()
+                } catch {
+                    cleanupNote = nil
+                }
+            }
             player.seek(to: 0)
             if finish != nil && project.subtitles.isEmpty {
-                message = String(localized: "「\(name)」を適用しました。「キャプションを作成」で字幕を入れると、このテンプレの見た目で出ます。")
+                message = String(localized: "「\(name)」を適用しました。「自動字幕」で字幕を入れると、このテンプレの見た目で出ます。")
             } else {
                 message = String(localized: "「\(name)」を適用しました")
+            }
+            if let cleanupNote {
+                message = (message ?? "") + "\n" + cleanupNote
             }
             onApplied()
         } onError: { error in

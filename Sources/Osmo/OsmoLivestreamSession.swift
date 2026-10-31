@@ -105,7 +105,7 @@ final class OsmoLivestreamSession {
     let decoder = OsmoVideoDecoder()
     private let bluetooth = OsmoBluetoothLink()
     private let server = OsmoRTMPServer()
-    private let recorder = OsmoStreamRecorder()
+    private let recorder = OsmoRTMPRecorder()
     private let counters = OsmoStreamCounters()
     @ObservationIgnored private var scanTask: Task<Void, Never>?
     @ObservationIgnored private var connectTask: Task<Void, Never>?
@@ -153,7 +153,7 @@ final class OsmoLivestreamSession {
             case .videoFrame(let data, let dts, let pts, let keyframe):
                 counters.addVideo(bytes: data.count)
                 recorder.appendVideo(data: data, dts: dts, pts: pts, keyframe: keyframe)
-                decoder.decode(accessUnit: OsmoStreamRecorder.annexB(fromLengthPrefixed: data,
+                decoder.decode(accessUnit: OsmoRTMPRecorder.annexB(fromLengthPrefixed: data,
                                                                     nalLengthSize: counters.nalLengthSize))
             case .audioConfig(let asc):
                 recorder.setAudioConfig(asc)
@@ -358,7 +358,7 @@ final class OsmoLivestreamSession {
 
     func refreshRecordings() {
         let files = (try? FileManager.default.contentsOfDirectory(
-            at: OsmoStreamRecorder.folder, includingPropertiesForKeys: [.creationDateKey])) ?? []
+            at: OsmoRTMPRecorder.folder, includingPropertiesForKeys: [.creationDateKey])) ?? []
         recordings = files
             .filter { $0.pathExtension == "mov" || $0.pathExtension == "aac" }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
