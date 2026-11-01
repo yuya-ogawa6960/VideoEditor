@@ -72,146 +72,165 @@ struct MulticamEditorView: View {
         let starts = project.clipStartTimes()
         let clipStart = clipIndex < starts.count ? starts[clipIndex] : 0
 
-        List {
-            // ライブ切替
-            Section {
-                PreviewView(player: player)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 220)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.black)
-
-                HStack(spacing: 16) {
-                    Button {
-                        if !isInClip {
-                            player.seek(to: clipStart)
-                        }
-                        player.togglePlay()
-                    } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.title2)
-                            .frame(width: 32)
-                    }
-                    .buttonStyle(.borderless)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(MediaTimeText.mmss(player.currentTime))
-                            .monospacedDigit()
-                        if let sourceTime = currentSourceTime {
-                            Text("現在: \(angleLabel(clip.multicam.angleIndex(at: sourceTime), clip: clip))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("再生位置がこのクリップの外です")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-                    }
-
-                    Spacer()
-
-                    if !isInClip {
-                        Button("先頭へ") {
-                            player.seek(to: clipStart)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-
-                if clip.multicam.angles.isEmpty {
-                    Text("別のカメラの動画を「アングルを追加」で入れると、再生しながら切り替えられます。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(0...clip.multicam.angles.count, id: \.self) { n in
-                                let isCurrent = currentSourceTime.map { clip.multicam.angleIndex(at: $0) == n } ?? false
-                                Button {
-                                    insertSwitch(angle: n)
-                                } label: {
-                                    Text(n == 0 ? String(localized: "メイン") : String(localized: "アングル\(n)"))
-                                        .font(.callout.bold())
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 4)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(isCurrent ? Color.red : Color.blue)
-                                .disabled(!isInClip)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            } header: {
-                Text("ライブ切替")
-            } footer: {
-                Text("再生中にボタンをタップすると、その時点からアングルが切り替わります。")
-            }
-
-            // アングル一覧
-            Section {
-                ForEach(Array(clip.multicam.angles.enumerated()), id: \.element.id) { index, angle in
-                    angleRow(angle: angle, number: index + 1, clip: clip)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                requestDeleteAngle(id: angle.id)
-                            } label: {
-                                Label("削除", systemImage: "trash")
-                            }
-                        }
-                }
-
-                PhotosPicker(selection: $pickerItems,
-                             maxSelectionCount: nil,
-                             selectionBehavior: .ordered,
-                             matching: .videos,
-                             preferredItemEncoding: .current,
-                             photoLibrary: .shared()) {
-                    HStack {
-                        Label("アングルを追加", systemImage: "plus.circle")
-                        if isAddingAngles {
-                            Spacer()
-                            ProgressView()
-                        }
-                    }
-                }
-                .disabled(isAddingAngles)
-            } header: {
-                Text("アングル")
-            } footer: {
-                Text("「自動で合わせる」は音でそろえます。手で直すときは、+ にするとアングルの映像が先に進みます。")
-            }
-
-            // 切替一覧
-            Section {
-                if clip.multicam.switches.isEmpty {
-                    Text("切替はまだありません")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(clip.multicam.switches) { item in
-                        switchRow(item, clip: clip, clipStart: clipStart)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        VStack(spacing: 0) {
+            // ライブ切替はリストの外に置く(リストの行の中の横スクロールに置いたボタンは、タップが届かないことがあった)
+            liveSwitchPanel(clip: clip, isInClip: isInClip, currentSourceTime: currentSourceTime, clipStart: clipStart)
+            Divider()
+            List {
+                // アングル一覧
+                Section {
+                    ForEach(Array(clip.multicam.angles.enumerated()), id: \.element.id) { index, angle in
+                        angleRow(angle: angle, number: index + 1, clip: clip)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
-                                    deleteSwitch(id: item.id)
+                                    requestDeleteAngle(id: angle.id)
                                 } label: {
                                     Label("削除", systemImage: "trash")
                                 }
                             }
                     }
-                    Button(role: .destructive) {
-                        isClearSwitchesPresented = true
-                    } label: {
-                        Label("切替をすべて消去", systemImage: "trash")
+
+                    PhotosPicker(selection: $pickerItems,
+                                 maxSelectionCount: nil,
+                                 selectionBehavior: .ordered,
+                                 matching: .videos,
+                                 preferredItemEncoding: .current,
+                                 photoLibrary: .shared()) {
+                        HStack {
+                            Label("アングルを追加", systemImage: "plus.circle")
+                            if isAddingAngles {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
                     }
+                    .disabled(isAddingAngles)
+                } header: {
+                    Text("アングル")
+                } footer: {
+                    Text("「自動で合わせる」は音でそろえます。手で直すときは、+ にするとアングルの映像が先に進みます。")
                 }
-            } header: {
-                Text("切替点")
+
+                // 切替一覧
+                Section {
+                    if clip.multicam.switches.isEmpty {
+                        Text("切替はまだありません")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(clip.multicam.switches) { item in
+                            switchRow(item, clip: clip, clipStart: clipStart)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        deleteSwitch(id: item.id)
+                                    } label: {
+                                        Label("削除", systemImage: "trash")
+                                    }
+                                }
+                        }
+                        Button(role: .destructive) {
+                            isClearSwitchesPresented = true
+                        } label: {
+                            Label("切替をすべて消去", systemImage: "trash")
+                        }
+                    }
+                } header: {
+                    Text("切替点")
+                }
             }
         }
     }
+
+    // MARK: - ライブ切替
+
+    private func liveSwitchPanel(clip: Clip, isInClip: Bool, currentSourceTime: Double?, clipStart: Double) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            PreviewView(player: player)
+                .frame(maxWidth: .infinity)
+                .frame(height: 220)
+                .background(Color.black)
+
+            HStack(spacing: 16) {
+                Button {
+                    if !isInClip {
+                        player.seek(to: clipStart)
+                    }
+                    player.togglePlay()
+                } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title2)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.borderless)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(MediaTimeText.mmss(player.currentTime))
+                        .monospacedDigit()
+                    if let sourceTime = currentSourceTime {
+                        Text("現在: \(angleLabel(clip.multicam.angleIndex(at: sourceTime + Self.switchTolerance), clip: clip))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("再生位置がこのクリップの外です")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                Spacer()
+
+                if !isInClip {
+                    Button("先頭へ") {
+                        player.seek(to: clipStart)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 16)
+
+            if clip.multicam.angles.isEmpty {
+                Text("別のカメラの動画を「アングルを追加」で入れると、再生しながら切り替えられます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(0...clip.multicam.angles.count, id: \.self) { n in
+                            let isCurrent = currentSourceTime.map {
+                                clip.multicam.angleIndex(at: $0 + Self.switchTolerance) == n
+                            } ?? false
+                            Button {
+                                insertSwitch(angle: n)
+                            } label: {
+                                Text(n == 0 ? String(localized: "メイン") : String(localized: "アングル\(n)"))
+                                    .font(.callout.bold())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(isCurrent ? Color.red : Color.blue)
+                            // 外にいるときも押せるようにして、押したら理由を出す(灰色で黙って効かないのを避ける)
+                            .opacity(isInClip ? 1 : 0.5)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 2)
+                }
+
+                Text("再生中にボタンをタップすると、その時点からアングルが切り替わります。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+            }
+        }
+        .padding(.bottom, 10)
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    /// 切替点の判定の余裕(秒)。シークの丸めで再生位置が切替点のわずかに手前になっても、切り替えたあとのアングルとして扱う
+    private static let switchTolerance = 0.002
 
     // MARK: - 行
 
@@ -387,7 +406,15 @@ struct MulticamEditorView: View {
             errorMessage = String(localized: "「先頭へ」で再生位置をこのクリップに移してから切り替えてください。")
             return
         }
-        let time = location.sourceTime
+        // いま映っているコマの頭を切替点にする。止めた位置の秒はコマの途中のことが多く、そのコマはメインのまま残っていた
+        let fps = Double(min(max(project.canvas.frameRate, 1), 120))
+        let frameHead = (player.currentTime * fps + 1e-6).rounded(.down) / fps
+        let clipStartSource = project.clips[clipIndex].startTime
+        var time = location.sourceTime
+        if let headSource = project.sourceTime(timelineTime: frameHead, inClip: clipID) {
+            time = min(location.sourceTime, max(clipStartSource, headSource))
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         updateClip { clip in
             guard n >= 0, n <= clip.multicam.angles.count else { return }
             clip.multicam.switches.removeAll { abs($0.time - time) < 0.1 }
