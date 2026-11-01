@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 
 /// マルチカメラ編集(別アングルの追加・同期・ライブ切替)
 struct MulticamEditorView: View {
@@ -16,6 +17,10 @@ struct MulticamEditorView: View {
     @State private var isClearSwitchesPresented = false
     /// 切替に使われているアングルを消す前の確認(消すアングル)
     @State private var pendingDeleteAngleID: UUID?
+    /// 読み込めなかったアングル(合成ではメインの映像になる)
+    @State private var unreadableAngleIDs: Set<UUID> = []
+    /// 最後に押した切替(押したことが画面で分かるように出す)
+    @State private var lastSwitchNote: String?
 
     var body: some View {
         Group {
@@ -27,6 +32,9 @@ struct MulticamEditorView: View {
         }
         .navigationTitle("マルチカメラ")
         .navigationBarTitleDisplayMode(.inline)
+        // 再生位置がこのクリップの外だとボタンが効かないので、開いたらクリップの先頭へ移す
+        .onAppear { moveIntoClipIfNeeded() }
+        .task(id: angleIDs) { await checkAngles() }
         .onChange(of: pickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             let items = newItems
@@ -223,6 +231,19 @@ struct MulticamEditorView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
+
+                if let note = lastSwitchNote {
+                    Label(note, systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 16)
+                }
+                if let warning = coverageWarning(clip: clip, sourceTime: currentSourceTime) {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 16)
+                }
             }
         }
         .padding(.bottom, 10)
@@ -296,6 +317,11 @@ struct MulticamEditorView: View {
             }
 
             Slider(value: offsetBinding(angleID: angle.id), in: -10...10)
+            if !isUnavailable && unreadableAngleIDs.contains(angle.id) {
+                Text("この動画を読み込めないため、このアングルの区間はメインの映像になります。削除して「アングルを追加」から入れ直してください。")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
             if isUnavailable {
                 Text("写真ライブラリからこの動画を読み出せないため、このアングルの区間はメインの映像になります。写真へのアクセスを許可してプロジェクトを開き直すと戻ります。")
                     .font(.caption2)
@@ -414,13 +440,58 @@ struct MulticamEditorView: View {
         if let headSource = project.sourceTime(timelineTime: frameHead, inClip: clipID) {
             time = min(location.sourceTime, max(clipStartSource, headSource))
         }
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        lastSwitchNote = String(localized: "\(MediaTimeText.precise(time)) から\(angleLabel(n, clip: project.clips[clipIndex]))に切り替えました")
         updateClip { clip in
             guard n >= 0, n <= clip.multicam.angles.count else { return }
             clip.multicam.switches.removeAll { abs($0.time - time) < 0.1 }
             clip.multicam.switches.append(AngleSwitch(time: time, angle: n))
             clip.multicam.sortSwitches()
         }
+    }
+
+    /// いまの位置で選ばれているアングルの映像が出せないときの説明(出せるなら nil)
+    private func coverageWarning(clip: Clip, sourceTime: Double?) -> String? {
+        guard let t = sourceTime else { return nil }
+        let n = clip.multicam.angleIndex(at: t + Self.switchTolerance)
+        guard n > 0, n <= clip.multicam.angles.count else { return nil }
+        let angle = clip.multicam.angles[n - 1]
+        if unreadableAngleIDs.contains(angle.id) || ProjectStore.isUnavailablePhotoURL(angle.url) {
+            return String(localized: "アングル\(n)の動画を読み込めないため、メインの映像が出ています。")
+        }
+        let angleTime = t + angle.offset
+        if angleTime < 0 || angleTime > angle.duration {
+            let offsetText = String(format: "%+.2f", angle.offset)
+            return String(localized: "この位置にはアングル\(n)の映像がないため、メインの映像が出ています(ずれ \(offsetText) 秒)。ずれを直してください。")
+        }
+        return nil
+    }
+
+    private var angleIDs: [UUID] {
+        guard let i = project.index(of: clipID) else { return [] }
+        return project.clips[i].multicam.angles.map(\.id)
+    }
+
+    /// アングルの動画が読めるかを確かめる(読めないと合成で黙ってメインになる)
+    private func checkAngles() async {
+        guard let i = project.index(of: clipID) else { return }
+        var unreadable: Set<UUID> = []
+        for angle in project.clips[i].multicam.angles where !ProjectStore.isUnavailablePhotoURL(angle.url) {
+            let tracks = try? await AVURLAsset(url: angle.url).loadTracks(withMediaType: .video)
+            if tracks?.isEmpty ?? true {
+                unreadable.insert(angle.id)
+            }
+        }
+        if Task.isCancelled { return }
+        unreadableAngleIDs = unreadable
+    }
+
+    private func moveIntoClipIfNeeded() {
+        guard let clipIndex = project.index(of: clipID),
+              project.locate(timelineTime: player.currentTime)?.index != clipIndex else { return }
+        let starts = project.clipStartTimes()
+        guard clipIndex < starts.count else { return }
+        player.seek(to: starts[clipIndex])
     }
 
     private func deleteSwitch(id: UUID) {
