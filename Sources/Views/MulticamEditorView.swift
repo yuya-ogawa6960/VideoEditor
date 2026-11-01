@@ -82,75 +82,83 @@ struct MulticamEditorView: View {
 
     @ViewBuilder
     private func content(clip: Clip, clipIndex: Int) -> some View {
-        VStack(spacing: 0) {
-            // スイッチャーはリストの外に置く(リストの行の中に置いたボタンは、タップが届かないことがあった)
-            MulticamSwitcherPanel(switcher: switcher,
-                                  clip: clip,
-                                  unreadableAngles: unreadableAngleNumbers(clip: clip),
-                                  onCut: { insertSwitch(angle: $0) })
-                .background(Color(uiColor: .systemGroupedBackground))
-            Divider()
-            List {
-                // アングル一覧
-                Section {
-                    ForEach(Array(clip.multicam.angles.enumerated()), id: \.element.id) { index, angle in
-                        angleRow(angle: angle, number: index + 1, clip: clip)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                // スイッチャーはリストの外に置く(リストの行の中に置いたボタンは、タップが届かないことがあった)
+                MulticamSwitcherPanel(switcher: switcher,
+                                      clip: clip,
+                                      unreadableAngles: unreadableAngleNumbers(clip: clip),
+                                      availableHeight: geo.size.height,
+                                      onCut: { insertSwitch(angle: $0) })
+                    .background(Color(uiColor: .systemGroupedBackground))
+                Divider()
+                angleAndSwitchList(clip: clip)
+            }
+        }
+    }
+
+    /// アングル一覧と切替点の一覧
+    private func angleAndSwitchList(clip: Clip) -> some View {
+        List {
+            // アングル一覧
+            Section {
+                ForEach(Array(clip.multicam.angles.enumerated()), id: \.element.id) { index, angle in
+                    angleRow(angle: angle, number: index + 1, clip: clip)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                requestDeleteAngle(id: angle.id)
+                            } label: {
+                                Label("削除", systemImage: "trash")
+                            }
+                        }
+                }
+
+                PhotosPicker(selection: $pickerItems,
+                             maxSelectionCount: nil,
+                             selectionBehavior: .ordered,
+                             matching: .videos,
+                             preferredItemEncoding: .current,
+                             photoLibrary: .shared()) {
+                    HStack {
+                        Label("アングルを追加", systemImage: "plus.circle")
+                        if isAddingAngles {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isAddingAngles)
+            } header: {
+                Text("アングル")
+            } footer: {
+                Text("「自動で合わせる」は音でそろえます。手で直すときは、+ にするとアングルの映像が先に進みます。")
+            }
+
+            // 切替一覧
+            Section {
+                if clip.multicam.switches.isEmpty {
+                    Text("切替はまだありません")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(clip.multicam.switches) { item in
+                        switchRow(item, clip: clip)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
-                                    requestDeleteAngle(id: angle.id)
+                                    deleteSwitch(id: item.id)
                                 } label: {
                                     Label("削除", systemImage: "trash")
                                 }
                             }
                     }
-
-                    PhotosPicker(selection: $pickerItems,
-                                 maxSelectionCount: nil,
-                                 selectionBehavior: .ordered,
-                                 matching: .videos,
-                                 preferredItemEncoding: .current,
-                                 photoLibrary: .shared()) {
-                        HStack {
-                            Label("アングルを追加", systemImage: "plus.circle")
-                            if isAddingAngles {
-                                Spacer()
-                                ProgressView()
-                            }
-                        }
+                    Button(role: .destructive) {
+                        isClearSwitchesPresented = true
+                    } label: {
+                        Label("切替をすべて消去", systemImage: "trash")
                     }
-                    .disabled(isAddingAngles)
-                } header: {
-                    Text("アングル")
-                } footer: {
-                    Text("「自動で合わせる」は音でそろえます。手で直すときは、+ にするとアングルの映像が先に進みます。")
                 }
-
-                // 切替一覧
-                Section {
-                    if clip.multicam.switches.isEmpty {
-                        Text("切替はまだありません")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(clip.multicam.switches) { item in
-                            switchRow(item, clip: clip)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        deleteSwitch(id: item.id)
-                                    } label: {
-                                        Label("削除", systemImage: "trash")
-                                    }
-                                }
-                        }
-                        Button(role: .destructive) {
-                            isClearSwitchesPresented = true
-                        } label: {
-                            Label("切替をすべて消去", systemImage: "trash")
-                        }
-                    }
-                } header: {
-                    Text("切替点")
-                }
+            } header: {
+                Text("切替点")
             }
         }
     }
@@ -335,6 +343,15 @@ struct MulticamEditorView: View {
         // いま使っている映像のマスは、押しても切替点を増やさない
         if clip.multicam.angleIndex(at: time + MulticamSwitcherPanel.switchTolerance) == n {
             UISelectionFeedbackGenerator().selectionChanged()
+            return
+        }
+        // クリップの最後のコマでは切り替えても映らない(合成が出力 0.02 秒以下の区間を捨てる)ので、理由を出して止める。
+        // 速度カーブも含めて出力の秒で見る
+        let fps = Double(min(max(project.canvas.frameRate, 1), 120))
+        let outputRemaining = clip.outputDuration - clip.outputOffset(atSourceTime: time)
+        guard outputRemaining > max(1 / fps, 0.021), clip.endTime - time > 0.021 else {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            errorMessage = String(localized: "クリップの最後なので切り替えられません。帯をなぞって位置を戻してから切り替えてください。")
             return
         }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()

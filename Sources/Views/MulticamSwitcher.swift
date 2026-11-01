@@ -53,7 +53,13 @@ final class MulticamSwitcherController {
         rate = Float(min(max(clip.speed, 0.25), 4))
         let newURLs = [clip.url] + clip.multicam.angles.map(\.url)
         if newURLs == urls {
-            if !isPlaying { alignAnglesToMain() }
+            if isPlaying {
+                // 再生中にずれを変えたら、予約中のものも含めて次の確認ですぐ合わせ直す
+                syncHoldUntil = Array(repeating: 0, count: syncHoldUntil.count)
+                lastSyncCheck = 0
+            } else {
+                alignAnglesToMain()
+            }
             return
         }
         pause()
@@ -193,14 +199,22 @@ final class MulticamSwitcherController {
         for index in players.indices.dropFirst() where index < syncHoldUntil.count {
             guard now >= syncHoldUntil[index] else { continue }
             let player = players[index]
-            guard hasFootage(index, at: seconds + Self.startLead * Double(rate)) else {
+            let local = seconds + offsets[index]
+            // アングルの映像が終わったら止める
+            if local >= durations[index] - 0.05 {
                 if player.timeControlStatus != .paused { player.pause() }
                 continue
             }
+            // まだアングルの映像が始まっていない: 始まる時刻に動き出すよう予約し直す
+            // (予約した後は syncHoldUntil で始まるまで待つので、ここに来るのはずれを変えたときか、メインが遅れたとき)
+            if local < 0 {
+                startAngle(index, mainTimeAtHost: seconds + Self.startLead * Double(rate),
+                           host: Self.hostTime(after: Self.startLead))
+                continue
+            }
             let current = player.currentTime().seconds
-            let target = seconds + offsets[index]
             if player.timeControlStatus == .paused || !current.isFinite
-                || abs(current - target) > Self.driftTolerance {
+                || abs(current - local) > Self.driftTolerance {
                 startAngle(index, mainTimeAtHost: seconds + Self.startLead * Double(rate),
                            host: Self.hostTime(after: Self.startLead))
             }
@@ -210,22 +224,33 @@ final class MulticamSwitcherController {
     /// アングルを、host の時刻にメインが mainTimeAtHost にいるのに合わせて動かす
     private func startAngle(_ index: Int, mainTimeAtHost: Double, host: CMTime) {
         let player = players[index]
-        guard player.currentItem != nil, index < offsets.count else { return }
-        guard hasFootage(index, at: mainTimeAtHost) else {
+        guard player.currentItem != nil, index < offsets.count, index < syncHoldUntil.count else { return }
+        let localAtHost = mainTimeAtHost + offsets[index]
+        guard localAtHost < durations[index] - 0.05 else {
             player.pause()
             seekAngle(index, mainTime: mainTimeAtHost)
             return
         }
-        if index < syncHoldUntil.count {
-            syncHoldUntil[index] = CFAbsoluteTimeGetCurrent() + Self.startLead + 0.4
-        }
-        let target = mainTimeAtHost + offsets[index]
+        // アングルの映像が host より後に始まるなら、始まる時刻まで待たせて頭から動かす
+        let wait = max(0, -localAtHost) / Double(rate)
+        let now = CFAbsoluteTimeGetCurrent()
         if player.currentItem?.status == .readyToPlay {
-            player.setRate(rate, time: CMTime(seconds: target, preferredTimescale: 600), atHostTime: host)
-        } else {
-            player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+            let startHost = wait > 0
+                ? CMTimeAdd(host, CMTime(seconds: wait, preferredTimescale: 1_000_000_000))
+                : host
+            syncHoldUntil[index] = now + Self.startLead + wait + 0.4
+            player.setRate(rate, time: CMTime(seconds: max(0, localAtHost), preferredTimescale: 600),
+                           atHostTime: startHost)
+        } else if wait <= 0 {
+            syncHoldUntil[index] = now + 0.5
+            player.seek(to: CMTime(seconds: localAtHost, preferredTimescale: 600),
                         toleranceBefore: .zero, toleranceAfter: .zero)
             player.playImmediately(atRate: rate)
+        } else {
+            // 読み込み中で予約できない: 止めて待ち、次の確認でもう一度予約する
+            syncHoldUntil[index] = now + 0.5
+            player.pause()
+            seekAngle(index, mainTime: mainTimeAtHost)
         }
     }
 
@@ -248,13 +273,6 @@ final class MulticamSwitcherController {
         }
     }
 
-    /// メインの元素材上の時刻 t に、この素材(0 = メイン)の映像があるか
-    private func hasFootage(_ index: Int, at t: Double) -> Bool {
-        guard index < offsets.count, index < durations.count else { return false }
-        let local = t + offsets[index]
-        return local >= 0 && local < durations[index] - 0.05
-    }
-
     private static func hostTime(after seconds: Double) -> CMTime {
         CMTimeAdd(CMClockGetTime(CMClockGetHostTimeClock()),
                   CMTime(seconds: seconds, preferredTimescale: 1_000_000_000))
@@ -269,6 +287,8 @@ struct MulticamSwitcherPanel: View {
     let clip: Clip
     /// 読み込めないアングルの番号(1 から)
     let unreadableAngles: Set<Int>
+    /// 画面に使える高さ(小さい iPhone では PGM とマスを小さくして、下の一覧の場所を残す)
+    let availableHeight: CGFloat
     let onCut: (Int) -> Void
 
     /// 切替点の判定の余裕(秒)。シークの丸めで再生位置が切替点のわずかに手前になっても、切り替えたあとのアングルとして扱う
@@ -277,6 +297,9 @@ struct MulticamSwitcherPanel: View {
     private var multicam: MulticamInfo { clip.multicam }
     private var sourceCount: Int { multicam.angles.count + 1 }
     private var activeAngle: Int { multicam.angleIndex(at: switcher.sourceTime + Self.switchTolerance) }
+    private var isCompact: Bool { availableHeight < 640 }
+    private var programHeight: CGFloat { min(210, max(120, availableHeight * 0.3)) }
+    private var tileHeight: CGFloat { min(sourceCount <= 2 ? 110 : 88, max(60, availableHeight * 0.14)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -293,37 +316,48 @@ struct MulticamSwitcherPanel: View {
                     .padding(.horizontal, 16)
             } else {
                 sourceGrid
-                    .padding(.horizontal, 16)
-                Text("再生しながら、使いたい映像のマスをタップします。止めた状態でタップすると、その位置から切り替わります。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
+                if !isCompact {
+                    Text("再生しながら、使いたい映像のマスをタップします。止めた状態でタップすると、その位置から切り替わります。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .padding(.horizontal, 16)
+                }
             }
         }
         .padding(.bottom, 10)
+        // 文字を大きくしても下の一覧が隠れないよう上限を決める
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
     // MARK: PGM
 
     private var programMonitor: some View {
         let active = activeAngle
+        // 書き出しと同じく、アングルの映像が無い位置・読めないアングルはメインを見せる
+        let shown = hasFootage(active) ? active : 0
         return ZStack {
             Color.black
-            // 全部のプレイヤーを重ねて、選ばれているものだけ見せる(差し替えずに出すので、切り替えたコマから見える)
+            // 全部のプレイヤーを重ねて、映すものだけ見せる(差し替えずに出すので、切り替えたコマから見える)
             ForEach(Array(switcher.players.enumerated()), id: \.offset) { index, player in
                 PreviewPlayerLayerView(player: player)
-                    .opacity(index == active ? 1 : 0)
+                    .opacity(index == shown ? 1 : 0)
             }
-            if let message = unavailableMessage(for: active) {
-                Text(message)
+            if shown != active {
+                Text(unreadableAngles.contains(active)
+                     ? String(localized: "\(Self.label(active))を読み込めないため、メインの映像になります")
+                     : String(localized: "この位置は\(Self.label(active))の映像がないため、メインの映像になります"))
                     .font(.footnote)
                     .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
                     .padding(8)
                     .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(8)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 210)
+        .frame(height: programHeight)
         .overlay(alignment: .topLeading) {
             HStack(spacing: 6) {
                 Text("PGM")
@@ -410,22 +444,39 @@ struct MulticamSwitcherPanel: View {
 
     // MARK: 各アングルのマス
 
+    /// 1 段に並べる。3 つまでは幅いっぱいに分け、4 つ以上は横にスクロールする
+    @ViewBuilder
     private var sourceGrid: some View {
-        let columnCount = sourceCount <= 2 ? 2 : 3
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: columnCount)
         let active = activeAngle
-        return LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(0..<sourceCount, id: \.self) { n in
-                Button {
-                    onCut(n)
-                } label: {
-                    tile(n, isActive: n == active)
+        if sourceCount <= 3 {
+            HStack(spacing: 8) {
+                ForEach(0..<sourceCount, id: \.self) { n in
+                    tileButton(n, isActive: n == active)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Self.label(n))
-                .accessibilityAddTraits(n == active ? .isSelected : [])
+            }
+            .padding(.horizontal, 16)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(0..<sourceCount, id: \.self) { n in
+                        tileButton(n, isActive: n == active)
+                            .frame(width: tileHeight * 1.45)
+                    }
+                }
+                .padding(.horizontal, 16)
             }
         }
+    }
+
+    private func tileButton(_ n: Int, isActive: Bool) -> some View {
+        Button {
+            onCut(n)
+        } label: {
+            tile(n, isActive: isActive)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Self.label(n))
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     private func tile(_ n: Int, isActive: Bool) -> some View {
@@ -444,7 +495,7 @@ struct MulticamSwitcherPanel: View {
                     .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
             }
         }
-        .frame(height: sourceCount <= 2 ? 110 : 88)
+        .frame(height: tileHeight)
         .frame(maxWidth: .infinity)
         .overlay(alignment: .bottomLeading) {
             HStack(spacing: 4) {
@@ -474,12 +525,16 @@ struct MulticamSwitcherPanel: View {
         if unreadableAngles.contains(n) {
             return String(localized: "読み込めません")
         }
+        return hasFootage(n) ? nil : String(localized: "この位置は映像なし")
+    }
+
+    /// いまの位置にこの素材(0 = メイン)の映像があるか。書き出しはアングルの素材の長さの外をメインで埋める
+    private func hasFootage(_ n: Int) -> Bool {
+        guard n > 0 else { return true }
+        guard n <= multicam.angles.count, !unreadableAngles.contains(n) else { return false }
         let angle = multicam.angles[n - 1]
         let local = switcher.sourceTime + angle.offset
-        if local < 0 || local > angle.duration {
-            return String(localized: "この位置は映像なし")
-        }
-        return nil
+        return local >= 0 && local < angle.duration
     }
 
     // MARK: 共通

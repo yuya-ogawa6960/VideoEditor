@@ -2612,7 +2612,11 @@ struct ContentView: View {
                                         disabledReason: String(localized: "トリミングしていません")) {
                 resetTrim(clipID)
             })
-            items.append(EditorToolItem(String(localized: "マルチカメラ"), systemImage: "camera.on.rectangle") {
+            // 逆再生中のクリップは合成でマルチカメラを使わないので開かせない(切り替えても映らない)
+            let isReversedClip = clip.map { $0.isReversed && $0.reversedURL != nil } ?? false
+            items.append(EditorToolItem(String(localized: "マルチカメラ"), systemImage: "camera.on.rectangle",
+                                        enabled: !isReversedClip,
+                                        disabledReason: String(localized: "逆再生中のクリップでは使えません。逆再生を解除してください")) {
                 history.record(project)
                 activeSheet = .multicam(clipID)
             })
