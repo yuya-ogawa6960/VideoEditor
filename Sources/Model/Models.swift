@@ -83,6 +83,18 @@ struct FilterSettings: Equatable {
 
 // MARK: - マルチカム(複数台カメラ切替)
 
+/// アングルの音声同期の状態
+enum AngleSyncState: String {
+    /// 音声で合わせて、信頼度が高い
+    case synced
+    /// 音声で合わせたが、確かめたほうがよい
+    case needsCheck = "check"
+    /// 手で合わせた
+    case manual
+    /// メインの素材を置き換えたので、合わせ直しが必要
+    case stale
+}
+
 /// メインクリップと同時に撮影した別アングル素材
 struct CameraAngle: Identifiable, Equatable {
     let id: UUID
@@ -92,11 +104,20 @@ struct CameraAngle: Identifiable, Equatable {
     let preferredTransform: CGAffineTransform
     var thumbnail: UIImage?
     var name: String
-    /// アングル素材上の時刻 = メインクリップ素材上の時刻 + offset(秒)
+    /// アングル素材上の時刻 = offset + rate × メインクリップ素材上の時刻(秒)
     var offset: Double
+    /// 時計のずれの補正(撮った機器どうしの時計の進み方の違い。1 = 補正なし)
+    var rate: Double
+    /// 音声トラックがあるか(nil = 調べていない。古いプロジェクト)
+    var hasAudio: Bool?
+    /// 音声同期の状態(nil = まだ合わせていない)
+    var syncState: AngleSyncState?
+    /// 別のアングルの音で合わせたときの、そのアングルの id
+    var syncReferenceID: UUID?
 
     init(id: UUID = UUID(), url: URL, duration: Double, naturalSize: CGSize,
-         preferredTransform: CGAffineTransform, thumbnail: UIImage?, name: String, offset: Double = 0) {
+         preferredTransform: CGAffineTransform, thumbnail: UIImage?, name: String, offset: Double = 0,
+         rate: Double = 1, hasAudio: Bool? = nil, syncState: AngleSyncState? = nil, syncReferenceID: UUID? = nil) {
         self.id = id
         self.url = url
         self.duration = duration
@@ -105,12 +126,38 @@ struct CameraAngle: Identifiable, Equatable {
         self.thumbnail = thumbnail
         self.name = name
         self.offset = offset
+        self.rate = rate
+        self.hasAudio = hasAudio
+        self.syncState = syncState
+        self.syncReferenceID = syncReferenceID
     }
 
     var displaySize: CGSize { orientedSize(naturalSize: naturalSize, transform: preferredTransform) }
 
+    /// メインクリップ素材上の時刻 t に対応するアングル素材上の時刻
+    func angleTime(atMain t: Double) -> Double { offset + rate * t }
+
+    /// アングル素材上の時刻 a に対応するメインクリップ素材上の時刻
+    func mainTime(atAngle a: Double) -> Double { (a - offset) / max(rate, 1e-6) }
+
+    /// メインの時刻 t での見かけのずれ(アングルの時刻 − メインの時刻)
+    func localOffset(atMain t: Double) -> Double { angleTime(atMain: t) - t }
+
+    /// 保存値の rate を安全な範囲に収める(読めない値・極端な値は補正なし)
+    static func sanitizedRate(_ rate: Double?) -> Double {
+        guard let rate, rate.isFinite, rate >= 0.995, rate <= 1.005 else { return 1 }
+        return rate
+    }
+
     static func == (lhs: CameraAngle, rhs: CameraAngle) -> Bool {
         lhs.id == rhs.id && lhs.offset == rhs.offset && lhs.name == rhs.name
+            && lhs.rate == rhs.rate && lhs.hasAudio == rhs.hasAudio
+            && lhs.syncState == rhs.syncState && lhs.syncReferenceID == rhs.syncReferenceID
+    }
+
+    /// 合成に関わる時刻の対応が同じか(同期の状態の印は問わない)
+    func hasSameTiming(as other: CameraAngle) -> Bool {
+        id == other.id && url == other.url && offset == other.offset && rate == other.rate
     }
 }
 

@@ -55,6 +55,8 @@ final class PlayerController {
     /// いまの項目が再生できなくなったと知らされたか(途中で止まったときは item.status が .readyToPlay のままのことがある)
     @ObservationIgnored private var currentItemFailed = false
     @ObservationIgnored private var resetObserver: NSObjectProtocol?
+    /// マルチカメラのアングルを合成に入れられなかったことを、起動中に 1 回だけ記録したか
+    @ObservationIgnored private var reportedAngleInsertFailure = false
 
     init() {
         player = AVPlayer()
@@ -186,6 +188,10 @@ final class PlayerController {
     private func install(_ built: BuiltComposition) {
         let resumeTime = scrubTarget ?? currentTime
         let shouldPlay = isPlaying
+        if built.angleInsertFailures > 0 && !reportedAngleInsertFailure {
+            reportedAngleInsertFailure = true
+            Analytics.shared.track("multicam_angle_dropped", ["count": String(min(built.angleInsertFailures, 99))])
+        }
 
         let item = AVPlayerItem(asset: built.composition)
         item.videoComposition = built.videoComposition

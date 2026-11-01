@@ -90,6 +90,11 @@ struct EditorSlipPanel: View {
         .onDisappear {
             stripTask?.cancel()
             reloadTask?.cancel()
+            // なぞっている途中でジェスチャーが取り消されると onEnded が来ない。プレビューの作り直しを止めたままにしない
+            if dragStartValue != nil {
+                dragStartValue = nil
+                player.endInteraction()
+            }
         }
     }
 

@@ -30,7 +30,8 @@ enum ClipRejoin {
               first.subjectFlash == second.subjectFlash,
               first.flowSlow == second.flowSlow,
               first.isMuted == second.isMuted,
-              first.multicam.angles == second.multicam.angles,
+              first.multicam.angles.count == second.multicam.angles.count,
+              zip(first.multicam.angles, second.multicam.angles).allSatisfy({ $0.hasSameTiming(as: $1) }),
               first.captionLanguage == second.captionLanguage else { return false }
         // 音量・ゲイン・音声エフェクトは同じであること(J/L カットは端の話なので問わない)
         guard first.audio.volume == second.audio.volume,

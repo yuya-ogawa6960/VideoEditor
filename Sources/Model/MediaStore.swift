@@ -136,7 +136,8 @@ enum MediaStore {
                            preferredTransform: info.preferredTransform,
                            thumbnail: thumb,
                            name: displayName(for: url),
-                           offset: 0)
+                           offset: 0,
+                           hasAudio: info.hasAudio)
     }
 
     static func thumbnail(for url: URL, at seconds: Double, maxPixel: CGFloat) async -> UIImage? {

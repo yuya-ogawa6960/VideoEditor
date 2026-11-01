@@ -668,6 +668,29 @@
         }
       }
     },
+    "%@と%@の音を一緒に鳴らしています。音が二重に聞こえたら、ずれています。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playing %@ and %@ audio together. If you hear a double sound, they're out of sync."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se reproduce el audio de %@ y %@ a la vez. Si oyes el sonido doble, están desfasados."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocando o áudio de %@ e %@ juntos. Se ouvir o som dobrado, eles estão fora de sincronia."
+          }
+        }
+      }
+    },
     "%@にしました": {
       "extractionState": "manual",
       "localizations": {
@@ -848,6 +871,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ encurtadas"
+          }
+        }
+      }
+    },
+    "%@を読み込めないため、メインの映像になります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ can't be read, so the main video is shown"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede leer %@, así que se muestra el video principal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível ler %@, então o vídeo principal é exibido"
           }
         }
       }
@@ -2623,6 +2669,29 @@
         }
       }
     },
+    "+ にするとアングルの映像が先に進みます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A + value moves the angle's video ahead."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un valor + adelanta el video del ángulo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um valor + adianta o vídeo do ângulo."
+          }
+        }
+      }
+    },
     "+%lld・あと %lld 回": {
       "extractionState": "manual",
       "localizations": {
@@ -2646,6 +2715,29 @@
         }
       }
     },
+    "+0.1秒": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+0.1 s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+0.1 s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+0.1 s"
+          }
+        }
+      }
+    },
     "+1コマ": {
       "extractionState": "manual",
       "localizations": {
@@ -2665,6 +2757,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "+1 quadro"
+          }
+        }
+      }
+    },
+    "+1秒": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+1 s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+1 s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+1 s"
           }
         }
       }
@@ -3267,6 +3382,52 @@
         }
       }
     },
+    "1コマ先へずらす": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift 1 frame ahead"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover 1 fotograma adelante"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover 1 quadro para frente"
+          }
+        }
+      }
+    },
+    "1コマ前へずらす": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift 1 frame back"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover 1 fotograma atrás"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover 1 quadro para trás"
+          }
+        }
+      }
+    },
     "1分 %lldpt": {
       "extractionState": "manual",
       "localizations": {
@@ -3447,6 +3608,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Disponível para vídeos com 20 s ou mais"
+          }
+        }
+      }
+    },
+    "2つの音声に重なる部分がありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The two recordings don't overlap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las dos grabaciones no se superponen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As duas gravações não se sobrepõem"
+          }
+        }
+      }
+    },
+    "2つの音声に重なる部分がありません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The two recordings don't overlap."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las dos grabaciones no se superponen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As duas gravações não se sobrepõem."
           }
         }
       }
@@ -10121,6 +10328,75 @@
         }
       }
     },
+    "−0.1秒": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−0.1 s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−0.1 s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−0.1 s"
+          }
+        }
+      }
+    },
+    "−1コマ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−1 frame"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−1 fotog."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−1 quadro"
+          }
+        }
+      }
+    },
+    "−1秒": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−1 s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−1 s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−1 s"
+          }
+        }
+      }
+    },
     "▶︎ で試聴、「追加」で再生位置に入れます": {
       "extractionState": "manual",
       "localizations": {
@@ -13387,6 +13663,52 @@
         }
       }
     },
+    "このアングルには音がありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This angle has no audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este ángulo no tiene audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este ângulo não tem áudio"
+          }
+        }
+      }
+    },
+    "このアングルには音がないため、音声で同期できません。±1コマで合わせてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This angle has no audio, so it can't sync by audio. Align it with ±1 frame."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este ángulo no tiene audio, así que no se puede sincronizar por audio. Ajústalo con ±1 fotograma."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este ângulo não tem áudio, então não pode ser sincronizado pelo áudio. Ajuste com ±1 quadro."
+          }
+        }
+      }
+    },
     "このアングルへの切替 %lld 件も消えます。": {
       "extractionState": "manual",
       "localizations": {
@@ -14031,6 +14353,52 @@
         }
       }
     },
+    "この位置は%@の映像がないため、メインの映像になります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no video at this point, so the main video is shown"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no tiene video en este punto, así que se muestra el video principal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não tem vídeo neste ponto, então o vídeo principal é exibido"
+          }
+        }
+      }
+    },
+    "この位置は映像なし": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No video here"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin video aquí"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem vídeo aqui"
+          }
+        }
+      }
+    },
     "この位置を元に戻す": {
       "extractionState": "manual",
       "localizations": {
@@ -14211,6 +14579,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Este vídeo não pôde ser carregado. Abra-o no app Fotos e baixe do iCloud, depois tente de novo."
+          }
+        }
+      }
+    },
+    "この動画を読み込めないため、このアングルの区間はメインの映像になります。削除して「アングルを追加」から入れ直してください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video can't be read, so this angle's sections will show the main video. Delete it and add it again with “Add angle”."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede leer este video, así que las partes de este ángulo mostrarán el video principal. Elimínalo y vuelve a agregarlo con “Agregar ángulo”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível ler este vídeo, então os trechos deste ângulo mostrarão o vídeo principal. Exclua-o e adicione-o de novo com “Adicionar ângulo”."
           }
         }
       }
@@ -15112,6 +15503,29 @@
         }
       }
     },
+    "すべて同期し直す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-sync all"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a sincronizar todo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar tudo novamente"
+          }
+        }
+      }
+    },
     "すべて変えて、次からも自動で直す": {
       "extractionState": "manual",
       "localizations": {
@@ -15250,6 +15664,29 @@
         }
       }
     },
+    "すべて音声で同期": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync all by audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar todo por audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar tudo pelo áudio"
+          }
+        }
+      }
+    },
     "ずれ": {
       "extractionState": "manual",
       "localizations": {
@@ -15273,6 +15710,52 @@
         }
       }
     },
+    "ずれ %@ 秒": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offset %@ s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfase %@ s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslocamento %@ s"
+          }
+        }
+      }
+    },
+    "ずれの調整": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust offset"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar desfase"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar deslocamento"
+          }
+        }
+      }
+    },
     "ずれを ": {
       "extractionState": "manual",
       "localizations": {
@@ -15292,6 +15775,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deslocamento "
+          }
+        }
+      }
+    },
+    "ずれを入力": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter offset"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introducir desfase"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserir deslocamento"
+          }
+        }
+      }
+    },
+    "ずれを読み取れませんでした。例: 12.5 / -1:02.5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the offset. Example: 12.5 / -1:02.5"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el desfase. Ejemplo: 12.5 / -1:02.5"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o deslocamento. Exemplo: 12.5 / -1:02.5"
           }
         }
       }
@@ -16465,6 +16994,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não há outros clipes"
+          }
+        }
+      }
+    },
+    "ほかの候補": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other candidates"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otros candidatos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outros candidatos"
           }
         }
       }
@@ -18811,6 +19363,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ângulo %lld"
+          }
+        }
+      }
+    },
+    "アングル%lldの音で同期しました。確かめてください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced using Angle %lld's audio. Please check it"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado con el audio del ángulo %lld. Compruébalo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado com o áudio do ângulo %lld. Confira"
           }
         }
       }
@@ -23917,6 +24492,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Brilho e cor estão uniformes entre os clipes."
+          }
+        }
+      }
+    },
+    "クリップの最後なので切り替えられません。帯をなぞって位置を戻してから切り替えてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can't switch at the very end of the clip. Drag along the strip to move back, then switch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede cambiar justo al final del clip. Desliza por la barra para retroceder y luego cambia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível trocar bem no fim do clipe. Arraste pela faixa para voltar e depois troque."
           }
         }
       }
@@ -36088,6 +36686,75 @@
         }
       }
     },
+    "メイン+%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main + %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Principal + %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Principal + %@"
+          }
+        }
+      }
+    },
+    "メインに音がありません。1つのアングルを手で合わせると、ほかのアングルはその音で同期できます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The main clip has no audio. Align one angle by hand, and the other angles can sync to its audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El clip principal no tiene audio. Ajusta un ángulo a mano y los demás podrán sincronizarse con su audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O clipe principal não tem áudio. Ajuste um ângulo à mão e os outros poderão sincronizar com o áudio dele"
+          }
+        }
+      }
+    },
+    "メインに音がありません。1つのアングルを手で合わせると、ほかのアングルはその音で同期できます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The main clip has no audio. Align one angle by hand, and the other angles can sync to its audio."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El clip principal no tiene audio. Ajusta un ángulo a mano y los demás podrán sincronizarse con su audio."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O clipe principal não tem áudio. Ajuste um ângulo à mão e os outros poderão sincronizar com o áudio dele."
+          }
+        }
+      }
+    },
     "メインの動画に音がないため、自動で合わせられません。±ボタンで合わせてください。": {
       "extractionState": "manual",
       "localizations": {
@@ -36107,6 +36774,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "O vídeo principal não tem áudio, então não é possível sincronizar automaticamente. Alinhe com os botões ±."
+          }
+        }
+      }
+    },
+    "メインの音だけ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main audio only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo audio principal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só o áudio principal"
           }
         }
       }
@@ -41332,6 +42022,29 @@
         }
       }
     },
+    "例: 12.5 / -1:02.5": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. 12.5 / -1:02.5"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ej. 12.5 / -1:02.5"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ex.: 12.5 / -1:02.5"
+          }
+        }
+      }
+    },
     "例: 2026年10月": {
       "extractionState": "manual",
       "localizations": {
@@ -42294,6 +43007,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Inclinação"
+          }
+        }
+      }
+    },
+    "元に戻しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deshecho"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfeito"
           }
         }
       }
@@ -43904,6 +44640,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reproduzir"
+          }
+        }
+      }
+    },
+    "再生しながら、使いたい映像のマスをタップします。止めた状態でタップすると、その位置から切り替わります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While playing, tap the tile of the video you want. When paused, tapping switches from that position."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mientras se reproduce, toca el recuadro del video que quieras. En pausa, al tocar se cambia desde esa posición."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durante a reprodução, toque no quadro do vídeo que quiser. Pausado, tocar troca a partir dessa posição."
           }
         }
       }
@@ -45587,6 +46346,29 @@
         }
       }
     },
+    "分割したほかの %lld クリップにも反映しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also applied to %lld other split clips"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También se aplicó a otros %lld clips divididos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Também aplicado a outros %lld clipes divididos"
+          }
+        }
+      }
+    },
     "分割しました": {
       "extractionState": "manual",
       "localizations": {
@@ -45863,6 +46645,29 @@
         }
       }
     },
+    "切替の帯": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch strip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de cambios"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faixa de trocas"
+          }
+        }
+      }
+    },
     "切替はまだありません": {
       "extractionState": "manual",
       "localizations": {
@@ -46020,6 +46825,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Visita de Ano-Novo"
+          }
+        }
+      }
+    },
+    "別のカメラの動画を「アングルを追加」で入れると、並べて再生しながら切り替えられます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add videos from other cameras with “Add angle” to play them side by side and switch between them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrega videos de otras cámaras con “Agregar ángulo” para reproducirlos juntos y cambiar entre ellos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione vídeos de outras câmeras com “Adicionar ângulo” para reproduzi-los lado a lado e alternar entre eles."
           }
         }
       }
@@ -50187,6 +51015,52 @@
         }
       }
     },
+    "同じ音が見つかりません。±1コマや数値で合わせてください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching sound found. Align with ±1 frame or enter a value"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró un sonido coincidente. Ajusta con ±1 fotograma o introduce un valor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum som correspondente encontrado. Ajuste com ±1 quadro ou insira um valor"
+          }
+        }
+      }
+    },
+    "同じ音が見つかりません。下の候補を試すか、手で合わせてください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No clear match found. Try a candidate below or align by hand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró una coincidencia clara. Prueba un candidato de abajo o ajusta a mano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma correspondência clara encontrada. Tente um candidato abaixo ou ajuste à mão"
+          }
+        }
+      }
+    },
     "同意待ち": {
       "extractionState": "manual",
       "localizations": {
@@ -50206,6 +51080,121 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aguardando consentimento"
+          }
+        }
+      }
+    },
+    "同期OK": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado"
+          }
+        }
+      }
+    },
+    "同期しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado"
+          }
+        }
+      }
+    },
+    "同期しましたが、確かめてください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced, but please check it"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado, pero compruébalo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado, mas confira"
+          }
+        }
+      }
+    },
+    "同期できませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't sync"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo sincronizar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível sincronizar"
+          }
+        }
+      }
+    },
+    "同期中": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizando"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizando"
           }
         }
       }
@@ -56190,6 +57179,75 @@
         }
       }
     },
+    "手で直したので、自動の結果は使いませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You adjusted it by hand, so the automatic result wasn't used"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo ajustaste a mano, así que no se usó el resultado automático"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você ajustou à mão, então o resultado automático não foi usado"
+          }
+        }
+      }
+    },
+    "手で直したものは残す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep hand-adjusted ones"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conservar los ajustados a mano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter os ajustados à mão"
+          }
+        }
+      }
+    },
+    "手で直したアングルも同期し直しますか?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-sync angles you adjusted by hand too?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Volver a sincronizar también los ángulos ajustados a mano?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar novamente também os ângulos ajustados à mão?"
+          }
+        }
+      }
+    },
     "手ぶれ補正": {
       "extractionState": "manual",
       "localizations": {
@@ -56255,6 +57313,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Os passos em 45 segundos com ritmo. Cor quente e apetitosa, cortes diretos, legendas com fundo fáceis de ler e um título grande."
+          }
+        }
+      }
+    },
+    "手動": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
           }
         }
       }
@@ -57152,6 +58233,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sino da igreja"
+          }
+        }
+      }
+    },
+    "数値で入力…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a value…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introducir un valor…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserir um valor…"
           }
         }
       }
@@ -59360,6 +60464,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ajustar tempo ou dividir"
+          }
+        }
+      }
+    },
+    "時計のずれも補正しました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clock drift was corrected too"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También se corrigió la deriva del reloj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O desvio do relógio também foi corrigido"
+          }
+        }
+      }
+    },
+    "時計のずれを補正(1時間で %@ 秒)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clock drift corrected (%@ s per hour)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deriva del reloj corregida (%@ s por hora)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desvio do relógio corrigido (%@ s por hora)"
+          }
+        }
+      }
+    },
+    "時計の補正をやめる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop clock correction"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar la corrección del reloj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover a correção do relógio"
           }
         }
       }
@@ -61802,6 +62975,29 @@
         }
       }
     },
+    "未同期": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not synced"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin sincronizar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não sincronizado"
+          }
+        }
+      }
+    },
     "未完了": {
       "extractionState": "manual",
       "localizations": {
@@ -63339,6 +64535,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Suor"
+          }
+        }
+      }
+    },
+    "決定": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aceptar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
           }
         }
       }
@@ -66057,6 +67276,29 @@
         }
       }
     },
+    "直前に戻す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo last change"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deshacer el último cambio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfazer a última alteração"
+          }
+        }
+      }
+    },
     "直線": {
       "extractionState": "manual",
       "localizations": {
@@ -66283,6 +67525,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Um resultado descartado não pode ser recuperado."
+          }
+        }
+      }
+    },
+    "確かめる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conferir"
           }
         }
       }
@@ -67870,6 +69135,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "O material soma %@. Se o alvo for menor, os melhores momentos são mantidos."
+          }
+        }
+      }
+    },
+    "素材変更": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media changed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medio cambiado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mídia alterada"
           }
         }
       }
@@ -69825,6 +71113,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pensando"
+          }
+        }
+      }
+    },
+    "耳で確かめる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check by ear"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobar de oído"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conferir de ouvido"
           }
         }
       }
@@ -75418,6 +76729,29 @@
         }
       }
     },
+    "読み込めません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't read"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede leer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível ler"
+          }
+        }
+      }
+    },
     "読み込める": {
       "extractionState": "manual",
       "localizations": {
@@ -76476,6 +77810,29 @@
         }
       }
     },
+    "追加すると、音声で自動的に同期します。手で直すときは、+ にするとアングルの映像が先に進みます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added angles sync automatically by audio. When adjusting by hand, a + value moves the angle's video ahead."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los ángulos agregados se sincronizan automáticamente por el audio. Al ajustar a mano, un valor + adelanta el video del ángulo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os ângulos adicionados são sincronizados automaticamente pelo áudio. Ao ajustar à mão, um valor + adianta o vídeo do ângulo."
+          }
+        }
+      }
+    },
     "追加できませんでした": {
       "extractionState": "manual",
       "localizations": {
@@ -77116,6 +78473,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Indisponível em um clipe revertido"
+          }
+        }
+      }
+    },
+    "逆再生中のクリップでは使えません。逆再生を解除してください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available for reversed clips. Turn off reverse first"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No disponible en clips invertidos. Desactiva primero la reproducción inversa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponível em clipes invertidos. Desative a reprodução reversa primeiro"
           }
         }
       }
@@ -79305,6 +80685,29 @@
         }
       }
     },
+    "長さを読み取れません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the length"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer la duración"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler a duração"
+          }
+        }
+      }
+    },
     "長尺 高画質": {
       "extractionState": "manual",
       "localizations": {
@@ -80409,6 +81812,29 @@
         }
       }
     },
+    "音が短すぎて同期できません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The audio is too short to sync"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El audio es demasiado corto para sincronizar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O áudio é curto demais para sincronizar"
+          }
+        }
+      }
+    },
     "音のずらし": {
       "extractionState": "manual",
       "localizations": {
@@ -80888,6 +82314,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Exportar só o áudio (m4a)"
+          }
+        }
+      }
+    },
+    "音声で同期": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync by audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar por audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar pelo áudio"
           }
         }
       }
@@ -81555,6 +83004,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não é possível ler o áudio"
+          }
+        }
+      }
+    },
+    "音声を読み込めませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o áudio"
           }
         }
       }
@@ -83073,6 +84545,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Olho de peixe"
+          }
+        }
+      }
+    },
+    "鳴らす音": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio to play"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio que se reproduce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Áudio a reproduzir"
           }
         }
       }

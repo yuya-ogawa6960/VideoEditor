@@ -4238,6 +4238,10 @@ struct ContentView: View {
             replaced.speed = old.speed
             replaced.filter = old.filter
             replaced.multicam = old.multicam
+            // メインの素材が変わったので、アングルの音声同期は合わせ直しが必要
+            for i in replaced.multicam.angles.indices {
+                replaced.multicam.angles[i].syncState = .stale
+            }
             replaced.isMuted = old.isMuted && fresh.hasAudio
             replaced.audio = old.audio
             replaced.transition = old.transition

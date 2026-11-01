@@ -431,6 +431,8 @@ const ALLOWED_EVENT_NAMES = new Set([
   "feedback", "metrics", "diagnostic",
   // クラッシュ・固まりの 1 件ごとの記録(種類・理由・スタックの先頭)と、カメラ画面の進み方(開いた・動いた・失敗・時間切れ)
   "crash", "hang", "camera",
+  // マルチカメラ: 音声同期の結果(high/medium/fail/cancel/skipped・時計のずれの補正・経由)と、合成に入れられなかったアングルの数
+  "multicam_sync", "multicam_angle_dropped",
 ]);
 
 async function ingestEvents(request, env) {

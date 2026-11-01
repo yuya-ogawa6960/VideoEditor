@@ -31,6 +31,8 @@ struct BuiltComposition {
     let audioMix: AVAudioMix?
     let renderSize: CGSize
     let duration: CMTime
+    /// マルチカメラのアングルの区間を合成に入れられなかった数(0 でなければメインの映像で代わりに映る)
+    var angleInsertFailures: Int = 0
 }
 
 /// 出力タイムライン上のクリップの位置(トランジションの重なりを反映した後の秒)
@@ -177,7 +179,11 @@ enum CompositionBuilder {
         var angleTracks: [AVMutableCompositionTrack] = []
         var nextAngleTrackIndex = 0
         var angleCache: [URL: CompositionAngleSource] = [:]
+        var angleInsertFailures = 0
         var placeholder: CompositionAngleSource? = nil
+        // 挿入に使う AVAssetTrack は元の AVAsset を弱くしか持たない。asset が先に解放されると挿入に失敗するので、
+        // 作り終えるまでここで持っておく(なめらかスローのファイルなど、CompositionAngleSource に入らないもの)
+        var retainedAssets: [AVAsset] = []
         var placeholderLoaded = false
         var layers: [VideoCompositorClipLayer?] = Array(repeating: nil, count: snapshot.clips.count)
         var hardCutBoundaries: [Double] = []
@@ -282,7 +288,9 @@ enum CompositionBuilder {
             var videoPlan = plan
             var usesFlowFile = false
             if !reversedActive, let flow = clip.activeFlowSlow {
-                let flowTracks = (try? await AVURLAsset(url: flow.url).loadTracks(withMediaType: .video)) ?? []
+                let flowAsset = AVURLAsset(url: flow.url)
+                retainedAssets.append(flowAsset)
+                let flowTracks = (try? await flowAsset.loadTracks(withMediaType: .video)) ?? []
                 if let flowTrack = flowTracks.first,
                    let flowRange = try? await flowTrack.load(.timeRange) {
                     let flowPlan = speedPlan(clip: clip,
@@ -410,16 +418,19 @@ enum CompositionBuilder {
                         source = await loadAngleSource(angle)
                         if let source { angleCache[angle.url] = source }
                     }
-                    guard let angleSource = source else { continue }
+                    guard let angleSource = source else {
+                        angleInsertFailures += 1
+                        continue
+                    }
 
-                    // アングル素材上の範囲(素材の長さに収める)
-                    var rangeStartSec = max(run.start + angle.offset, angleSource.timeRange.start.seconds)
-                    var rangeEndSec = min(run.end + angle.offset, angleSource.timeRange.end.seconds)
+                    // アングル素材上の範囲(素材の長さに収める。時計のずれの補正 rate も含めて対応させる)
+                    var rangeStartSec = max(angle.angleTime(atMain: run.start), angleSource.timeRange.start.seconds)
+                    var rangeEndSec = min(angle.angleTime(atMain: run.end), angleSource.timeRange.end.seconds)
                     guard rangeEndSec - rangeStartSec > 0.02 else { continue }
 
                     // 出力タイムライン上の位置(速度カーブを考慮)
-                    guard let rawOutS = outputTime(forSource: rangeStartSec - angle.offset, plan: plan),
-                          let rawOutE = outputTime(forSource: rangeEndSec - angle.offset, plan: plan),
+                    guard let rawOutS = outputTime(forSource: angle.mainTime(atAngle: rangeStartSec), plan: plan),
+                          let rawOutE = outputTime(forSource: angle.mainTime(atAngle: rangeEndSec), plan: plan),
                           rawOutE - rawOutS > 0.02 else { continue }
                     // 切替点をコマの頭にそろえる。止めた位置で「アングル」を押すと切替点がいま映っているコマの途中になり、
                     // そのコマ(止めている間に見えている絵)がメインのまま残って「押しても変わらない」ように見えていた
@@ -472,6 +483,8 @@ enum CompositionBuilder {
                         try angleTrack.insertTimeRange(CMTimeRange(start: angleSrcStart, duration: angleSrcDuration),
                                                        of: angleSource.track, at: segOutStart)
                     } catch {
+                        print("[Multicam] アングルの区間を入れられませんでした: \(error)")
+                        angleInsertFailures += 1
                         continue
                     }
                     if segOut != angleSrcDuration {
@@ -734,11 +747,16 @@ enum CompositionBuilder {
         }
 
         let finalDuration = compositionDuration > totalDuration ? compositionDuration : totalDuration
+        // 挿入はすべて終わっている。ここまで元の asset を確実に生かしておく
+        withExtendedLifetime(angleCache) {}
+        withExtendedLifetime(placeholder) {}
+        withExtendedLifetime(retainedAssets) {}
         return BuiltComposition(composition: composition,
                                 videoComposition: videoComposition,
                                 audioMix: audioMix,
                                 renderSize: size,
-                                duration: finalDuration)
+                                duration: finalDuration,
+                                angleInsertFailures: angleInsertFailures)
     }
 
     // MARK: - 速度(等速 / 速度カーブ)の区間計画
@@ -908,7 +926,7 @@ enum CompositionBuilder {
             CompositionPlaceholder.discard(url)
             return nil
         }
-        return CompositionAngleSource(track: track, timeRange: loaded.0, transform: loaded.1)
+        return CompositionAngleSource(asset: asset, track: track, timeRange: loaded.0, transform: loaded.1)
     }
 
     /// 黒のダミー映像を track の at から duration だけ入れる(フレームは描画に使わない)。
@@ -1487,7 +1505,7 @@ enum CompositionBuilder {
         guard let track = (try? await asset.loadTracks(withMediaType: .video))?.first else { return nil }
         do {
             let (range, transform) = try await track.load(.timeRange, .preferredTransform)
-            return CompositionAngleSource(track: track, timeRange: range, transform: transform)
+            return CompositionAngleSource(asset: asset, track: track, timeRange: range, transform: transform)
         } catch {
             return nil
         }
@@ -1496,6 +1514,9 @@ enum CompositionBuilder {
 
 /// 読み込み済みアングル素材(黒のダミー映像にも使う)
 struct CompositionAngleSource {
+    /// track の持ち主。AVAssetTrack は asset を弱くしか持たないので、ここで持たないと挿入前に解放され、
+    /// insertTimeRange が失敗してアングルの区間が黙ってメインの映像になっていた
+    let asset: AVAsset
     let track: AVAssetTrack
     let timeRange: CMTimeRange
     let transform: CGAffineTransform

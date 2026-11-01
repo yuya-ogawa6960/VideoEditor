@@ -16,10 +16,15 @@ final class MulticamSwitcherController {
     /// メインの元素材上の再生位置(秒)
     private(set) var sourceTime: Double = 0
     private(set) var isPlaying: Bool = false
+    /// メインと一緒に音を鳴らすアングル(nil ならメインの音だけ)。音が二重に聞こえるかで、ずれを耳で確かめる
+    private(set) var listeningAngle: Int?
+    /// listeningAngle と一緒に鳴らす素材(0 = メイン。別のアングルの音で合わせたときはそのアングル)
+    private(set) var listeningReference: Int = 0
 
     @ObservationIgnored private var urls: [URL] = []
-    /// アングル素材上の時刻 = メインの元素材上の時刻 + offset(メインは 0)
+    /// アングル素材上の時刻 = offset + rate × メインの元素材上の時刻(メインは offset 0・rate 1)
     @ObservationIgnored private var offsets: [Double] = []
+    @ObservationIgnored private var rates: [Double] = []
     @ObservationIgnored private var durations: [Double] = []
     /// 再生するメインの元素材上の範囲(クリップのトリミング範囲)
     @ObservationIgnored private var range: ClosedRange<Double> = 0...0
@@ -34,8 +39,10 @@ final class MulticamSwitcherController {
 
     /// 合わせ直しで、何秒先から一斉に動かすか(準備の間に止まって見えないよう少し先にする)
     private static let startLead: Double = 0.25
-    /// これ以上ずれたらアングルを合わせ直す(秒)
-    private static let driftTolerance: Double = 0.08
+    /// これ以上ずれたらアングルを合わせ直す(秒)。耳で確かめている間は細かく合わせる
+    private var driftTolerance: Double { listeningAngle == nil ? 0.08 : 0.02 }
+    /// ずれを確かめる間隔(秒)
+    private var syncCheckInterval: Double { listeningAngle == nil ? 0.5 : 0.25 }
 
     deinit {
         if let timeObserver, let main = players.first {
@@ -48,6 +55,7 @@ final class MulticamSwitcherController {
     /// クリップの素材で用意する。アングルが同じなら、ずれ・範囲だけ入れ替える
     func configure(clip: Clip) {
         offsets = [0] + clip.multicam.angles.map(\.offset)
+        rates = [1] + clip.multicam.angles.map(\.rate)
         durations = [clip.duration] + clip.multicam.angles.map(\.duration)
         range = clip.startTime...max(clip.startTime, clip.endTime)
         rate = Float(min(max(clip.speed, 0.25), 4))
@@ -65,6 +73,8 @@ final class MulticamSwitcherController {
         pause()
         removeTimeObserver()
         urls = newURLs
+        listeningAngle = nil
+        listeningReference = 0
         syncHoldUntil = Array(repeating: 0, count: newURLs.count)
         players = newURLs.enumerated().map { index, url in
             let item = AVPlayerItem(url: url)
@@ -94,6 +104,27 @@ final class MulticamSwitcherController {
         }
         players = []
         urls = []
+        listeningAngle = nil
+        listeningReference = 0
+    }
+
+    /// アングル n(1 から)の音も、reference(0 = メイン)と一緒に鳴らす。nil ならメインの音だけ
+    func setListening(_ n: Int?, reference: Int = 0) {
+        if let n, n >= 1, n < players.count {
+            listeningAngle = n
+            listeningReference = (reference >= 0 && reference < players.count && reference != n) ? reference : 0
+        } else {
+            listeningAngle = nil
+            listeningReference = 0
+        }
+        for (index, player) in players.enumerated() {
+            player.isMuted = !(index == listeningReference || index == listeningAngle)
+        }
+        // 細かく合わせ直すのを、次の確認からすぐ始める
+        if isPlaying {
+            syncHoldUntil = Array(repeating: 0, count: syncHoldUntil.count)
+            lastSyncCheck = 0
+        }
     }
 
     private func removeTimeObserver() {
@@ -194,12 +225,12 @@ final class MulticamSwitcherController {
         }
         guard main.timeControlStatus == .playing else { return }
 
-        guard now - lastSyncCheck > 0.5 else { return }
+        guard now - lastSyncCheck > syncCheckInterval else { return }
         lastSyncCheck = now
         for index in players.indices.dropFirst() where index < syncHoldUntil.count {
             guard now >= syncHoldUntil[index] else { continue }
             let player = players[index]
-            let local = seconds + offsets[index]
+            let local = angleTime(index, atMain: seconds)
             // アングルの映像が終わったら止める
             if local >= durations[index] - 0.05 {
                 if player.timeControlStatus != .paused { player.pause() }
@@ -214,7 +245,7 @@ final class MulticamSwitcherController {
             }
             let current = player.currentTime().seconds
             if player.timeControlStatus == .paused || !current.isFinite
-                || abs(current - local) > Self.driftTolerance {
+                || abs(current - local) > driftTolerance {
                 startAngle(index, mainTimeAtHost: seconds + Self.startLead * Double(rate),
                            host: Self.hostTime(after: Self.startLead))
             }
@@ -225,27 +256,29 @@ final class MulticamSwitcherController {
     private func startAngle(_ index: Int, mainTimeAtHost: Double, host: CMTime) {
         let player = players[index]
         guard player.currentItem != nil, index < offsets.count, index < syncHoldUntil.count else { return }
-        let localAtHost = mainTimeAtHost + offsets[index]
+        let localAtHost = angleTime(index, atMain: mainTimeAtHost)
         guard localAtHost < durations[index] - 0.05 else {
             player.pause()
             seekAngle(index, mainTime: mainTimeAtHost)
             return
         }
+        // 時計のずれの補正があるアングルは、その分だけ速さを変えて動かす
+        let angleRate = Float(Double(rate) * angleRateFactor(index))
         // アングルの映像が host より後に始まるなら、始まる時刻まで待たせて頭から動かす
-        let wait = max(0, -localAtHost) / Double(rate)
+        let wait = max(0, -localAtHost) / Double(angleRate)
         let now = CFAbsoluteTimeGetCurrent()
         if player.currentItem?.status == .readyToPlay {
             let startHost = wait > 0
                 ? CMTimeAdd(host, CMTime(seconds: wait, preferredTimescale: 1_000_000_000))
                 : host
             syncHoldUntil[index] = now + Self.startLead + wait + 0.4
-            player.setRate(rate, time: CMTime(seconds: max(0, localAtHost), preferredTimescale: 600),
+            player.setRate(angleRate, time: CMTime(seconds: max(0, localAtHost), preferredTimescale: 600),
                            atHostTime: startHost)
         } else if wait <= 0 {
             syncHoldUntil[index] = now + 0.5
             player.seek(to: CMTime(seconds: localAtHost, preferredTimescale: 600),
                         toleranceBefore: .zero, toleranceAfter: .zero)
-            player.playImmediately(atRate: rate)
+            player.playImmediately(atRate: angleRate)
         } else {
             // 読み込み中で予約できない: 止めて待ち、次の確認でもう一度予約する
             syncHoldUntil[index] = now + 0.5
@@ -259,7 +292,7 @@ final class MulticamSwitcherController {
         guard index < players.count, index < offsets.count else { return }
         let player = players[index]
         guard player.currentItem != nil else { return }
-        let target = min(max(mainTime + offsets[index], 0), max(0, durations[index] - 0.04))
+        let target = min(max(angleTime(index, atMain: mainTime), 0), max(0, durations[index] - 0.04))
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
                     toleranceBefore: .zero, toleranceAfter: .zero)
     }
@@ -271,6 +304,17 @@ final class MulticamSwitcherController {
         for index in players.indices.dropFirst() {
             seekAngle(index, mainTime: t)
         }
+    }
+
+    /// メインの元素材上の時刻 t に対応する、素材 index(0 = メイン)上の時刻
+    private func angleTime(_ index: Int, atMain t: Double) -> Double {
+        let offset = index < offsets.count ? offsets[index] : 0
+        return offset + angleRateFactor(index) * t
+    }
+
+    private func angleRateFactor(_ index: Int) -> Double {
+        guard index < rates.count, rates[index].isFinite, rates[index] > 0 else { return 1 }
+        return rates[index]
     }
 
     private static func hostTime(after seconds: Double) -> CMTime {
@@ -316,7 +360,13 @@ struct MulticamSwitcherPanel: View {
                     .padding(.horizontal, 16)
             } else {
                 sourceGrid
-                if !isCompact {
+                if let listening = switcher.listeningAngle {
+                    Text("\(Self.label(switcher.listeningReference))と\(Self.label(listening))の音を一緒に鳴らしています。音が二重に聞こえたら、ずれています。")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                        .padding(.horizontal, 16)
+                } else if !isCompact {
                     Text("再生しながら、使いたい映像のマスをタップします。止めた状態でタップすると、その位置から切り替わります。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -394,6 +444,10 @@ struct MulticamSwitcherPanel: View {
 
             Spacer()
 
+            if !multicam.angles.isEmpty {
+                listenMenu
+            }
+
             Button {
                 switcher.seek(to: clip.startTime)
             } label: {
@@ -403,6 +457,37 @@ struct MulticamSwitcherPanel: View {
             .buttonStyle(.borderless)
             .accessibilityLabel("先頭へ")
         }
+    }
+
+    /// どの音を鳴らすか(メインだけ / メイン+アングル)
+    private var listenMenu: some View {
+        Menu {
+            Button {
+                switcher.setListening(nil)
+            } label: {
+                if switcher.listeningAngle == nil {
+                    Label("メインの音だけ", systemImage: "checkmark")
+                } else {
+                    Text("メインの音だけ")
+                }
+            }
+            ForEach(1..<sourceCount, id: \.self) { n in
+                Button {
+                    switcher.setListening(n)
+                } label: {
+                    if switcher.listeningAngle == n {
+                        Label(String(localized: "メイン+\(Self.label(n))"), systemImage: "checkmark")
+                    } else {
+                        Text(String(localized: "メイン+\(Self.label(n))"))
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: switcher.listeningAngle == nil ? "speaker.wave.2" : "speaker.wave.3.fill")
+                .foregroundStyle(switcher.listeningAngle == nil ? Color.accentColor : Color.orange)
+                .frame(width: 32, height: 32)
+        }
+        .accessibilityLabel("鳴らす音")
     }
 
     // MARK: 切替の帯(色 = アングル。ドラッグで位置を移す)
@@ -504,6 +589,10 @@ struct MulticamSwitcherPanel: View {
                     .frame(width: 8, height: 8)
                 Text(Self.label(n))
                     .font(.caption2.bold())
+                if n > 0 && switcher.listeningAngle == n {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.caption2)
+                }
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 6)
@@ -533,7 +622,7 @@ struct MulticamSwitcherPanel: View {
         guard n > 0 else { return true }
         guard n <= multicam.angles.count, !unreadableAngles.contains(n) else { return false }
         let angle = multicam.angles[n - 1]
-        let local = switcher.sourceTime + angle.offset
+        let local = angle.angleTime(atMain: switcher.sourceTime)
         return local >= 0 && local < angle.duration
     }
 

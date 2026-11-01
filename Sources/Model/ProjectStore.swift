@@ -1114,6 +1114,13 @@ private struct StoredAngle: Codable {
     var transform: StoredTransform
     var name: String
     var offset: Double
+    // 以下は 1.12.89 から(古いプロジェクトでは nil)
+    /// 時計のずれの補正(1 のときは保存しない)
+    var rate: Double?
+    var hasAudio: Bool?
+    /// AngleSyncState の rawValue(知らない値は読み飛ばす)
+    var syncState: String?
+    var syncReference: UUID?
 }
 
 private struct StoredSwitch: Codable {
@@ -1459,7 +1466,9 @@ private struct StoredClip: Codable {
         angles = c.multicam.angles.map { a in
             StoredAngle(id: a.id, file: ProjectStore.storedMediaName(for: a.url), duration: a.duration,
                         width: Double(a.naturalSize.width), height: Double(a.naturalSize.height),
-                        transform: StoredTransform(a.preferredTransform), name: a.name, offset: a.offset)
+                        transform: StoredTransform(a.preferredTransform), name: a.name, offset: a.offset,
+                        rate: a.rate == 1 ? nil : a.rate, hasAudio: a.hasAudio,
+                        syncState: a.syncState?.rawValue, syncReference: a.syncReferenceID)
         }
         switches = c.multicam.switches.map { StoredSwitch(id: $0.id, time: $0.time, angle: $0.angle) }
         audioGain = c.audio.gain
@@ -1536,7 +1545,10 @@ private struct StoredClip: Codable {
             return CameraAngle(id: sa.id, url: aurl, duration: sa.duration,
                                naturalSize: CGSize(width: sa.width, height: sa.height),
                                preferredTransform: sa.transform.value, thumbnail: nil,
-                               name: sa.name, offset: sa.offset)
+                               name: sa.name, offset: sa.offset,
+                               rate: CameraAngle.sanitizedRate(sa.rate), hasAudio: sa.hasAudio,
+                               syncState: sa.syncState.flatMap { AngleSyncState(rawValue: $0) },
+                               syncReferenceID: sa.syncReference)
         }
         if info.angles.count == angles.count {
             info.switches = switches.map { AngleSwitch(id: $0.id, time: $0.time, angle: $0.angle) }
