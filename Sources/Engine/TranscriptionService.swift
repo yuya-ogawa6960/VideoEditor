@@ -420,6 +420,8 @@ final class TranscriptionService {
     /// Whisper の準備が switchOfferDelay を過ぎたら true。画面に「Apple 音声認識で今すぐ作る」を出す
     private(set) var canSwitchToApple: Bool = false
     private(set) var statusText: String = ""
+    /// 直近の文字起こしで取り除いた、続く同じ文・音声のない所の定型文の数(完了の表示に出す。始めるたびに 0 に戻す)
+    private(set) var lastCleanupReport = CaptionCleanup.Report()
 
     /// Whisper の準備がこれより長くかかったら、Apple 音声認識への切り替えを出す
     private static let switchOfferDelay: UInt64 = 60_000_000_000
@@ -526,6 +528,7 @@ final class TranscriptionService {
             }
         }
 
+        await MainActor.run { self.lastCleanupReport = CaptionCleanup.Report() }
         await updateUI(running: true, progress: 0, status: String(localized: "準備中…"))
 
         let work = Task<[SubtitleCue], Error> {
@@ -596,6 +599,7 @@ final class TranscriptionService {
         cancelRequested = false
         lock.unlock()
 
+        await MainActor.run { self.lastCleanupReport = CaptionCleanup.Report() }
         await updateUI(running: true, progress: 0, status: String(localized: "前回の文字起こし結果を取り込み中…"))
 
         let work = Task<[SubtitleCue], Error> {
@@ -817,8 +821,9 @@ final class TranscriptionService {
             doneUnits += job.chunks.count
             try checkCancelled()
 
-            // 元素材時刻 → 出力タイムライン時刻 に変換してから文単位に区切る
-            let timelineTokens = Self.mapToTimeline(sourceTokens ?? [], job: job)
+            // 元素材時刻 → 出力タイムライン時刻 に変換してから文単位に区切る。
+            // Whisper が窓の継ぎ目で同じ単語を 2 度書き出したもの(時刻が重なる同じ単語)は先に捨てる
+            let timelineTokens = CaptionCleanup.removeDuplicateTokens(Self.mapToTimeline(sourceTokens ?? [], job: job))
             var segmenter = SubtitleSegmenter(language: jobLanguage, removeFillers: removeFillers)
             segmenter.hardEnd = job.clipTimelineEnd
             let segmented = CaptionIssueCheck.attachDoubtfulWords(segmenter.segment(timelineTokens), tokens: timelineTokens)
@@ -837,7 +842,8 @@ final class TranscriptionService {
         var all: [SubtitleCue] = []
         for choice in CaptionLanguage.allCases {
             guard let group = cuesByCaption[choice], !group.isEmpty else { continue }
-            var polished = try await polishIfEnabled(Self.finalize(group), language: choice.spoken,
+            let cleanedGroup = await cleaned(group)
+            var polished = try await polishIfEnabled(cleanedGroup, language: choice.spoken,
                                                      settings: settings, pauseReporter: pauseReporter)
             if let toEnglish = choice.translatesToEnglish {
                 try checkCancelled()
@@ -923,7 +929,7 @@ final class TranscriptionService {
             throw TranscriptionError.pendingResultUnusable(String(localized: "このプロジェクトには、前回の文字起こしに使ったクリップがありません。"))
         }
 
-        let result = Self.finalize(cues)
+        let result = await cleaned(cues)
         await updateUI(progress: 1, status: nil)
         return try await polishIfEnabled(result, language: jobLanguage, settings: AppSettings.shared,
                                          pauseReporter: makePauseReporter())
@@ -1383,16 +1389,23 @@ final class TranscriptionService {
 
     // MARK: - 仕上げ
 
-    /// 時刻順に並べ、クリップをまたぐ重なりを解消する
+    /// 時刻順に並べ、クリップをまたぐ重なりを解消する。
+    /// 以前は前の字幕を 0.2 秒に縮めるだけだったので、同時に始まる 2 つの字幕(5:12.0〜5:12.2 と 5:12.0〜5:13.5 など)が
+    /// 重なったまま残っていた(1.12.76 まで)。今は次の字幕を後ろへずらす(CaptionCleanup.resolveOverlaps)
     private static func finalize(_ cues: [SubtitleCue]) -> [SubtitleCue] {
-        var sorted = cues.sorted { $0.start < $1.start }
-        if sorted.count > 1 {
-            for i in 0..<(sorted.count - 1) where sorted[i].end > sorted[i + 1].start - 0.05 {
-                sorted[i].end = max(sorted[i].start + 0.2, sorted[i + 1].start - 0.05)
-                sorted[i].words = SubtitleSegmenter.clampWords(sorted[i].words, start: sorted[i].start, end: sorted[i].end)
+        CaptionCleanup.resolveOverlaps(cues)
+    }
+
+    /// 続く同じ文・音声のない所の定型文を取り除き、取り除いた数を lastCleanupReport に足す
+    private func cleaned(_ cues: [SubtitleCue]) async -> [SubtitleCue] {
+        let (result, report) = CaptionCleanup.clean(cues)
+        if report.total > 0 {
+            await MainActor.run {
+                self.lastCleanupReport.duplicates += report.duplicates
+                self.lastCleanupReport.hallucinations += report.hallucinations
             }
         }
-        return sorted
+        return result
     }
 
     // MARK: - 状態管理
