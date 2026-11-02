@@ -5444,6 +5444,8 @@ struct EditorTransportRow: View {
     let onRedo: () -> Void
     /// 横向きの全画面プレビュー
     @State private var isFullScreen = false
+    /// 全画面を開いた回数(開けたかを少しあとで確かめるときに、前の確認と取り違えないため)
+    @State private var fullScreenRequest = 0
     /// 行の幅(狭い画面では全画面ボタンを出さず、↶ ↷ が再生ボタンに重ならないようにする。全画面は横に倒しても開く)
     @State private var rowWidth: CGFloat = 0
 
@@ -5513,6 +5515,10 @@ struct EditorTransportRow: View {
             let device = UIDevice.current.orientation
             if device.isLandscape, !isFullScreen, !OrientationController.isLargeWindow, player.duration > 0, !Self.isPresentingSomething {
                 openFullScreen(OrientationController.landscapeMask(for: device))
+            } else if device == .portrait, isFullScreen, !OrientationController.isLargeWindow,
+                      !OrientationController.isLandscapePreviewVisible {
+                // 開こうとしている途中でたてに戻した・出せなかった: すぐ元に戻す
+                closeFullScreen()
             }
         }
         .fullScreenCover(isPresented: $isFullScreen) {
@@ -5524,22 +5530,36 @@ struct EditorTransportRow: View {
 
     private func openFullScreen(_ orientation: UIInterfaceOrientationMask) {
         isFullScreen = true
+        OrientationController.previewRequestedAt = Date()
         OrientationController.rotate(to: orientation)
+        // 何かを出している最中などで全画面を出せなかったときは、横向きのままにせず元に戻す
+        fullScreenRequest += 1
+        let request = fullScreenRequest
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard request == fullScreenRequest, isFullScreen,
+                  !OrientationController.isLandscapePreviewVisible else { return }
+            closeFullScreen()
+        }
     }
 
     private func closeFullScreen() {
+        OrientationController.previewRequestedAt = nil
         OrientationController.rotate(to: .portrait)
         isFullScreen = false
     }
 
-    /// 画面の上に何か(シート・アラート・写真の選択・広告など)を出しているか
+    /// 画面の上に何か(シート・アラート・写真の選択・広告など)を出しているか。
+    /// キーウインドウだけでなく、前面のシーンのすべてのウインドウを見る(メニューなどで別のウインドウがキーのときも取りこぼさない)
     private static var isPresentingSomething: Bool {
-        let root = UIApplication.shared.connectedScenes
+        let windows = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
             .flatMap(\.windows)
-            .first(where: \.isKeyWindow)?
-            .rootViewController
-        return root?.presentedViewController != nil
+        return windows.contains { window in
+            guard let root = window.rootViewController else { return false }
+            return root.presentedViewController != nil || root.transitionCoordinator != nil
+        }
     }
 }
 

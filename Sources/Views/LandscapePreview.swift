@@ -12,6 +12,10 @@ import UIKit
 /// アプリが許す画面の向き(AppDelegate が返す)
 enum OrientationController {
     static var mask: UIInterfaceOrientationMask = .portrait
+    /// 全画面プレビューが実際に画面に出ているか(横向きを許すのは、これが出ている間だけ)
+    static var isLandscapePreviewVisible = false
+    /// 全画面を開くよう頼んだ時刻(出るまでのあいだは「横のまま残っている」と見なさない)
+    static var previewRequestedAt: Date?
 
     /// AppDelegate が返す向き(大きな画面では固定しない)
     static var supportedMask: UIInterfaceOrientationMask {
@@ -54,17 +58,42 @@ enum OrientationController {
     static func landscapeMask(for device: UIDeviceOrientation) -> UIInterfaceOrientationMask {
         device == .landscapeRight ? .landscapeLeft : .landscapeRight
     }
+
+    /// 全画面プレビューが出ていないのに横向きを許したままなら、たてに戻す。
+    /// (全画面が出せなかった・閉じるボタンを通らずに消えたときに、編集画面が横のまま戻らなくなっていた)
+    static func restorePortraitIfStuck() {
+        guard mask != .portrait, !isLandscapePreviewVisible else { return }
+        // 開いている途中(頼んでから 2 秒以内)は待つ。出せなかったときは、開いた側が 1.5 秒で閉じる
+        if let requested = previewRequestedAt, Date().timeIntervalSince(requested) < 2 { return }
+        previewRequestedAt = nil
+        rotate(to: .portrait)
+    }
 }
 
-/// 開く・閉じるで画面の大きさが変わったら、許す向きを問い合わせ直す
+/// 開く・閉じるで画面の大きさが変わったら、許す向きを問い合わせ直す。
+/// 全画面プレビューが出ていないのに横向きを許したままになっていたら、たてに戻す(どの画面にいても効くよう、アプリの一番外側に付ける)
 struct OrientationRefresher: ViewModifier {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
 
     func body(content: Content) -> some View {
         content
             .onChange(of: horizontalSizeClass) { _, _ in OrientationController.refreshSupportedOrientations() }
             .onChange(of: verticalSizeClass) { _, _ in OrientationController.refreshSupportedOrientations() }
+            .onAppear {
+                UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+                if UIDevice.current.orientation == .portrait {
+                    OrientationController.restorePortraitIfStuck()
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    OrientationController.restorePortraitIfStuck()
+                }
+            }
     }
 }
 
@@ -172,8 +201,17 @@ struct LandscapePreviewView: View {
         // VoiceOver: 2 本指の Z で閉じる・2 本指のダブルタップで再生 / 一時停止
         .accessibilityAction(.escape) { onClose() }
         .accessibilityAction(.magicTap) { player.togglePlay() }
-        .onAppear { scheduleHide() }
-        .onDisappear { hideTask?.cancel() }
+        .onAppear {
+            OrientationController.isLandscapePreviewVisible = true
+            OrientationController.previewRequestedAt = nil
+            scheduleHide()
+        }
+        .onDisappear {
+            hideTask?.cancel()
+            OrientationController.isLandscapePreviewVisible = false
+            // 閉じるボタンを通らずに消えたとき(元の画面が作り直されたときなど)も、横向きのままにしない
+            OrientationController.restorePortraitIfStuck()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             // たてに戻したら閉じる(大きな画面では向きで閉じない)
             if !OrientationController.isLargeWindow, UIDevice.current.orientation == .portrait {
