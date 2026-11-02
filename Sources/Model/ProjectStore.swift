@@ -6,6 +6,7 @@ import Photos
 // =====================================================================
 // プロジェクトの自動保存と復元(プロジェクトごとに別ファイル)。
 //   Documents/Projects/<uuid>/project.json   … 編集内容
+//   Documents/Projects/<uuid>/project.json.bak … 読めることを確かめた控え(project.json が読めなくなったときに戻す)
 //   Documents/Projects/<uuid>/thumbnail.jpg  … 一覧用サムネイル
 //   Documents/Projects/library.json          … 一覧のメタデータ(ProjectLibrary が管理)
 // CapCut の口コミで多い「編集中に落ちて作業が消える」への対策として、
@@ -164,11 +165,18 @@ enum ProjectStore {
     static func saveNow(_ snapshot: ProjectSnapshot, projectID: UUID) {
         _ = takePending(WorkKey(projectID: projectID, kind: .snapshot))
         queue.sync { writeSnapshot(snapshot, projectID: projectID) }
+        // 閉じるときの保存は、書いた内容が読めることを確かめてから控え(project.json.bak)にする(読み直しは裏で行う)
+        queue.async { refreshBackupIfReadable(projectID: projectID) }
     }
 
     private static func writeSnapshot(_ snapshot: ProjectSnapshot, projectID: UUID) {
+        // 読めなかった project.json には書き込まない(空のまま開いた内容で上書きすると、元の編集内容がすべて消える)
+        if isUnreadable(projectID: projectID) {
+            print("ProjectStore: skipped saving over an unreadable project file (\(projectID))")
+            return
+        }
         var file = ProjectFile(snapshot: snapshot)
-        // 写真ライブラリから読み出せず編集画面に出していないクリップ・オーバーレイも、元の位置に戻して保存する
+        // 写真ライブラリから読み出せない・素材ファイルが見つからないために編集画面に出していない項目も、元の位置に戻して保存する
         heldUnresolvedItems(projectID: projectID)?.restore(into: &file)
         do {
             let data = try JSONEncoder().encode(file)
@@ -179,20 +187,55 @@ enum ProjectStore {
         }
     }
 
-    /// 保存済みのプロジェクトを読み込む。素材ファイルが消えているクリップは除外する。
-    /// 写真ライブラリの動画をいま読み出せない(許可がない・iCloud から取れない)クリップ・オーバーレイも除外するが、
-    /// 保存ファイルからは消さない(覚えておいて保存のたびに元の位置に戻す。読み出せるようになれば次に開いたときに戻る)。
-    /// 保存ファイルがなければ nil(まだ何も保存していない新しいプロジェクト)
-    static func load(projectID: UUID) -> ProjectSnapshot? {
+    /// 保存済みのプロジェクトを開いた結果
+    enum LoadResult {
+        /// 保存ファイルが無い(まだ何も保存していない新しいプロジェクト)
+        case notFound
+        /// 読み込めた。missingMediaItems は素材ファイルが見つからず、編集画面に出さずに残した項目
+        /// (クリップ・オーバーレイ・ナレーションの ID と、BGM は "bgm"。写真ライブラリから読み出せないものは含めない)
+        case loaded(ProjectSnapshot, missingMediaItems: [String])
+        /// 保存ファイルはあるが読めない(壊れている・新しいバージョンのアプリの形式など)。
+        /// 空のプロジェクトとして開くと閉じるときの保存で中身が消えるので、開かずにこのファイルへの保存も止める。
+        /// backupAvailable: 前回きちんと保存できた控え(project.json.bak)が読める
+        case unreadable(backupAvailable: Bool)
+    }
+
+    /// 保存済みのプロジェクトを開く。
+    /// 素材ファイルが見つからないクリップ・オーバーレイ・ナレーション・BGM と、写真ライブラリの動画をいま読み出せない
+    /// (許可がない・iCloud から取れない)クリップ・オーバーレイは編集画面に出さないが、保存ファイルからは消さない
+    /// (覚えておいて保存のたびに元の位置に戻す。読めるようになれば次に開いたときに戻る)。
+    /// 前は素材ファイルが見つからない項目を外したまま保存していたので、プロジェクトから消えてしまっていた。
+    /// 読めた project.json は控え(project.json.bak)にしておき、あとで読めなくなったときに戻せるようにする
+    static func open(projectID: UUID) -> LoadResult {
         flush(projectID: projectID)
-        guard let data = try? Data(contentsOf: projectFileURL(projectID: projectID)),
-              let file = try? JSONDecoder().decode(ProjectFile.self, from: data) else {
+        let url = projectFileURL(projectID: projectID)
+        guard FileManager.default.fileExists(atPath: url.path) else {
             setHeldUnresolvedItems(nil, projectID: projectID)
-            return nil
+            setUnreadable(false, projectID: projectID)
+            return .notFound
         }
+        guard let data = try? Data(contentsOf: url),
+              let file = try? JSONDecoder().decode(ProjectFile.self, from: data) else {
+            // 前は「保存ファイルが無い」と同じ扱いで空のまま開き、閉じるときの保存で中身を消していた
+            print("ProjectStore: project file is unreadable (\(projectID))")
+            setHeldUnresolvedItems(nil, projectID: projectID)
+            setUnreadable(true, projectID: projectID)
+            return .unreadable(backupAvailable: readableBackupData(projectID: projectID) != nil)
+        }
+        setUnreadable(false, projectID: projectID)
+        queue.async { writeBackup(data, projectID: projectID) }
         let restored = file.makeSnapshotHoldingUnresolved()
         setHeldUnresolvedItems(restored.unresolved, projectID: projectID)
-        return restored.snapshot
+        return .loaded(restored.snapshot, missingMediaItems: restored.unresolved?.missingMedia ?? [])
+    }
+
+    /// 保存済みのプロジェクトを読み込む(一覧の拾い上げなど。開き方は open と同じ)。
+    /// 保存ファイルが無い・読めないときは nil
+    static func load(projectID: UUID) -> ProjectSnapshot? {
+        if case .loaded(let snapshot, _) = Self.open(projectID: projectID) {
+            return snapshot
+        }
+        return nil
     }
 
     /// project.json の生データ(予約済みの書き込みを済ませてから読む)。なければ nil
@@ -221,6 +264,7 @@ enum ProjectStore {
         lastThumbnails[projectID] = nil
         lock.unlock()
         setHeldUnresolvedItems(nil, projectID: projectID)
+        setUnreadable(false, projectID: projectID)
         let dir = projectDirectory(projectID: projectID)
         queue.sync {
             if FileManager.default.fileExists(atPath: dir.path) {
@@ -230,6 +274,7 @@ enum ProjectStore {
     }
 
     /// project.json とサムネイルを別のプロジェクト ID にコピーする(複製用)。
+    /// 控え(project.json.bak)もコピーする(読めないプロジェクトを複製しても、同じように前の状態に戻せるように)。
     /// 素材ファイルは共有のままコピーしない。コピーすべきファイルがなければ何もせず true
     static func copyProjectFiles(from sourceID: UUID, to destinationID: UUID) -> Bool {
         flush(projectID: sourceID)
@@ -237,7 +282,8 @@ enum ProjectStore {
         let fm = FileManager.default
         let pairs: [(URL, URL)] = [
             (projectFileURL(projectID: sourceID), projectFileURL(projectID: destinationID)),
-            (thumbnailURL(projectID: sourceID), thumbnailURL(projectID: destinationID))
+            (thumbnailURL(projectID: sourceID), thumbnailURL(projectID: destinationID)),
+            (backupURL(projectID: sourceID), backupURL(projectID: destinationID))
         ]
         var ok = true
         queue.sync {
@@ -313,6 +359,8 @@ enum ProjectStore {
     //   マルチカムのアングル … 存在しない仮の URL のまま残す(切替点も残る。映像はメインのまま)
     // 写真へのフルアクセスがあるのに写真ライブラリに無い動画は、写真アプリで削除されたとみなし、これまでどおり外す
     // (残すと二度と戻らないのに、開くたびに「見つからない動画」と出続けてしまう)
+    // 素材ファイルが Media フォルダに見つからないクリップ・オーバーレイ・ナレーション・BGM も同じしくみで残す
+    // (外したまま保存すると project.json から消え、その項目が使っていた逆再生・アングルなどのファイルも素材の片づけで消えていた)
 
     /// 写真ライブラリの動画("photos:<id>")をいま読み出せないとき、保存ファイルに残しておくか
     static func keepsUnresolvedPhotoReference(_ name: String) -> Bool {
@@ -334,7 +382,7 @@ enum ProjectStore {
         unresolvedLock.unlock()
     }
 
-    /// 保留していた読み出せない動画を捨てる(「プロジェクトを空にする」など、タイムラインを丸ごと置き換えるとき)。
+    /// 保留していた読み出せない動画・見つからない素材の項目を捨てる(「プロジェクトを空にする」など、タイムラインを丸ごと置き換えるとき)。
     /// 捨てないと、次の保存で project.json に書き戻されてしまう
     static func discardHeldUnresolvedItems(projectID: UUID) {
         setHeldUnresolvedItems(nil, projectID: projectID)
@@ -370,6 +418,103 @@ enum ProjectStore {
         unresolvedLock.lock()
         defer { unresolvedLock.unlock() }
         return unavailableReferenceByPath[url.standardizedFileURL.path]
+    }
+
+    // MARK: - 読めない保存ファイルと控え(project.json.bak)
+    // project.json が読めない(壊れた・新しいバージョンのアプリの形式など)ときは、そのプロジェクトを開かず、
+    // このファイルにも書き込まない(前は空のプロジェクトとして開き、閉じるときの保存で中身がすべて消えていた)。
+    // 読めることを確かめた内容は project.json.bak に残しておき(開いたとき・閉じるときの保存のあと)、
+    // 「前回の状態に戻す」ではそれを project.json に戻す。読めなかったファイルも project.json.unreadable-<日時> として残す。
+    // どちらも素材の片づけ(cleanUpUnusedMedia)が参照を見るので、使っている素材は消えない
+
+    static let backupFileName = "project.json.bak"
+    /// 控えに戻したときに残す、読めなかった project.json の名前の頭
+    private static let unreadableCopyPrefix = "project.json.unreadable-"
+
+    static func backupURL(projectID: UUID) -> URL {
+        projectDirectory(projectID: projectID).appendingPathComponent(backupFileName)
+    }
+
+    /// open で読めなかった project.json を持つプロジェクト(このファイルには保存しない)
+    private static var unreadableProjects: Set<UUID> = []
+
+    private static func setUnreadable(_ unreadable: Bool, projectID: UUID) {
+        unresolvedLock.lock()
+        if unreadable {
+            unreadableProjects.insert(projectID)
+        } else {
+            unreadableProjects.remove(projectID)
+        }
+        unresolvedLock.unlock()
+    }
+
+    /// 保存ファイルが読めなかったプロジェクトか(保存しない。閉じたときに広告も出さない)
+    static func isUnreadable(projectID: UUID) -> Bool {
+        unresolvedLock.lock()
+        defer { unresolvedLock.unlock() }
+        return unreadableProjects.contains(projectID)
+    }
+
+    /// 読めることを確かめた project.json の中身を控えに書く(save キューで呼ぶ)。
+    /// 置き換えは一度に行うので、書けなかったときは前の控えがそのまま残る
+    private static func writeBackup(_ data: Data, projectID: UUID) {
+        do {
+            try data.write(to: backupURL(projectID: projectID), options: .atomic)
+        } catch {
+            print("ProjectStore: backup failed (\(projectID)): \(error)")
+        }
+    }
+
+    /// いまの project.json が読めれば控えにする(閉じるときの保存のあと。save キューで呼ぶ)
+    private static func refreshBackupIfReadable(projectID: UUID) {
+        guard let data = try? Data(contentsOf: projectFileURL(projectID: projectID)),
+              (try? JSONDecoder().decode(ProjectFile.self, from: data)) != nil else { return }
+        writeBackup(data, projectID: projectID)
+    }
+
+    /// 控え(project.json.bak)が読めれば、その中身
+    private static func readableBackupData(projectID: UUID) -> Data? {
+        guard let data = try? Data(contentsOf: backupURL(projectID: projectID)),
+              (try? JSONDecoder().decode(ProjectFile.self, from: data)) != nil else { return nil }
+        return data
+    }
+
+    /// 読めなかった project.json を project.json.unreadable-<日時> として残してから、控えの中身を project.json に戻す。
+    /// 戻せたら true(このあと open で開き直す)。控えが読めない・書けないときは何も変えずに false
+    static func restoreBackup(projectID: UUID) -> Bool {
+        guard let backup = readableBackupData(projectID: projectID) else { return false }
+        let fm = FileManager.default
+        let url = projectFileURL(projectID: projectID)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let keptCopy = projectDirectory(projectID: projectID)
+            .appendingPathComponent(unreadableCopyPrefix + formatter.string(from: Date()))
+        var restored = false
+        queue.sync {
+            do {
+                // 先に別名でコピーしてから置き換える(途中で失敗しても、読めなかったファイルは project.json のまま残る)
+                if fm.fileExists(atPath: url.path) {
+                    try fm.copyItem(at: url, to: keptCopy)
+                }
+                try backup.write(to: url, options: .atomic)
+                restored = true
+            } catch {
+                print("ProjectStore: restore from backup failed (\(projectID)): \(error)")
+            }
+        }
+        if restored {
+            setUnreadable(false, projectID: projectID)
+        }
+        return restored
+    }
+
+    /// プロジェクトのフォルダに残している控え(project.json.bak と project.json.unreadable-<日時>)
+    private static func keptProjectFileCopies(projectID: UUID) -> [URL] {
+        let dir = projectDirectory(projectID: projectID)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return [] }
+        return names.filter { $0 == backupFileName || $0.hasPrefix(unreadableCopyPrefix) }
+            .map { dir.appendingPathComponent($0) }
     }
 
     // MARK: - サムネイル
@@ -516,15 +661,26 @@ enum ProjectStore {
 
     /// どのプロジェクト・フォーマットからも参照されていない素材ファイルを消す(iPhone の容量を空ける)。
     /// 取り込み直後のファイルを消さないよう、アプリに入ってから 1 日以上たったものだけを対象にする。
-    /// 読めないプロジェクトが 1 つでもあれば、安全のため何も消さない。消した合計バイト数を返す
+    /// 読めないプロジェクトが 1 つでもあれば、安全のため何も消さない。
+    /// 戻せるように残している控え(project.json.bak・読めなかったファイル)が使っている素材も消さない
+    /// (読めない控えは、中の文字に名前が出てくる素材を残す)。消した合計バイト数を返す
     @discardableResult
     static func cleanUpUnusedMedia() -> Int64 {
         let fm = FileManager.default
         var referenced = Set<String>()
+        var keptCopyTexts: [String] = []
         for id in storedProjectIDs() {
             guard let data = projectFileData(projectID: id),
                   let file = try? JSONDecoder().decode(ProjectFile.self, from: data) else { return 0 }
             referenced.formUnion(file.referencedFileNames().media)
+            for copy in keptProjectFileCopies(projectID: id) {
+                guard let copyData = try? Data(contentsOf: copy) else { return 0 }
+                if let copyFile = try? JSONDecoder().decode(ProjectFile.self, from: copyData) {
+                    referenced.formUnion(copyFile.referencedFileNames().media)
+                } else {
+                    keptCopyTexts.append(String(decoding: copyData, as: UTF8.self))
+                }
+            }
         }
         let formatsText: String = (try? String(contentsOf: FormatKitStore.fileURL, encoding: .utf8)) ?? ""
         let keys: [URLResourceKey] = [.isDirectoryKey, .addedToDirectoryDateKey, .creationDateKey,
@@ -539,6 +695,7 @@ enum ProjectStore {
             if values.isDirectory == true { continue }
             let name = url.lastPathComponent
             if referenced.contains(name) || formatsText.contains(name) { continue }
+            if keptCopyTexts.contains(where: { $0.contains(name) }) { continue }
             let dates: [Date] = [values.addedToDirectoryDate, values.creationDate, values.contentModificationDate]
                 .compactMap { $0 }
             guard let newest = dates.max(), newest < cutoff else { continue }
@@ -1532,26 +1689,38 @@ private struct StoredClip: Codable {
         clipAudio.effects = audioEffects?.value ?? AudioEffects()
         clip.audio = clipAudio
         var info = MulticamInfo()
-        info.angles = angles.compactMap { sa in
+        // 保存ファイルのアングル番号(0 = メイン、1 から = angles[番号 - 1])→ 読み込んだあとの番号。
+        // 外したアングルへの切替は 0(メインの映像。読めないアングルと同じ見え方)にし、後ろのアングルの番号は詰める
+        var angleNumbers: [Int] = [0]
+        for sa in angles {
             let aurl: URL
             if let resolved = ProjectStore.resolveMedia(sa.file) {
                 aurl = resolved
             } else if ProjectStore.keepsUnresolvedPhotoReference(sa.file) {
                 // 写真ライブラリからいま読み出せないアングルは、仮の URL のまま残す(保存ファイルからも切替点からも消さない)
                 aurl = ProjectStore.unavailablePhotoURL(forReference: sa.file)
+            } else if !PhotoMediaResolver.isReference(sa.file) {
+                // 素材フォルダに無いアングルも、元の場所の URL のまま残す(読めないアングルとして合成・スイッチャーではメインの映像になり、
+                // 保存すると元のファイル名に戻る)。前は外したうえで、このクリップの切替点を全部消していた
+                aurl = MediaStore.mediaDirectory.appendingPathComponent(sa.file)
             } else {
-                return nil
+                // 写真アプリで削除された動画のアングルは、これまでどおり外す
+                angleNumbers.append(0)
+                continue
             }
-            return CameraAngle(id: sa.id, url: aurl, duration: sa.duration,
-                               naturalSize: CGSize(width: sa.width, height: sa.height),
-                               preferredTransform: sa.transform.value, thumbnail: nil,
-                               name: sa.name, offset: sa.offset,
-                               rate: CameraAngle.sanitizedRate(sa.rate), hasAudio: sa.hasAudio,
-                               syncState: sa.syncState.flatMap { AngleSyncState(rawValue: $0) },
-                               syncReferenceID: sa.syncReference)
+            info.angles.append(CameraAngle(id: sa.id, url: aurl, duration: sa.duration,
+                                           naturalSize: CGSize(width: sa.width, height: sa.height),
+                                           preferredTransform: sa.transform.value, thumbnail: nil,
+                                           name: sa.name, offset: sa.offset,
+                                           rate: CameraAngle.sanitizedRate(sa.rate), hasAudio: sa.hasAudio,
+                                           syncState: sa.syncState.flatMap { AngleSyncState(rawValue: $0) },
+                                           syncReferenceID: sa.syncReference))
+            angleNumbers.append(info.angles.count)
         }
-        if info.angles.count == angles.count {
-            info.switches = switches.map { AngleSwitch(id: $0.id, time: $0.time, angle: $0.angle) }
+        info.switches = switches.map { s -> AngleSwitch in
+            // 範囲の外の番号は、合成と同じく端のアングルとして読み替える
+            let stored = min(max(s.angle, 0), angles.count)
+            return AngleSwitch(id: s.id, time: s.time, angle: angleNumbers[stored])
         }
         clip.multicam = info
         clip.transition = transition?.value ?? ClipTransition()
@@ -2022,8 +2191,9 @@ private struct StoredLowerThird: Codable {
     var secondary: String
 }
 
-/// 写真ライブラリの動画("photos:<id>")をいま読み出せないため、読み込み時に外したクリップ・オーバーレイ。
-/// 編集画面には出さず、保存のたびに元の位置へ戻して project.json から消えないようにする
+/// 写真ライブラリの動画("photos:<id>")をいま読み出せない・素材ファイルが Media フォルダに見つからないため、
+/// 読み込み時に外したクリップ・オーバーレイ・ナレーション(効果音を含む)・BGM。
+/// 編集画面には出さず(見つからないファイルは再生も書き出しもしない)、保存のたびに元の位置へ戻して project.json から消えないようにする
 private struct UnresolvedPhotoItems {
     /// project.json に書かれていた順のクリップ ID(読み出せたものも含む)
     var clipOrder: [UUID]
@@ -2031,6 +2201,15 @@ private struct UnresolvedPhotoItems {
     /// project.json に書かれていた順のオーバーレイ ID(読み出せたものも含む)
     var overlayOrder: [UUID]
     var overlays: [StoredOverlay]
+    /// project.json に書かれていた順のナレーション ID(読み込めたものも含む)
+    var narrationOrder: [UUID] = []
+    var narration: [StoredNarration] = []
+    /// ファイルが見つからない BGM(ファイル名と曲名)
+    var bgmFile: String? = nil
+    var bgmName: String? = nil
+    /// 素材ファイルが見つからずに外した項目(クリップ・オーバーレイ・ナレーションの ID と、BGM は "bgm")。
+    /// 写真ライブラリから読み出せないものは含めない(そちらは開くときに別のお知らせを出す)
+    var missingMedia: [String] = []
 
     /// 外していた項目を、保存する内容の元の位置に戻す
     func restore(into file: inout ProjectFile) {
@@ -2040,6 +2219,15 @@ private struct UnresolvedPhotoItems {
         if !overlays.isEmpty {
             file.overlays = reinsertingHeldItems(overlays, originalOrder: overlayOrder,
                                                  into: file.overlays ?? [], id: { $0.id })
+        }
+        if !narration.isEmpty {
+            file.narration = reinsertingHeldItems(narration, originalOrder: narrationOrder,
+                                                  into: file.narration ?? [], id: { $0.id })
+        }
+        // BGM は、編集画面で別の曲を選んでいなければ元の曲(ファイルが見つからないもの)を書き戻す
+        if let bgmFile, file.bgmFile == nil {
+            file.bgmFile = bgmFile
+            file.bgmName = bgmName
         }
     }
 }
@@ -2175,15 +2363,24 @@ private struct ProjectFile: Codable {
         makeSnapshotHoldingUnresolved().snapshot
     }
 
-    /// スナップショットと、写真ライブラリの動画をいま読み出せないために外したクリップ・オーバーレイ(なければ nil)
+    /// スナップショットと、写真ライブラリの動画をいま読み出せない・素材ファイルが見つからないために外した項目(なければ nil)
     func makeSnapshotHoldingUnresolved() -> (snapshot: ProjectSnapshot, unresolved: UnresolvedPhotoItems?) {
+        // 素材ファイルが見つからずに外した項目(開いたときのお知らせに使う)
+        var missingMedia: [String] = []
         var restoredClips: [Clip] = []
         var unresolvedClips: [StoredClip] = []
         for stored in clips {
             if let clip = stored.makeClip() {
                 restoredClips.append(clip)
-            } else if stored.refersToPhotoLibrary, ProjectStore.keepsUnresolvedPhotoReference(stored.file) {
+            } else if stored.refersToPhotoLibrary {
+                // 写真ライブラリの動画: 読み出せないだけなら残す(写真アプリで削除されたものは、これまでどおり外す)
+                if ProjectStore.keepsUnresolvedPhotoReference(stored.file) {
+                    unresolvedClips.append(stored)
+                }
+            } else {
+                // 素材ファイル(静止画クリップなら画像)が見つからない: 外したまま保存すると消えてしまうので残す
                 unresolvedClips.append(stored)
+                missingMedia.append(stored.id.uuidString)
             }
         }
         var restoredOverlays: [OverlayClip] = []
@@ -2191,30 +2388,59 @@ private struct ProjectFile: Codable {
         for stored in overlays ?? [] {
             if let overlay = stored.makeOverlay() {
                 restoredOverlays.append(overlay)
-            } else if ProjectStore.keepsUnresolvedPhotoReference(stored.file) {
+            } else if PhotoMediaResolver.isReference(stored.file) {
+                if ProjectStore.keepsUnresolvedPhotoReference(stored.file) {
+                    unresolvedOverlays.append(stored)
+                }
+            } else {
                 unresolvedOverlays.append(stored)
+                missingMedia.append(stored.id.uuidString)
             }
         }
-        var unresolved: UnresolvedPhotoItems? = nil
-        if !unresolvedClips.isEmpty || !unresolvedOverlays.isEmpty {
-            unresolved = UnresolvedPhotoItems(clipOrder: clips.map { $0.id },
-                                              clips: unresolvedClips,
-                                              overlayOrder: (overlays ?? []).map { $0.id },
-                                              overlays: unresolvedOverlays)
+        // ナレーション・効果音: 音声ファイルが見つからなければ残す(内蔵の効果音は makeNarration が作り直す)
+        var restoredNarration: [NarrationClip] = []
+        var unresolvedNarration: [StoredNarration] = []
+        for stored in narration ?? [] {
+            if let item = stored.makeNarration() {
+                restoredNarration.append(item)
+            } else {
+                unresolvedNarration.append(stored)
+                missingMedia.append(stored.id.uuidString)
+            }
         }
 
         let style = subtitleStyle?.value ?? legacySubtitleStyle()
 
         var audio = AudioSettings()
-        if let f = bgmFile, let url = ProjectStore.resolveMedia(f) {
-            audio.bgmURL = url
-            audio.bgmName = bgmName
+        // BGM のファイルが見つからなければ残す(保存のたびに書き戻す。編集画面で別の曲を選べばそちらになる)
+        var missingBGMFile: String? = nil
+        if let f = bgmFile {
+            if let url = ProjectStore.resolveMedia(f) {
+                audio.bgmURL = url
+                audio.bgmName = bgmName
+            } else {
+                missingBGMFile = f
+                missingMedia.append("bgm")
+            }
         }
         audio.bgmVolume = bgmVolume
         audio.originalVolume = originalVolume
         audio.bgmFadeOut = bgmFadeOut
         audio.bgmFadeOutSeconds = bgmFadeOutSeconds ?? 2
         audio.bgmFadeIn = bgmFadeIn ?? 0
+
+        var unresolved: UnresolvedPhotoItems? = nil
+        if !unresolvedClips.isEmpty || !unresolvedOverlays.isEmpty || !unresolvedNarration.isEmpty || missingBGMFile != nil {
+            unresolved = UnresolvedPhotoItems(clipOrder: clips.map { $0.id },
+                                              clips: unresolvedClips,
+                                              overlayOrder: (overlays ?? []).map { $0.id },
+                                              overlays: unresolvedOverlays,
+                                              narrationOrder: (narration ?? []).map { $0.id },
+                                              narration: unresolvedNarration,
+                                              bgmFile: missingBGMFile,
+                                              bgmName: missingBGMFile == nil ? nil : bgmName,
+                                              missingMedia: missingMedia)
+        }
 
         let canvasSettings = canvas?.value ?? legacyCanvas()
 
@@ -2226,7 +2452,7 @@ private struct ProjectFile: Codable {
             titleCards: (titleCards ?? []).map { $0.value },
             lowerThirds: (lowerThirds ?? []).map { LowerThird(id: $0.id, kind: CaptionKind(rawValue: $0.kind) ?? .nameplate, start: $0.start, duration: $0.duration, primary: $0.primary, secondary: $0.secondary) },
             overlays: restoredOverlays,
-            narration: (narration ?? []).compactMap { $0.makeNarration() },
+            narration: restoredNarration,
             textClips: (textClips ?? []).map { $0.value },
             drawings: (drawings ?? []).map { $0.value },
             markers: (markers ?? []).map { $0.value },

@@ -340,7 +340,10 @@ struct MulticamSwitcherPanel: View {
 
     private var multicam: MulticamInfo { clip.multicam }
     private var sourceCount: Int { multicam.angles.count + 1 }
-    private var activeAngle: Int { multicam.angleIndex(at: switcher.sourceTime + Self.switchTolerance) }
+    private var activeAngle: Int {
+        // 合成と同じく終わりの手前で見る(クリップの終わりちょうどの切替は映らない)
+        multicam.angleIndex(at: max(clip.startTime, min(switcher.sourceTime + Self.switchTolerance, clip.endTime - 1e-6)))
+    }
     private var isCompact: Bool { availableHeight < 640 }
     private var programHeight: CGFloat { min(210, max(120, availableHeight * 0.3)) }
     private var tileHeight: CGFloat { min(sourceCount <= 2 ? 110 : 88, max(60, availableHeight * 0.14)) }

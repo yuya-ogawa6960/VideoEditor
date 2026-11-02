@@ -319,13 +319,14 @@ enum FilterEngine {
                     kCIInputRadiusKey: NSNumber(value: 1.5)
                 ])
             } else {
-                // 画像サイズに依存しないよう、ピクセル単位で指定できる CIVignetteEffect を使う
+                // 画像サイズに依存しないよう、ピクセル単位で指定できる CIVignetteEffect を使う。
+                // 全体の仕上げの「四すみ」をいちばん強くしたときと同じ(前は隅だけで、ほとんど見えなかった)
                 let center = CIVector(x: extent.midX, y: extent.midY)
-                let radius = hypot(extent.width, extent.height) * 0.5 * 0.85
+                let radius = hypot(extent.width, extent.height) * 0.5 * 0.75
                 result = result.applyingFilter("CIVignetteEffect", parameters: [
                     kCIInputCenterKey: center,
                     kCIInputRadiusKey: NSNumber(value: Double(radius)),
-                    kCIInputIntensityKey: NSNumber(value: 0.75)
+                    kCIInputIntensityKey: NSNumber(value: 0.9)
                 ])
             }
         }

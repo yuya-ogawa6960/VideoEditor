@@ -153,6 +153,20 @@ struct TeleprompterOverlay: View {
     // MARK: - 操作
 
     private var controls: some View {
+        // 幅が足りないときは「台本」を記号だけにする(前は 402pt 幅で「台」「本」が縦に 2 行に折れていた)
+        ViewThatFits(in: .horizontal) {
+            controlsRow(compact: false)
+            controlsRow(compact: true)
+            // 文字を大きくしていて記号だけでも入らないときは、横にスクロール(画面の外にはみ出して押せなくならないように)
+            ScrollView(.horizontal, showsIndicators: false) {
+                controlsRow(compact: true)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private func controlsRow(compact: Bool) -> some View {
         HStack(spacing: 6) {
             ForEach(TeleprompterSpeed.allCases) { item in
                 TeleprompterChip(title: item.displayName, systemImage: nil, isSelected: speed == item) {
@@ -168,12 +182,11 @@ struct TeleprompterOverlay: View {
                 isMirrored.toggle()
             }
             .accessibilityLabel("鏡")
-            TeleprompterChip(title: String(localized: "台本"), systemImage: "square.and.pencil", isSelected: false) {
+            TeleprompterChip(title: compact ? nil : String(localized: "台本"), systemImage: "square.and.pencil", isSelected: false) {
                 onEdit()
             }
+            .accessibilityLabel("台本")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
     }
 
     private var emptyRow: some View {
@@ -206,8 +219,11 @@ private struct TeleprompterChip: View {
                 }
                 if let title {
                     Text(title)
+                        .lineLimit(1)
                 }
             }
+            // 狭いときに文字を折り返さない(折り返すと縦に伸びて並びが崩れる)
+            .fixedSize()
             .font(.caption.weight(.semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, 10)

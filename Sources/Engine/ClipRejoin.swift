@@ -27,7 +27,9 @@ enum ClipRejoin {
               first.enhance == second.enhance,
               first.retouch == second.retouch,
               first.backgroundRemoval == second.backgroundRemoval,
-              first.subjectFlash == second.subjectFlash,
+              // 被写体フラッシュは 1 クリップに 1 つ。分割では光る側にだけ残す(もう片方は enabled = false)ので、
+              // 片方だけ光る・どちらも光らない・同じもの(前の版の分割で両方に写したもの)ならつなげる
+              first.subjectFlash == second.subjectFlash || !(first.subjectFlash.enabled && second.subjectFlash.enabled),
               first.flowSlow == second.flowSlow,
               first.isMuted == second.isMuted,
               first.multicam.angles.count == second.multicam.angles.count,
@@ -51,6 +53,13 @@ enum ClipRejoin {
         merged.animation.outDuration = second.animation.outDuration
         merged.audio.audioTailOut = second.audio.audioTailOut
         merged.audioFadeOut = second.audioFadeOut
+        // 被写体フラッシュは「クリップの出力上の先頭からの秒」。後ろだけが光るときは、前の長さだけ後ろへずらして引き継ぐ
+        // (両方同じなら前のまま。分割の逆。canRejoin で同じ速度・速度カーブなしなので、前の長さは素材の差 ÷ 速度)
+        if !first.subjectFlash.enabled, second.subjectFlash.enabled {
+            var flash = second.subjectFlash
+            flash.time += max(0, second.startTime - first.startTime) / max(first.speed, 0.01)
+            merged.subjectFlash = flash
+        }
 
         // キーフレームとカメラの切り替え点は元素材上の秒なので、つなぎ目より後ろのものを足す
         let joint = first.endTime
@@ -59,8 +68,16 @@ enum ClipRejoin {
         merged.keyframes = keyframes.sorted { $0.time < $1.time }
 
         var multicam = first.multicam
-        multicam.switches = first.multicam.switches.filter { $0.time <= joint + tolerance }
-            + second.multicam.switches.filter { $0.time > joint + tolerance }
+        // つなぎ目より前は前のクリップ、つなぎ目からは後ろのクリップの見え方にする
+        // (タイムラインのカメラのトラックで後ろの最初の区間を変える・消すと、後ろの始まりちょうどに切替が入る。
+        //  前の最後の区間を変えると、つなぎ目に戻しの切替が入る。どちらも後ろの見え方を優先する)
+        let pivot = max(joint, second.startTime)
+        multicam.switches = first.multicam.switches.filter { $0.time < joint }
+        let rearAngle = second.multicam.angleIndex(at: pivot)
+        if multicam.angleIndex(at: joint) != rearAngle {
+            multicam.switches.append(AngleSwitch(time: joint, angle: rearAngle))
+        }
+        multicam.switches.append(contentsOf: second.multicam.switches.filter { $0.time > pivot })
         multicam.sortSwitches()
         merged.multicam = multicam
         return merged

@@ -42,7 +42,8 @@ struct RootView: View {
                         if !wasImporting {
                             ProjectLibrary.shared.delete(id: projectID)
                         }
-                    } else {
+                    } else if !ProjectStore.isUnreadable(projectID: projectID) {
+                        // 保存ファイルが読めずに開けなかったプロジェクトから戻ったときは、広告を出さない
                         AdsManager.shared.showInterstitial(.projectClosed)
                     }
                 })
@@ -104,11 +105,21 @@ struct RootView: View {
     }
 
     /// クリップも、ほかの要素(キャプション・テキスト・BGM など)も入っていない。
-    /// 写真ライブラリの動画を読み込み中のもの(保存ファイルに参照がある)は空とみなさない
+    /// 写真ライブラリの動画を読み込み中のもの(保存ファイルに参照がある)は空とみなさない。
+    /// 保存ファイルが読めないもの・素材ファイルが見つからない項目を残しているものも、中身があるかもしれないので空とみなさない(消さない)
     private static func isUntouched(_ projectID: UUID) -> Bool {
         if let meta = ProjectLibrary.shared.project(id: projectID), meta.clipCount > 0 { return false }
         guard ProjectStore.photoReferences(projectID: projectID).isEmpty else { return false }
-        guard let s = ProjectStore.load(projectID: projectID) else { return true }
+        let s: ProjectSnapshot
+        switch ProjectStore.open(projectID: projectID) {
+        case .notFound:
+            return true
+        case .unreadable:
+            return false
+        case .loaded(let snapshot, let missingMediaItems):
+            guard missingMediaItems.isEmpty else { return false }
+            s = snapshot
+        }
         return s.clips.isEmpty && s.subtitles.isEmpty && s.titleCards.isEmpty && s.lowerThirds.isEmpty
             && s.overlays.isEmpty && s.narration.isEmpty && s.textClips.isEmpty && s.drawings.isEmpty
             && s.markers.isEmpty && s.audio.bgmURL == nil
@@ -256,7 +267,8 @@ struct ProjectLibraryView: View {
                 }
             }
             .fullScreenCover(isPresented: $showCameraRecorder, onDismiss: {
-                // 閉じ終わってから、撮った動画で新しいプロジェクトを作って開く(落とした動画・写真と同じ道で取り込む)
+                // 閉じ終わってから、撮った動画で新しいプロジェクトを作って開く(落とした動画・写真と同じ道で取り込む。
+                // 撮影は Media フォルダへ移して取り込み、取り込めなかったときは消さずに残して編集画面がどうするか聞く)
                 guard let url = cameraClipURL else { return }
                 cameraClipURL = nil
                 createProject(mediaMode: .appCopy, droppedMedia: [url], aspect: NewProjectAspect.last)

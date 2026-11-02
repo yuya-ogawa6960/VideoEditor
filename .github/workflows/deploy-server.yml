@@ -84,6 +84,17 @@ jobs:
             echo "OPENAI_API_KEY=$OPENAI"
           } >> "$GITHUB_ENV"
 
+      # 文法の確認と、Apple の証明(AppTransaction)の確認・広告のポイントのテスト(server/test)。
+      # 通らなければ、この後の D1・デプロイには進まない(Secrets が無くてもテストだけは動く)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check and test
+        run: |
+          for f in src/*.js; do node --check "$f"; done
+          node --test test/*.test.mjs
+
       - uses: actions/setup-node@v4
         if: steps.check.outputs.ready == 'true'
         with:
@@ -101,6 +112,19 @@ jobs:
           test -n "$ID"
           sed -i "s/__D1_DATABASE_ID__/$ID/" wrangler.toml
           npx wrangler d1 execute videomania --remote --file=schema.sql --yes
+
+      # BGM の置き場(R2 バケット videomania-bgm)。無ければ作る。作れない(R2 が有効でない・トークンに R2 の権限が無い)ときは
+      # wrangler.toml から R2 の設定を外してデプロイする(BGM だけ 503「準備中」になり、ほかは今まで通り動く)
+      - name: Prepare BGM bucket
+        if: steps.check.outputs.ready == 'true'
+        run: |
+          if npx wrangler r2 bucket list 2>/dev/null | grep -q "videomania-bgm" || npx wrangler r2 bucket create videomania-bgm; then
+            echo "BGM bucket: ready"
+          else
+            echo "::warning::R2 バケット videomania-bgm を用意できなかったので、BGM の配信なしでデプロイします"
+            sed -i '/^# BGM の曲と一覧/,$d' wrangler.toml
+            ! grep -q r2_buckets wrangler.toml
+          fi
 
       - name: Deploy
         if: steps.check.outputs.ready == 'true'

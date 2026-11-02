@@ -34,6 +34,22 @@ struct ContentView: View {
     @State private var pacingClipsKey = ""
     /// 写真ライブラリの動画を読み直している途中(この間は保存しない。空の内容で上書きしないため)
     @State private var isLoadingPhotoMedia = false
+    /// 保存ファイル(project.json)が読めなかった。編集画面は出さず、保存もしない(空の内容で上書きしないため)
+    @State private var isProjectUnreadable = false
+    /// 読めなかったときに、前回きちんと保存できた控えがある(「前回の状態に戻す」を出す)
+    @State private var unreadableBackupAvailable = false
+    /// 「前回の状態に戻す」で戻せなかった
+    @State private var unreadableRestoreFailed = false
+    /// 読めなかったことを伝えるお知らせ
+    @State private var showUnreadableAlert = false
+    /// カメラで撮ったのにプロジェクトに入らなかった動画(取り込みの失敗・キャンセル)。消さずに残し、どうするか聞く
+    @State private var keptCameraTakes: [URL] = []
+    /// keptCameraTakes をどうするか聞くお知らせ
+    @State private var showKeptCameraTakes = false
+    /// keptCameraTakes を取り込めなかった理由(お知らせに添える。キャンセルのときは nil)
+    @State private var keptCameraTakesReason: String?
+    /// 残した撮影を写真に保存している間(一覧からは外さず、閉じる・また聞くのを止める)
+    @State private var isSavingKeptTakes = false
 
     @State private var activePanel: EditorPanel?
     @State private var activeSheet: EditorSheet?
@@ -328,7 +344,8 @@ struct ContentView: View {
             sheetContent(for: sheet)
         }
         .fullScreenCover(isPresented: $showCameraRecorder) {
-            // 「カメラで撮る」。撮った動画は「ファイル」から追加したときと同じ道で Media フォルダへ取り込む(一時ファイルは取り込み後に消す)
+            // 「カメラで撮る」。撮った動画は「ファイル」から追加したときと同じ道で Media フォルダへ移して取り込む
+            // (撮影はここにしか無いので、プロジェクトに入らなかったときは消さずに残し、どうするか聞く。importLocalFiles)
             CameraRecorderView(aspect: project.canvas.aspect) { url in
                 importSourceOverride = "camera"
                 startLocalImport([url], securityScoped: false, deleteSourcesAfter: true)
@@ -397,7 +414,10 @@ struct ContentView: View {
             topBarWithDialogs
             // 本体をタップすると書き出し画面に戻る
             ExportProgressBanner(onOpen: { openExport() })
-            if project.isEmpty {
+            if isProjectUnreadable {
+                // 保存ファイルが読めなかった: 空の画面の代わりに説明を出す(空のまま編集しても保存されず、作業が消えるため)
+                unreadableProjectView
+            } else if project.isEmpty {
                 emptyState
             } else {
                 editor
@@ -433,6 +453,10 @@ struct ContentView: View {
             }
         } message: {
             Text("再生位置のクリップの後ろに追加します。")
+        }
+        // 保存ファイルが読めなかったとき・カメラの撮影を残したときのお知らせ(型チェックを軽くするため、別の枝に付ける)
+        .background {
+            dataSafetyAlerts
         }
         // アプリに戻ってきたら、共有で受け取った動画・写真がないか見る
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
@@ -732,6 +756,116 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - 保存ファイルが読めないとき・撮影を残したときのお知らせ
+
+    /// mainColumn の背景に付けるお知らせ(お知らせごとに別の View に付ける)
+    private var dataSafetyAlerts: some View {
+        ZStack {
+            // 保存ファイルが読めなかった(開いたときに 1 回。後ろの画面にも同じ説明とボタンを出している)
+            Color.clear
+                .alert(String(localized: "このプロジェクトを読み込めませんでした"), isPresented: $showUnreadableAlert) {
+                    if unreadableBackupAvailable && !unreadableRestoreFailed {
+                        Button(String(localized: "前回の状態に戻す")) {
+                            restoreProjectBackup()
+                        }
+                    }
+                    Button(String(localized: "プロジェクト一覧へ戻る"), role: .cancel) {
+                        closeProject()
+                    }
+                } message: {
+                    Text(unreadableProjectMessage)
+                }
+            // カメラで撮ったのにプロジェクトに入らなかった動画: 消さずに残し、もう一度取り込むか写真に保存するかを選んでもらう
+            Color.clear
+                .alert(String(localized: "撮った動画をまだ取り込んでいません"), isPresented: $showKeptCameraTakes) {
+                    Button(String(localized: "もう一度取り込む")) {
+                        retryKeptCameraTakes()
+                    }
+                    Button(String(localized: "写真に保存")) {
+                        saveKeptCameraTakesToPhotos()
+                    }
+                    Button(String(localized: "動画を削除"), role: .destructive) {
+                        discardKeptCameraTakes()
+                    }
+                } message: {
+                    Text(keptCameraTakesMessage)
+                }
+        }
+    }
+
+    /// 保存ファイル(project.json)が読めなかったときに、空の画面・編集画面の代わりに出す。
+    /// 開いたときのお知らせと同じ説明・ボタン(お知らせを閉じたあとや、出せなかったときもここから選べる)
+    private var unreadableProjectView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(.yellow)
+            Text(String(localized: "このプロジェクトを読み込めませんでした"))
+                .font(.title3.bold())
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+            Text(unreadableProjectMessage)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if unreadableBackupAvailable && !unreadableRestoreFailed {
+                Button {
+                    EditorHaptics.tap()
+                    restoreProjectBackup()
+                } label: {
+                    Text(String(localized: "前回の状態に戻す"))
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 14)
+                        .background(FacetedBrandBackground())
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                EditorHaptics.tap()
+                closeProject()
+            } label: {
+                Text(String(localized: "プロジェクト一覧へ戻る"))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.white.opacity(0.75))
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: 440)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 読めなかったときの説明(何が起きたか・何ができるか)
+    private var unreadableProjectMessage: String {
+        if unreadableRestoreFailed {
+            return String(localized: "前回の状態に戻せませんでした。保存ファイルは消さずにそのまま残しています。")
+        }
+        if unreadableBackupAvailable {
+            return String(localized: "保存ファイルが壊れているか、このバージョンのアプリでは読めない形式です。前回きちんと保存できた状態に戻せます(読めなかったファイルも消さずに残します)。")
+        }
+        return String(localized: "保存ファイルが壊れているか、このバージョンのアプリでは読めない形式です。ファイルは消さずにそのまま残しています。アプリを最新版にすると開ける場合があります。")
+    }
+
+    /// 「前回の状態に戻す」: 控え(project.json.bak)を project.json に戻してから開き直す(読めなかったファイルも残す)
+    @MainActor
+    private func restoreProjectBackup() {
+        guard ProjectStore.restoreBackup(projectID: projectID) else {
+            // 戻せなかった: 何も変えていないので、説明だけ変えて一覧へ戻るボタンを残す
+            unreadableRestoreFailed = true
+            return
+        }
+        isProjectUnreadable = false
+        openSavedProject()
+        if !isProjectUnreadable {
+            showToast(String(localized: "前回の状態に戻しました"))
+        }
+    }
+
     // MARK: - 編集画面
 
     private var isDrawingNew: Bool { activePanel == .drawingCanvas }
@@ -761,6 +895,11 @@ struct ContentView: View {
     /// パネルで編集している部品の、タイムライン上の範囲(シークバーの色の帯)
     private var scrubHighlight: ClosedRange<Double>? {
         guard let target = activePanel?.targetSelection else { return nil }
+        return timelineRange(of: target)
+    }
+
+    /// 部品のタイムライン上の範囲(クリップはトランジションの重なりを含む)
+    private func timelineRange(of target: EditorSelection) -> ClosedRange<Double>? {
         let range: (start: Double, end: Double)?
         switch target {
         case .clip(let clipID):
@@ -970,6 +1109,18 @@ struct ContentView: View {
         }
     }
 
+    /// カメラのトラックの区間から、その位置でスイッチャーを開く。パネルを開いている間は nil(メニューに出さない)
+    private var openMulticamFromTimeline: ((UUID, Double) -> Void)? {
+        guard activePanel == nil else { return nil }
+        return { clipID, time in
+            guard activePanel == nil else { return }
+            player.pause()
+            player.seek(to: time)
+            history.record(project)
+            activeSheet = .multicam(clipID)
+        }
+    }
+
     /// 再生ボタンの行とタイムライン(パネルを開いていないとき)
     @ViewBuilder
     private var transportAndTimeline: some View {
@@ -988,7 +1139,8 @@ struct ContentView: View {
                          // 切れ目のボタンからトランジションの設定を直接開く
                          guard activePanel == nil else { return }
                          openPanel(.transition(clipID))
-                     })
+                     },
+                     onOpenMulticam: openMulticamFromTimeline)
             // クリップを動かしている間は高さを変えない(終わったら新しい高さへ)
             .frame(height: frozenTimelineHeight ?? TimelineView.preferredHeight(for: project))
             // 右側(iPhone Duo のたて持ちで時刻などが出る列)の下までタイムラインを伸ばす
@@ -1469,7 +1621,7 @@ struct ContentView: View {
             }
         case .filter(let clipID):
             if let clip = project.clipBinding(id: clipID) {
-                EditorFilterPanel(project: project, clip: clip)
+                EditorFilterPanel(project: project, clip: clip, player: player)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1645,7 +1797,7 @@ struct ContentView: View {
             }
         case .overlayFilter(let overlayID):
             if let overlay = project.overlayBinding(id: overlayID) {
-                EditorOverlayFilterPanel(project: project, overlay: overlay)
+                EditorOverlayFilterPanel(project: project, overlay: overlay, player: player)
             } else {
                 EditorMissingPanelContent()
             }
@@ -2405,11 +2557,16 @@ struct ContentView: View {
             speedItems.append(EditorToolItem(String(localized: "タイムリマップ"), systemImage: "timeline.selection") {
                 openPanel(.speedCurve(clipID))
             })
+            // マルチカメラのクリップは逆再生にできない(合成がアングルを使わなくなり、切替が黙って消えて見えるため)。解除はいつでもできる
+            let hasAngles = !(clip?.multicam.angles.isEmpty ?? true)
+            let reverseBlocked = !isReversed && hasAngles
             speedItems.append(EditorToolItem(isReversed ? String(localized: "逆再生を解除") : String(localized: "逆再生"),
                                              systemImage: isReversed ? "arrow.uturn.backward.circle.fill" : "arrow.uturn.backward",
                                              id: "reverse",
-                                             enabled: !busy,
-                                             disabledReason: Self.busyReason) {
+                                             enabled: !busy && !reverseBlocked,
+                                             disabledReason: reverseBlocked
+                                                ? String(localized: "マルチカメラのクリップは逆再生にできません")
+                                                : Self.busyReason) {
                 toggleReverse(clipID)
             })
             speedItems.append(EditorToolItem(String(localized: "フレーム保持"), systemImage: "pause.rectangle",
@@ -2945,11 +3102,17 @@ struct ContentView: View {
         player.pause()
         let snapshot = project.snapshot()
         let selected = selection?.clipID
+        // 逆再生のクリップは分割できない(EditorProject.splitClip が断る)。何も変えずに「分けました」と出さないように止める
+        if let selected, let picked = project.clips.first(where: { $0.id == selected }),
+           picked.isReversed, picked.reversedURL != nil {
+            showToast(String(localized: "逆再生中のクリップでは使えません"), style: .warning)
+            return
+        }
         analysis.run(title: String(localized: "話の区切りを探しています")) { report in
             try await HighlightAnalyzer.ensureVoiceRuns(snapshot: snapshot, progress: report)
             let guardSpeech = SpeechGuard(snapshot: snapshot, pad: 0)
             var plan: [(id: UUID, cuts: [Double], base: Double)] = []
-            for (index, clip) in snapshot.clips.enumerated() where !clip.isStill {
+            for (index, clip) in snapshot.clips.enumerated() where !clip.isStill && !(clip.isReversed && clip.reversedURL != nil) {
                 if let selected, clip.id != selected { continue }
                 let cuts = PunchInPlanner.cutPoints(for: clip, index: index, guardSpeech: guardSpeech,
                                                     fallbackInterval: interval ?? 4)
@@ -3437,7 +3600,15 @@ struct ContentView: View {
         history.record(project)
         timeline.endMultiSelect()
         selection = nil
-        project.removeClips(ids: ids)
+        // 後ろから 1 本ずつ消して詰める。再生位置も詰めた分だけ動かす
+        var playhead = player.currentTime
+        let ordered: [UUID] = project.clips.map { $0.id }.filter { ids.contains($0) }
+        for id in ordered.reversed() {
+            if let gap = project.removeClip(id: id) {
+                playhead = Self.rippledTime(playhead, gap)
+            }
+        }
+        movePlayheadAfterDelete(to: playhead)
         showToast(String(localized: "\(count) 本のクリップを削除しました"), undo: true)
     }
 
@@ -3445,8 +3616,26 @@ struct ContentView: View {
     private func deleteClip(_ clipID: UUID) {
         history.record(project)
         selection = nil
-        project.removeClip(id: clipID)
+        var playhead = player.currentTime
+        if let gap = project.removeClip(id: clipID) {
+            playhead = Self.rippledTime(playhead, gap)
+        }
+        movePlayheadAfterDelete(to: playhead)
         showToast(String(localized: "削除しました"), undo: true)
+    }
+
+    /// 詰めた区間に合わせた再生位置(消した区間の中なら区間の頭 = 後ろのクリップの頭、後ろなら詰めた分だけ前へ)
+    private static func rippledTime(_ t: Double, _ gap: (from: Double, to: Double)) -> Double {
+        if t < gap.from { return t }
+        if t >= gap.to { return t - (gap.to - gap.from) }
+        return gap.from
+    }
+
+    /// 削除のあと、再生位置(白い線)を詰めた先へ動かす。前は元の時刻に残り、後ろのクリップの途中に線が出ていた
+    private func movePlayheadAfterDelete(to t: Double) {
+        guard !project.clips.isEmpty else { return }
+        let total = project.layoutDuration
+        player.seek(to: min(max(0, t), max(0, total - 0.05)))
     }
 
     // MARK: - シート
@@ -3680,7 +3869,56 @@ struct ContentView: View {
         // ✕「キャンセル」で戻す状態
         panelSnapshot = project.snapshot()
         activePanel = panel
+        seekToPanelTarget(panel)
         Analytics.shared.track("panel", ["name": Self.analyticsName(of: panel)])
+    }
+
+    /// 編集する部品が再生位置に無いと、色などを変えてもプレビューに映らない(別のクリップのコマが出たまま)。
+    /// 止めているときは、部品が映る位置へ合わせる。トランジションは切れ目を見るので動かさない
+    private func seekToPanelTarget(_ panel: EditorPanel) {
+        if case .transition = panel { return }
+        guard !player.isPlaying, let target = panel.targetSelection else { return }
+        let range: ClosedRange<Double>
+        // クリップの本当の終わり(出口のトランジションの重なりを含む)
+        var clipEnd: Double? = nil
+        switch target {
+        case .clip(let clipID):
+            let layout = CompositionBuilder.timelineLayout(for: project.snapshot())
+            guard let i = layout.firstIndex(where: { $0.clipID == clipID }), layout[i].end > layout[i].start else { return }
+            // トランジションで前後のクリップと重なる所を除いた、このクリップだけが映る範囲(無ければ全体)
+            let start = i > 0 ? max(layout[i].start, layout[i - 1].end) : layout[i].start
+            let end = i + 1 < layout.count ? min(layout[i].end, layout[i + 1].start) : layout[i].end
+            range = end > start + 0.05 ? start...end : layout[i].start...layout[i].end
+            clipEnd = layout[i].end
+        case .overlay, .subtitle, .text, .drawing, .videoEffect:
+            guard let band = timelineRange(of: target) else { return }
+            range = band
+        default:
+            return
+        }
+        let now = player.currentTime
+        guard now < range.lowerBound || now >= range.upperBound else { return }
+        let length = range.upperBound - range.lowerBound
+        if let clipEnd, now >= range.upperBound, now < clipEnd {
+            // このクリップの出口のトランジションの中(まだこのクリップが映っている): 頭まで戻さず、重なりの手前へ
+            player.seek(to: range.upperBound - min(0.05, length / 2))
+            return
+        }
+        // 登場アニメーション・フェードイン・入りのトランジションの途中だと薄く映り、色などを変えても見えにくいので、出きった所へ
+        var lead = 0.05
+        switch target {
+        case .clip(let clipID):
+            if let clip = project.clips.first(where: { $0.id == clipID }), clip.animation.inType != .none {
+                lead = clip.animation.inDuration + 0.05
+            }
+        case .overlay(let overlayID):
+            if let overlay = project.overlays.first(where: { $0.id == overlayID }) {
+                lead = (overlay.transitionIn.isActive ? overlay.transitionIn.duration : overlay.fadeIn) + 0.05
+            }
+        default:
+            break
+        }
+        player.seek(to: range.lowerBound + min(lead, length / 2))
     }
 
     /// 統計用の名前(言語に依らない enum の名前だけ。中の ID などは落とす)
@@ -4087,6 +4325,11 @@ struct ContentView: View {
             return
         }
         let clip = project.clips[location.index]
+        // 逆再生のクリップは分割できない(EditorProject.splitClip が断る)ので、静止画がクリップの後ろに入ってしまう。分割と同じく止める
+        if clip.isReversed && clip.reversedURL != nil {
+            showToast(String(localized: "逆再生中のクリップでは使えません"), style: .warning)
+            return
+        }
         let sourceTime = min(max(location.sourceTime, clip.startTime), clip.endTime)
         let freezeTime = player.currentTime
         player.pause()
@@ -4116,12 +4359,16 @@ struct ContentView: View {
                 let minimum = 0.2
                 // 静止画を入れた位置より後ろの部品も、静止画の長さだけ後ろへずらす
                 let range = project.outputRange(ofClip: clipID)
-                let durationBefore = project.layoutDuration
+                var durationBefore = project.layoutDuration
                 let rippleTime: Double?
                 if sourceTime > clip.startTime + minimum, sourceTime < clip.endTime - minimum,
                    project.splitClip(id: clipID, atSourceTime: sourceTime) {
+                    // 分割で変わった配置は splitClip の中で部品に反映済み。ここからは静止画の長さだけずらす
+                    durationBefore = project.layoutDuration
+                    // 切れ目は分割で動くことがある(前のトランジションの重なりが短くなる・速度カーブを半分ずつにかけ直す)。
+                    // 静止画は前半(clipID のまま・トランジションなし)の終わりに入るので、新しい配置で測る
+                    rippleTime = project.outputRange(ofClip: clipID)?.end ?? freezeTime
                     project.clips.insert(still, at: i + 1)
-                    rippleTime = freezeTime
                 } else if sourceTime <= clip.startTime + minimum {
                     project.clips.insert(still, at: i)
                     rippleTime = range?.start
@@ -4264,7 +4511,12 @@ struct ContentView: View {
             }
             let before = project.snapshot()
             history.record(project)
+            // キャプション・テキスト・モザイク・Bロール・ナレーション・効果音・マーカーも、クリップの先頭からの位置を保って動かす。
+            // 新しい動画が短くてクリップが縮んだときは、右端をトリミングしたときと同じく後ろを前へ詰める
+            // (前は V1 だけが縮み、後ろの字幕などが元の時刻に残ってずれていた。TimelineRipple.swift)
+            let layout = project.captureClipLayout(replacing: clipID, with: replaced)
             project.clips[i] = replaced
+            project.rippleTimelineItems(from: layout)
             importDone = 1
             if shortened {
                 showToast(String(localized: "置き換えました(新しい動画が短いため、クリップも短くなりました)"), undo: true)
@@ -4372,7 +4624,11 @@ struct ContentView: View {
     /// 音声のある(ミュートでない)全クリップから無音部分を取り除き、残す範囲ごとにクリップを分割する
     @MainActor
     private func runSilenceCut(pace: SilenceCutPace) async {
-        let targets = project.clips.filter { $0.hasAudio && !$0.isMuted && !$0.isStill }
+        // 逆再生・速度カーブ(タイムリマップ)のクリップは外す。切れ端の並び・速さが元と変わり、
+        // 字幕などを正しく詰められないため(ReelFinisher の無音カットと同じ)
+        let targets = project.clips.filter {
+            $0.hasAudio && !$0.isMuted && !$0.isStill && !$0.isReversed && !$0.speedCurve.enabled
+        }
         guard !targets.isEmpty else {
             alertMessage = String(localized: "音声のあるクリップがありません。")
             return
@@ -4407,16 +4663,39 @@ struct ContentView: View {
             return
         }
 
-        // 残す範囲ごとにクリップを組み立て直す(最初の範囲は元の ID を保つ)
+        // 残す範囲ごとにクリップを組み立て直す(最初の範囲は元の ID を保つ)。
+        // 取り除く無音は、組み立て直す前の出力タイムラインの区間(秒)としても控えておき、あとで字幕・テキストなどを
+        // クリップを削除したときと同じように詰める(前は V1 だけが詰まり、ほかの部品は元の時刻に残って話とずれていた)
         let tolerance = 0.01
+        let oldLayout = CompositionBuilder.timelineLayout(for: project.snapshot())
         var newClips: [Clip] = []
+        var removedRanges: [(from: Double, to: Double)] = []
         var removedCount = 0
         var removedOutputSeconds = 0.0
-        for clip in project.clips {
-            guard let ranges = kept[clip.id], !ranges.isEmpty else {
+        for (index, clip) in project.clips.enumerated() {
+            guard var ranges = kept[clip.id], !ranges.isEmpty, index < oldLayout.count else {
                 newClips.append(clip)
                 continue
             }
+            // トランジションで前後と重なる所(重なりの 2 倍)は切らない。切ると前後のクリップの区間が重なりの中でかぶって
+            // 字幕などを二重に詰めて消したり、重なりが短くなって後ろの部品が早まったりする
+            let inOverlap = index > 0 ? max(0, oldLayout[index - 1].end - oldLayout[index].start) : 0
+            let outOverlap = index + 1 < oldLayout.count ? max(0, oldLayout[index].end - oldLayout[index + 1].start) : 0
+            if inOverlap > 0 {
+                ranges.append((start: clip.startTime, end: clip.sourceTime(atOutputOffset: 2 * inOverlap)))
+            }
+            if outOverlap > 0 {
+                ranges.append((start: clip.sourceTime(atOutputOffset: clip.outputDuration - 2 * outOverlap), end: clip.endTime))
+            }
+            var merged: [(start: Double, end: Double)] = []
+            for r in ranges.sorted(by: { $0.start < $1.start }) {
+                if let last = merged.last, r.start <= last.end + tolerance {
+                    merged[merged.count - 1].end = max(last.end, r.end)
+                } else {
+                    merged.append(r)
+                }
+            }
+            ranges = merged
             var gaps = max(0, ranges.count - 1)
             if let first = ranges.first, first.start > clip.startTime + tolerance { gaps += 1 }
             if let last = ranges.last, last.end < clip.endTime - tolerance { gaps += 1 }
@@ -4427,10 +4706,28 @@ struct ContentView: View {
             let keptSource = ranges.reduce(0.0) { $0 + max(0, $1.end - $1.start) }
             removedOutputSeconds += max(0, clip.trimmedDuration - keptSource) / max(clip.speed, 0.01)
             removedCount += gaps
+            // 取り除く元素材の区間(先頭・残す範囲のあいだ・末尾)を、組み立て直す前の出力タイムラインの秒にする
+            let clipStart = oldLayout[index].start
+            var cutStart = clip.startTime
+            for range in ranges {
+                if range.start > cutStart + tolerance {
+                    removedRanges.append((from: clipStart + clip.outputOffset(atSourceTime: cutStart),
+                                          to: clipStart + clip.outputOffset(atSourceTime: range.start)))
+                }
+                cutStart = range.end
+            }
+            if clip.endTime > cutStart + tolerance {
+                removedRanges.append((from: clipStart + clip.outputOffset(atSourceTime: cutStart),
+                                      to: clipStart + clip.outputOffset(atSourceTime: clip.endTime)))
+            }
             for (j, range) in ranges.enumerated() {
                 var piece = (j == 0) ? clip : clip.duplicated()
-                piece.startTime = range.start
-                piece.endTime = range.end
+                // 被写体フラッシュなども切れ端に合わせる(Clip.restrictToSource)
+                piece.restrictToSource(range.start, range.end, of: clip,
+                                       flashFrom: j == 0 ? clip.startTime : ranges[j - 1].end)
+                // 同じクリップの中の切れ目はふつうのカットにする(最後の切れ端だけ元のトランジションを残す。分割と同じ)。
+                // 残すと切れ目ごとに重なって余分に短くなり、部品がずれる
+                piece.clearCutEdges(head: j > 0, tail: j < ranges.count - 1)
                 newClips.append(piece)
             }
         }
@@ -4446,6 +4743,25 @@ struct ContentView: View {
 
         history.record(project)
         project.clips = newClips
+        // 字幕・テキスト(モザイク)・章タイトル・テロップ・手書き・映像エフェクト・重ね合わせ(Bロール)・ナレーション(効果音)も、
+        // クリップを削除したときと同じ removeTimelineRange で消したり詰めたりする(TimelineRipple.swift)。
+        // 後ろの区間から詰めるので、前の区間の秒は変わらない。再生位置も削除のときと同じように動かす
+        let gapsFromBack = removedRanges.sorted { $0.from > $1.from }
+        let markersBefore = project.markers
+        var playhead = player.currentTime
+        for gap in gapsFromBack {
+            project.removeTimelineRange(from: gap.from, to: gap.to)
+            playhead = Self.rippledTime(playhead, gap)
+        }
+        // マーカー(章の区切りなど)は無音の中にあっても消さず、詰めた先(無音の始まり)へ寄せる
+        let remainingMarkers = Set(project.markers.map(\.id))
+        for marker in markersBefore where !remainingMarkers.contains(marker.id) {
+            var moved = marker
+            moved.time = gapsFromBack.reduce(marker.time) { Self.rippledTime($0, $1) }
+            project.markers.append(moved)
+        }
+        project.sortMarkers()
+        movePlayheadAfterDelete(to: playhead)
         let secondsText = String(format: "%.1f", removedOutputSeconds)
         showToast(String(localized: "\(removedCount) か所・\(secondsText) 秒の無音を詰めました"), undo: true)
         if !failures.isEmpty {
@@ -4570,6 +4886,11 @@ struct ContentView: View {
             showToast(String(localized: "クリップの端に近すぎます。端から0.2秒以上離してください"), style: .warning)
             return
         }
+        // 逆再生のクリップは分割すると前後の中身が入れ替わるので止める(EditorProject.splitClip でも断る)。文言は追跡と同じもの
+        if clip.isReversed && clip.reversedURL != nil {
+            showToast(String(localized: "逆再生中のクリップでは使えません"), style: .warning)
+            return
+        }
         history.record(project)
         project.splitClip(id: clipID, atSourceTime: sourceTime)
         showToast(String(localized: "分割しました"), undo: true)
@@ -4600,7 +4921,8 @@ struct ContentView: View {
 
     /// 変更内容を保存し、一覧のメタデータとサムネイルを更新する(書き込みはまとめて行われる)
     private func persist(_ snapshot: ProjectSnapshot) {
-        if isLoadingPhotoMedia { return }
+        // 読み込み中・保存ファイルが読めなかったときは保存しない(空の内容で上書きしないため)
+        if isLoadingPhotoMedia || isProjectUnreadable { return }
         if !timeline.pacing.isEmpty, Self.clipsKey(snapshot) != pacingClipsKey {
             // クリップを編集したら結果は古くなるので帯を消す
             timeline.pacing = []
@@ -4620,6 +4942,13 @@ struct ContentView: View {
 
     /// いま保存してからプロジェクト一覧へ戻る
     private func closeProject() {
+        // カメラで撮ったのにプロジェクトに入らなかった動画が残っていれば、閉じる前にどうするか聞く
+        // (閉じると残した撮影の行き先がわからなくなる)。写真に保存している間は閉じない
+        if isSavingKeptTakes { return }
+        if !keptCameraTakes.isEmpty {
+            showKeptCameraTakes = true
+            return
+        }
         // 取り込み中に閉じたかは、片付けの前に控えておく
         let wasImporting: Bool = isImporting || isLoadingPhotoMedia
         player.pause()
@@ -4632,6 +4961,11 @@ struct ContentView: View {
         selection = nil
         if isLoadingPhotoMedia {
             // まだ読み込み終わっていない(保存すると空の内容で上書きしてしまう)
+            onClose(wasImporting)
+            return
+        }
+        if isProjectUnreadable {
+            // 保存ファイルが読めなかった: 何も書かない(前は空の内容で上書きしていた)。サムネイルと一覧の情報もそのまま
             onClose(wasImporting)
             return
         }
@@ -4660,7 +4994,7 @@ struct ContentView: View {
         activeSheet = nil
         selection = nil
         draftStrokes = []
-        // 写真ライブラリから読み出せずに保留していたクリップも消す(残すと保存のときに書き戻される)
+        // 写真ライブラリから読み出せない・素材ファイルが見つからずに保留していた項目も消す(残すと保存のときに書き戻される)
         ProjectStore.discardHeldUnresolvedItems(projectID: projectID)
         project.restore(ProjectSnapshot(clips: [],
                                         subtitles: [],
@@ -4679,25 +5013,7 @@ struct ContentView: View {
         if !didRestore {
             didRestore = true
             Analytics.shared.projectOpened()
-            let photoReferences: [String] = ProjectStore.photoReferences(projectID: projectID)
-            if photoReferences.isEmpty {
-                restoreSavedProject()
-            } else {
-                // 写真ライブラリを参照している動画は、読み出せるようにしてから開く
-                isLoadingPhotoMedia = true
-                showToast(String(localized: "写真ライブラリから動画を読み込んでいます…"))
-                Task { @MainActor in
-                    let missing: [String] = await PhotoMediaResolver.prepare(references: photoReferences)
-                    restoreSavedProject()
-                    isLoadingPhotoMedia = false
-                    if !missing.isEmpty {
-                        // 写真へのアクセスを許可していない・選んだ写真だけのときは、設定アプリへの入り口を出す
-                        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-                        alertOffersSettings = status == .denied || status == .limited
-                        alertMessage = String(localized: "写真ライブラリに見つからない動画が \(missing.count) 本ありました。写真アプリで削除したか、写真へのアクセスが許可されていない可能性があります(設定アプリの「Video Mania」→「写真」で「フルアクセス」を選んでください)。")
-                    }
-                }
-            }
+            openSavedProject()
         }
         player.update(with: project.snapshot())
         // 共有で受け取った動画・写真がないか見る(一覧の「新しいプロジェクトで編集」から開いたときは、ここで取り込む)
@@ -4705,17 +5021,69 @@ struct ContentView: View {
         checkIncomingMedia()
     }
 
+    /// 保存済みの内容を開く(開いたときと「前回の状態に戻す」のあと)。
+    /// 写真ライブラリを参照している動画は、読み出せるようにしてから開く
+    @MainActor
+    private func openSavedProject() {
+        let photoReferences: [String] = ProjectStore.photoReferences(projectID: projectID)
+        if photoReferences.isEmpty {
+            restoreSavedProject()
+        } else {
+            isLoadingPhotoMedia = true
+            showToast(String(localized: "写真ライブラリから動画を読み込んでいます…"))
+            Task { @MainActor in
+                let missing: [String] = await PhotoMediaResolver.prepare(references: photoReferences)
+                restoreSavedProject()
+                isLoadingPhotoMedia = false
+                if !missing.isEmpty, !isProjectUnreadable {
+                    // 写真へのアクセスを許可していない・選んだ写真だけのときは、設定アプリへの入り口を出す
+                    let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                    alertOffersSettings = status == .denied || status == .limited
+                    let photoNote = String(localized: "写真ライブラリに見つからない動画が \(missing.count) 本ありました。写真アプリで削除したか、写真へのアクセスが許可されていない可能性があります(設定アプリの「Video Mania」→「写真」で「フルアクセス」を選んでください)。")
+                    // 素材ファイルが見つからない項目のお知らせ(restoreSavedProject)があれば、続けて出す
+                    alertMessage = [alertMessage, photoNote].compactMap { $0 }.joined(separator: "\n\n")
+                }
+            }
+        }
+    }
+
     /// 保存済みの内容を読み込んで表示する
     @MainActor
     private func restoreSavedProject() {
-        if let saved = ProjectStore.load(projectID: projectID) {
+        switch ProjectStore.open(projectID: projectID) {
+        case .loaded(let saved, let missingMediaItems):
+            isProjectUnreadable = false
             project.restore(saved)
             restoredSnapshot = project.snapshot()
             if !saved.isEmpty {
                 Task { await reloadThumbnails() }
             }
+            noteMissingMedia(missingMediaItems)
+        case .notFound:
+            isProjectUnreadable = false
+        case .unreadable(let backupAvailable):
+            // 読めない保存ファイルは空のプロジェクトとして開かない(前は閉じるときの保存で中身がすべて消えていた)。
+            // 保存も止め(persist・closeProject。ProjectStore も書き込まない)、前回の状態に戻すか一覧へ戻るかを選んでもらう
+            isProjectUnreadable = true
+            unreadableBackupAvailable = backupAvailable
+            unreadableRestoreFailed = false
+            showUnreadableAlert = true
         }
         player.update(with: project.snapshot())
+    }
+
+    /// 素材ファイルが見つからずに編集画面に出さなかった項目があれば、何件あったかを伝える。
+    /// 項目はプロジェクトに残っているので、同じ項目については 1 回だけ伝える(開くたびには出さない)
+    private func noteMissingMedia(_ items: [String]) {
+        let key = "project.missingMediaNotice." + projectID.uuidString
+        guard !items.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        let signature: String = items.sorted().joined(separator: ",")
+        guard UserDefaults.standard.string(forKey: key) != signature else { return }
+        UserDefaults.standard.set(signature, forKey: key)
+        alertMessage = String(localized: "素材のファイルが見つからない項目が \(items.count) 件ありました。プレビューと書き出しには入りませんが、プロジェクトからは消さずに残しています。")
     }
 
     /// このプロジェクトの動画の置き場所
@@ -4917,11 +5285,14 @@ struct ContentView: View {
         guard !urls.isEmpty else { return }
         guard !isImporting else {
             // 取り込めないので、Google フォトの一時ファイルは残さない
-            // (共有で受け取ったファイルは残して IncomingMediaCenter に返す。あとでまた聞く)
+            // (共有で受け取ったファイルは残して IncomingMediaCenter に返す。あとでまた聞く。
+            //  カメラで撮った動画はほかに無いので消さずに残し、いまの取り込みが終わってからどうするか聞く)
             if deleteSourcesAfter {
                 let incoming: [URL] = urls.filter { LocalMediaImport.isInIncomingInbox($0) }
+                let takes: [URL] = urls.filter { LocalMediaImport.isCameraTake($0) }
                 IncomingMediaCenter.shared.giveBack(incoming)
-                removeImportSources(urls.filter { !LocalMediaImport.isInIncomingInbox($0) })
+                keptCameraTakes.append(contentsOf: takes)
+                removeImportSources(urls.filter { !LocalMediaImport.isInIncomingInbox($0) && !LocalMediaImport.isCameraTake($0) })
             }
             return
         }
@@ -4937,7 +5308,9 @@ struct ContentView: View {
     ///   Google ドライブなどの端末にまだないファイルは、ダウンロードが終わるのを待ってからコピーする)
     /// - deleteSourcesAfter: 元のファイルを消す(Google フォトの一時ファイル・共有で受け取ったファイル)。
     ///   共有で受け取ったファイルは 1 件済むごとに消し(途中でアプリが終了しても、取り込み済みのものをまた聞かないように)、
-    ///   キャンセルで取り込まなかったものは IncomingMediaCenter に返す
+    ///   キャンセルで取り込まなかったものは IncomingMediaCenter に返す。
+    ///   カメラで撮った動画は Media フォルダへ移し(4K の長い撮影でも空き容量が要らない)、プロジェクトに入ったときだけ元が無くなる。
+    ///   失敗・キャンセルで入らなかった撮影は消さずに残し、もう一度取り込むか写真に保存するかを聞く(前は失敗しても消していた)
     @MainActor
     private func importLocalFiles(_ urls: [URL], securityScoped: Bool, deleteSourcesAfter: Bool) async {
         isImporting = true
@@ -4948,6 +5321,12 @@ struct ContentView: View {
         importCopiedPhotoMedia = false
         // 共有で受け取ったファイルか(Media フォルダへ移したあとはパスで判定できないことがあるので、先に決めておく)
         let incomingFlags: [Bool] = urls.map { deleteSourcesAfter && LocalMediaImport.isInIncomingInbox($0) }
+        // カメラで撮った動画か(同じく先に決めておく)
+        let cameraFlags: [Bool] = urls.map { deleteSourcesAfter && LocalMediaImport.isCameraTake($0) }
+        // プロジェクトに入った撮影(コピーで取り込んだときは、残った元のファイルを最後に消す)
+        var addedTakes: [URL] = []
+        // Media フォルダへ移したあと入らなかった撮影(消さずにそこに残す)
+        var movedKeptTakes: [URL] = []
         var failures: [String] = []
         var recorded = false
         var added = 0
@@ -4976,16 +5355,18 @@ struct ContentView: View {
             if Task.isCancelled { break }
             importFraction = nil
             let isIncoming: Bool = incomingFlags[index]
+            let isCameraTake: Bool = cameraFlags[index]
             // 共有で受け取ったファイル・Google フォトの一時ファイルは "<NNN>-<元の名前>"(先頭の番号は外す)
             let fileName: String = LocalMediaImport.storedFileName(for: url, stripsNumberPrefix: deleteSourcesAfter)
             // Media フォルダに置いたファイル(クリップにできなかったときは消すか、元の場所に戻す)
             var copied: URL? = nil
-            // 共有で受け取ったファイルを Media フォルダへ移した(取り込まなかったときは元の場所に戻す)
+            // 共有で受け取ったファイル・カメラの撮影を Media フォルダへ移した
+            // (取り込まなかったときは、受け取ったファイルは元の場所に戻し、撮影は Media フォルダに置いたまま残す)
             var movedFromInbox = false
             do {
                 let destination: URL
-                if isIncoming {
-                    // 共有で受け取ったファイルは移す(コピーより速く、空き容量も要らない。移せなければコピーする)
+                if isIncoming || isCameraTake {
+                    // 共有で受け取ったファイルとカメラの撮影は移す(コピーより速く、空き容量も要らない。移せなければコピーする)
                     let stored = try await LocalMediaImport.moveIntoMediaDirectory(url, fileName: fileName)
                     destination = stored.url
                     movedFromInbox = stored.moved
@@ -5020,9 +5401,13 @@ struct ContentView: View {
                 }
                 if firstAddedID == nil { firstAddedID = clip.id }
                 added += 1
+                if isCameraTake { addedTakes.append(url) }
             } catch {
                 if let copied {
-                    if movedFromInbox {
+                    if movedFromInbox && isCameraTake {
+                        // 撮った動画はここにしか無いので、移した Media フォルダに置いたまま残す(どうするかは最後に聞く)
+                        movedKeptTakes.append(copied)
+                    } else if movedFromInbox {
                         // 受け取ったファイルをなくさないよう、元の場所に戻す
                         await LocalMediaImport.moveBack(copied, to: url)
                     } else {
@@ -5061,10 +5446,22 @@ struct ContentView: View {
             IncomingMediaCenter.shared.giveBack(unprocessedIncoming)
             postponedIncomingURLs = IncomingMediaCenter.shared.pendingURLs
         }
+        // プロジェクトに入らなかった撮影(失敗・キャンセル・手を付けなかったもの)。元の場所に残っているものと、
+        // Media フォルダへ移したまま残したもの。どちらも消さずに、もう一度取り込むか写真に保存するかを聞く
+        var keptTakes: [URL] = zip(urls, cameraFlags).filter { $0.1 }.map { $0.0 }
+            .filter { !addedTakes.contains($0) && FileManager.default.fileExists(atPath: $0.path) }
+        keptTakes.append(contentsOf: movedKeptTakes)
         if deleteSourcesAfter {
-            // Google フォトの一時ファイルは、キャンセルで取り込まなかったものも含めて消す
+            // Google フォトの一時ファイルは、キャンセルで取り込まなかったものも含めて消す(残した撮影は消さない)
             let temporary: [URL] = zip(urls, incomingFlags).filter { !$0.1 }.map { $0.0 }
+                .filter { !keptTakes.contains($0) }
             removeImportSources(temporary)
+        }
+        if !keptTakes.isEmpty {
+            keptCameraTakes.append(contentsOf: keptTakes)
+            var reasons = Set<String>()
+            let reasonLines: [String] = failures.filter { reasons.insert($0).inserted }
+            keptCameraTakesReason = cancelled || reasonLines.isEmpty ? nil : reasonLines.joined(separator: "\n")
         }
         isImporting = false
         importFraction = nil
@@ -5072,7 +5469,12 @@ struct ContentView: View {
         importTask = nil
         // 一部だけ読み込めなかったときも、読み込めたクリップは選び、お知らせを閉じたら「元に戻す」つきのトーストを出す
         if let id = firstAddedID { selection = .clip(id) }
-        if !failures.isEmpty, !cancelled {
+        if !keptTakes.isEmpty {
+            // 撮影のお知らせ(取り込めなかった理由も入れる)は、取り込みが終わってから checkIncomingMedia が出す
+            if added > 0 {
+                showToast(String(localized: "\(added)件を追加しました"), undo: true)
+            }
+        } else if !failures.isEmpty, !cancelled {
             alertMessage = Self.importResultMessage(added: added, failures: failures)
             if added > 0 {
                 toastAfterAlert = EditorToast(String(localized: "\(added)件を追加しました"), canUndo: true)
@@ -5110,9 +5512,10 @@ struct ContentView: View {
 
     // MARK: ドラッグ&ドロップ
 
-    /// ほかのアプリから落とした動画・写真を受け取れるか(読み込み中・パネルや画面内の処理の間は受け取らない)
+    /// ほかのアプリから落とした動画・写真を受け取れるか(読み込み中・パネルや画面内の処理の間は受け取らない。
+    /// 保存ファイルが読めなかったプロジェクトは保存できないので受け取らない)
     private var canAcceptDrop: Bool {
-        didRestore && !isImporting && !isLoadingPhotoMedia && !isPanelOrToolBusy
+        didRestore && !isImporting && !isLoadingPhotoMedia && !isPanelOrToolBusy && !isProjectUnreadable
     }
 
     /// タイムラインに落とした: 落とした位置に近いクリップの切れ目に差し込む
@@ -5247,6 +5650,19 @@ struct ContentView: View {
     /// 読み込み中・復元中・下のパネルを開いている間・画面内の処理(無音カット・逆再生・解析など)の間は終わってから
     /// (onChange で呼び直す)。シートや写真の選択などを出している間は、少し待って確かめ直す
     private func checkIncomingMedia() {
+        // 保存ファイルが読めなかったプロジェクトには何も取り込まない(保存できないので、取り込んだものがなくなる)
+        guard !isProjectUnreadable else { return }
+        // カメラで撮ったのにプロジェクトに入らなかった動画があれば、先にどうするか聞く
+        // (取り込み・パネル・シート・ほかのお知らせが終わってから。消さずに残している)
+        if !keptCameraTakes.isEmpty {
+            guard didRestore, !isLoadingPhotoMedia, !isImporting, !isPanelOrToolBusy, !showKeptCameraTakes, !isSavingKeptTakes else { return }
+            if activeSheet != nil || alertMessage != nil || ScreenPresentation.isPresentingSomething {
+                scheduleIncomingCheck(retry: true)
+            } else {
+                showKeptCameraTakes = true
+            }
+            return
+        }
         // 一覧に落とした動画・写真(このプロジェクトはそのために作った)は、聞かずに取り込む
         if didRestore, !isLoadingPhotoMedia, !isImporting, !isPanelOrToolBusy,
            let dropped = DroppedMediaHandoff.take(for: projectID) {
@@ -5305,6 +5721,72 @@ struct ContentView: View {
         importAppendsAtEnd = false
         startLocalImport(urls, securityScoped: false, deleteSourcesAfter: true)
     }
+
+    // MARK: 取り込めなかったカメラの撮影
+
+    /// 撮影を残したお知らせの説明(取り込めなかった理由があれば続ける)
+    private var keptCameraTakesMessage: String {
+        let head = String(localized: "動画は消さずに残しています。もう一度取り込むか、写真に保存してください。")
+        guard let reason = keptCameraTakesReason else { return head }
+        return head + "\n\n" + reason
+    }
+
+    /// 「もう一度取り込む」: 残しておいた撮影を、再生位置のクリップの後ろに取り込む(また入らなければ、また聞く)
+    private func retryKeptCameraTakes() {
+        let takes: [URL] = keptCameraTakes
+        keptCameraTakes = []
+        keptCameraTakesReason = nil
+        importSourceOverride = "camera"
+        startLocalImport(takes, securityScoped: false, deleteSourcesAfter: true)
+    }
+
+    /// 「写真に保存」: 残しておいた撮影を写真ライブラリに保存し(追加だけの許可。ExportManager と同じ)、保存できたものはアプリから消す。
+    /// 許可が無い・保存できなかったものは残して、お知らせを閉じたらまた聞く
+    private func saveKeptCameraTakesToPhotos() {
+        guard !isSavingKeptTakes else { return }
+        let takes: [URL] = keptCameraTakes
+        // 保存が終わるまで一覧からは外さない(途中で閉じても、残した撮影の行き先がわかるように)
+        isSavingKeptTakes = true
+        keptCameraTakesReason = nil
+        Task { @MainActor in
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else {
+                isSavingKeptTakes = false
+                alertOffersSettings = true
+                alertMessage = String(localized: "写真ライブラリへの保存が許可されていません。設定アプリから許可してください")
+                return
+            }
+            var failed = false
+            for url in takes {
+                do {
+                    try await PHPhotoLibrary.shared().performChanges {
+                        _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+                    }
+                    try? FileManager.default.removeItem(at: url)
+                    keptCameraTakes.removeAll { $0 == url }
+                } catch {
+                    failed = true
+                }
+            }
+            isSavingKeptTakes = false
+            if !failed {
+                showToast(String(localized: "写真に保存しました"))
+                scheduleIncomingCheck()
+            } else {
+                alertMessage = String(localized: "写真に保存できませんでした")
+            }
+        }
+    }
+
+    /// 「動画を削除」: 残しておいた撮影を消す(自分で選んだときだけ)
+    private func discardKeptCameraTakes() {
+        for url in keptCameraTakes {
+            try? FileManager.default.removeItem(at: url)
+        }
+        keptCameraTakes = []
+        keptCameraTakesReason = nil
+        scheduleIncomingCheck()
+    }
 }
 
 // MARK: - 端末にあるファイルを Media フォルダにコピーする
@@ -5326,6 +5808,15 @@ enum LocalMediaImport {
             if type.conforms(to: .image) { return .image }
         }
         return MediaStore.imagePixelSize(of: url) != nil ? .image : .movie
+    }
+
+    /// 取り込みに渡されたファイルが、カメラで撮った動画か(消さずに扱う。取り込めなければ残して、どうするか聞く)。
+    /// 撮影の一時フォルダの中のものと、前に取り込めずに Media フォルダへ移したまま残したもの
+    /// (deleteSourcesAfter で Media フォルダのファイルが渡されるのは、残した撮影の「もう一度取り込む」だけ)
+    static func isCameraTake(_ url: URL) -> Bool {
+        if CameraRecorder.isTemporaryRecording(url) { return true }
+        return url.deletingLastPathComponent().resolvingSymlinksInPath().path
+            == MediaStore.mediaDirectory.resolvingSymlinksInPath().path
     }
 
     /// 共有で受け取ったファイル(App Group の Inbox の中)か

@@ -19,3 +19,8 @@ crons = ["0 18 * * *"]
 binding = "DB"
 database_name = "videomania"
 database_id = "__D1_DATABASE_ID__"
+
+# BGM の曲と一覧(src/bgm.js)。バケットが無いアカウントでは deploy-server.yml がこの設定を外してデプロイする
+[[r2_buckets]]
+binding = "BGM"
+bucket_name = "videomania-bgm"

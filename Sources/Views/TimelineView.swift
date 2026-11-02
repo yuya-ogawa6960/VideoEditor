@@ -38,6 +38,8 @@ struct TimelineView: View {
     let onAdd: (TimelineAddKind) -> Void
     /// クリップの切れ目のボタン・バッジをタップしたとき(前側のクリップの ID)。nil ならクリップを選ぶだけ
     var onTransition: ((UUID) -> Void)? = nil
+    /// カメラのトラックの区間から、マルチカメラのスイッチャーを開く(V1 のクリップの ID、作品の秒)
+    var onOpenMulticam: ((UUID, Double) -> Void)? = nil
 
     /// 全トラックを並べたときの高さ(互換用の固定値。画面側は preferredHeight(for:) を使う)
     static let totalHeight: CGFloat = TimelineMetrics.totalHeight
@@ -66,7 +68,8 @@ struct TimelineView: View {
                                       hasBGM: project.audio.bgmURL != nil,
                                       narrationLanes: TimelineMetrics.narrationLaneCount(project.narration),
                                       mosaicLanes: TimelineMetrics.mosaicLaneCount(project.textClips),
-                                      effectLanes: TimelineMetrics.effectLaneCount(project.videoEffects))
+                                      effectLanes: TimelineMetrics.effectLaneCount(project.videoEffects),
+                                      cameraLanes: TimelineMetrics.cameraLaneCount(project.clips))
     }
 
     static func rowPlacements(_ rows: [TimelineTrackKind]) -> [TimelineRowPlacement] {
@@ -82,7 +85,8 @@ struct TimelineView: View {
     init(project: EditorProject, player: PlayerController, history: EditorHistory,
          timeline: TimelineState, selection: Binding<EditorSelection?>,
          onAdd: @escaping (TimelineAddKind) -> Void = { _ in },
-         onTransition: ((UUID) -> Void)? = nil) {
+         onTransition: ((UUID) -> Void)? = nil,
+         onOpenMulticam: ((UUID, Double) -> Void)? = nil) {
         self.project = project
         self.player = player
         self.history = history
@@ -90,6 +94,7 @@ struct TimelineView: View {
         self._selection = selection
         self.onAdd = onAdd
         self.onTransition = onTransition
+        self.onOpenMulticam = onOpenMulticam
     }
 
     /// ジェスチャー管理(変更しても再描画しない)
@@ -120,6 +125,8 @@ struct TimelineView: View {
     @State private var verticalOffset: CGFloat = 0
     /// 部品のドラッグ中は段の割り当てと行の高さを固定する(終わったらアニメーションで整える)
     @State private var frozenLanes: TimelineFrozenLanes? = nil
+    /// タップしたカメラの区間(操作の一覧を出す。nil なら閉じている)
+    @State private var cameraActionSegment: TimelineCameraSegment? = nil
 
     /// 操作のヒントを一度だけ出す
     @AppStorage("timeline.reorderTrimHintShown") private var hintShown: Bool = false
@@ -149,6 +156,13 @@ struct TimelineView: View {
         // 画面側の高さが先に変わっても(段が増えた直後など)、トラックは上に揃えたまま動かさない
         .frame(maxHeight: .infinity, alignment: .top)
         .background(TimelineMetrics.background)
+        .confirmationDialog(cameraActionSegment.map { String(localized: "アングル\($0.angle)") } ?? "",
+                            isPresented: Binding(get: { cameraActionSegment != nil },
+                                                 set: { if !$0 { cameraActionSegment = nil } }),
+                            titleVisibility: .visible,
+                            presenting: cameraActionSegment) { segment in
+            cameraSegmentActions(segment)
+        }
         .onChange(of: editGestureActive) { _, active in
             if !active { finishEdit() }
         }
@@ -319,6 +333,7 @@ struct TimelineView: View {
         let laneHeight: CGFloat
         switch kind {
         case .video: laneHeight = TimelineMetrics.videoHeight
+        case .camera: laneHeight = TimelineMetrics.cameraHeight
         case .overlay: laneHeight = TimelineMetrics.overlayHeight
         case .text, .mosaic: laneHeight = TimelineMetrics.textHeight
         case .effect: laneHeight = TimelineMetrics.effectHeight
@@ -352,6 +367,8 @@ struct TimelineView: View {
                               frame f: TimelineFrameData) -> some View {
         let pps = f.pps
         switch kind {
+        case .camera(let lanes):
+            cameraTrack(width: width, originX: originX, pps: pps, ranges: f.ranges, lanes: lanes)
         case .overlay:
             overlayTrack(width: width, originX: originX, pps: pps, overlays: f.snapshot.overlays)
         case .video:
@@ -572,6 +589,182 @@ struct TimelineView: View {
         } else {
             selection = nil
         }
+    }
+
+    // MARK: - カメラのトラック(マルチカメラ)
+
+    /// マルチカメラの切替を、V2・V3 … のカメラのトラックとして描く。データはクリップの中の切替のまま
+    /// (合成と同じ区切り方なので、V1 の分割・トリム・無音カット・速度変更のあとも映像とずれない)
+    private func cameraTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                             ranges: [TimelineClipRange], lanes: Int) -> some View {
+        let h: CGFloat = TimelineMetrics.cameraHeight
+        let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
+        // 並べ替え中はクリップがタイルになるので描かない
+        let segments: [TimelineCameraSegment] = reorderClipID == nil
+            ? cameraSegments(width: width, originX: originX, pps: pps, ranges: ranges).filter { $0.angle <= lanes }
+            : []
+        return ZStack(alignment: .topLeading) {
+            ForEach(segments) { segment in
+                // アングル 1(V2)がいちばん下。上の段ほど番号が大きい
+                let laneY: CGFloat = CGFloat(max(0, lanes - segment.angle)) * laneStep
+                cameraSegmentMenu(segment, height: h, lanes: lanes)
+                    .offset(x: segment.visibleX, y: laneY)
+            }
+        }
+        .frame(width: width, height: TimelineMetrics.stackedHeight(h, lanes: lanes), alignment: .topLeading)
+    }
+
+    /// 切替から、画面に描くカメラの区間を作る(映像のある所とない所は分けて描く)
+    private func cameraSegments(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                                ranges: [TimelineClipRange]) -> [TimelineCameraSegment] {
+        var result: [TimelineCameraSegment] = []
+        let shiftIndex: Int? = leftTrimClipID.flatMap { project.index(of: $0) }
+        let gap: CGFloat = TimelineMetrics.clipGap
+        let margin: CGFloat = TimelineMetrics.cullMargin
+        // 素材フォルダの場所とアングルの素材の有無は、1 回の描画で 1 度だけ調べる(無音カットの切れ端はどれも同じアングルを持つ)
+        let mediaPath = MediaStore.mediaDirectory.standardizedFileURL.path
+        var missingByPath: [String: Bool] = [:]
+        for (index, clip) in project.clips.enumerated() {
+            guard index < ranges.count, !clip.multicam.angles.isEmpty,
+                  !(clip.isReversed && clip.reversedURL != nil) else { continue }
+            let range = ranges[index]
+            // V1 のクリップのバーと同じ位置(左端トリム中のずらしも同じ)
+            var clipX: CGFloat = originX + CGFloat(range.start) * pps
+            if let shiftIndex, index >= shiftIndex {
+                clipX += CGFloat(leftTrimShiftSeconds) * pps
+            }
+            var barLeft: CGFloat = clipX + gap / 2
+            var barRight: CGFloat = clipX + max(CGFloat(range.duration) * pps - gap / 2, gap / 2 + 1)
+            // V1(clipItems)と同じく、トランジションで重なる所は重なりの中央を切れ目にする(隣のクリップの区間と重ならない)
+            let shift: Double = leftTrimShiftSeconds
+            if index > 0 {
+                var prevEnd: Double = ranges[index - 1].end
+                var myStart: Double = range.start
+                if let shiftIndex {
+                    if index - 1 >= shiftIndex { prevEnd += shift }
+                    if index >= shiftIndex { myStart += shift }
+                }
+                if prevEnd > myStart {
+                    barLeft = max(barLeft, originX + CGFloat((prevEnd + myStart) / 2) * pps + gap / 2)
+                }
+            }
+            if index + 1 < project.clips.count, index + 1 < ranges.count {
+                var myEnd: Double = range.end
+                var nextStart: Double = ranges[index + 1].start
+                if let shiftIndex {
+                    if index >= shiftIndex { myEnd += shift }
+                    if index + 1 >= shiftIndex { nextStart += shift }
+                }
+                if myEnd > nextStart {
+                    barRight = min(barRight, originX + CGFloat((myEnd + nextStart) / 2) * pps - gap / 2)
+                }
+            }
+            // 画面の外のクリップは調べない(区間はどれも barLeft...barRight に収まるので、描くものは変わらない)。
+            // 再生中は毎コマ描き直すので、長い多カメラの収録を無音カットした後も重くならないように
+            guard barRight > -margin, barLeft < width + margin else { continue }
+            let runs = MulticamSwitcherPanel.runs(multicam: clip.multicam, start: clip.startTime, end: clip.endTime)
+            // 素材フォルダに無い・写真ライブラリから読めないアングルは、合成ではメインの映像になるので「映像なし」で描く
+            var missingAngles: Set<Int> = []
+            for k in clip.multicam.angles.indices {
+                let url = clip.multicam.angles[k].url
+                let path = url.standardizedFileURL.path
+                let missing: Bool
+                if let known = missingByPath[path] {
+                    missing = known
+                } else {
+                    missing = ProjectStore.isUnavailablePhotoURL(url)
+                        || (path.hasPrefix(mediaPath) && !FileManager.default.fileExists(atPath: url.path))
+                    missingByPath[path] = missing
+                }
+                if missing { missingAngles.insert(k) }
+            }
+            for run in runs where run.angle >= 1 && run.angle <= clip.multicam.angles.count {
+                let angle = clip.multicam.angles[run.angle - 1]
+                let footageStart = angle.mainTime(atAngle: 0)
+                let footageEnd = angle.mainTime(atAngle: angle.duration)
+                var pieces: [(start: Double, end: Double, hasFootage: Bool)] = []
+                let fs = max(run.start, footageStart)
+                let fe = min(run.end, footageEnd)
+                if fe > fs && !missingAngles.contains(run.angle - 1) {
+                    if fs > run.start { pieces.append((start: run.start, end: fs, hasFootage: false)) }
+                    pieces.append((start: fs, end: fe, hasFootage: true))
+                    if run.end > fe { pieces.append((start: fe, end: run.end, hasFootage: false)) }
+                } else {
+                    pieces.append((start: run.start, end: run.end, hasFootage: false))
+                }
+                for piece in pieces {
+                    let x0: CGFloat = clipX + CGFloat(clip.outputOffset(atSourceTime: piece.start)) * pps
+                    let x1: CGFloat = clipX + CGFloat(clip.outputOffset(atSourceTime: piece.end)) * pps
+                    let left: CGFloat = max(x0, barLeft)
+                    let right: CGFloat = min(x1, barRight)
+                    guard right - left >= 1,
+                          let span = TimelineMetrics.visibleSpan(x: left, width: right - left, viewWidth: width) else { continue }
+                    result.append(TimelineCameraSegment(
+                        id: "\(clip.id.uuidString)-\(piece.start)",
+                        clipID: clip.id,
+                        angle: run.angle,
+                        angleCount: clip.multicam.angles.count,
+                        // 映像なしの部分のメニューは、その部分だけを変える(隣の映像のある部分は残す)。
+                        // 映像のある部分は切替の区間ごと(前後の映像なしも一緒に変える)
+                        runStart: piece.hasFootage ? run.start : piece.start,
+                        runEnd: piece.hasFootage ? run.end : piece.end,
+                        hasFootage: piece.hasFootage,
+                        visibleX: span.x,
+                        visibleWidth: span.width,
+                        timelineStart: range.start + clip.outputOffset(atSourceTime: piece.start)))
+                }
+            }
+        }
+        return result
+    }
+
+    /// 区間のバー。ほかの部品と同じく onTapGesture にする(Menu は押した瞬間に開くので、
+    /// バーの上から始めたスクラブがメニューになり、指を離した所の操作が選ばれてしまう)。操作は confirmationDialog で出す
+    private func cameraSegmentMenu(_ segment: TimelineCameraSegment, height: CGFloat, lanes: Int) -> some View {
+        TimelineCameraBar(angle: segment.angle,
+                          hasFootage: segment.hasFootage,
+                          width: segment.visibleWidth,
+                          height: height)
+            // ほかの部品と同じく、段の判定を行間の半分まで広げる(すき間のタップで選択が外れないように)
+            .timelineLaneHitArea(row: max(0, lanes - segment.angle), rows: lanes)
+            .onTapGesture {
+                // 慣性スクロール中のタップはスクロールを止めるだけ
+                if tapStopsMomentum() { return }
+                cameraActionSegment = segment
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(localized: "アングル\(segment.angle)"))
+            .accessibilityAddTraits(.isButton)
+    }
+
+    /// カメラの区間の操作: ほかのカメラにする / 消す(V1 に戻す)/ スイッチャーで開く
+    @ViewBuilder
+    private func cameraSegmentActions(_ segment: TimelineCameraSegment) -> some View {
+        ForEach(1...max(1, segment.angleCount), id: \.self) { n in
+            if n != segment.angle {
+                Button("アングル\(n)(V\(n + 1))にする") {
+                    setCameraAngle(segment, to: n)
+                }
+            }
+        }
+        Button("このカットを消す(V1 に戻す)", role: .destructive) {
+            setCameraAngle(segment, to: 0)
+        }
+        if onOpenMulticam != nil {
+            Button("スイッチャーで開く") {
+                onOpenMulticam?(segment.clipID, segment.timelineStart + 0.01)
+            }
+        }
+    }
+
+    /// 区間のカメラを変える(0 = メインに戻す)。↶ で戻せる
+    private func setCameraAngle(_ segment: TimelineCameraSegment, to angle: Int) {
+        guard let index = project.index(of: segment.clipID) else { return }
+        history.record(project)
+        var clip = project.clips[index]
+        clip.multicam.setAngle(angle, from: segment.runStart, to: segment.runEnd)
+        project.clips[index] = clip
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     // MARK: - 重ね合わせトラック

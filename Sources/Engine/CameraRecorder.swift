@@ -95,6 +95,12 @@ final class CameraRecorder {
         return dir
     }
 
+    /// 録画の一時フォルダの中のファイルか(撮影はここにしか無いので、取り込みに失敗しても消さずに残すために見分ける)
+    static func isTemporaryRecording(_ url: URL) -> Bool {
+        url.deletingLastPathComponent().resolvingSymlinksInPath().path
+            == temporaryDirectory.resolvingSymlinksInPath().path
+    }
+
     init() {
         delegateProxy.owner = self
         let center = NotificationCenter.default

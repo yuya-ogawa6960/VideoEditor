@@ -519,8 +519,11 @@ struct EditorOverlaySpeedPanel: View {
 struct EditorOverlayFilterPanel: View {
     let project: EditorProject
     @Binding var overlay: OverlayClip
+    let player: PlayerController
 
     @State private var thumbnail: UIImage?
+    /// スライダーを動かしている間、beginInteraction を呼んだままか
+    @State private var holdsInteraction = false
 
     var body: some View {
         FilterPickerView(filter: $overlay.filter,
@@ -531,9 +534,28 @@ struct EditorOverlayFilterPanel: View {
                              for i in project.overlays.indices {
                                  project.overlays[i].filter = FilterPickerView.presetLook(from: filter, onto: project.overlays[i].filter)
                              }
-                         })
+                         },
+                         onEditingChanged: setEditing)
         .task(id: overlay.url) {
             await loadThumbnail()
+        }
+        // 合成の作り直しを待たずに、いまの映像へそのまま入れる(クリップのカラープリセットと同じ)
+        .onChange(of: overlay.filter) { _, newValue in
+            player.setLiveOverlayFilter(newValue, for: overlay.id)
+        }
+        .onDisappear {
+            setEditing(false)
+        }
+    }
+
+    /// 動かしている間は合成を作り直さない(離したら 1 回だけ作り直す)
+    private func setEditing(_ editing: Bool) {
+        guard editing != holdsInteraction else { return }
+        holdsInteraction = editing
+        if editing {
+            player.beginInteraction(cancelPendingRebuild: true)
+        } else {
+            player.endInteraction()
         }
     }
 

@@ -15,6 +15,7 @@
 // =====================================================================
 
 import { verifyAppTransaction, isSandbox } from "./appTransaction.js";
+import { isBGMPath, serveBGM } from "./bgm.js";
 
 const POINTS = {
   signup: 100,            // はじめてのサインイン
@@ -75,6 +76,8 @@ export default {
       if (request.method === "POST" && path === "/v1/auth/apple") return await signInWithApple(request, env);
       // AdMob のサーバー側検証(ログイン不要。署名で確かめる)
       if (request.method === "GET" && path === "/v1/ads/ssv") return await admobSSV(url, env);
+      // BGM の一覧と曲(ログイン不要。src/bgm.js)
+      if ((request.method === "GET" || request.method === "HEAD") && isBGMPath(path)) return await serveBGM(request, env, path);
 
       // ここから先はログインが必要
       const user = await authenticate(request, env);

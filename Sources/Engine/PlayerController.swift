@@ -159,9 +159,21 @@ final class PlayerController {
         }
     }
 
-    /// トリム・並べ替え・移動などの連続操作の開始。終わるまで合成の作り直しを止める(入れ子可)
-    func beginInteraction() {
+    /// トリム・並べ替え・移動などの連続操作の開始。終わるまで合成の作り直しを止める(入れ子可)。
+    /// cancelPendingRebuild: 操作の前に予約した作り直し(待ち中・作成中)も止める。値を直接プレビューへ入れる操作
+    /// (カラーの強さなど)用。プリセットをタップしてすぐ強さを動かすと、タップで予約した作り直しがドラッグの途中で入れ替わり、
+    /// 新しい合成には直接入れた値がないので、一瞬タップした時点の見た目に戻っていた
+    func beginInteraction(cancelPendingRebuild: Bool = false) {
         interactionDepth += 1
+        guard cancelPendingRebuild, isRebuilding, let latest = latestSnapshot else { return }
+        rebuildTask?.cancel()
+        rebuildTask = nil
+        // 作成中の結果も捨てる
+        generation += 1
+        isRebuilding = false
+        // 終わったときに必ず作り直す(止めた作り直しの内容はまだ入っていない)
+        lastSnapshot = nil
+        pendingSnapshot = latest
     }
 
     /// 連続操作の終了。最後の 1 つが終わったら、操作中に届いた変更を 1 回だけ反映する
@@ -452,6 +464,28 @@ final class PlayerController {
     func setLiveRetouch(_ retouch: ClipRetouch, for clipID: UUID) {
         guard let compositor = player.currentItem?.customVideoCompositor as? VideoCompositor else { return }
         compositor.setLiveRetouch(retouch, for: clipID)
+        redrawPausedFrame()
+    }
+
+    /// カラープリセットのパネルから: 合成を作り直さずに、いまの映像へフィルタの値を入れる(強さなどを動かしている間も見える)。
+    /// 再生中なら次のコマから効く。止めているときはいまのコマを描き直す
+    func setLiveFilter(_ filter: FilterSettings, for clipID: UUID) {
+        guard let compositor = player.currentItem?.customVideoCompositor as? VideoCompositor else { return }
+        compositor.setLiveFilter(filter, for: clipID)
+        redrawPausedFrame()
+    }
+
+    /// オーバーレイのカラープリセットのパネルから(setLiveFilter と同じ)
+    func setLiveOverlayFilter(_ filter: FilterSettings, for overlayID: UUID) {
+        guard let compositor = player.currentItem?.customVideoCompositor as? VideoCompositor else { return }
+        compositor.setLiveOverlayFilter(filter, for: overlayID)
+        redrawPausedFrame()
+    }
+
+    /// 全体の色味(全体の仕上げのルック)の強さを、合成を作り直さずにいまの映像へ入れる
+    func setLiveLookIntensity(_ value: Double) {
+        guard let compositor = player.currentItem?.customVideoCompositor as? VideoCompositor else { return }
+        compositor.setLiveLookIntensity(value)
         redrawPausedFrame()
     }
 

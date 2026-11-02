@@ -147,6 +147,8 @@ struct EditorDocumentaryPanel: View {
 
     @State private var previews = DocumentaryPreviews()
     @State private var isLoadingPreviews = false
+    /// 強さを動かしている間、beginInteraction を呼んだままか
+    @State private var holdsInteraction = false
 
     /// 「おまかせ」で適用する設定
     static var recommendedStyle: DocumentaryStyle {
@@ -174,6 +176,26 @@ struct EditorDocumentaryPanel: View {
         style.dipToBlackBetweenClips = false
         style.autoDucking = false
         return style
+    }
+
+    /// 色の強さ。合成の作り直しを待たずに、いまの映像へそのまま入れる
+    private var lookIntensity: Binding<Double> {
+        Binding(get: { project.documentary.lookIntensity },
+                set: { value in
+                    project.documentary.lookIntensity = value
+                    player?.setLiveLookIntensity(value)
+                })
+    }
+
+    /// 強さを動かしている間は合成を作り直さない(離したら 1 回だけ作り直す)
+    private func setEditing(_ editing: Bool) {
+        guard editing != holdsInteraction, let player else { return }
+        holdsInteraction = editing
+        if editing {
+            player.beginInteraction(cancelPendingRebuild: true)
+        } else {
+            player.endInteraction()
+        }
     }
 
     private var duckingPercent: String {
@@ -233,24 +255,30 @@ struct EditorDocumentaryPanel: View {
                     .foregroundStyle(.secondary)
                     .disabled(isLoadingPreviews)
                 }
+                // 強さは見本の上に置く(パネルが低い iPhone でも、スクロールせずに見えるように)
+                EditorSliderRow(title: String(localized: "強さ"),
+                                value: lookIntensity,
+                                range: 0...1,
+                                display: percentText(project.documentary.lookIntensity),
+                                onEditingChanged: setEditing)
+                    .disabled(project.documentary.look == .none)
+                    .opacity(project.documentary.look == .none ? 0.4 : 1)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(LookPreset.allCases) { preset in
                             EditorVisualTile(title: preset.displayName,
                                              isSelected: project.documentary.look == preset) {
                                 project.documentary.look = preset
+                                // 強さを 0 にしたまま選び直すと何も変わって見えないので、ふつうの強さに戻す
+                                if preset != .none, project.documentary.lookIntensity <= 0.01 {
+                                    project.documentary.lookIntensity = 0.85
+                                }
                             } preview: {
                                 DocumentaryFrameTile(image: previews.looks[preset] ?? previews.base)
                             }
                         }
                     }
                 }
-                EditorSliderRow(title: String(localized: "強さ"),
-                                value: $project.documentary.lookIntensity,
-                                range: 0...1,
-                                display: percentText(project.documentary.lookIntensity))
-                    .disabled(project.documentary.look == .none)
-                    .opacity(project.documentary.look == .none ? 0.4 : 1)
             }
 
             // 画面演出(タップでオン・オフ。見本つき)
@@ -320,6 +348,7 @@ struct EditorDocumentaryPanel: View {
         }
         .padding(.top, 6)
         .onAppear { reloadPreviews() }
+        .onDisappear { setEditing(false) }
     }
 
     // MARK: 見本

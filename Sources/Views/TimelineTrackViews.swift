@@ -14,6 +14,8 @@ enum TimelineMetrics {
     static let rulerHeight: CGFloat = 26
     /// 重ね合わせ(Bロール / ワイプ / 写真)トラック
     static let overlayHeight: CGFloat = 32
+    /// マルチカメラのカメラのトラック(V2・V3 …)の 1 段
+    static let cameraHeight: CGFloat = 26
     static let videoHeight: CGFloat = 58
     /// 映像クリップの直下に出す J カット / L カットの音声バー用レーン
     static let splitAudioLaneHeight: CGFloat = 4
@@ -86,7 +88,7 @@ enum TimelineMetrics {
     /// 表示するトラック行(中身のあるトラックだけ + 映像 + 追加行)
     static func visibleTracks(overlayLanes: Int, textLanes: Int, hasDrawings: Bool,
                               hasSubtitles: Bool, hasBGM: Bool, narrationLanes: Int,
-                              mosaicLanes: Int, effectLanes: Int = 0) -> [TimelineTrackKind] {
+                              mosaicLanes: Int, effectLanes: Int = 0, cameraLanes: Int = 0) -> [TimelineTrackKind] {
         var rows: [TimelineTrackKind] = []
         // 映像のトラックは業務用ソフトと同じく V1 の上へ積み重ねる(上の行ほど上に重なって映る):
         // テキスト・ステッカー(いちばん上)→ 手書き → オーバーレイ → モザイク(FX)→ V1
@@ -97,6 +99,8 @@ enum TimelineMetrics {
         if effectLanes > 0 { rows.append(.effect(lanes: effectLanes)) }
         if overlayLanes > 0 { rows.append(.overlay(lanes: overlayLanes)) }
         if mosaicLanes > 0 { rows.append(.mosaic(lanes: mosaicLanes)) }
+        // マルチカメラのアングルは V1 のクリップの中で描かれる(モザイクもかかる)ので、モザイクの下・V1 の直上
+        if cameraLanes > 0 { rows.append(.camera(lanes: cameraLanes)) }
         rows.append(.video)
         if hasSubtitles { rows.append(.subtitle) }
         if hasBGM { rows.append(.audio) }
@@ -113,7 +117,24 @@ enum TimelineMetrics {
                       hasBGM: snapshot.audio.bgmURL != nil,
                       narrationLanes: narrationLaneCount(snapshot.narration),
                       mosaicLanes: mosaicLaneCount(snapshot.textClips),
-                      effectLanes: effectLaneCount(snapshot.videoEffects))
+                      effectLanes: effectLaneCount(snapshot.videoEffects),
+                      cameraLanes: cameraLaneCount(snapshot.clips))
+    }
+
+    /// カメラのトラックの段数(V1 のクリップの中で実際に区間のあるアングルの番号のいちばん大きいもの。
+    /// 使っていないアングルの空の段は作らない。逆再生中のクリップは合成で使わないので数えない)
+    static func cameraLaneCount(_ clips: [Clip]) -> Int {
+        var count = 0
+        for clip in clips where !clip.multicam.angles.isEmpty && !(clip.isReversed && clip.reversedURL != nil) {
+            let multicam = clip.multicam
+            // MulticamSwitcherPanel.runs と同じ範囲: クリップの頭で映っているカメラ + クリップの中の切替先
+            var used = multicam.angleIndex(at: clip.startTime)
+            for s in multicam.switches where s.time > clip.startTime && s.time < clip.endTime {
+                used = max(used, min(max(s.angle, 0), multicam.angles.count))
+            }
+            count = max(count, used)
+        }
+        return count
     }
 
     /// 行を全部並べたときの高さ(行間込み)
@@ -281,8 +302,10 @@ enum TimelineMetrics {
         var narrationLanes = 0
         var hasAudio = false
         var effectLanes = 0
+        var cameraLanes = 0
         for row in rows {
             switch row {
+            case .camera(let lanes): cameraLanes = lanes
             case .effect(let lanes): effectLanes = lanes
             case .overlay(let lanes): overlayLanes = lanes
             case .text(let lanes): textLanes = lanes
@@ -302,8 +325,14 @@ enum TimelineMetrics {
         if mosaicLanes > 0 {
             result["mosaic"] = mosaicLanes == 1 ? ["FX"] : (0..<mosaicLanes).map { "FX\(mosaicLanes - $0)" }
         }
-        // 描画の重なり順(オーバーレイ → 手書き → テキスト)に合わせて番号を振る。
+        // 描画の重なり順(カメラ → オーバーレイ → 手書き → テキスト)に合わせて番号を振る。
         // 段は下(V1 に近い方)から番号が増え、名前の並びは上の段から(段 0 がいちばん下)
+        // カメラのトラックはアングル 1 = V2、アングル 2 = V3 …
+        if cameraLanes > 0 {
+            let base = nextV
+            result["camera"] = (0..<cameraLanes).map { "V\(base + cameraLanes - 1 - $0)" }
+            nextV += cameraLanes
+        }
         if overlayLanes > 0 {
             let base = nextV
             result["overlay"] = (0..<overlayLanes).map { "V\(base + overlayLanes - 1 - $0)" }
@@ -349,6 +378,8 @@ struct TimelineSpan {
 /// タイムラインのトラック行の種類(目盛りは別扱い)
 enum TimelineTrackKind: Hashable {
     case video, drawing, subtitle, audio, add
+    /// マルチカメラのカメラのトラック(アングル 1 = V2 …)。V1 のクリップの中の切替から描く
+    case camera(lanes: Int)
     /// 重なる分だけ段を増やすトラック
     case overlay(lanes: Int)
     /// テキスト・ステッカー(モザイクは除く)
@@ -362,6 +393,7 @@ enum TimelineTrackKind: Hashable {
     /// 行の見分け(段数が変わっても同じ行として扱う)
     var key: String {
         switch self {
+        case .camera: return "camera"
         case .effect: return "effect"
         case .overlay: return "overlay"
         case .video: return "video"
@@ -377,6 +409,7 @@ enum TimelineTrackKind: Hashable {
 
     var height: CGFloat {
         switch self {
+        case .camera(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.cameraHeight, lanes: lanes)
         case .effect(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.effectHeight, lanes: lanes)
         case .overlay(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.overlayHeight, lanes: lanes)
         case .video: return TimelineMetrics.videoRowHeight
@@ -393,6 +426,7 @@ enum TimelineTrackKind: Hashable {
     /// 左端に出すアイコン(追加行は無し)
     var iconName: String? {
         switch self {
+        case .camera: return "camera.on.rectangle"
         case .effect: return "camera.filters"
         case .overlay: return "photo.on.rectangle"
         case .video: return "film"
@@ -404,6 +438,51 @@ enum TimelineTrackKind: Hashable {
         case .narration: return "mic.fill"
         case .add: return nil
         }
+    }
+}
+
+/// カメラのトラックに描く区間(V1 のクリップの中の切替から作る)
+struct TimelineCameraSegment: Identifiable {
+    let id: String
+    let clipID: UUID
+    /// アングルの番号(1 から。1 = V2)
+    let angle: Int
+    let angleCount: Int
+    /// この切替の区間(メインの元素材の秒)。メニューで変えるときはこの範囲ごと変える
+    let runStart: Double
+    let runEnd: Double
+    /// false = アングルの映像が無い所(合成もスイッチャーも V1 を映す)
+    let hasFootage: Bool
+    let visibleX: CGFloat
+    let visibleWidth: CGFloat
+    /// 区間の始まりの作品の秒(スイッチャーを開く位置)
+    let timelineStart: Double
+}
+
+/// カメラのトラックの区間のバー(スイッチャーと同じ色)
+struct TimelineCameraBar: View {
+    let angle: Int
+    let hasFootage: Bool
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(MulticamSwitcherPanel.color(angle).opacity(hasFootage ? 0.85 : 0.3))
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .strokeBorder(Color.white.opacity(hasFootage ? 0.25 : 0.5),
+                              style: StrokeStyle(lineWidth: 1, dash: hasFootage ? [] : [3, 3]))
+            if width >= 44 {
+                Text(hasFootage ? String(localized: "アングル\(angle)") : String(localized: "映像なし"))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+            }
+        }
+        .frame(width: max(width, 1), height: height, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 

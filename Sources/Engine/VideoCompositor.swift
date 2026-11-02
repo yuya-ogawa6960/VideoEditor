@@ -62,7 +62,8 @@ struct VideoCompositorOverlay {
     let opacity: Double
     let cornerRadius: Double
     let kenBurns: KenBurns
-    let filter: FilterSettings
+    /// カラープリセットのパネルで動かしている途中の値に差し替えられるよう var
+    var filter: FilterSettings
     let fadeIn: Double
     let fadeOut: Double
     /// 位置・大きさ・回転・不透明度のキーフレーム(start からの相対秒)
@@ -417,6 +418,11 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
     private var bypassLookClipIDs: Set<UUID> = []
     /// true なら全部のクリップと画面全体のルック(映像エフェクト・質感)も飛ばす。lock で守る
     private var bypassAllLooks = false
+    /// カラープリセットのパネルで動かしている途中のフィルタ(クリップごと・オーバーレイごと)と、全体の色味の強さ。
+    /// liveRetouchByClip と同じく、新しい合成に入れ替わると消える(そのときは snapshot の値が最新)。lock で守る
+    private var liveFilterByClip: [UUID: FilterSettings] = [:]
+    private var liveFilterByOverlay: [UUID: FilterSettings] = [:]
+    private var liveLookIntensityValue: Double?
 
     override init() {
         super.init()
@@ -480,6 +486,58 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return liveRetouchByClip.isEmpty ? nil : liveRetouchByClip[clipID]
+    }
+
+    /// フィルタの値をこの合成に直接入れる(カラープリセットのパネル用。nil で snapshot の値に戻す)
+    func setLiveFilter(_ filter: FilterSettings?, for clipID: UUID) {
+        lock.lock()
+        liveFilterByClip[clipID] = filter
+        lock.unlock()
+    }
+
+    private func liveFilter(for clipID: UUID) -> FilterSettings? {
+        lock.lock()
+        defer { lock.unlock() }
+        return liveFilterByClip.isEmpty ? nil : liveFilterByClip[clipID]
+    }
+
+    /// オーバーレイのフィルタの値をこの合成に直接入れる(nil で snapshot の値に戻す)
+    func setLiveOverlayFilter(_ filter: FilterSettings?, for overlayID: UUID) {
+        lock.lock()
+        liveFilterByOverlay[overlayID] = filter
+        lock.unlock()
+    }
+
+    /// 動かしている途中のフィルタに差し替えたオーバーレイ(無ければそのまま)
+    private func withLiveFilters(_ overlays: [VideoCompositorOverlay]) -> [VideoCompositorOverlay] {
+        lock.lock()
+        let live = liveFilterByOverlay
+        lock.unlock()
+        guard !live.isEmpty else { return overlays }
+        return overlays.map { overlay in
+            guard let filter = live[overlay.id] else { return overlay }
+            var copy = overlay
+            copy.filter = filter
+            return copy
+        }
+    }
+
+    /// 全体の色味(全体の仕上げのルック)の強さをこの合成に直接入れる(nil で snapshot の値に戻す)
+    func setLiveLookIntensity(_ value: Double?) {
+        lock.lock()
+        liveLookIntensityValue = value
+        lock.unlock()
+    }
+
+    /// 全体の色味の強さを動かしている途中なら、その値にしたもの
+    private func withLiveLook(_ info: DocumentaryRenderInfo) -> DocumentaryRenderInfo {
+        lock.lock()
+        let live = liveLookIntensityValue
+        lock.unlock()
+        guard let live else { return info }
+        var result = info
+        result.style.lookIntensity = live
+        return result
     }
 
     /// 元の色を見る(長押し)のオン・オフ。clipID が nil なら全部。オフで nil なら全部の指定を消す
@@ -567,7 +625,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
             // 2. Bロール / ワイプ / 写真(メイン映像とルックの後、質感・テロップ・字幕・黒帯・フェードの前)
             if !scene.mediaOverlays.isEmpty {
-                frame = OverlayRenderer.draw(scene.mediaOverlays,
+                frame = OverlayRenderer.draw(withLiveFilters(scene.mediaOverlays),
                                              over: frame,
                                              time: seconds,
                                              request: request,
@@ -726,7 +784,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
         image = GeometryMath.applyClipGeometry(image, geometry: layer.geometry)
         if !bypassLook {
-            image = FilterEngine.apply(layer.filter, to: image)
+            image = FilterEngine.apply(liveFilter(for: layer.clipID) ?? layer.filter, to: image)
         }
         let sourceExtent = image.extent
 
@@ -775,7 +833,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
         // 全体のルック(余白は透明のままなので黒帯は黒のまま)
         if !bypassLook {
-            placed = DocumentaryRenderer.applyLook(placed, info: scene.documentary)
+            placed = DocumentaryRenderer.applyLook(placed, info: withLiveLook(scene.documentary))
         }
 
         // 被写体フラッシュ(人物・被写体だけ光らせる。光っている間だけ切り抜きを作る)

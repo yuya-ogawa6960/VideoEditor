@@ -158,10 +158,12 @@ extension EditorProject {
             removedOutput += max(0, clip.trimmedDuration - keptSource) / max(clip.speed, 0.01)
             for (j, range) in kept.enumerated() {
                 var piece = (j == 0) ? clip : clip.duplicated()
-                piece.startTime = range.start
-                piece.endTime = range.end
-                // 同じクリップの中のジャンプカットにはトランジションを付けない(最後の切れ端だけ元のまま)
-                if j < kept.count - 1 { piece.transition = ClipTransition() }
+                // 速度カーブ・被写体フラッシュも切れ端に合わせる(Clip.restrictToSource)
+                piece.restrictToSource(range.start, range.end, of: clip,
+                                       flashFrom: j == 0 ? clip.startTime : kept[j - 1].end)
+                // 同じクリップの中のジャンプカットはふつうのカットにする(最後の切れ端だけ元のトランジションのまま。
+                // J/L カット・フェード・アニメーションも切れ目には付けない)
+                piece.clearCutEdges(head: j > 0, tail: j < kept.count - 1)
                 newClips.append(piece)
             }
         }

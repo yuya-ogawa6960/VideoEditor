@@ -637,6 +637,8 @@ struct EditorSliderRow<Value: BinaryFloatingPoint>: View where Value.Stride: Bin
     @Binding var value: Value
     let range: ClosedRange<Value>
     let display: String
+    /// 動かし始めた(true)・離した(false)
+    var onEditingChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -649,7 +651,7 @@ struct EditorSliderRow<Value: BinaryFloatingPoint>: View where Value.Stride: Bin
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            Slider(value: $value, in: range)
+            Slider(value: $value, in: range, onEditingChanged: onEditingChanged)
                 .tint(.white)
         }
     }
@@ -785,8 +787,14 @@ struct EditorVolumePanel: View {
 struct EditorFilterPanel: View {
     let project: EditorProject
     @Binding var clip: Clip
+    let player: PlayerController
+
+    /// スライダーを動かしている間、beginInteraction を呼んだままか
+    @State private var holdsInteraction = false
 
     var body: some View {
+        // おまかせ編集などで全体の色味(全体の仕上げのルック)がかかっていると、ここが「なし」でも色が付いて見える。
+        // その強さもここで変えられるようにする(クリップの「強さ」の下に置く。上に置くと低いパネルでプリセットと強さが隠れる)
         FilterPickerView(filter: $clip.filter,
                          sourceImage: clip.thumbnail,
                          onApplyToAll: {
@@ -795,7 +803,67 @@ struct EditorFilterPanel: View {
                              for i in project.clips.indices {
                                  project.clips[i].filter = FilterPickerView.presetLook(from: look, onto: project.clips[i].filter)
                              }
-                         })
+                         },
+                         onEditingChanged: setEditing,
+                         belowStrength: project.documentary.look != LookPreset.none
+                             ? AnyView(ProjectLookStrengthRow(project: project, player: player, onEditingChanged: setEditing))
+                             : nil)
+        // 合成の作り直し(約 0.3 秒待ってから)を待たずに、いまの映像へそのまま入れる。動かしている間も変わって見える
+        .onChange(of: clip.filter) { _, newValue in
+            player.setLiveFilter(newValue, for: clip.id)
+        }
+        .onDisappear {
+            setEditing(false)
+        }
+    }
+
+    /// 動かしている間は合成を作り直さない(離したら 1 回だけ作り直す)
+    private func setEditing(_ editing: Bool) {
+        guard editing != holdsInteraction else { return }
+        holdsInteraction = editing
+        if editing {
+            player.beginInteraction(cancelPendingRebuild: true)
+        } else {
+            player.endInteraction()
+        }
+    }
+}
+
+/// クリップのカラープリセットのパネルに出す、全体の色味(全体の仕上げのルック)とその強さ。
+/// すべてのクリップにかかる色で、クリップごとのプリセットとは別
+struct ProjectLookStrengthRow: View {
+    let project: EditorProject
+    let player: PlayerController
+    var onEditingChanged: (Bool) -> Void = { _ in }
+
+    private var intensity: Binding<Double> {
+        Binding(get: { project.documentary.lookIntensity },
+                set: { value in
+                    project.documentary.lookIntensity = value
+                    player.setLiveLookIntensity(value)
+                })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("全体の色味: \(project.documentary.look.displayName)")
+                    .font(.caption)
+                Spacer()
+                Text(verbatim: "\(Int((project.documentary.lookIntensity * 100).rounded()))")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: intensity, in: 0...1, onEditingChanged: onEditingChanged)
+            Text("すべてのクリップにかかる色です。種類は「全体の仕上げ」で変えられます")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .background(BrandStyle.surface,
+                    in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
     }
 }
 

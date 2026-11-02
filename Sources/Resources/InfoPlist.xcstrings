@@ -100,13 +100,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The microphone is used to record voice-overs."
+            "value": "The microphone is used to record narration."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El micrófono se usa para grabar voces en off."
+            "value": "El micrófono se usa para grabar narraciones."
           }
         },
         "pt-BR": {

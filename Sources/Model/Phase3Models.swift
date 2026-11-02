@@ -178,6 +178,24 @@ struct SpeedCurve: Equatable {
         }
         return result
     }
+
+    /// 元の範囲の lower...upper(0...1 の割合)の部分だけを、0...1 に伸ばし直したカーブ。
+    /// 区分線形なので、切れ目に点を足して位置を伸ばし直すだけで、その部分の速さは元とまったく同じになる
+    /// (クリップを分割するときに使う。同じカーブをそのまま渡すと、前も後ろもカーブ全体を繰り返す)
+    func part(from lower: Double, to upper: Double) -> SpeedCurve {
+        let lo = min(max(lower, 0), 1)
+        let hi = min(max(upper, 0), 1)
+        guard enabled, points.count >= 2, hi - lo > 1e-9 else { return self }
+        let span = hi - lo
+        var parts: [SpeedPoint] = [SpeedPoint(position: 0, speed: speed(at: lo))]
+        for point in points where point.position > lo && point.position < hi {
+            parts.append(SpeedPoint(position: (point.position - lo) / span, speed: point.speed))
+        }
+        parts.append(SpeedPoint(position: 1, speed: speed(at: hi)))
+        var curve = self
+        curve.points = parts
+        return curve
+    }
 }
 
 // MARK: - マーカー

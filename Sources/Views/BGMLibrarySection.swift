@@ -3,102 +3,105 @@ import Observation
 import AVFoundation
 
 // =====================================================================
-// 「用意された曲」: アプリが合成する BGM を雰囲気で絞り込み、試聴して「使う」で動画の長さぶん作って BGM にする。
-// 作った曲は読み込んだ曲と同じく MediaStore.mediaDirectory にコピーされる(名前 = 曲名 + ".m4a")。
+// 「用意された曲」: サーバーから配る BGM(BGMCatalog.swift)を雰囲気で絞り込み、
+// 試聴(ストリーミング)→「ダウンロード」→「使う」で BGM にする。
+// 使った曲は読み込んだ曲と同じく MediaStore.mediaDirectory にコピーされる(名前 = 曲名 + ".mp3")。
+// 動画より短い曲は CompositionBuilder がくり返して、終わりをフェードアウトする。
 // =====================================================================
 
-/// 試聴の再生(AVAudioPlayer を持ち続ける)
+/// 試聴の再生(AVPlayer。ダウンロード前はストリーミング)
 @MainActor @Observable
-final class BGMPreviewPlayer: NSObject, AVAudioPlayerDelegate {
-    /// 再生中のプリセット id
+final class BGMPreviewPlayer {
+    /// 再生中の曲の id
     var playingID: String?
-    /// 試聴ファイルを作っている最中のプリセット id
+    /// 読み込み中(まだ音が出ていない)曲の id
     var loadingID: String?
-    private var player: AVAudioPlayer?
-    /// 作っている最中の試聴ファイル(プリセット id ごと)。同じ曲を何度押しても合成は 1 回だけにする
-    @ObservationIgnored private var renders: [String: Task<URL, Error>] = [:]
+    @ObservationIgnored private var player: AVPlayer?
+    @ObservationIgnored private var statusObservation: NSKeyValueObservation?
+    @ObservationIgnored private var endObserver: NSObjectProtocol?
 
-    /// 試聴ファイルの URL。作っている最中ならその完成を待つ
-    private func previewURL(for preset: BGMPreset) async throws -> URL {
-        if let running = renders[preset.id] {
-            return try await running.value
-        }
-        let task = Task<URL, Error> {
-            try await BGMGenerator.previewURL(preset: preset)
-        }
-        renders[preset.id] = task
-        defer { renders[preset.id] = nil }
-        return try await task.value
-    }
-
-    func toggle(_ preset: BGMPreset) {
-        if playingID == preset.id {
+    func toggle(_ track: BGMTrack, url: URL) {
+        if playingID == track.id || loadingID == track.id {
             stop()
             return
         }
         stop()
-        loadingID = preset.id
-        Task {
-            do {
-                let url = try await previewURL(for: preset)
-                // 作っている間に別の曲を押されたら鳴らさない
-                guard loadingID == preset.id else { return }
-                let p = try AVAudioPlayer(contentsOf: url)
-                p.delegate = self
-                p.prepareToPlay()
-                p.play()
-                player = p
-                playingID = preset.id
-            } catch {
-                // 試聴できないときは何もしない(「使う」は別で試せる)
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        self.player = player
+        loadingID = track.id
+        let id = track.id
+        // 鳴り始めたら「再生中」、読めなければ止める
+        statusObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] p, _ in
+            let status = p.timeControlStatus
+            let failed = p.currentItem?.status == .failed
+            Task { @MainActor in
+                guard let self, self.player === p else { return }
+                if failed {
+                    self.stop()
+                } else if status == .playing {
+                    self.loadingID = nil
+                    self.playingID = id
+                }
             }
-            if loadingID == preset.id { loadingID = nil }
         }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
+                                                             object: item, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.stop() }
+        }
+        player.play()
     }
 
     func stop() {
-        player?.stop()
+        player?.pause()
         player = nil
+        statusObservation?.invalidate()
+        statusObservation = nil
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
         playingID = nil
         loadingID = nil
-    }
-
-    /// デリゲートはメインスレッド以外から呼ばれることがあるので nonisolated。状態にはメインアクターへ移ってから触る
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in
-            if self.player === player {
-                self.player = nil
-                self.playingID = nil
-            }
-        }
     }
 }
 
 struct BGMLibrarySection: View {
     @Bindable var project: EditorProject
 
+    @State private var store = BGMTrackStore.shared
     @State private var mood: BGMMood? = nil
     @State private var player = BGMPreviewPlayer()
-    /// 本番の曲を作っている最中のプリセット id
-    @State private var renderingID: String?
     @State private var errorMessage: String?
+    @State private var trackToDelete: BGMTrack?
 
-    /// 作る曲の長さ(秒)。動画より長く、短い動画でも 30 秒。メモリのため 5 分まで
-    static let maxSeconds: Double = 300
+    private var visibleTracks: [BGMTrack] {
+        guard let mood else { return store.tracks }
+        return store.tracks.filter { $0.mood == mood.rawValue }
+    }
+
+    /// 一覧にある雰囲気だけチップに出す
+    private var moods: [BGMMood] {
+        let present = Set(store.tracks.map(\.mood))
+        return BGMMood.allCases.filter { present.contains($0.rawValue) }
+    }
 
     var body: some View {
         Section {
-            moodChips
-                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
-            ForEach(BGMLibrary.presets(mood: mood)) { preset in
-                row(preset)
+            if store.tracks.isEmpty {
+                emptyState
+            } else {
+                moodChips
+                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                ForEach(visibleTracks) { track in
+                    row(track)
+                }
             }
         } header: {
             Text("用意された曲")
         } footer: {
-            Text("アプリが作る曲なので、どの動画にも自由に使えます")
+            Text("AI で作ったオリジナル曲なので、どの動画にも自由に使えます。試聴は通信を使います(ダウンロードは 1 曲 約 4MB)")
         }
-        .alert("曲を作れませんでした", isPresented: Binding(
+        .task { await store.loadCatalog() }
+        .alert("曲を使えませんでした", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -106,7 +109,41 @@ struct BGMLibrarySection: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .confirmationDialog("ダウンロードした曲を消しますか？", isPresented: Binding(
+            get: { trackToDelete != nil },
+            set: { if !$0 { trackToDelete = nil } }
+        ), titleVisibility: .visible, presenting: trackToDelete) { track in
+            Button("消す", role: .destructive) {
+                if player.playingID == track.id { player.stop() }
+                store.delete(track)
+            }
+        } message: { _ in
+            Text("BGM に使った動画からは消えません。もう一度使うときは、またダウンロードします")
+        }
         .onDisappear { player.stop() }
+    }
+
+    // MARK: 一覧がまだ無いとき
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if store.isLoading {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("曲の一覧を読み込み中…")
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(store.loadError ?? String(localized: "曲の一覧を読み込めませんでした。通信できる場所で、もう一度試してください。"))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Button("もう一度読み込む") {
+                    Task { await store.loadCatalog() }
+                }
+            }
+        }
     }
 
     // MARK: 絞り込み
@@ -115,7 +152,7 @@ struct BGMLibrarySection: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 chip(title: String(localized: "すべて"), symbol: "music.note.list", selected: mood == nil) { mood = nil }
-                ForEach(BGMMood.allCases) { m in
+                ForEach(moods) { m in
                     chip(title: m.title, symbol: m.symbolName, selected: mood == m) { mood = m }
                 }
             }
@@ -139,20 +176,20 @@ struct BGMLibrarySection: View {
 
     // MARK: 行
 
-    private func row(_ preset: BGMPreset) -> some View {
+    private func row(_ track: BGMTrack) -> some View {
         HStack(spacing: 12) {
             Button {
-                player.toggle(preset)
+                player.toggle(track, url: store.previewURL(track))
             } label: {
                 ZStack {
                     Circle()
                         .fill(Color.accentColor.opacity(0.15))
                         .frame(width: 36, height: 36)
-                    if player.loadingID == preset.id {
+                    if player.loadingID == track.id {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Image(systemName: player.playingID == preset.id ? "stop.fill" : "play.fill")
+                        Image(systemName: player.playingID == track.id ? "stop.fill" : "play.fill")
                             .foregroundStyle(Color.accentColor)
                     }
                 }
@@ -161,24 +198,54 @@ struct BGMLibrarySection: View {
             .accessibilityLabel(Text("試聴"))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: String.LocalizationValue(preset.name)))
+                Text(String(localized: String.LocalizationValue(track.name)))
                     .font(.body)
-                Text("\(Int(preset.bpm)) BPM・\(preset.mood.title)")
+                Text(detail(track))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if renderingID == preset.id {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("作成中…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            trailing(track)
+        }
+        .contextMenu {
+            if store.downloaded.contains(track.id) {
+                Button(role: .destructive) {
+                    trackToDelete = track
+                } label: {
+                    Label("ダウンロードを消す", systemImage: "trash")
                 }
+            }
+        }
+    }
+
+    private func detail(_ track: BGMTrack) -> String {
+        let seconds = Int(track.duration.rounded())
+        let length = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        var parts = [length]
+        if track.bpm > 0 { parts.append("\(Int(track.bpm)) BPM") }
+        if let moodTitle = track.moodKind?.title { parts.append(moodTitle) }
+        if let credit = track.credit, !credit.isEmpty { parts.append(credit) }
+        return parts.joined(separator: "・")
+    }
+
+    @ViewBuilder
+    private func trailing(_ track: BGMTrack) -> some View {
+        if store.downloading.contains(track.id) {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("ダウンロード中…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else if store.downloaded.contains(track.id) {
+            if project.audio.bgmName == track.name {
+                Label("使用中", systemImage: "checkmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(BrandStyle.coral)
             } else {
                 Button {
-                    use(preset)
+                    use(track)
                 } label: {
                     Text("使う")
                         .font(.subheadline.weight(.semibold))
@@ -188,35 +255,44 @@ struct BGMLibrarySection: View {
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.borderless)
-                .disabled(renderingID != nil)
+            }
+        } else {
+            Button {
+                download(track)
+            } label: {
+                Label("ダウンロード", systemImage: "arrow.down.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .overlay(Capsule().stroke(BrandStyle.coral, lineWidth: 1.5))
+                    .foregroundStyle(BrandStyle.coral)
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    // MARK: ダウンロード・使う
+
+    private func download(_ track: BGMTrack) {
+        Task {
+            do {
+                try await store.download(track)
+            } catch {
+                errorMessage = (error as? LocalizedError)?.errorDescription
+                    ?? String(localized: "曲をダウンロードできませんでした。通信できる場所で、もう一度試してください。")
             }
         }
     }
 
-    // MARK: 使う
-
-    /// 動画の長さ(最低 30 秒)ぶん作って、読み込んだ曲と同じ場所にコピーして BGM にする
-    private func use(_ preset: BGMPreset) {
-        guard renderingID == nil else { return }
+    private func use(_ track: BGMTrack) {
         player.stop()
-        renderingID = preset.id
-        let seconds = min(max(project.totalDuration, 30), BGMLibrarySection.maxSeconds)
-        // 一時ファイルの名前が保存名になる(UUID_曲名.m4a)
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("bgm-\(UUID().uuidString)", isDirectory: true)
-        let tempURL = tempDir.appendingPathComponent(preset.name + ".m4a")
-        Task {
-            do {
-                try await BGMGenerator.render(preset: preset, seconds: seconds, to: tempURL)
-                let localURL = try MediaStore.copyIntoMediaDirectory(tempURL)
-                try? FileManager.default.removeItem(at: tempDir)
-                project.audio.bgmURL = localURL
-                project.audio.bgmName = preset.name
-            } catch {
-                try? FileManager.default.removeItem(at: tempDir)
-                errorMessage = String(localized: "空き容量を確かめて、もう一度試してください。\n\n詳細: ") + error.localizedDescription
-            }
-            renderingID = nil
+        do {
+            let localURL = try store.copyForProject(track)
+            project.audio.bgmURL = localURL
+            project.audio.bgmName = track.name
+        } catch {
+            errorMessage = String(localized: "空き容量を確かめて、もう一度試してください。\n\n詳細: ") + error.localizedDescription
         }
     }
 }

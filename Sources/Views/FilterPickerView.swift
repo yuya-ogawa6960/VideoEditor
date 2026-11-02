@@ -6,6 +6,11 @@ struct FilterPickerView: View {
     @Binding var filter: FilterSettings
     let sourceImage: UIImage?
     let onApplyToAll: () -> Void
+    /// スライダーを動かし始めた(true)・離した(false)。動かしている間は合成の作り直しを止めて、値を直接プレビューへ入れる
+    var onEditingChanged: (Bool) -> Void = { _ in }
+    /// 「強さ」のすぐ下に出す部品(クリップのカラープリセットでは、全体の色味とその強さ)。
+    /// プリセット一覧と強さを先に置き、パネルが低い iPhone でもスクロールせずに見えるようにする
+    var belowStrength: AnyView? = nil
 
     @State private var thumbnails: [FilterPreset: UIImage] = [:]
     @State private var isGenerating = false
@@ -19,6 +24,16 @@ struct FilterPickerView: View {
     private var isPresetLookDefault: Bool {
         filter.preset == .none && filter.intensity == 1
             && filter.adjustments.brightness == 0 && filter.adjustments.contrast == 1 && filter.adjustments.saturation == 1
+    }
+
+    /// LUT(.cube)がかかっていると、プリセットと強さは使われない(FilterEngine.apply で LUT が優先される)
+    private var lutOverridesPreset: Bool {
+        filter.lutFileName != nil && filter.lutIntensity > 0
+    }
+
+    /// 強さを動かせないとき(プリセットが「なし」か、LUT が優先されている)
+    private var strengthLocked: Bool {
+        filter.preset == .none || lutOverridesPreset
     }
 
     /// source のプリセット・強さ・明るさ・コントラスト・彩度だけを target に写す。
@@ -35,15 +50,34 @@ struct FilterPickerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if lutOverridesPreset {
+                lutNotice
+            }
+
             presetStrip
+                .disabled(lutOverridesPreset)
+                .opacity(lutOverridesPreset ? 0.4 : 1)
 
             // 数字は「強さ」が 0〜100、ほかは真ん中を 0 にした -100〜+100 にそろえる。名前をダブルタップで初期値に戻す
-            sliderRow(title: String(localized: "強さ"),
-                      value: $filter.intensity,
-                      range: 0...1,
-                      display: "\(Int((filter.intensity * 100).rounded()))",
-                      defaultValue: 1)
-                .disabled(filter.preset == .none)
+            VStack(alignment: .leading, spacing: 4) {
+                sliderRow(title: String(localized: "強さ"),
+                          value: $filter.intensity,
+                          range: 0...1,
+                          display: "\(Int((filter.intensity * 100).rounded()))",
+                          defaultValue: 1)
+                    .disabled(strengthLocked)
+                    .opacity(strengthLocked ? 0.4 : 1)
+                if filter.preset == .none && !lutOverridesPreset {
+                    // 「なし」のままだと動かせない理由が分からず、強さが変えられないと思われていた
+                    Text("プリセットを選ぶと強さを変えられます")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let belowStrength {
+                belowStrength
+            }
 
             sliderRow(title: String(localized: "明るさ"),
                       value: $filter.adjustments.brightness,
@@ -109,6 +143,37 @@ struct FilterPickerView: View {
         }
     }
 
+    // MARK: - LUT が優先されているときのお知らせ
+
+    private var lutNotice: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text("LUT がかかっているので、プリセットは使われません")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Button {
+                EditorHaptics.tap()
+                filter.lutFileName = nil
+            } label: {
+                Text("LUT を外す")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(BrandStyle.surfaceStrong,
+                                in: RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(10)
+        .background(BrandStyle.surface,
+                    in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
+    }
+
     // MARK: - プリセット一覧
 
     private var presetStrip: some View {
@@ -117,8 +182,11 @@ struct FilterPickerView: View {
                 ForEach(FilterPreset.allCases) { preset in
                     presetCell(preset)
                         .onTapGesture {
+                            guard filter.preset != preset else { return }
                             filter.preset = preset
-                            if preset != .none && filter.intensity <= 0 {
+                            // 一覧の見本は強さ 100 で描いているので、選び直したら 100 から
+                            // (前のプリセットで弱めた値を持ち越すと、見本より薄く見えて効いていないように見えた)
+                            if preset != .none {
                                 filter.intensity = 1
                             }
                         }
@@ -155,7 +223,7 @@ struct FilterPickerView: View {
                 .font(.system(size: 11, weight: isSelected ? .bold : .regular))
                 .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.7))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.7)
         }
         .frame(width: 60)
         .contentShape(Rectangle())
@@ -184,7 +252,7 @@ struct FilterPickerView: View {
                 EditorHaptics.tap()
                 value.wrappedValue = defaultValue
             }
-            Slider(value: value, in: range)
+            Slider(value: value, in: range, onEditingChanged: onEditingChanged)
         }
     }
 

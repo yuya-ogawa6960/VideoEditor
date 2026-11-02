@@ -19,7 +19,14 @@ func orientedSize(naturalSize: CGSize, transform: CGAffineTransform) -> CGSize {
 // MARK: - フィルタ
 
 enum FilterPreset: String, CaseIterable, Identifiable {
-    case none, mono, noir, sepia, chrome, fade, instant, process, transfer, tonal, vivid, cool, warm, vignette
+    // 宣言の順番がそのままカラープリセットの一覧の順番。rawValue(case 名)は保存に使うので、名前は変えない
+    case none
+    // 雰囲気の色
+    case cinematic, goldenHour, airy, nostalgic, summer, pink, retroPop, warmFilm, coolFilm, forest, moody, nightCity, cyber
+    // 定番の色
+    case vivid, chrome, fade, instant, process, transfer, cool, warm, vignette, bleachBypass
+    // 白黒・セピア
+    case mono, noir, tonal, silver, softMono, sepia
 
     var id: String { rawValue }
 
@@ -39,6 +46,22 @@ enum FilterPreset: String, CaseIterable, Identifiable {
         case .cool: return String(localized: "クール")
         case .warm: return String(localized: "ウォーム")
         case .vignette: return String(localized: "ビネット")
+        case .cinematic: return String(localized: "映画風")
+        case .goldenHour: return String(localized: "夕陽")
+        case .airy: return String(localized: "透明感")
+        case .nostalgic: return String(localized: "エモい")
+        case .summer: return String(localized: "夏")
+        case .pink: return String(localized: "ピンク")
+        case .retroPop: return String(localized: "レトロポップ")
+        case .warmFilm: return String(localized: "暖色フィルム")
+        case .coolFilm: return String(localized: "寒色フィルム")
+        case .forest: return String(localized: "フォレスト")
+        case .moody: return String(localized: "ムーディー")
+        case .nightCity: return String(localized: "夜の街")
+        case .cyber: return String(localized: "サイバー")
+        case .bleachBypass: return String(localized: "銀残し")
+        case .silver: return String(localized: "シルバー")
+        case .softMono: return String(localized: "ふんわり白黒")
         }
     }
 }
@@ -189,6 +212,31 @@ struct MulticamInfo: Equatable {
     mutating func sortSwitches() {
         switches.sort { $0.time < $1.time }
     }
+
+    /// 元素材の範囲 [start, end) のカメラを angle にする(0 = メイン)。範囲の外の見え方は変えない。
+    /// タイムラインのカメラのトラック(V2・V3 …)で、区間のカメラを変える・消すときに使う
+    mutating func setAngle(_ angle: Int, from start: Double, to end: Double) {
+        guard end > start else { return }
+        let target = min(max(angle, 0), angles.count)
+        // 範囲の直後に映っているカメラ(範囲の終わりで元に戻す)
+        let after = angleIndex(at: end)
+        switches.removeAll { $0.time >= start - 1e-6 && $0.time < end - 1e-6 }
+        switches.append(AngleSwitch(time: start, angle: target))
+        if !switches.contains(where: { abs($0.time - end) < 1e-6 }) {
+            switches.append(AngleSwitch(time: end, angle: after))
+        }
+        sortSwitches()
+        // 直前と同じカメラへの切替は要らないので外す
+        var cleaned: [AngleSwitch] = []
+        var current = 0
+        for s in switches {
+            let a = min(max(s.angle, 0), angles.count)
+            if a == current { continue }
+            cleaned.append(s)
+            current = a
+        }
+        switches = cleaned
+    }
 }
 
 // MARK: - クリップ
@@ -329,7 +377,57 @@ struct Clip: Identifiable, Equatable {
         copy.retouch = retouch
         copy.audioFadeIn = audioFadeIn
         copy.audioFadeOut = audioFadeOut
+        // 抜けていたので、分割したクリップを「分割を戻す」でつなげなかった
+        copy.captionLanguage = captionLanguage
         return copy
+    }
+
+    /// original の元素材 lower...upper だけを使う切れ端にする(分割・無音カット・言いよどみカットなど)。
+    /// startTime・endTime を合わせ、時間で持っている設定を切れ端に合わせる:
+    /// - 速度カーブ: 位置はトリミング範囲の中の 0...1 なので、その部分だけに切り分ける(同じ素材の位置で同じ速さ)。
+    ///   前はそのまま写していたため、切れ端ごとに曲線全体をなぞり、スローが何か所にも分かれていた
+    /// - 被写体フラッシュ: 時刻は「クリップの出力上の先頭からの秒」なので、光り始めがこの切れ端にあるときだけ残し、
+    ///   切れ端の先頭からの秒にする。前は後ろの切れ端でも同じ秒にもう一度光っていた
+    /// flashFrom: この切れ端の直前に取り除いた区間の始まり(元素材の秒。先頭の切れ端は元の startTime)。
+    /// 取り除いた区間で光り始めるフラッシュ(既定の「クリップの始まり」で先頭の無音を切ったときなど)は、この切れ端の先頭で光らせる
+    mutating func restrictToSource(_ lower: Double, _ upper: Double, of original: Clip,
+                                   flashFrom claimStart: Double? = nil) {
+        startTime = lower
+        endTime = upper
+        let trimmed = original.trimmedDuration
+        if original.speedCurve.enabled, trimmed > 0 {
+            speedCurve = original.speedCurve.part(from: (lower - original.startTime) / trimmed,
+                                                  to: (upper - original.startTime) / trimmed)
+        }
+        if original.subjectFlash.enabled {
+            let head = original.outputOffset(atSourceTime: lower)
+            let tail = original.outputOffset(atSourceTime: upper)
+            let claim = claimStart.map { original.outputOffset(atSourceTime: $0) } ?? head
+            let time = original.subjectFlash.time
+            if time >= min(claim, head) - 0.0005, time < tail {
+                subjectFlash.time = max(0, time - head)
+            } else {
+                subjectFlash.enabled = false
+                subjectFlash.time = 0
+            }
+        }
+    }
+
+    /// 途中で切った端をふつうのカットにする(head: 先頭が切れ目、tail: 終わりが切れ目)。
+    /// 切れ目に元のトランジション・J/L カット・フェード・アニメーションが付くと、切れ目ごとに重なって後ろがずれたり、
+    /// 音が途切れたり、登場の動きが繰り返されたりする
+    mutating func clearCutEdges(head: Bool, tail: Bool) {
+        if tail {
+            transition = ClipTransition()
+            audio.audioTailOut = 0
+            audioFadeOut = 0
+            animation.outType = .none
+        }
+        if head {
+            audio.audioLeadIn = 0
+            audioFadeIn = 0
+            animation.inType = .none
+        }
     }
 
     static func == (lhs: Clip, rhs: Clip) -> Bool {
@@ -739,20 +837,23 @@ final class EditorProject {
 
     /// クリップを削除し、その区間にあった字幕などの部品も一緒に消して後ろを詰める
     /// (TimelineRipple.swift)。最後のクリップを消したときは部品をすべて消す。
-    func removeClip(id: UUID) {
-        guard index(of: id) != nil else { return }
+    /// 戻り値は詰めた区間(作品の秒)。再生位置も同じように動かすのに使う
+    @discardableResult
+    func removeClip(id: UUID) -> (from: Double, to: Double)? {
+        guard index(of: id) != nil else { return nil }
         let range = outputRange(ofClip: id)
         let oldTotal = CompositionBuilder.totalDuration(for: snapshot())
         clips.removeAll { $0.id == id }
         if clips.isEmpty {
             clearTimelineItems()
-            return
+            return nil
         }
-        guard let range else { return }
+        guard let range else { return nil }
         let newTotal = CompositionBuilder.totalDuration(for: snapshot())
         // トランジションの重なりがあるので、実際に短くなった長さを使う
         let removed = max(0, min(oldTotal - newTotal, range.end - range.start))
         removeTimelineRange(from: range.start, to: range.start + removed)
+        return (from: range.start, to: range.start + removed)
     }
 
     /// 複数のクリップをまとめて削除する(後ろから 1 本ずつ removeClip して詰める)
@@ -808,12 +909,22 @@ final class EditorProject {
         let original = clips[i]
         let minimum = 0.2
         guard sourceTime > original.startTime + minimum, sourceTime < original.endTime - minimum else { return false }
+        // 逆再生のクリップは画面の先頭が元素材の終わり(endTime)。前を [startTime, 切れ目] にすると前後の中身が入れ替わり、
+        // 字幕なども消えたり飛んだりするので、直すまでは分割しない(呼び出し側は false を見て、分割しないまま進む)
+        guard !(original.isReversed && original.reversedURL != nil) else { return false }
+        let layout = captureClipLayout()
+        // 分割した切れ目はふつうのカットにする(出ていく側の設定は後ろ、入ってくる側の設定は前にだけ残す)。
+        // 前は元のトランジション・J/L カット・フェード・アニメーションが切れ目にも付き、その分だけ後ろがずれていた
         var first = original
-        first.endTime = sourceTime
+        first.restrictToSource(original.startTime, sourceTime, of: original)
+        first.clearCutEdges(head: false, tail: true)
         var second = original.duplicated()
-        second.startTime = sourceTime
+        second.restrictToSource(sourceTime, original.endTime, of: original)
+        second.clearCutEdges(head: true, tail: false)
         clips[i] = first
         clips.insert(second, at: i + 1)
+        // 後ろのクリップとの重なりが短くなった分などを、字幕・テキストなどにも合わせる
+        rippleTimelineItems(from: layout)
         return true
     }
 

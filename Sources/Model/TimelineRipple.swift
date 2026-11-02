@@ -27,6 +27,28 @@ extension EditorProject {
 
         /// 時刻が取り除いた区間の中にあるか
         func isInside(_ t: Double) -> Bool { t >= from && t < to }
+
+        /// 取り除く区間をまたぐ部品(itemStart から始まる)のキーフレーム。区間より前のキーはそのまま、
+        /// 区間の中のキーは消し、後ろのキーは区間の長さだけ前へ詰める(切れ目には区間の終わりの補間値のキーを入れる)
+        func keyframes(_ keyframes: [Keyframe], spanningFrom itemStart: Double) -> [Keyframe] {
+            guard !keyframes.isEmpty else { return keyframes }
+            let cut = from - itemStart
+            var head = keyframes.filter { $0.time < cut }
+            if !head.isEmpty {
+                // 切れ目の直前まで元の動きを保つ(値が変わるのは切れ目だけ。動画のカットと同じ)。
+                // 入れないと、最後のキーから切れ目の後ろの値へ少しずつ動き、追尾のモザイクが顔から外れる
+                let v = KeyframeInterpolator.value(at: cut, keyframes: keyframes,
+                                                   fallback: KeyframeInterpolator.Value(center: .center, scale: 1, rotation: 0, opacity: 1))
+                head.append(Keyframe(time: max(0, cut - 0.001), center: v.center, scale: v.scale,
+                                     rotation: v.rotation, opacity: v.opacity))
+            }
+            let tail = KeyframeInterpolator.shifted(keyframes, removingHead: to - itemStart).map { key -> Keyframe in
+                var k = key
+                k.time += cut
+                return k
+            }
+            return head + tail
+        }
     }
 
     /// 出力タイムラインの [from, to) を取り除く。区間の中の部品は消し、
@@ -89,6 +111,10 @@ extension EditorProject {
             if ripple.isInside(item.start) {
                 // 先頭が切られたぶん、キーフレームを前にずらす
                 result.keyframes = KeyframeInterpolator.shifted(item.keyframes, removingHead: to - item.start)
+            } else if item.start < from, item.start + item.duration > to {
+                // 区間をまたぐ(追尾のモザイクなど): 区間より後ろのキーを前に詰める。
+                // 詰めないと無音カット・削除のあと、モザイクが顔から遅れていた
+                result.keyframes = ripple.keyframes(item.keyframes, spanningFrom: item.start)
             }
             return result
         }
@@ -337,6 +363,8 @@ private struct TimelineRemap {
     private let before: [ClipLayoutSnapshot.Entry]
     private let after: [ClipLayoutSnapshot.Entry]
     private let afterIndex: [UUID: Int]
+    /// 変えた後にだけあるクリップ(分割でできた後ろ半分。新しい ID)
+    private let addedIDs: Set<UUID>
 
     init(before: ClipLayoutSnapshot, after: ClipLayoutSnapshot) {
         self.before = before.entries
@@ -346,6 +374,7 @@ private struct TimelineRemap {
             index[entry.id] = i
         }
         afterIndex = index
+        addedIDs = Set(after.entries.map(\.id)).subtracting(before.entries.map(\.id))
     }
 
     /// 配置が変わっていない(動かすものがない)
@@ -369,8 +398,12 @@ private struct TimelineRemap {
         }
         let target = after[i]
         if t > owner.end + 0.0005 {
-            // 最後のクリップより後ろ: 終わりからの距離を保つ
-            return Mapped(t + (target.end - owner.end))
+            // 最後のクリップより後ろ: 終わりからの距離を保つ。分割で後ろ半分(新しい ID)ができたときは、
+            // 前半ではなく後ろ半分の終わりから測る(前半から測ると後ろ半分の長さだけ前へ引き寄せられ、
+            // 動画の終わりの先まで続くテキスト・ナレーション・Bロールが短くなったり消えたりしていた)
+            var last = i
+            while last + 1 < after.count, addedIDs.contains(after[last + 1].id) { last += 1 }
+            return Mapped(t + (after[last].end - owner.end))
         }
         if owner.usesSameSource(as: target) {
             // 元素材の使い方が同じなら位置のずれぶんだけ動かす(計算誤差を入れない)
@@ -449,6 +482,24 @@ extension EditorProject {
         for (i, clip) in clips.enumerated() where i < layout.count {
             entries.append(ClipLayoutSnapshot.Entry(clip: clip, start: layout[i].start, end: layout[i].end))
         }
+        return ClipLayoutSnapshot(entries: entries)
+    }
+
+    /// クリップの素材を別の動画に置き換える前に取っておく配置(置き換えたあとで rippleTimelineItems に渡す)。
+    /// 素材が変わると元素材の時刻では前後の対応が取れない(ふつうの captureClipLayout だと、置き換えたクリップの上の部品が
+    /// 端に寄って消えてしまう)ので、置き換えるクリップは「新しい素材の同じ開始位置から、前と同じ長さ・速度で使っていた」とみなす。
+    /// これで部品はクリップの先頭からの位置をそのまま保ち、新しい動画が短くて縮んだときは右端をトリミングしたときと同じく、
+    /// はみ出した部品を新しい終わりで切るか消し、後ろのクリップの部品を前へ詰める
+    func captureClipLayout(replacing clipID: UUID, with replacement: Clip) -> ClipLayoutSnapshot {
+        let layout = captureClipLayout()
+        guard let i = layout.entries.firstIndex(where: { $0.id == clipID }) else { return layout }
+        let old = layout.entries[i]
+        var stand = replacement
+        stand.speed = old.clip.speed
+        stand.speedCurve = old.clip.speedCurve
+        stand.endTime = stand.startTime + old.clip.trimmedDuration
+        var entries = layout.entries
+        entries[i] = ClipLayoutSnapshot.Entry(clip: stand, start: old.start, end: old.end)
         return ClipLayoutSnapshot(entries: entries)
     }
 

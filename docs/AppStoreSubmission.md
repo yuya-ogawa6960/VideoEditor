@@ -42,7 +42,33 @@ Apple でサインインすると、自分の API キーがなくてもポイン
 (他社のアプリ名・商標は入れない。TikTok・YouTube・Premiere などはキーワードにも説明文にも書かない)
 
 ## 新機能(このバージョン)
-はじめてのリリースです。
+1.12.92(1.12.70 のあと、Osmo Pocket の実験機能は入れない):
+
+- マルチカメラを作り直しました。全部のアングルを並べて同時に再生し、使いたい映像をタップするだけで切り替えられます。
+- 別のカメラの動画を、音で自動的に合わせます。長い収録や、機器どうしの時計のずれにも対応しました。
+- マルチカメラの切り替えを、タイムラインの V2・V3 のトラックとして表示します。カットごとにアングルを変えたり、カットを消したりできます。
+- カラープリセットを 16 種類増やしました(全 29 種類)。今までの色のプリセットも、はっきり効くようにしました。強さを動かすと、その場でプレビューに反映されます。
+- BGM を新しい 160 曲(ダンス 10 曲を含む)に作り直しました。試聴して、気に入った曲をダウンロードして使えます。
+- 効果音を約 180 種に増やしました。
+- 色の調整で、プレビューを長押しすると元の色と比べられます。
+- キャプションを一覧で直せるようになりました。
+- カメラで撮るときの台本の表示と画質を改善しました。
+- プロジェクト一覧を 16:9 の表示にしました。
+- 画面の向きが戻らない、タップが効かないことがある、などの不具合を直しました。
+
+英語(en):
+
+- Rebuilt Multi-Camera: play every angle side by side and tap the one you want to switch to.
+- Angles from other cameras now sync automatically by sound, including long recordings and clock drift between devices.
+- Multi-camera switches now appear on the timeline as V2/V3 tracks, where you can change the angle of a cut or delete it.
+- Added 16 color presets (29 in total) and made the existing color presets clearly visible. Changing the strength updates the preview right away.
+- Rebuilt the music library with 160 new tracks, including 10 dance tracks. Preview any track, then download the ones you like.
+- Added about 180 sound effects.
+- Press and hold the preview while adjusting color to compare with the original.
+- Edit captions in a list.
+- Improved the script display and picture quality when recording with the camera.
+- The project list now shows 16:9 thumbnails.
+- Fixed issues such as the screen not rotating back and taps sometimes not responding.
 
 ## App Review への情報(App Review Information → メモ)
 - サインインは任意です。サインインしなくても、編集・書き出し・端末内 AI はすべて使えます。
@@ -81,7 +107,7 @@ Apple でサインインすると、自分の API キーがなくてもポイン
 ## 公開前にサーバー側でやること
 - AdMob のリワード広告ユニットの「サーバーサイド認証」に https://videomania-api.yuya-ogawa0906.workers.dev/v1/ads/ssv を登録
 - wrangler.toml の ALLOW_CLIENT_AD_CLAIM は "0"(済)。
-- TestFlight・App Review のテスト広告のポイントは、アプリが送る Apple 署名の AppTransaction(environment が Sandbox)を
+- TestFlight・App Review のテスト広告のポイントは、アプリが送る Apple 署名の AppTransaction(receiptType が Sandbox)を
   サーバーが確かめて付ける(server/src/appTransaction.js)。証明が取れない端末のために、GitHub の secret `TEST_AD_USERS` の
   アカウント ID(アプリの 設定 → バージョンを 5 回タップ → サポート用の情報 → アカウント ID)でも付く
 

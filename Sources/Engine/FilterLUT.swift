@@ -20,9 +20,11 @@ struct LUTRecipe {
     /// 肌色を skinTargetHue に寄せる割合 0...1
     var skinHuePull: Double = 0.2
     var skinTargetHue: Double = 24
-    /// 緑の色相シフト(+ でティール寄り、- でオリーブ寄り)
+    /// 緑の色相シフト(+ でティール寄り、- でオリーブ寄り)。±18 まで
+    /// (色相の窓の端は 30° で弱まるので、それより大きく回すと端で色相が追い越し、黄〜緑のグラデーションに逆向きの帯が出る)
     var greenHueShift: Double = 0
     var greenSaturation: Double = 1
+    /// 青の色相シフト。±15 まで(窓の端は 25° で弱まる。理由は greenHueShift と同じ)
     var blueHueShift: Double = 0
     var blueSaturation: Double = 1
     /// S 字カーブの強さ(-0.5 ... 0.9)。負で軟調
@@ -391,127 +393,412 @@ enum FilterLUT {
             r.gamma = 1.05
             r.shadowHue = 22; r.shadowAmount = 0.07
             r.highlightHue = 40; r.highlightAmount = 0.08
+        // 色のプリセットは、見本の色(肌・空・緑・グレーなど 64 色)の平均の色差 ΔE がおよそ 9〜12 になるようにしている
+        // (前は 5 前後で「なし」と見分けにくく、強さを 100 から 50 にしても違いがほとんど見えなかった)。
+        // 似たもの同士(インスタントとトランスファー、クロームとビビッドなど)も、平均の色差が 6 以上離れるようにした
         case .chrome:
-            // 艶のあるリッチな色、ハイライトはわずかに涼しく
-            r.saturation = 1.08
-            r.skinSaturation = 1.0
+            // 艶のあるリッチな色: 締まった中間調と強いコントラスト、深い青、影はわずかに青
+            r.saturation = 1.28
+            r.skinSaturation = 1.05
             r.skinHuePull = 0.3
-            r.contrast = 0.3
-            r.shoulder = 0.45
-            r.blackLift = 0.01
-            r.gamma = 1.05
+            r.contrast = 0.55
+            r.shoulder = 0.35
+            r.blackLift = 0.0
+            r.gamma = 1.14
             r.greenHueShift = -6
-            r.blueSaturation = 1.12
-            r.shadowHue = 205; r.shadowAmount = 0.025
-            r.highlightHue = 45; r.highlightAmount = 0.015
+            r.greenSaturation = 1.1
+            r.blueSaturation = 1.35
+            r.shadowHue = 212; r.shadowAmount = 0.06
+            r.highlightHue = 48; r.highlightAmount = 0.02
         case .fade:
-            // 黒を持ち上げた軟調のフィルム
-            r.saturation = 0.82
-            r.skinSaturation = 0.95
+            // 黒を持ち上げた軟調のフィルム(色は控えめ)
+            r.saturation = 0.7
+            r.skinSaturation = 0.9
             r.skinHuePull = 0.25
-            r.contrast = -0.12
+            r.contrast = -0.2
             r.shoulder = 0.6
-            r.blackLift = 0.085
-            r.whitePoint = 0.93
-            r.gamma = 1.06
-            r.shadowHue = 185; r.shadowAmount = 0.025
-            r.highlightHue = 40; r.highlightAmount = 0.02
-        case .instant:
-            // インスタントフィルム: 暖かいハイライトと緑がかった影
-            r.temperature = 0.15
-            r.saturation = 0.9
-            r.skinSaturation = 1.0
-            r.skinHuePull = 0.3
-            r.contrast = 0.1
-            r.shoulder = 0.7
-            r.blackLift = 0.05
-            r.whitePoint = 0.95
-            r.gamma = 1.05
-            r.greenHueShift = -8
-            r.shadowHue = 165; r.shadowAmount = 0.035
-            r.highlightHue = 45; r.highlightAmount = 0.05
-        case .process:
-            // クロスプロセス風: 青緑の影、黄みのハイライト、緑はティールへ
-            r.saturation = 0.92
-            r.skinSaturation = 1.0
-            r.skinHuePull = 0.4
-            r.contrast = 0.22
-            r.shoulder = 0.5
-            r.blackLift = 0.03
-            r.whitePoint = 0.97
+            r.blackLift = 0.12
+            r.whitePoint = 0.9
             r.gamma = 1.04
-            r.greenHueShift = 15
-            r.greenSaturation = 0.9
-            r.shadowHue = 190; r.shadowAmount = 0.055
-            r.highlightHue = 52; r.highlightAmount = 0.04
-        case .transfer:
-            // 古いテレシネ転写: 暖色・オリーブ・やや軟調
-            r.temperature = 0.2
-            r.saturation = 0.86
-            r.skinSaturation = 0.97
+            r.shadowHue = 190; r.shadowAmount = 0.03
+            r.highlightHue = 40; r.highlightAmount = 0.025
+        case .instant:
+            // インスタントフィルム: 明るく軟調、緑がかった影と黄みのハイライト
+            r.temperature = 0.25
+            r.tint = -0.15
+            r.saturation = 0.84
+            r.skinSaturation = 0.98
             r.skinHuePull = 0.3
-            r.contrast = 0.16
-            r.shoulder = 0.6
-            r.blackLift = 0.04
+            r.contrast = -0.05
+            r.shoulder = 0.8
+            r.blackLift = 0.08
             r.whitePoint = 0.95
-            r.gamma = 1.05
-            r.greenHueShift = -12
-            r.greenSaturation = 0.85
-            r.shadowHue = 30; r.shadowAmount = 0.03
-            r.highlightHue = 42; r.highlightAmount = 0.03
-        case .tonal:
-            // やわらかいモノクロ
-            r.monochrome = true
-            r.monoRed = 0.33; r.monoGreen = 0.54; r.monoBlue = 0.13
-            r.contrast = 0.0
-            r.shoulder = 0.7
-            r.blackLift = 0.05
-            r.whitePoint = 0.95
-            r.gamma = 1.05
-        case .vivid:
-            // 鮮やかだが肌は自然に(飽和済みの色は伸ばしすぎない)
-            r.saturation = 1.24
-            r.skinSaturation = 1.04
-            r.skinHuePull = 0.35
-            r.contrast = 0.25
-            r.shoulder = 0.5
-            r.gamma = 1.05
-            r.greenHueShift = 6
-            r.greenSaturation = 1.15
-            r.blueSaturation = 1.18
-        case .cool:
-            // 涼しい色温度。肌は色相を引き戻して血色を保つ
-            r.temperature = -0.38
-            r.saturation = 0.95
+            r.gamma = 0.98
+            r.greenHueShift = -8
+            r.shadowHue = 170; r.shadowAmount = 0.07
+            r.highlightHue = 52; r.highlightAmount = 0.08
+        case .process:
+            // クロスプロセス風: 青緑の影、黄色いハイライト、緑はティール、青はシアンへ
+            r.saturation = 1.0
             r.skinSaturation = 1.0
             r.skinHuePull = 0.45
-            r.contrast = 0.12
+            r.contrast = 0.38
+            r.shoulder = 0.45
+            r.blackLift = 0.03
+            r.whitePoint = 0.97
+            r.gamma = 1.06
+            r.greenHueShift = 18
+            r.greenSaturation = 1.05
+            r.blueHueShift = -15
+            r.shadowHue = 182; r.shadowAmount = 0.12
+            r.highlightHue = 56; r.highlightAmount = 0.11
+        case .transfer:
+            // 古いプリントの転写: 赤みのある暖色、締まったコントラスト、くすんだ緑と青、赤茶色の影
+            // (琥珀色で黒が浮くのは「暖色フィルム」。こちらは黒を締めて赤みに寄せる)
+            r.temperature = 0.3
+            r.tint = 0.25
+            r.saturation = 0.8
+            r.skinSaturation = 0.95
+            r.skinHuePull = 0.3
+            r.contrast = 0.35
+            r.shoulder = 0.5
+            r.blackLift = 0.02
+            r.whitePoint = 0.96
+            r.gamma = 1.08
+            r.greenHueShift = -10
+            r.greenSaturation = 0.7
+            r.blueHueShift = 8
+            r.blueSaturation = 0.7
+            r.shadowHue = 355; r.shadowAmount = 0.07
+            r.highlightHue = 38; r.highlightAmount = 0.05
+        case .tonal:
+            // やわらかいモノクロ(黒を持ち上げた軟調。モノクロより明るく平ら)
+            r.monochrome = true
+            r.monoRed = 0.33; r.monoGreen = 0.54; r.monoBlue = 0.13
+            r.contrast = -0.2
+            r.shoulder = 0.8
+            r.blackLift = 0.09
+            r.whitePoint = 0.9
+            r.gamma = 1.0
+        case .vivid:
+            // 鮮やかだが肌は自然に(飽和済みの色は伸ばしすぎない)
+            r.saturation = 1.6
+            r.skinSaturation = 1.12
+            r.skinHuePull = 0.35
+            r.contrast = 0.2
+            r.shoulder = 0.5
+            r.gamma = 1.0
+            r.greenHueShift = 6
+            r.greenSaturation = 1.3
+            r.blueSaturation = 1.3
+        case .cool:
+            // 涼しい色温度と青い影。肌は色相を引き戻して血色を保つ
+            r.temperature = -0.8
+            r.saturation = 0.9
+            r.skinSaturation = 1.0
+            r.skinHuePull = 0.55
+            r.contrast = 0.15
             r.shoulder = 0.45
             r.blackLift = 0.015
             r.gamma = 1.03
-            r.shadowHue = 205; r.shadowAmount = 0.03
+            r.shadowHue = 212; r.shadowAmount = 0.08
+            r.highlightHue = 195; r.highlightAmount = 0.04
         case .warm:
-            // 暖かい色温度、ハイライトをほんのり金色に
-            r.temperature = 0.36
+            // 暖かい色温度。影も少し暖かく(金色に光らせるのは「夕陽」)
+            r.temperature = 0.75
             r.saturation = 0.98
             r.skinSaturation = 1.0
-            r.skinHuePull = 0.35
-            r.contrast = 0.12
+            r.skinHuePull = 0.45
+            r.contrast = 0.15
             r.shoulder = 0.5
             r.blackLift = 0.015
-            r.gamma = 1.03
-            r.highlightHue = 40; r.highlightAmount = 0.03
+            r.gamma = 1.05
+            r.shadowHue = 30; r.shadowAmount = 0.05
+            r.highlightHue = 45; r.highlightAmount = 0.04
         case .vignette:
             // ニュートラルなフィルムトーン(周辺減光は FilterEngine 側で追加)
-            r.saturation = 0.95
+            r.saturation = 0.9
             r.skinSaturation = 1.0
             r.skinHuePull = 0.25
-            r.contrast = 0.18
-            r.shoulder = 0.55
+            r.contrast = 0.3
+            r.shoulder = 0.5
             r.blackLift = 0.02
             r.whitePoint = 0.98
+            r.gamma = 1.07
+            r.shadowHue = 200; r.shadowAmount = 0.02
+        // 1.12.92 で足した 16 種類(見本の 64 色で、ほかのどのプリセットとも平均の色差 ΔE が 6 以上離れている)
+        case .cinematic:
+            // 映画風(ティール&オレンジ): 影はティール、肌とハイライトはオレンジ。緑はティール寄りに抑え、空は青緑へ
+            r.temperature = 0.08
+            r.saturation = 0.92
+            r.skinSaturation = 1.2
+            r.skinHuePull = 0.5
+            r.skinTargetHue = 22
+            r.greenHueShift = 18
+            r.greenSaturation = 0.5
+            r.blueHueShift = -15
+            r.blueSaturation = 1.1
+            r.contrast = 0.4
+            r.shoulder = 0.5
+            r.blackLift = 0.02
+            r.whitePoint = 0.98
+            r.gamma = 1.08
+            r.shadowHue = 185; r.shadowAmount = 0.22
+            r.highlightHue = 30; r.highlightAmount = 0.15
+        case .goldenHour:
+            // 夕陽(ゴールデンアワー): 金色の光、赤みのある暖かい影、鮮やかでやわらかいハイライト
+            r.temperature = 0.95
+            r.tint = 0.18
+            r.saturation = 1.18
+            r.skinSaturation = 1.08
+            r.skinHuePull = 0.3
+            r.skinTargetHue = 26
+            r.greenHueShift = -16
+            r.greenSaturation = 1.0
+            r.blueSaturation = 0.85
+            r.contrast = 0.2
+            r.shoulder = 0.6
+            r.blackLift = 0.01
+            r.whitePoint = 1.0
+            r.gamma = 0.97
+            r.shadowHue = 20; r.shadowAmount = 0.06
+            r.highlightHue = 35; r.highlightAmount = 0.15
+        case .airy:
+            // 透明感: 明るく軽い中間調、ほんのり涼しく、肌は白くピンク寄り、空は澄んだ青
+            r.temperature = -0.2
+            r.tint = 0.08
+            r.saturation = 0.92
+            r.skinSaturation = 0.95
+            r.skinHuePull = 0.35
+            r.skinTargetHue = 18
+            r.greenHueShift = 8
+            r.greenSaturation = 0.85
+            r.blueSaturation = 1.12
+            r.contrast = -0.05
+            r.shoulder = 1.0
+            r.blackLift = 0.03
+            r.whitePoint = 1.0
+            r.gamma = 0.88
+            r.shadowHue = 210; r.shadowAmount = 0.04
+            r.highlightHue = 190; r.highlightAmount = 0.02
+        case .nostalgic:
+            // エモい: 大きく持ち上げた黒と軟調、淡いパステル。青紫の影とピンクのハイライト
+            r.temperature = 0.05
+            r.tint = 0.12
+            r.saturation = 0.72
+            r.skinSaturation = 0.9
+            r.skinHuePull = 0.3
+            r.skinTargetHue = 20
+            r.greenHueShift = 10
+            r.greenSaturation = 0.7
+            r.blueSaturation = 0.85
+            r.contrast = -0.2
+            r.shoulder = 0.9
+            r.blackLift = 0.13
+            r.whitePoint = 0.96
+            r.gamma = 0.98
+            r.shadowHue = 250; r.shadowAmount = 0.08
+            r.highlightHue = 345; r.highlightAmount = 0.06
+        case .summer:
+            // 夏: 明るく鮮やか、シアン寄りの空と海、黄緑の木々、ほんのり暖かい光
+            r.temperature = 0.1
+            r.saturation = 1.25
+            r.skinSaturation = 1.05
+            r.skinHuePull = 0.35
+            r.skinTargetHue = 22
+            r.greenHueShift = -10
+            r.greenSaturation = 1.15
+            r.blueHueShift = -15
+            r.blueSaturation = 1.35
+            r.contrast = 0.2
+            r.shoulder = 0.7
+            r.blackLift = 0.01
+            r.whitePoint = 1.0
+            r.gamma = 0.92
+            r.shadowHue = 195; r.shadowAmount = 0.04
+            r.highlightHue = 45; r.highlightAmount = 0.04
+        case .pink:
+            // ピンク: 夕焼けのような暖かいピンクのハイライト、ラベンダーの影、空は紫寄り
+            r.temperature = 0.25
+            r.tint = 0.45
+            r.saturation = 1.05
+            r.skinSaturation = 1.0
+            r.skinHuePull = 0.25
+            r.skinTargetHue = 18
+            r.greenHueShift = -6
+            r.greenSaturation = 0.8
+            r.blueHueShift = 15
+            r.blueSaturation = 1.0
+            r.contrast = 0.1
+            r.shoulder = 0.7
+            r.blackLift = 0.04
+            r.whitePoint = 0.98
+            r.gamma = 0.98
+            r.shadowHue = 270; r.shadowAmount = 0.08
+            r.highlightHue = 340; r.highlightAmount = 0.1
+        case .retroPop:
+            // レトロポップ: 80年代のプリント写真のような濃い色、マゼンタ寄り、青い影と黄色いハイライト、浮いた黒
+            r.temperature = 0.15
+            r.tint = 0.3
+            r.saturation = 1.4
+            r.skinSaturation = 1.0
+            r.skinHuePull = 0.4
+            r.skinTargetHue = 22
+            r.greenHueShift = -18
+            r.greenSaturation = 1.1
+            r.blueHueShift = 12
+            r.blueSaturation = 1.25
+            r.contrast = 0.32
+            r.shoulder = 0.6
+            r.blackLift = 0.07
+            r.whitePoint = 0.96
+            r.gamma = 1.0
+            r.shadowHue = 235; r.shadowAmount = 0.12
+            r.highlightHue = 55; r.highlightAmount = 0.1
+        case .warmFilm:
+            // 暖色フィルム: 琥珀色の色かぶり、茶色く持ち上がった黒、オリーブの緑、くすんだ青緑の空、軟調
+            r.temperature = 0.6
+            r.tint = 0.04
+            r.saturation = 0.76
+            r.skinSaturation = 0.9
+            r.skinHuePull = 0.3
+            r.skinTargetHue = 26
+            r.greenHueShift = -18
+            r.greenSaturation = 0.65
+            r.blueHueShift = -10
+            r.blueSaturation = 0.6
+            r.contrast = 0.05
+            r.shoulder = 0.9
+            r.blackLift = 0.09
+            r.whitePoint = 0.92
             r.gamma = 1.04
-            r.shadowHue = 200; r.shadowAmount = 0.015
+            r.shadowHue = 28; r.shadowAmount = 0.1
+            r.highlightHue = 42; r.highlightAmount = 0.09
+        case .coolFilm:
+            // 寒色フィルム: シアングリーンの影、涼しく白っぽいハイライト、緑はティールへ。肌は血色を保つ
+            r.temperature = -0.4
+            r.tint = -0.15
+            r.saturation = 0.8
+            r.skinSaturation = 1.0
+            r.skinHuePull = 0.5
+            r.skinTargetHue = 22
+            r.greenHueShift = 18
+            r.greenSaturation = 0.8
+            r.blueHueShift = -10
+            r.blueSaturation = 0.9
+            r.contrast = 0.08
+            r.shoulder = 0.8
+            r.blackLift = 0.06
+            r.whitePoint = 0.95
+            r.gamma = 1.03
+            r.shadowHue = 172; r.shadowAmount = 0.12
+            r.highlightHue = 195; r.highlightAmount = 0.04
+        case .forest:
+            // フォレスト: 深く濃い緑、緑がかった影、木漏れ日のような黄緑のハイライト。肌は自然に
+            r.temperature = 0.05
+            r.tint = -0.35
+            r.saturation = 0.88
+            r.skinSaturation = 0.98
+            r.skinHuePull = 0.45
+            r.skinTargetHue = 24
+            r.greenHueShift = -8
+            r.greenSaturation = 1.4
+            r.blueHueShift = -15
+            r.blueSaturation = 0.75
+            r.contrast = 0.25
+            r.shoulder = 0.5
+            r.blackLift = 0.02
+            r.whitePoint = 0.97
+            r.gamma = 1.12
+            r.shadowHue = 135; r.shadowAmount = 0.1
+            r.highlightHue = 65; r.highlightAmount = 0.06
+        case .moody:
+            // ムーディー: 暗く沈んだ中間調、くすんだ色、深いティールの影、白は少し抑える
+            r.temperature = -0.05
+            r.saturation = 0.72
+            r.skinSaturation = 0.85
+            r.skinHuePull = 0.35
+            r.greenHueShift = -10
+            r.greenSaturation = 0.6
+            r.blueHueShift = -8
+            r.blueSaturation = 0.8
+            r.contrast = 0.35
+            r.shoulder = 0.4
+            r.blackLift = 0.03
+            r.whitePoint = 0.92
+            r.gamma = 1.3
+            r.shadowHue = 180; r.shadowAmount = 0.08
+            r.highlightHue = 35; r.highlightAmount = 0.03
+        case .nightCity:
+            // 夜の街: 深い青の影、街灯のようなオレンジのハイライト、ネオンは鮮やかに、締まった黒
+            r.temperature = -0.45
+            r.tint = 0.08
+            r.saturation = 1.15
+            r.skinSaturation = 1.0
+            r.skinHuePull = 0.4
+            r.skinTargetHue = 26
+            r.greenHueShift = 18
+            r.greenSaturation = 0.85
+            r.blueHueShift = 5
+            r.blueSaturation = 1.25
+            r.contrast = 0.32
+            r.shoulder = 0.45
+            r.blackLift = 0.01
+            r.whitePoint = 1.0
+            r.gamma = 1.15
+            r.shadowHue = 225; r.shadowAmount = 0.14
+            r.highlightHue = 30; r.highlightAmount = 0.05
+        case .cyber:
+            // サイバー: マゼンタとシアンのネオン、紫がかった影、強いコントラスト。緑はシアンへ、青は紫へ
+            r.temperature = -0.45
+            r.tint = 0.4
+            r.saturation = 1.3
+            r.skinSaturation = 0.95
+            r.skinHuePull = 0.4
+            r.skinTargetHue = 15
+            r.greenHueShift = 18
+            r.greenSaturation = 1.1
+            r.blueHueShift = 15
+            r.blueSaturation = 1.3
+            r.contrast = 0.4
+            r.shoulder = 0.4
+            r.blackLift = 0.02
+            r.whitePoint = 1.0
+            r.gamma = 1.12
+            r.shadowHue = 260; r.shadowAmount = 0.12
+            r.highlightHue = 320; r.highlightAmount = 0.06
+        case .bleachBypass:
+            // 銀残し: 色を大きく抜き、硬いコントラストと銀色の光沢。影はわずかに青い
+            r.saturation = 0.45
+            r.skinSaturation = 0.55
+            r.skinHuePull = 0.2
+            r.contrast = 0.6
+            r.shoulder = 0.2
+            r.blackLift = 0.0
+            r.whitePoint = 1.0
+            r.gamma = 1.1
+            r.shadowHue = 200; r.shadowAmount = 0.03
+        case .silver:
+            // シルバー: 赤フィルター寄りの配合で空が沈み肌が明るい硬調モノクロ。ほんのり青い銀色
+            r.monochrome = true
+            r.monoRed = 0.6; r.monoGreen = 0.35; r.monoBlue = 0.05
+            r.contrast = 0.75
+            r.shoulder = 0.5
+            r.blackLift = 0.0
+            r.whitePoint = 1.0
+            r.gamma = 0.95
+            r.shadowHue = 220; r.shadowAmount = 0.06
+            r.highlightHue = 210; r.highlightAmount = 0.03
+        case .softMono:
+            // ふんわり白黒: 明るく軟らかいハイキーのモノクロ。ハイライトにわずかな暖かみ
+            r.monochrome = true
+            r.monoRed = 0.40; r.monoGreen = 0.48; r.monoBlue = 0.12
+            r.contrast = -0.05
+            r.shoulder = 0.8
+            r.blackLift = 0.05
+            r.whitePoint = 1.0
+            r.gamma = 0.9
+            r.highlightHue = 45; r.highlightAmount = 0.02
         }
         return r
     }

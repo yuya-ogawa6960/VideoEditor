@@ -51,6 +51,10 @@ enum BGMMood: String, CaseIterable, Identifiable, Codable {
     case mysterious
     case seasonal
     case lifeEvent
+    /// ダンス(配信の曲だけ。合成のプリセットには無い)
+    case dance
+    /// クラシック(パブリックドメインの録音。配信の曲だけ)
+    case classical
 
     var id: String { rawValue }
 
@@ -73,6 +77,8 @@ enum BGMMood: String, CaseIterable, Identifiable, Codable {
         case .mysterious: return String(localized: "ミステリアス")
         case .seasonal: return String(localized: "季節")
         case .lifeEvent: return String(localized: "行事")
+        case .dance: return String(localized: "ダンス")
+        case .classical: return String(localized: "クラシック")
         }
     }
 
@@ -95,6 +101,8 @@ enum BGMMood: String, CaseIterable, Identifiable, Codable {
         case .mysterious: return "questionmark.circle"
         case .seasonal: return "calendar"
         case .lifeEvent: return "gift"
+        case .dance: return "figure.dance"
+        case .classical: return "music.quarternote.3"
         }
     }
 }

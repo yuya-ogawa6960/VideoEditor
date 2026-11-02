@@ -498,7 +498,8 @@ struct MulticamEditorView: View {
     }
 
     private func switchRow(_ item: AngleSwitch, clip: Clip) -> some View {
-        let inRange = item.time >= clip.startTime && item.time <= clip.endTime
+        // 切替は合成と同じく [startTime, endTime) で効く。終わりちょうどの切替(タイムラインで最後の区間を変えたときに残る戻し)は映らない
+        let inRange = item.time >= clip.startTime && item.time < clip.endTime - 1e-6
         return Button {
             if inRange {
                 switcher.seek(to: item.time)
@@ -578,7 +579,7 @@ struct MulticamEditorView: View {
         guard n >= 0, n <= clip.multicam.angles.count else { return }
         let time = min(max(switcher.sourceTime, clip.startTime), clip.endTime)
         // いま使っている映像のマスは、押しても切替点を増やさない
-        if clip.multicam.angleIndex(at: time + MulticamSwitcherPanel.switchTolerance) == n {
+        if clip.multicam.angleIndex(at: min(time + MulticamSwitcherPanel.switchTolerance, clip.endTime - 1e-6)) == n {
             UISelectionFeedbackGenerator().selectionChanged()
             return
         }
@@ -654,6 +655,10 @@ struct MulticamEditorView: View {
         var start = clip.startTime
         if let location = project.locate(timelineTime: player.currentTime), location.index == clipIndex {
             start = location.sourceTime
+        } else if let source = project.sourceTime(timelineTime: player.currentTime, inClip: clipID),
+                  source < clip.endTime - 0.001 {
+            // トランジションの重なりの中(locate は前のクリップを返す)でも、このクリップの位置から開く
+            start = source
         }
         switcher.configure(clip: clip)
         switcher.seek(to: start)
