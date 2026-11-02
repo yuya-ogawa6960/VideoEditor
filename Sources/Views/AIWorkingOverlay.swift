@@ -145,6 +145,8 @@ struct AIWorkingCard: View {
                 if showsScanning {
                     AIScanningFrame(image: frame, label: peekLabel ?? String(localized: "AI が見ています"))
                         .frame(height: 150)
+                        // 見た目だけの部品。たての画像のはみ出しで、上の広告のタップをふさがない
+                        .allowsHitTesting(false)
                 } else {
                     PlainPeekFrame(image: frame)
                 }

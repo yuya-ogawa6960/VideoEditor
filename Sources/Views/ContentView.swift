@@ -1250,6 +1250,9 @@ struct ContentView: View {
 
     private func bottomArea(maxPanelHeight: CGFloat) -> some View {
         toolConfirmationDialogs(bottomAreaContent(maxPanelHeight: maxPanelHeight))
+            // 右側(時刻などが縦に並ぶ列)の下までツールバーを伸ばす。時刻などは列の上のほうにしか出ないので、下は空けない
+            // (パネルは高くなると列の上の時刻などに届くので、伸ばさない)
+            .ignoresSafeArea(.container, edges: activePanel == nil ? .trailing : [])
     }
 
     private func bottomAreaContent(maxPanelHeight: CGFloat) -> some View {

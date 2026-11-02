@@ -1286,6 +1286,8 @@ struct EditorColorMatchPanel: View {
                                         .foregroundStyle(selectedReference == candidate.id ? Color.white : Color.white.opacity(0.7))
                                 }
                                 .frame(width: 78)
+                                // はみ出した横長のサムネイルで、隣の候補のタップを横取りしない
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .disabled(isWorking)

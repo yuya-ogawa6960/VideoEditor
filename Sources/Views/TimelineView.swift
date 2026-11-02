@@ -242,6 +242,10 @@ struct TimelineView: View {
                        offset: vOffset, viewportHeight: viewportH)
                 .frame(width: width, height: viewportH, alignment: .topLeading)
                 .clipped()
+                // clipped() は描画を切るだけ。縦にスクロールして半分隠れた行が、目盛り(マーカーの旗)のタップを横取りしないようにする。
+                // 上下の端の段の判定を広げている分(行間の半分)は残す
+                .contentShape(TimelineHitShape(top: TimelineMetrics.trackSpacing / 2,
+                                               bottom: TimelineMetrics.trackSpacing / 2))
                 .offset(y: rowsTop)
 
             if maxOffset > 0 {
@@ -291,6 +295,16 @@ struct TimelineView: View {
         }
         let labels: [String: [String]] = TimelineMetrics.trackLabels(for: rows)
         ZStack(alignment: .topLeading) {
+            // 空いている所のタップ: 後ろの背景と同じく選択を外し、慣性スクロールを止める
+            // (この領域はタップの判定を枠に収めているので、後ろの背景まで届かない。上下の端の段の判定の広がり分も覆う)
+            Color.clear
+                .frame(width: width, height: viewportHeight + TimelineMetrics.trackSpacing)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if tapStopsMomentum() { return }
+                    selection = nil
+                }
+                .offset(y: -TimelineMetrics.trackSpacing / 2)
             ForEach(placements) { p in
                 trackRow(kind: p.kind, width: width, originX: originX, frame: f, labels: labels[p.kind.key] ?? [])
                     .offset(y: p.y - offset)

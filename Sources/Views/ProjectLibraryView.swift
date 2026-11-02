@@ -198,7 +198,7 @@ struct ProjectLibraryView: View {
     /// カメラで撮った動画(閉じ終わってから、その動画で新しいプロジェクトを作って開く)
     @State private var cameraClipURL: URL?
 
-    /// iPhone の縦では 2 列。横向き・iPad では列を増やす(縦長のカードが画面より高くならないように)
+    /// iPhone の縦では 2 列。横向き・広い画面では列を増やす(カードは 16:9)
     private let columns = [
         GridItem(.adaptive(minimum: 160), spacing: 12)
     ]
@@ -817,10 +817,12 @@ private struct ProjectCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button(action: onOpen) {
-                // 縦の動画が切れないよう縦長(横の動画は左右が切れる)
+                // 16:9(たての動画は切らずに全体を出し、まわりをぼかして埋める)
                 ProjectThumbnailView(projectID: meta.id, reloadKey: reloadKey)
-                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    // 切った外側(はみ出した画像)ではタップを受けない。受けると、隣のカードのタップを横取りしていた
+                    .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(alignment: .bottomTrailing) {
                         durationBadge
                     }
@@ -916,9 +918,23 @@ private struct ProjectThumbnailView: View {
         Color(white: 0.12)
             .overlay {
                 if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
+                    if image.size.width < image.size.height * 1.3 {
+                        // たて・正方形に近い動画: 全体を真ん中に出し、左右はぼかした同じ絵で埋める(16:9 に合わせると大きく切れるため)
+                        ZStack {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .blur(radius: 18, opaque: true)
+                                .opacity(0.55)
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                        }
+                    } else {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    }
                 } else {
                     Image(systemName: "film")
                         .font(.system(size: 28))
@@ -926,6 +942,8 @@ private struct ProjectThumbnailView: View {
                 }
             }
             .clipped()
+            // はみ出した画像ではタップを受けない(枠の中だけ)
+            .contentShape(Rectangle())
             .task(id: reloadKey) {
                 image = ProjectStore.loadThumbnail(projectID: projectID)
             }
