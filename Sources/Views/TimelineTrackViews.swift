@@ -267,8 +267,34 @@ enum TimelineMetrics {
         textLanes(mosaicClips(clips))
     }
 
+    /// オーバーレイの段。段を選んだもの(lane)を先に、その段か重ならない一つ上の段へ置き、残りは空いている一番下の段へ。
+    /// 使われていない段は詰める(段の順は保つ)。合成の重なり順(CompositionBuilder.sortedOverlaysByLane)もこれを使う
     static func overlayLanes(_ overlays: [OverlayClip]) -> [UUID: Int] {
-        lanes(overlays.map { (id: $0.id, start: $0.start, end: $0.end) })
+        guard overlays.contains(where: { $0.lane != nil }) else {
+            return lanes(overlays.map { (id: $0.id, start: $0.start, end: $0.end) })
+        }
+        let ordered = overlays.enumerated().sorted { a, b in
+            let pa = a.element.lane != nil, pb = b.element.lane != nil
+            if pa != pb { return pa }
+            if a.element.start != b.element.start { return a.element.start < b.element.start }
+            return a.offset < b.offset
+        }
+        var occupied: [[(start: Double, end: Double)]] = []
+        var raw: [UUID: Int] = [:]
+        for entry in ordered {
+            let o = entry.element
+            var lane = max(0, o.lane ?? 0)
+            while lane < occupied.count,
+                  occupied[lane].contains(where: { $0.start < o.end - 0.0005 && o.start < $0.end - 0.0005 }) {
+                lane += 1
+            }
+            while occupied.count <= lane { occupied.append([]) }
+            occupied[lane].append((start: o.start, end: o.end))
+            raw[o.id] = lane
+        }
+        let used = Array(Set(raw.values)).sorted()
+        let dense = Dictionary(uniqueKeysWithValues: used.enumerated().map { ($0.element, $0.offset) })
+        return raw.mapValues { dense[$0] ?? 0 }
     }
 
     static func narrationLanes(_ narration: [NarrationClip]) -> [UUID: Int] {
@@ -530,6 +556,14 @@ final class TimelineInteraction {
     var editPending: Bool = false
     /// この指では編集しない(縦方向に動いた、ピンチで取り消した)
     var editDeclined: Bool = false
+    /// 待っている編集が縦のドラッグも受け付ける(オーバーレイの段の移動)。縦スクロールに渡さない
+    var editAllowsVertical: Bool = false
+    /// オーバーレイを動かし始めたときの段の割り当て(縦のドラッグで段を変えるときの基準)
+    var editStartOverlayLanes: [UUID: Int]? = nil
+    /// 離したら、動かしているオーバーレイを V1 に入れる(V2 より下へ下ろした)
+    var overlayToMain: Bool = false
+    /// 離したら、並べ替え中のクリップを V2 へ持ち上げる(V1 より上へ上げた)
+    var clipToOverlay: Bool = false
     /// この編集で履歴を取ったか(最初に実際に値が変わるときに 1 回だけ取る)
     var historyRecorded: Bool = false
     /// V1 の編集(トリム・並べ替え)を始める前のクリップの配置(終わったら部品を付いて動かす)

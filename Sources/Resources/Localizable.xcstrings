@@ -82446,6 +82446,52 @@
         }
       }
     },
+    "離すと V1 に入れます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release to put into V1"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelta para meterlo en V1"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte para colocar na V1"
+          }
+        }
+      }
+    },
+    "離すと V2 に重ねます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release to place on V2"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelta para ponerlo en V2"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte para colocar na V2"
+          }
+        }
+      }
+    },
     "離脱": {
       "extractionState": "manual",
       "localizations": {

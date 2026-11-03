@@ -2612,16 +2612,12 @@ struct ContentView: View {
         return items
     }
 
-    /// クリップの「AI」: 画質補正 / レタッチ だけ。
+    /// クリップの「AI」: 画質補正 だけ(レタッチ(小顔・メイク・体型)は外した。美肌は画質補正にある)。
     /// スピーチを強調はオーディオの音声効果、自動補正はカラー、オートリフレーム・自動字幕・顔モザイクは root(AI / テキスト / エフェクト)にある
     private func clipAIItems(_ clipID: UUID, isStill: Bool, hasAudio: Bool) -> [EditorToolItem] {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem(String(localized: "画質補正"), systemImage: "sparkles.tv", id: "clip-ai-quality") {
             openPanel(.enhance(clipID))
-        })
-        // ステッカー(face.smiling)と見分けがつくよう inverse
-        items.append(EditorToolItem(String(localized: "レタッチ"), systemImage: "face.smiling.inverse", id: "clip-ai-retouch") {
-            openPanel(.retouch(clipID))
         })
         return items
     }

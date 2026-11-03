@@ -229,7 +229,7 @@ enum CompositionBuilder {
                                                              parallax: clip.parallax,
                                                              reversedSourceDuration: nil,
                                                              subjectFlash: clip.subjectFlash,
-                                                             retouch: clip.retouch)
+                                                             retouch: ClipRetouch())  // レタッチは外した(前に付けた値も描かない)
                 layers[clipIndex]?.backgroundRemoval = clip.backgroundRemoval
                 layers[clipIndex]?.clipKeyframes = ClipKeyframeTrack(clip: clip, reversedActive: false)
                 pictureCount += 1
@@ -525,7 +525,7 @@ enum CompositionBuilder {
                 parallax: DepthParallax(),
                 reversedSourceDuration: reversedActive ? clip.duration : nil,
                 subjectFlash: clip.subjectFlash,
-                retouch: clip.retouch)
+                retouch: ClipRetouch())  // レタッチは外した(前に付けた値も描かない)
             layers[clipIndex]?.backgroundRemoval = clip.backgroundRemoval
             layers[clipIndex]?.clipKeyframes = ClipKeyframeTrack(clip: clip, reversedActive: reversedActive)
             pictureCount += 1

@@ -1910,6 +1910,8 @@ private struct StoredOverlay: Codable {
     // 第3弾(省略可能)
     var keyframes: [StoredKeyframe]?
     var blendMode: String?
+    /// タイムラインの段(省略可能)
+    var lane: Int?
     // 第4弾(省略可能)
     var mask: StoredMask?
     var parallax: StoredParallax?
@@ -1951,6 +1953,7 @@ private struct StoredOverlay: Codable {
         fadeOut = o.fadeOut
         keyframes = o.keyframes.map { StoredKeyframe($0) }
         blendMode = o.blendMode
+        lane = o.lane
         mask = StoredMask(o.mask)
         parallax = StoredParallax(o.parallax)
         rotation = o.rotation
@@ -1982,6 +1985,7 @@ private struct StoredOverlay: Codable {
         o.fadeOut = fadeOut
         o.keyframes = (keyframes ?? []).map { $0.value }
         o.blendMode = blendMode
+        o.lane = lane.map { max(0, $0) }
         o.mask = mask?.value ?? MaskSettings()
         o.parallax = parallax?.value ?? DepthParallax()
         o.rotation = rotation ?? 0

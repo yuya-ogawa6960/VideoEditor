@@ -159,6 +159,8 @@ struct OverlayClip: Identifiable, Equatable {
     var keyframes: [Keyframe] = []
     /// 乗算・スクリーンなどのブレンド(CoreImage のフィルター名。nil = 通常)
     var blendMode: String? = nil
+    /// タイムラインで選んだ段(0 = V2。nil = 時間の重なりで自動)。重なる部品があればその上の段へずれる(TimelineMetrics.overlayLanes)
+    var lane: Int? = nil
     /// マスク(Phase4Models.swift)
     var mask: MaskSettings = MaskSettings()
     /// 写真の 3D ズーム(奥行き情報がある場合)

@@ -110,8 +110,6 @@ enum EditorToolSearchIndex {
         String(localized: "マスク"): [String(localized: "切り抜き"), String(localized: "形"), "mask"],
         String(localized: "オートリフレーム"): [String(localized: "中央に"), String(localized: "縦動画"), String(localized: "人物を中央"), "reframe"],
         String(localized: "画質補正"): [String(localized: "画質アップ"), String(localized: "きれいにする"), String(localized: "美肌"), String(localized: "ノイズ除去")],
-        String(localized: "レタッチ"): [String(localized: "小顔"), String(localized: "美顔"), String(localized: "メイク"), String(localized: "脚長"),
-                                       String(localized: "目を大きく"), String(localized: "リップ"), String(localized: "チーク"), String(localized: "スリム"), "retouch", "beauty"],
         String(localized: "3Dズーム"): [String(localized: "立体"), String(localized: "パララックス"), String(localized: "奥行き")],
         String(localized: "ズーム・パン"): ["Ken Burns", String(localized: "ケン・バーンズ"), String(localized: "ゆっくりズーム"), String(localized: "パン"), String(localized: "ズーム")],
         String(localized: "比率"): [String(localized: "縦横"), "9:16", "16:9", String(localized: "正方形"), String(localized: "アスペクト")],
