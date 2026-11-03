@@ -1,9 +1,10 @@
 import Foundation
 
 // =====================================================================
-// クリップ・オーバーレイの音声を映像から分けて、音声の段(ナレーションと同じ A の段)に置く。
-// 映像はミュートにし、音声は同じ時刻に別の部品として残す(あとで別々に動かす・消す・音量を変えられる)。
-// 元の動画ファイルの音声をそのまま使うので、ファイルは増えない
+// 映像と音声のリンク解除: クリップ・オーバーレイの音声を映像から分けて、対応する音声の段
+// (V1 → A1、V2 → A2 …)に置く。映像はミュートにし、音声は同じ時刻に別の部品として残す
+// (あとで別々に動かす・切る・消す・音量を変えられる)。元の動画ファイルの音声をそのまま使うので、ファイルは増えない。
+// リンク中の音声は映像の部品の中にあり、タイムラインの A の段に映像と同じ位置で描くだけ(動かす・切るといっしょに変わる)
 // =====================================================================
 
 extension EditorProject {
@@ -61,6 +62,7 @@ extension EditorProject {
         detached.effects = clip.audio.effects
         detached.fadeIn = min(max(0, max(overlapIn, clip.audioFadeIn)), 3)
         detached.fadeOut = min(max(0, max(overlapOut, clip.audioFadeOut)), 3)
+        detached.track = 1
         return detached
     }
 
@@ -85,10 +87,94 @@ extension EditorProject {
         detached.sourceStart = o.sourceStart
         detached.volume = min(1, max(0, o.volume))
         detached.gain = max(1, o.volume)
+        // V2 の段(lane 0)の音声は A2
+        detached.track = (TimelineMetrics.overlayLanes(overlays)[o.id] ?? 0) + 2
         // オーバーレイの音にはフェードが掛かっていない(見た目のフェードだけ)ので、付けない
         overlays[i].volume = 0
         narration.append(detached)
         sortNarration()
         return detached.id
+    }
+
+    /// 音声の部品(リンクを解除した音声・ナレーション・効果音)を出力タイムラインの time で 2 つに切る。
+    /// 前側は同じ id のまま。戻り値は後ろ側の id(端に近すぎれば nil)
+    @discardableResult
+    func splitNarration(id: UUID, at time: Double) -> UUID? {
+        guard let i = narration.firstIndex(where: { $0.id == id }) else { return nil }
+        let original = narration[i]
+        let offset = time - original.start
+        guard offset > 0.1, original.duration - offset > 0.1 else { return nil }
+        var head = original
+        head.duration = offset
+        head.fadeIn = min(original.fadeIn, offset)
+        head.fadeOut = 0
+        var tail = original
+        tail.id = UUID()
+        tail.start = time
+        tail.sourceStart = original.sourceStart + offset
+        tail.duration = original.duration - offset
+        tail.fadeIn = 0
+        tail.fadeOut = min(original.fadeOut, tail.duration)
+        narration[i] = head
+        narration.insert(tail, at: i + 1)
+        sortNarration()
+        return tail.id
+    }
+
+    /// オーバーレイを出力タイムラインの time で 2 つに切る(映像とリンク中の音声もいっしょに切れる)。
+    /// 前側は同じ id のまま、後ろ側は同じ段に置く。戻り値は後ろ側の id(端に近すぎれば nil)
+    @discardableResult
+    func splitOverlay(id: UUID, at time: Double) -> UUID? {
+        guard let i = overlays.firstIndex(where: { $0.id == id }) else { return nil }
+        let original = overlays[i]
+        let offset = time - original.start
+        guard offset > 0.1, original.duration - offset > 0.1 else { return nil }
+        // 段を選んだオーバーレイがあるときは、ほかが段を移らないよう今の段に固定してから切る
+        // (どれも自動の段なら固定しない。前後はつながっているだけで重ならないので同じ段に並ぶ)
+        if overlays.contains(where: { $0.lane != nil }) {
+            let lanes = TimelineMetrics.overlayLanes(overlays)
+            for k in overlays.indices {
+                overlays[k].lane = lanes[overlays[k].id]
+            }
+        }
+        var head = overlays[i]
+        var tail = head.duplicated()
+        head.duration = offset
+        head.fadeIn = min(original.fadeIn, offset)
+        head.fadeOut = 0
+        head.transitionOut = ClipTransition()
+        tail.start = time
+        tail.duration = original.duration - offset
+        if !original.isImage {
+            tail.sourceStart = original.sourceStart + offset * max(original.speed, 0.01)
+        }
+        tail.fadeIn = 0
+        tail.fadeOut = min(original.fadeOut, tail.duration)
+        tail.transitionIn = ClipTransition()
+        // キーフレームは切れ目の値を両側に残す(start からの相対秒)
+        if !original.keyframes.isEmpty {
+            tail.keyframes = KeyframeInterpolator.shifted(original.keyframes, removingHead: offset)
+            var kept = original.keyframes.filter { $0.time <= offset + 0.0005 }
+            if original.keyframes.contains(where: { $0.time > offset + 0.0005 }),
+               !kept.contains(where: { abs($0.time - offset) < 0.001 }) {
+                let v = KeyframeInterpolator.value(at: offset, keyframes: original.keyframes,
+                                                   fallback: KeyframeInterpolator.Value(center: .center, scale: 1,
+                                                                                        rotation: 0, opacity: 1))
+                kept.append(Keyframe(time: offset, center: v.center, scale: v.scale,
+                                     rotation: v.rotation, opacity: v.opacity))
+            }
+            head.keyframes = kept
+        }
+        // ケン・バーンズは切れ目の位置の切り抜きでつなぐ
+        if original.kenBurns.enabled, original.duration > 0 {
+            let mid = original.kenBurns.startCrop.interpolated(to: original.kenBurns.endCrop,
+                                                              t: offset / original.duration)
+            head.kenBurns.endCrop = mid
+            tail.kenBurns.startCrop = mid
+        }
+        overlays[i] = head
+        overlays.insert(tail, at: i + 1)
+        sortOverlays()
+        return tail.id
     }
 }

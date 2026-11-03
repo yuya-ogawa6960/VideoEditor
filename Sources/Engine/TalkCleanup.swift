@@ -1,4 +1,6 @@
 import Foundation
+import AVFoundation
+import Vision
 
 // =====================================================================
 // おまかせ編集の「話の整理」(AutoEditor.build のあとにかける)
@@ -8,6 +10,7 @@ import Foundation
 //   - 言いよどみ     : 「えー」「あのー」だけの所(FillerDetector)も詰める
 //   - 言い直し       : 同じ出だしをすぐ(2.5 秒以内)にもう一度話していたら、前の回を捨てて最後の回だけ残す。
 //                      字幕があれば言葉で比べる。無いときは「短い一言 → 間 → 長い話」の形だけで推測(自信は低い)
+//   - 景色の場面     : 声が無くても、顔が映っていない(景色を撮っている)所は切らずに残す
 //   - 調べ物の場面   : 声の無い 2 秒以上の所。字幕で「調べ」「検索」などに触れていれば残し、
 //                      カットの直後(場面の変わり目から 2 秒以内)も残す。切った所にはマーカー「調べ物をカット」を置く
 // 時刻はすべて出力タイムラインの秒。実際に取り除くのは EditorProject.removeOutputRanges(CreatorTools.swift)。
@@ -59,6 +62,8 @@ struct TalkCleanupPlan {
     var cuts: [Cut] = []
     /// 調べ物らしいが、字幕で触れていたので残した数
     var keptLookupCount = 0
+    /// 声は無いが景色を撮っていたので残した数
+    var keptSceneryCount = 0
 
     var isEmpty: Bool { cuts.isEmpty }
     var nonSpeechCount: Int { cuts.filter { $0.reason == .nonSpeech }.count }
@@ -91,6 +96,10 @@ enum TalkCleanup {
     static let minimumGap = 0.3
     /// 言い直しとみなす、前の回と後の回の間(秒)
     static let retakeGap = 2.5
+    /// これより長く話した前の回は言い直しとして切らない(秒)
+    static let retakeMaxFirst = 4.0
+    /// これ以上の声の無い所は、顔が映っていなければ景色として残す(秒)
+    static let sceneryMinimum = 1.0
     /// 出だしを比べる文字数
     static let retakeHeadLength = 12
     /// 出だしの似ている度合い(0...1)がこれ以上なら言い直し
@@ -176,6 +185,18 @@ enum TalkCleanup {
                     // カットの直後は調べ物とは見ない(下の「話していない所」の扱いに任せる)
                 }
                 if options.cutNonSpeech {
+                    // 景色の場面(1 秒以上、顔が映っていない)は話していなくても残す
+                    // (調べ物は手元だけ映っていることが多いので、上の調べ物の判定を先にする)
+                    if length >= sceneryMinimum {
+                        try Task.checkCancellation()
+                        let a = clip.sourceTime(atOutputOffset: tight.start - placement.start)
+                        let b = clip.sourceTime(atOutputOffset: tight.end - placement.start)
+                        let hasFace = await showsFace(url: clip.url, from: min(a, b), to: max(a, b))
+                        if !hasFace {
+                            result.keptSceneryCount += 1
+                            continue
+                        }
+                    }
                     result.cuts.append(.init(start: tight.start, end: tight.end, reason: .nonSpeech))
                 }
             }
@@ -187,6 +208,8 @@ enum TalkCleanup {
                     let second = talks[i + 1]
                     let gap = second.start - first.end
                     guard gap <= retakeGap else { continue }
+                    // 長く話した前の回は、言い直しでも中身があるので残す(大事な言い直し)
+                    guard first.duration <= retakeMaxFirst else { continue }
                     var isRetake = false
                     var low = false
                     if first.hasCueText, second.hasCueText {
@@ -363,9 +386,41 @@ enum TalkCleanup {
         let endsSentence = sentenceEnds.contains { trimmed.hasSuffix($0) }
         guard !endsSentence || fullA.count < fullB.count else { return false }
         if fullB.hasPrefix(fullA) { return true }
+        // 前の回が、後の回の出だしをほぼそのまま言いかけただけのときだけ(出だしが同じでも、違う中身を話していたら残す)
+        guard fullA.count <= fullB.count else { return false }
         let headA = String(fullA.prefix(retakeHeadLength))
         let headB = String(fullB.prefix(retakeHeadLength))
-        return similarity(headA, headB) >= retakeSimilarity
+        guard similarity(headA, headB) >= retakeSimilarity else { return false }
+        return similarity(fullA, String(fullB.prefix(fullA.count))) >= retakeSimilarity
+    }
+
+    // MARK: - 景色の場面
+
+    /// 区間(元素材上の秒)のはじめ・なか・おわりのどれかに顔が映っているか。読めなければ true(切ってよい扱い)
+    private static func showsFace(url: URL, from start: Double, to end: Double) async -> Bool {
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 480, height: 480)
+        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.2, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.2, preferredTimescale: 600)
+        let span = max(0, end - start)
+        let times = [start + span * 0.2, start + span * 0.5, start + span * 0.8]
+        var readAny = false
+        for t in times {
+            guard let image = try? await generator.image(at: CMTime(seconds: max(0, t), preferredTimescale: 600)).image else {
+                continue
+            }
+            readAny = true
+            let request = VNDetectFaceRectanglesRequest()
+            let handler = VNImageRequestHandler(cgImage: image, options: [:])
+            try? handler.perform([request])
+            // 小さすぎる顔(遠くの通行人など)は数えない
+            if let faces = request.results, faces.contains(where: { $0.boundingBox.height >= 0.08 }) {
+                return true
+            }
+        }
+        return !readAny
     }
 
     private static func stripLeadingFillers(_ text: String) -> String {

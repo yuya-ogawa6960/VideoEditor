@@ -93,7 +93,8 @@ struct VideoCompositorOverlay {
         self.duration = overlay.duration
         self.speed = max(overlay.speed, 0.01)
         self.sourceStart = overlay.sourceStart
-        self.frame = overlay.frame.clamped()
+        // 枠は半分まで画面の外へ出せる(NormalizedRect.movable)。外へ出た分は描かれないだけ
+        self.frame = overlay.frame.movable()
         self.rotation = overlay.rotation
         self.fit = overlay.fit
         self.opacity = min(max(overlay.opacity, 0), 1)
@@ -201,7 +202,8 @@ struct VideoCompositorClipLayer {
     let stillImageURL: URL?
     let filter: FilterSettings
     let geometry: ClipGeometry
-    let animation: ClipAnimation
+    /// イン / アウトの動き(トランジションで重なる側は CompositionBuilder が外す)
+    var animation: ClipAnimation
     /// 速度カーブ(smoothSlow 用)。等速なら 1 要素または空
     let speedSegments: [VideoCompositorSpeedSegment]
     let smoothSlow: Bool
@@ -770,7 +772,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                                                     to: GeometryMath.normalizedToOrigin(image),
                                                     cacheKey: "clip-\(layer.clipID.uuidString)-\(isStill ? -1 : time)",
                                                     accurate: scene.postsFrames,
-                                                    fillsBackground: true)
+                                                    fillsBackground: true,
+                                                    stream: isStill ? nil : "clip-\(layer.clipID.uuidString)",
+                                                    time: time)
         }
 
         // 静止画の 3D ズーム(奥行きがあれば視差、無ければ Ken Burns 風)

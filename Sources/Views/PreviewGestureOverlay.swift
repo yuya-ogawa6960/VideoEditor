@@ -1582,15 +1582,23 @@ struct PreviewGestureOverlay: View {
                                                    opacity: keyed.value.opacity)
             overlay.keyframes = KeyframeEditing.applying(value, from: keyed.value, at: keyed.time, to: keyed.keyframes)
         } else {
-            let f = session.startFrame
-            var w = min(max(f.width * Double(session.effectiveMagnify), 0.05), 1)
+            // 「全体が見える」は枠を素材の縦横比に合わせる(前に置いた余白のある枠も、触ったときにそろう。見た目は変わらない)
+            var f = session.startFrame
+            // マスク・角丸は枠に対する大きさなので、使っているときは枠を変えない(見た目が変わる)
+            if overlay.fit == .fit, overlay.mask.shape == .none, overlay.cornerRadius <= 0,
+               size.width > 0, size.height > 0 {
+                f = overlay.aspectFitted(f, canvasAspect: Double(size.width / size.height))
+            }
+            // 画面より大きくもできる(一辺 3 倍まで。はみ出した分は映らない)
+            let maxSide = NormalizedRect.maxOverlaySide
+            var w = min(max(f.width * Double(session.effectiveMagnify), 0.05), maxSide)
             var h = f.width > 0 ? f.height * (w / f.width) : f.height
-            if h > 1 {
-                w = min(1, w / h)
-                h = 1
+            if h > maxSide {
+                w = w * maxSide / h
+                h = maxSide
             }
             let center = snappedCenter(NormalizedPoint(x: cx, y: cy), size: size)
-            overlay.frame = NormalizedRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h).clamped()
+            overlay.frame = NormalizedRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h).movable()
             overlay.rotation = rotation
         }
         binding.wrappedValue = overlay

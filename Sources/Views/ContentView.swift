@@ -111,6 +111,9 @@ struct ContentView: View {
     @State private var draftStrokes: [DrawingStroke] = []
     @State private var drawingColorHex = "#FF4D4D"
     @State private var drawingWidth: Double = 0.012
+    /// 手書き中の拡大率と、拡大した絵のずれ(2 本指でつまむ・動かす。DrawingCanvasView)
+    @State private var drawingZoom: CGFloat = 1
+    @State private var drawingPan: CGSize = .zero
 
     /// 第4弾: 長い解析(リフレーム・手ぶれ・トラッキング・テンプレート)の進捗とキャンセル
     @State private var analysis = EditorAnalysisRunner()
@@ -319,6 +322,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: activePanel) { oldValue, newValue in
+            // 手書きを閉じたら拡大を戻す(次に開いたときは等倍から)
+            if newValue != .drawingCanvas, drawingZoom != 1 || drawingPan != .zero {
+                drawingZoom = 1
+                drawingPan = .zero
+            }
             if newValue == nil {
                 panelSnapshot = nil
             } else if oldValue == nil && panelSnapshot == nil {
@@ -333,11 +341,18 @@ struct ContentView: View {
                 toolbarGroupPath = []
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            isKeyboardVisible = true
+        // キーボードが画面の下を実際に覆っているときだけタイムラインを隠す。
+        // シート(文字起こし編集など)の中で出したキーボードは編集画面には関係ないので数えない。
+        // 隠れた通知を取りこぼすと、タイムラインが出てこないままになっていた
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            isKeyboardVisible = activeSheet == nil && !showTranscriptEdit && !isSearchingTools
+                && Self.keyboardCoversScreen(note)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             isKeyboardVisible = false
+        }
+        .onChange(of: activeSheet == nil && !showTranscriptEdit && !isSearchingTools) { _, closed in
+            if closed { isKeyboardVisible = false }
         }
         .onAppear {
             handleAppear()
@@ -956,12 +971,18 @@ struct ContentView: View {
 
     private var previewArea: some View {
         PreviewView(player: player)
+            // 手書き中は線と同じに拡大する(中心を基準に拡大してからずらす。枠の外は切る)
+            .scaleEffect(isDrawingNew ? drawingZoom : 1)
+            .offset(isDrawingNew ? drawingPan : .zero)
+            .clipped()
             .overlay {
                 // 映像の表示領域(アスペクトフィット後)にぴったり重なる
                 if isDrawingNew {
                     DrawingCanvasView(strokes: $draftStrokes,
                                       colorHex: drawingColorHex,
-                                      width: drawingWidth)
+                                      width: drawingWidth,
+                                      zoom: $drawingZoom,
+                                      pan: $drawingPan)
                 } else {
                     PreviewGestureOverlay(project: project,
                                           history: history,
@@ -988,6 +1009,15 @@ struct ContentView: View {
                 SafeZonePreviewLayer(guide: $safeZoneGuide, project: project,
                                      renderSize: player.renderSize, showsButton: !isDrawingNew)
             }
+    }
+
+    /// キーボードの通知の終わりの枠が、画面の下を 80pt 以上覆っているか(外付けキーボード・小さな浮きキーボードは数えない)
+    private static func keyboardCoversScreen(_ note: Notification) -> Bool {
+        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
+        let screen = UIScreen.main.bounds
+        let covered = screen.intersection(end)
+        guard !covered.isNull else { return false }
+        return covered.height >= 80 && covered.width >= screen.width * 0.5 && end.maxY >= screen.maxY - 1
     }
 
     private var editor: some View {
@@ -2154,7 +2184,9 @@ struct ContentView: View {
         case .subtitle: return String(localized: "字幕の編集")
         case .bgm: return String(localized: "BGMの編集")
         case .overlay: return String(localized: "オーバーレイの編集")
-        case .narration: return String(localized: "ナレーションの編集")
+        case .narration(let id):
+            return project.narration.first(where: { $0.id == id })?.track != nil
+                ? String(localized: "音声の編集") : String(localized: "ナレーションの編集")
         case .text(let id):
             return project.textClips.first(where: { $0.id == id })?.isMosaic == true ? String(localized: "モザイクの編集") : String(localized: "テキストの編集")
         case .drawing: return String(localized: "手書きの編集")
@@ -2557,9 +2589,9 @@ struct ContentView: View {
                                         enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
                 openPanel(.volume(clipID))
             })
-            // 音声を映像から分けて A の段へ(映像はミュート)
+            // 映像と音声のリンクを解除して、音声を A1 で別に動かせるようにする(映像はミュート)
             let detachReason: String? = clip.flatMap { EditorProject.audioDetachBlockReason($0) }
-            items.append(EditorToolItem(String(localized: "音声を分離"), systemImage: "rectangle.split.1x2",
+            items.append(EditorToolItem(String(localized: "リンク解除"), systemImage: "rectangle.split.1x2",
                                         enabled: detachReason == nil, disabledReason: detachReason) {
                 detachAudio(clipID: clipID)
             })
@@ -2880,7 +2912,7 @@ struct ContentView: View {
             })
             let detachReason: String? = project.overlays.first(where: { $0.id == overlayID })
                 .flatMap { EditorProject.audioDetachBlockReason($0) }
-            items.append(EditorToolItem(String(localized: "音声を分離"), systemImage: "rectangle.split.1x2",
+            items.append(EditorToolItem(String(localized: "リンク解除"), systemImage: "rectangle.split.1x2",
                                         enabled: detachReason == nil, disabledReason: detachReason) {
                 detachAudio(overlayID: overlayID)
             })
@@ -2888,6 +2920,10 @@ struct ContentView: View {
                 openPanel(.overlaySpeed(overlayID))
             })
         }
+        // 再生位置で切る(リンク中の音声もいっしょに切れる)
+        items.append(EditorToolItem(String(localized: "分割"), systemImage: "scissors") {
+            splitOverlay(overlayID)
+        })
         items.append(EditorToolItem(String(localized: "複製"), systemImage: "plus.square.on.square") {
             duplicateOverlay(overlayID)
             showToast(String(localized: "複製しました"), undo: true)
@@ -2911,6 +2947,9 @@ struct ContentView: View {
         })
         items.append(EditorToolItem(String(localized: "音声効果"), systemImage: "waveform.and.magnifyingglass") {
             openPanel(.narrationEffects(narrationID))
+        })
+        items.append(EditorToolItem(String(localized: "分割"), systemImage: "scissors") {
+            splitNarration(narrationID)
         })
         items.append(EditorToolItem(String(localized: "音量そろえ"), systemImage: "waveform",
                                     enabled: audioToolProgress == nil,
@@ -4172,7 +4211,41 @@ struct ContentView: View {
 
     // MARK: オーバーレイ
 
-    /// クリップの音声を分ける(A の段に置き、映像はミュート)。分けた音声を選ぶ
+    /// 選んだ音声の部品を再生位置で切る(リンクを解除した音声・ナレーション・効果音)
+    private func splitNarration(_ narrationID: UUID) {
+        guard let item = project.narration.first(where: { $0.id == narrationID }) else { return }
+        let t = player.currentTime
+        guard t > item.start + 0.1, t < item.end - 0.1 else {
+            showToast(String(localized: "再生位置を音声の上に合わせてください"), style: .warning)
+            return
+        }
+        player.pause()
+        history.record(project)
+        guard project.splitNarration(id: narrationID, at: t) != nil else {
+            history.discardLastIfUnchanged(project)
+            return
+        }
+        showToast(String(localized: "分割しました"), undo: true)
+    }
+
+    /// 選んだオーバーレイを再生位置で切る(リンク中の音声もいっしょに切れる)
+    private func splitOverlay(_ overlayID: UUID) {
+        guard let overlay = project.overlays.first(where: { $0.id == overlayID }) else { return }
+        let t = player.currentTime
+        guard t > overlay.start + 0.1, t < overlay.end - 0.1 else {
+            showToast(String(localized: "再生位置をオーバーレイの上に合わせてください"), style: .warning)
+            return
+        }
+        player.pause()
+        history.record(project)
+        guard project.splitOverlay(id: overlayID, at: t) != nil else {
+            history.discardLastIfUnchanged(project)
+            return
+        }
+        showToast(String(localized: "分割しました"), undo: true)
+    }
+
+    /// クリップの映像と音声のリンクを解除する(音声を A1 に置き、映像はミュート)。分けた音声を選ぶ
     private func detachAudio(clipID: UUID) {
         player.pause()
         history.record(project)
@@ -4181,10 +4254,10 @@ struct ContentView: View {
             return
         }
         selection = .narration(audioID)
-        showToast(String(localized: "音声を分けました"), undo: true)
+        showToast(String(localized: "リンクを解除しました"), undo: true)
     }
 
-    /// オーバーレイの音声を分ける。動画に音声トラックが無いときは分けない
+    /// オーバーレイの映像と音声のリンクを解除する(音声は A2 …)。動画に音声トラックが無いときは分けない
     private func detachAudio(overlayID: UUID) {
         guard let overlay = project.overlays.first(where: { $0.id == overlayID }) else { return }
         player.pause()
@@ -4200,7 +4273,7 @@ struct ContentView: View {
                 return
             }
             selection = .narration(audioID)
-            showToast(String(localized: "音声を分けました"), undo: true)
+            showToast(String(localized: "リンクを解除しました"), undo: true)
         }
     }
 
@@ -4226,6 +4299,8 @@ struct ContentView: View {
 
     /// 追加したオーバーレイを置く: 再生位置から。タイムラインで段(V2・V3 …)を選んでいればその段へ
     private func placeAddedOverlay(_ id: UUID) {
+        // 枠は画像・動画の大きさに合わせる(枠の余白で端まで寄せられない、を無くす)
+        project.fitOverlayToSource(id: id)
         if let lane = timeline.targetOverlayLane {
             // 選んだ段が今は無い(消した後など)ときは、いちばん上の次の段まで
             let others = TimelineMetrics.overlayLaneCount(project.overlays.filter { $0.id != id })
@@ -4270,7 +4345,7 @@ struct ContentView: View {
                     let movieURL = try await importMovieURL(item, onProgress: progress)
                     var video = try await MediaStore.makeOverlay(fromVideo: movieURL)
                     OverlayPreset.bRollFull.apply(to: &video)
-                    // V1 と同じく音声も入れる(要らなければ音量・音声を分離で)
+                    // V1 と同じく音声も入れる(要らなければ音量・リンク解除で)
                     video.volume = 1
                     overlay = video
                 } else if item.isGIF, let gif = try? await item.loadTransferable(type: PickedGIF.self) {

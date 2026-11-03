@@ -29,6 +29,9 @@ struct NarrationClip: Identifiable, Equatable {
     var fadeOut: Double = 0
     /// レシピで作った効果音なら、その id(ファイルが消えても作り直せる)
     var soundRecipeID: String? = nil
+    /// 映像とのリンクを解除した音声の段。1 = A1(V1 の音声)、2 = A2(V2 のオーバーレイの音声)…。
+    /// nil = ナレーション・効果音(ナレーションの段に並べ、BGM を下げる対象にする)
+    var track: Int? = nil
 
     /// 出力タイムライン上の終了秒
     var end: Double { start + duration }

@@ -18,11 +18,15 @@ enum BackgroundRemovalRenderer {
     /// image(原点 (0,0)・不透明な素材)の背景を消す。
     /// cacheKey: コマを区別する文字列(クリップ / オーバーレイの ID と時刻)。accurate: 書き出し用のきれいな切り抜き。
     /// fillsBackground: メインのクリップ(消した部分を settings.fill で埋める)。オーバーレイは false(透明のまま)
+    /// stream・time: 動画のコマの続き(クリップ / オーバーレイごと)。続けて再生・書き出ししているときは、
+    /// 前のコマの切り抜きと混ぜて境界のちらつきを抑える(写真は nil)
     static func apply(_ settings: BackgroundRemoval,
                       to image: CIImage,
                       cacheKey: String,
                       accurate: Bool,
-                      fillsBackground: Bool) -> CIImage {
+                      fillsBackground: Bool,
+                      stream: String? = nil,
+                      time: Double? = nil) -> CIImage {
         let rect = image.extent
         guard settings.isActive, !rect.isInfinite, rect.width >= 2, rect.height >= 2 else { return image }
 
@@ -31,7 +35,8 @@ enum BackgroundRemovalRenderer {
         case .off:
             return image
         case .auto:
-            guard let mask = autoMask(settings, image: image, rect: rect, cacheKey: cacheKey, accurate: accurate) else {
+            guard let mask = autoMask(settings, image: image, rect: rect, cacheKey: cacheKey, accurate: accurate,
+                                      stream: stream, time: time) else {
                 return image
             }
             let clear = CIImage(color: CIColor.clear).cropped(to: rect)
@@ -71,12 +76,28 @@ enum BackgroundRemovalRenderer {
         return c
     }()
 
+    /// ちらつきを抑えるための、流れ(クリップ / オーバーレイ)ごとの前のコマの切り抜き
+    private struct PreviousMask {
+        let time: Double
+        let size: CGSize
+        let settingsKey: String
+        let mask: CIImage
+    }
+    private static let previousLock = NSLock()
+    private static var previousMasks: [String: PreviousMask] = [:]
+
+    /// 前のコマと混ぜる割合(前のコマの分)。続くコマ(0.1 秒以内)のときだけ混ぜる
+    private static let temporalCarry: CGFloat = 0.35
+
     private static func autoMask(_ settings: BackgroundRemoval,
                                  image: CIImage,
                                  rect: CGRect,
                                  cacheKey: String,
-                                 accurate: Bool) -> CIImage? {
-        let key = "\(cacheKey)|\(settings.target.rawValue)|\(accurate ? 1 : 0)|\(Int(rect.width))x\(Int(rect.height))" as NSString
+                                 accurate: Bool,
+                                 stream: String?,
+                                 time: Double?) -> CIImage? {
+        let settingsKey = "\(settings.target.rawValue)|\(accurate ? 1 : 0)"
+        let key = "\(cacheKey)|\(settingsKey)|\(Int(rect.width))x\(Int(rect.height))" as NSString
         let raw: CIImage
         if let cached = maskCache.object(forKey: key) {
             raw = cached
@@ -86,13 +107,47 @@ enum BackgroundRemovalRenderer {
             case .person: kind = .person(accurate: accurate)
             case .subject: kind = .foreground(point: nil)
             }
-            // プレビューは縮めてから渡す(速さ優先)。書き出しは大きめ
+            // プレビューは縮めてから渡す(速さ優先)。書き出しは大きめ。
+            // どちらも元の映像の輪郭に沿って広げる(ただ引き伸ばすと境界がぼやけ、背景がにじむ)
             guard let made = SegmentationMasks.mask(for: image, in: rect, kind: kind,
-                                                    maxInputSide: accurate ? 1920 : 1024) else { return nil }
-            maskCache.setObject(made, forKey: key)
-            raw = made
+                                                    maxInputSide: accurate ? 1920 : 1024,
+                                                    edgeAware: true) else { return nil }
+            // プレビューと書き出しが同時に走っても前のコマを取り合わないよう、流れを分ける
+            let smoothed = temporallySmoothed(made, rect: rect, settingsKey: settingsKey,
+                                              stream: stream.map { "\($0)|\(accurate ? 1 : 0)" }, time: time)
+            maskCache.setObject(smoothed, forKey: key)
+            raw = smoothed
         }
         return refinedMask(raw, softness: settings.edgeSoftness, rect: rect)
+    }
+
+    /// 続けて再生・書き出ししているときは前のコマの切り抜きと混ぜる(人物の境界が毎コマ揺れるのを抑える)。
+    /// 飛んだとき(シーク・逆戻り)・大きさや設定が変わったときは混ぜない
+    private static func temporallySmoothed(_ mask: CIImage, rect: CGRect, settingsKey: String,
+                                           stream: String?, time: Double?) -> CIImage {
+        guard let stream, let time, time.isFinite else { return mask }
+        previousLock.lock()
+        let previous = previousMasks[stream]
+        previousLock.unlock()
+        var result = mask
+        if let previous, previous.size == rect.size, previous.settingsKey == settingsKey {
+            let dt = time - previous.time
+            if dt > 0.0001, dt <= 0.1 {
+                // result = mask × (1 - carry) + previous × carry(不透明のまま混ぜる)
+                result = mask.applyingFilter("CIDissolveTransition", parameters: [
+                    kCIInputTargetImageKey: previous.mask,
+                    kCIInputTimeKey: NSNumber(value: Double(temporalCarry))
+                ]).cropped(to: rect)
+            }
+        }
+        previousLock.lock()
+        if previousMasks.count > 16, previousMasks[stream] == nil {
+            previousMasks.removeAll()
+        }
+        // 混ぜる前の切り抜きを残す(混ぜた結果を残すと、前のコマの前のコマ…と描く手順がつながって重くなる)
+        previousMasks[stream] = PreviousMask(time: time, size: rect.size, settingsKey: settingsKey, mask: mask)
+        previousLock.unlock()
+        return result
     }
 
     /// 境界のぼかし: 小さいほどくっきり(コントラストを上げる)、大きいほどやわらかく(ぼかす)

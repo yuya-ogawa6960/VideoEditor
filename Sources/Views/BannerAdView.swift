@@ -127,6 +127,12 @@ private struct BannerAdRepresentable: UIViewRepresentable {
         loadIfReady(banner, context: context)
     }
 
+    /// 幅は枠に従う。バナーは作ったときの幅を持ち続けるので、それで枠を押し広げると、画面が狭くなったとき
+    /// (横向き・iPhone Duo の開閉・分割表示)に枠が測る幅も縮まず、一覧全体が画面の左右へはみ出していた
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: BannerView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? width, height: proposal.height ?? uiView.adSize.size.height)
+    }
+
     private func loadIfReady(_ banner: BannerView, context: Context) {
         guard started, !context.coordinator.requested else { return }
         context.coordinator.requested = true

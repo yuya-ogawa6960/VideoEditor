@@ -69,7 +69,10 @@ struct TimelineView: View {
                                       narrationLanes: TimelineMetrics.narrationLaneCount(project.narration),
                                       mosaicLanes: TimelineMetrics.mosaicLaneCount(project.textClips),
                                       effectLanes: TimelineMetrics.effectLaneCount(project.videoEffects),
-                                      cameraLanes: TimelineMetrics.cameraLaneCount(project.clips))
+                                      cameraLanes: TimelineMetrics.cameraLaneCount(project.clips),
+                                      linkedAudioTracks: TimelineMetrics.linkedAudioTrackCount(clips: project.clips,
+                                                                                               overlays: project.overlays,
+                                                                                               narration: project.narration))
     }
 
     static func rowPlacements(_ rows: [TimelineTrackKind]) -> [TimelineRowPlacement] {
@@ -402,7 +405,7 @@ struct TimelineView: View {
         case .overlay: laneHeight = TimelineMetrics.overlayHeight
         case .text, .mosaic: laneHeight = TimelineMetrics.textHeight
         case .effect: laneHeight = TimelineMetrics.effectHeight
-        case .narration: laneHeight = TimelineMetrics.narrationHeight
+        case .narration, .linkedAudio: laneHeight = TimelineMetrics.narrationHeight
         default: laneHeight = kind.height
         }
         let laneStep: CGFloat = laneHeight + TimelineMetrics.textLaneGap
@@ -462,7 +465,10 @@ struct TimelineView: View {
         case .audio:
             audioTrack(width: width, originX: originX, pps: pps, total: f.total, audio: f.snapshot.audio)
         case .narration:
-            narrationTrack(width: width, originX: originX, pps: pps, narration: f.snapshot.narration)
+            narrationTrack(width: width, originX: originX, pps: pps,
+                           narration: TimelineMetrics.narrationOnly(f.snapshot.narration))
+        case .linkedAudio(let tracks):
+            linkedAudioTrack(width: width, originX: originX, pps: pps, frame: f, tracks: tracks)
         case .add:
             addRow(width: width)
         }
@@ -1624,6 +1630,115 @@ struct TimelineView: View {
             }
         }
         .frame(width: width, height: TimelineMetrics.stackedHeight(h, lanes: laneCount), alignment: .topLeading)
+    }
+
+    // MARK: - 映像の音声の段(A1 = V1、A2 = V2 …)
+
+    /// 映像とリンク中の音声。V1 のクリップ・オーバーレイと同じ位置に描き、タップでその映像を選ぶ
+    /// (動かす・長さを変える・切るは映像の側で。音声もいっしょに変わる)
+    private func linkedAudioItems(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                                  frame f: TimelineFrameData, tracks: Int) -> [TimelineLinkedAudioItem] {
+        var result: [TimelineLinkedAudioItem] = []
+        func add(id: UUID, name: String, url: URL, sourceStart: Double, start: Double, duration: Double,
+                 lane: Int, target: EditorSelection, waveform: Bool) {
+            let x = originX + CGFloat(start) * pps
+            let w = max(CGFloat(duration) * pps, 6)
+            guard let span = TimelineMetrics.visibleSpan(x: x, width: w, viewWidth: width) else { return }
+            let labelX = TimelineMetrics.stickyLabelX(trueX: x, visibleX: span.x,
+                                                      visibleWidth: span.width, labelWidth: 60)
+            var display = NarrationClip(url: url, name: name, start: start, duration: duration)
+            display.sourceStart = sourceStart
+            result.append(TimelineLinkedAudioItem(id: id, clip: display, lane: lane, screenX: x,
+                                                  visibleX: span.x, visibleWidth: span.width, labelX: labelX,
+                                                  target: target, showsWaveform: waveform))
+        }
+        let snapshot = f.snapshot
+        for (i, clip) in snapshot.clips.enumerated() where i < f.ranges.count && TimelineMetrics.clipHasLinkedAudio(clip) {
+            let range = f.ranges[i]
+            // 速度を変えたクリップは音声ファイルの位置と合わないので波形を出さない
+            let plain = abs(clip.speed - 1) < 0.001 && !clip.speedCurve.enabled && !clip.isReversed
+            add(id: clip.id, name: clip.name, url: clip.url, sourceStart: clip.startTime,
+                start: range.start, duration: range.duration, lane: 0, target: .clip(clip.id), waveform: plain)
+        }
+        let overlayLanes: [UUID: Int] = frozenLanes?.overlayLanes ?? TimelineMetrics.overlayLanes(snapshot.overlays)
+        for overlay in snapshot.overlays where TimelineMetrics.overlayHasLinkedAudio(overlay) {
+            let lane = (overlayLanes[overlay.id] ?? 0) + 1
+            guard lane < tracks else { continue }
+            add(id: overlay.id, name: overlay.name, url: overlay.url, sourceStart: overlay.sourceStart,
+                start: overlay.start, duration: overlay.duration, lane: lane, target: .overlay(overlay.id),
+                waveform: abs(overlay.speed - 1) < 0.001)
+        }
+        return result
+    }
+
+    private func linkedAudioTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
+                                  frame f: TimelineFrameData, tracks: Int) -> some View {
+        let h = TimelineMetrics.narrationHeight
+        let laneStep: CGFloat = h + TimelineMetrics.textLaneGap
+        let linked = linkedAudioItems(width: width, originX: originX, pps: pps, frame: f, tracks: tracks)
+        // リンクを解除した音声(その段で別々に動かす・長さを変える・切る)
+        let unlinked: [NarrationClip] = f.snapshot.narration.filter { n in
+            guard let track = n.track else { return false }
+            return track >= 1 && track <= tracks
+        }
+        let items = narrationItems(width: width, originX: originX, pps: pps, narration: unlinked)
+        let selectedID: UUID? = selection?.narrationID
+        let selectedItem: TimelineNarrationItem? = selectedID == nil ? nil : items.first(where: { $0.id == selectedID })
+        func lane(of clip: NarrationClip) -> Int { max(0, (clip.track ?? 1) - 1) }
+
+        return ZStack(alignment: .topLeading) {
+            ForEach(linked) { item in
+                TimelineNarrationBar(clip: item.clip,
+                                     screenX: item.screenX,
+                                     visibleX: item.visibleX,
+                                     visibleWidth: item.visibleWidth,
+                                     pointsPerSecond: pps,
+                                     labelX: item.labelX,
+                                     height: h,
+                                     isSelected: selection == item.target,
+                                     color: TimelineMetrics.linkedAudioColor,
+                                     iconName: "link",
+                                     showsWaveform: item.showsWaveform)
+                    .timelineLaneHitArea(row: item.lane, rows: tracks)
+                    .offset(x: item.visibleX, y: CGFloat(item.lane) * laneStep)
+                    .onTapGesture {
+                        if tapStopsMomentum() { return }
+                        selection = item.target
+                    }
+            }
+
+            ForEach(items) { item in
+                let isSel = item.id == selectedID
+                let row = lane(of: item.clip)
+                TimelineNarrationBar(clip: item.clip,
+                                     screenX: item.screenX,
+                                     visibleX: item.visibleX,
+                                     visibleWidth: item.visibleWidth,
+                                     pointsPerSecond: pps,
+                                     labelX: item.labelX,
+                                     height: h,
+                                     isSelected: isSel,
+                                     iconName: "waveform")
+                    .timelineLaneHitArea(row: row, rows: tracks)
+                    .offset(x: item.visibleX, y: CGFloat(row) * laneStep)
+                    .onTapGesture {
+                        if tapStopsMomentum() { return }
+                        selection = .narration(item.id)
+                    }
+                    .gesture(narrationMoveGesture(id: item.id), including: isSel ? .all : .subviews)
+                    .zIndex(isSel ? 2 : 1)
+            }
+
+            if let sel = selectedItem {
+                selectionDecor(screenX: sel.screenX, width: sel.width,
+                               visibleX: sel.visibleX, visibleWidth: sel.visibleWidth,
+                               y: CGFloat(lane(of: sel.clip)) * laneStep, height: h, duration: sel.clip.duration,
+                               leading: narrationTrimGesture(id: sel.id, leading: true),
+                               trailing: narrationTrimGesture(id: sel.id, leading: false))
+                    .zIndex(3)
+            }
+        }
+        .frame(width: width, height: TimelineMetrics.stackedHeight(h, lanes: tracks), alignment: .topLeading)
     }
 
     // MARK: - スクロール(時刻の移動・トラックの縦スクロール)

@@ -547,6 +547,17 @@ enum CompositionBuilder {
 
         guard pictureCount > 0 else { throw CompositionBuilderError.noVideo }
 
+        // トランジションで前後と重なる側のイン / アウトの動き(ふわっと・スライドなど)は描かない。
+        // 重なりの間に「ふわっと」が黒へ溶けて、トランジションの途中で一度暗くなっていた
+        for i in layers.indices where i < layout.count {
+            if i > 0, layout[i - 1].end - layout[i].start > 0.001 {
+                layers[i]?.animation.inType = .none
+            }
+            if i + 1 < layout.count, layout[i].end - layout[i + 1].start > 0.001 {
+                layers[i]?.animation.outType = .none
+            }
+        }
+
         // --- 命令の区間(単独区間とトランジション区間を隙間なく並べる)
         var specs: [InstructionSpec] = []
         var cursor = CMTime.zero
@@ -1246,7 +1257,10 @@ enum CompositionBuilder {
                             volume: volume.isFinite ? min(max(volume, 0), maxClipVolume) : 1,
                             fadeIn: max(0, clip.fadeIn),
                             fadeOut: max(0, clip.fadeOut))
-            ranges.append((start: at.seconds, end: (at + aDuration).seconds))
+            // 映像から分けた音声は元のクリップの音と同じ扱い(BGM を下げない)
+            if clip.track == nil {
+                ranges.append((start: at.seconds, end: (at + aDuration).seconds))
+            }
         }
         return ranges
     }

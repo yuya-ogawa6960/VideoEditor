@@ -184,6 +184,15 @@ extension EditorProject {
         return overlay.id
     }
 
+    /// オーバーレイの枠を素材の縦横比に合わせる(「全体が見える」のときだけ。「枠いっぱい」は枠で切り抜くので変えない)
+    func fitOverlayToSource(id: UUID) {
+        guard let i = overlays.firstIndex(where: { $0.id == id }), overlays[i].fit == .fit else { return }
+        let canvas = CompositionBuilder.renderSize(for: snapshot(), purpose: .preview)
+        guard canvas.width > 0, canvas.height > 0 else { return }
+        overlays[i].frame = overlays[i].aspectFitted(overlays[i].frame,
+                                                     canvasAspect: Double(canvas.width / canvas.height))
+    }
+
     /// オーバーレイを段 lane(0 = V2)に置く。ほかのオーバーレイは今の段のまま固定する(重なれば上の段へずれる)
     func placeOverlay(id: UUID, inLane lane: Int) {
         // 置くもの以外の今の段(置くものを入れて数え直すと、自動の割り当てでほかが段を飛ぶことがある)

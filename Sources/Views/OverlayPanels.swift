@@ -117,33 +117,69 @@ struct EditorOverlayPlacementPanel: View {
         return CGSize(width: 1080, height: 1920)
     }
 
-    /// 幅 width(正規化)のときに素材の縦横比を保つ高さ(正規化、1 以下)
+    /// 幅 width(正規化)のときに素材の縦横比を保つ高さ(正規化。画面より大きくもできる)
     private func aspectHeight(forWidth width: Double) -> Double {
         let canvas = canvasSize
         let source = overlay.displaySize
-        guard source.width > 0, source.height > 0, canvas.height > 0 else { return min(max(width, 0.05), 1) }
+        let maxSide = NormalizedRect.maxOverlaySide
+        guard source.width > 0, source.height > 0, canvas.height > 0 else { return min(max(width, 0.05), maxSide) }
         let h = width * Double(canvas.width / canvas.height) * Double(source.height / source.width)
-        return min(max(h, 0.05), 1)
+        return min(max(h, 0.05), maxSide)
     }
 
-    private var isHalfFrame: Bool {
-        overlay.frame.height >= 0.999 && abs(overlay.frame.width - 0.5) < 0.01
+    /// 「全体が見える」なら枠を素材の縦横比に合わせる(枠の余白を無くす。マスクを使っているときは変えない)
+    private func fitted(_ frame: NormalizedRect, fit: OverlayFit) -> NormalizedRect {
+        guard fit == .fit, canvasSize.height > 0, overlay.mask.shape == .none else { return frame }
+        return overlay.aspectFitted(frame, canvasAspect: Double(canvasSize.width / canvasSize.height))
+    }
+
+    /// プリセットの枠(合わせたあとも、右上の小窓は右上の角に付ける)
+    private func presetFrame(_ preset: OverlayPreset, fit: OverlayFit) -> NormalizedRect {
+        let base = preset.frame
+        var f = fitted(base, fit: fit)
+        if preset == .pipSmallCorner {
+            f.x = base.x + base.width - f.width
+            f.y = base.y
+        }
+        return f
+    }
+
+    /// 幅 w の枠の、縦横比を保った大きさ(高さが上限を超えるときは幅も縮める)
+    private func aspectSize(forWidth w: Double) -> (width: Double, height: Double) {
+        let canvas = canvasSize
+        let source = overlay.displaySize
+        let maxSide = NormalizedRect.maxOverlaySide
+        guard source.width > 0, source.height > 0, canvas.height > 0, canvas.width > 0 else {
+            return (w, aspectHeight(forWidth: w))
+        }
+        let h = w * Double(canvas.width / canvas.height) * Double(source.height / source.width)
+        if h > maxSide { return (w * maxSide / h, maxSide) }
+        return (w, max(h, 0.05))
+    }
+
+    /// 全面・半分に置いているか(素材の縦横比に合わせた枠も同じに見る)
+    private var isFullOrHalf: Bool {
+        overlay.frame.isFull
+            || overlayRectsAlmostEqual(overlay.frame, frame(for: .full))
+            || overlayRectsAlmostEqual(overlay.frame, frame(for: .leftHalf))
+            || overlayRectsAlmostEqual(overlay.frame, frame(for: .rightHalf))
+            || (overlay.frame.height >= 0.999 && abs(overlay.frame.width - 0.5) < 0.01)
     }
 
     /// 四隅・中央に置くときの幅(いまワイプなら現在の幅を保つ)
     private var wipeWidth: Double {
-        if overlay.frame.isFull || isHalfFrame { return 0.33 }
+        if isFullOrHalf { return 0.33 }
         return min(max(overlay.frame.width, 0.2), 0.9)
     }
 
     private func frame(for position: Position) -> NormalizedRect {
         switch position {
         case .full:
-            return .full
+            return fitted(.full, fit: overlay.fit)
         case .leftHalf:
-            return NormalizedRect(x: 0, y: 0, width: 0.5, height: 1)
+            return fitted(NormalizedRect(x: 0, y: 0, width: 0.5, height: 1), fit: overlay.fit)
         case .rightHalf:
-            return NormalizedRect(x: 0.5, y: 0, width: 0.5, height: 1)
+            return fitted(NormalizedRect(x: 0.5, y: 0, width: 0.5, height: 1), fit: overlay.fit)
         case .topLeft, .topRight, .bottomLeft, .bottomRight, .center:
             let w = wipeWidth
             let h = aspectHeight(forWidth: w)
@@ -169,16 +205,18 @@ struct EditorOverlayPlacementPanel: View {
         overlayRectsAlmostEqual(overlay.frame, frame(for: position))
     }
 
-    /// サイズスライダー(幅 0.2 ... 1、中心を保ったまま縦横比に合わせて高さも変える)
+    /// サイズスライダー(幅 0.2 ... 2 = 画面の 2 倍まで、中心を保ったまま縦横比に合わせて高さも変える)
     private var sizeBinding: Binding<Double> {
         Binding<Double>(
-            get: { min(max(overlay.frame.width, 0.2), 1) },
+            get: { min(max(overlay.frame.width, 0.2), NormalizedRect.maxOverlaySide) },
             set: { newValue in
-                let w = min(max(newValue, 0.2), 1)
-                let h = aspectHeight(forWidth: w)
+                let size = aspectSize(forWidth: min(max(newValue, 0.2), NormalizedRect.maxOverlaySide))
+                let w = size.width
+                let h = size.height
                 let cx = overlay.frame.midX
                 let cy = overlay.frame.midY
-                overlay.frame = NormalizedRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h).clamped()
+                // 端へ寄せた枠は、大きさを変えても画面の中へ押し戻さない(動かしたときと同じ範囲)
+                overlay.frame = NormalizedRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h).movable()
             }
         )
     }
@@ -193,9 +231,10 @@ struct EditorOverlayPlacementPanel: View {
                     HStack(spacing: 8) {
                         ForEach(OverlayPreset.allCases) { preset in
                             EditorChip(title: preset.displayName,
-                                       isSelected: overlayRectsAlmostEqual(overlay.frame, preset.frame)) {
+                                       isSelected: overlayRectsAlmostEqual(overlay.frame, presetFrame(preset, fit: .fit))) {
                                 var updated = overlay
                                 preset.apply(to: &updated)
+                                updated.frame = presetFrame(preset, fit: updated.fit)
                                 overlay = updated
                             }
                         }
@@ -221,7 +260,7 @@ struct EditorOverlayPlacementPanel: View {
             // サイズ
             EditorSliderRow(title: String(localized: "サイズ"),
                             value: sizeBinding,
-                            range: 0.2...1,
+                            range: 0.2...NormalizedRect.maxOverlaySide,
                             display: overlayPercentText(overlay.frame.width))
 
             // 収め方
@@ -232,6 +271,8 @@ struct EditorOverlayPlacementPanel: View {
                         EditorChip(title: fit.displayName,
                                    isSelected: overlay.fit == fit) {
                             overlay.fit = fit
+                            // 「全体が見える」にしたら枠を中身の大きさにそろえる
+                            overlay.frame = fitted(overlay.frame, fit: fit)
                         }
                     }
                     Spacer()

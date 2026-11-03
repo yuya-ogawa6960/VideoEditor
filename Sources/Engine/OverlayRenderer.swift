@@ -93,7 +93,9 @@ enum OverlayRenderer {
                                                     to: image,
                                                     cacheKey: "overlay-\(overlay.id.uuidString)-\(overlay.isImage && !overlay.isAnimatedImage ? -1 : time)",
                                                     accurate: accurate,
-                                                    fillsBackground: false)
+                                                    fillsBackground: false,
+                                                    stream: overlay.isImage && !overlay.isAnimatedImage ? nil : "overlay-\(overlay.id.uuidString)",
+                                                    time: time)
         }
 
         // 1. 写真の 3D ズーム(奥行き)。有効なら Ken Burns の代わりに使う

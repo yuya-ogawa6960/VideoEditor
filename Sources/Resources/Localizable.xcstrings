@@ -392,6 +392,28 @@
         }
       }
     },
+    "%@ の素材から、いちばん良い %@ を選びます": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picks the best %2$@ from %1$@ of footage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige los mejores %2$@ de %1$@ de material"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolhe os melhores %2$@ de %1$@ de material"
+          }
+        }
+      }
+    },
     "%@ の音声": {
       "extractionState": "manual",
       "localizations": {
@@ -1956,6 +1978,28 @@
         }
       }
     },
+    "%lld 分 %lld 秒": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld min %2$lld s"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld min %2$lld s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld min %2$lld s"
+          }
+        }
+      }
+    },
     "%lld 本(%@)を削除しますか?": {
       "extractionState": "manual",
       "localizations": {
@@ -3313,6 +3357,28 @@
         }
       }
     },
+    "10分のドキュメンタリー風に。色味はそのままで": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A 10-minute documentary, keeping the original colors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un documental de 10 minutos, con los colores originales"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um documentário de 10 minutos, com as cores originais"
+          }
+        }
+      }
+    },
     "150〜630MB のモデルをダウンロードする": {
       "extractionState": "manual",
       "localizations": {
@@ -3884,6 +3950,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Após 30 dias"
+          }
+        }
+      }
+    },
+    "30秒のショートに。笑顔の場面を中心に、「えー」などの間はカット": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A 30-second short focused on smiles, with the \"um\"s cut out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un short de 30 segundos centrado en las sonrisas, sin los \"eh\""
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um short de 30 segundos focado nos sorrisos, sem os \"é...\""
           }
         }
       }
@@ -4463,6 +4551,28 @@
         }
       }
     },
+    "AI がやること": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What AI will do"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo que hará la IA"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O que a IA vai fazer"
+          }
+        }
+      }
+    },
     "AI が聞いています": {
       "extractionState": "manual",
       "localizations": {
@@ -4505,6 +4615,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "A IA está assistindo"
+          }
+        }
+      }
+    },
+    "AI が読み取った内容": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What AI understood"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo que entendió la IA"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O que a IA entendeu"
           }
         }
       }
@@ -4643,6 +4775,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "Avaliar também o conteúdo com IA (precisa de legendas)"
+          }
+        }
+      }
+    },
+    "AI におまかせ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let AI edit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deja que la IA edite"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deixe a IA editar"
+          }
+        }
+      }
+    },
+    "AI にオーダー": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tell AI what you want"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dile a la IA lo que quieres"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diga à IA o que você quer"
           }
         }
       }
@@ -14652,6 +14828,28 @@
         }
       }
     },
+    "この例を使う": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this example"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar este ejemplo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar este exemplo"
+          }
+        }
+      }
+    },
     "この内容は生成できません": {
       "extractionState": "manual",
       "localizations": {
@@ -16354,6 +16552,28 @@
         }
       }
     },
+    "できあがりは「元に戻す」でいつでも戻せます": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can always go back with Undo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siempre puedes volver con Deshacer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você sempre pode voltar com Desfazer"
+          }
+        }
+      }
+    },
     "できました": {
       "extractionState": "manual",
       "localizations": {
@@ -16488,6 +16708,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Só é enviado, de forma anônima, quais recursos você usou."
+          }
+        }
+      }
+    },
+    "どんな動画にする?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What kind of video?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Qué tipo de video?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Que tipo de vídeo?"
           }
         }
       }
@@ -20467,6 +20709,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Laranja"
+          }
+        }
+      }
+    },
+    "オーダーを読み取り中": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading your order"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leyendo tu pedido"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lendo seu pedido"
           }
         }
       }
@@ -27417,6 +27681,28 @@
         }
       }
     },
+    "スタイルと長さを選ぶだけ。見どころ探しからカット・BGM 合わせまで AI が仕上げます": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Just pick a style and length. AI finds the highlights, makes the cuts and syncs to the music."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo elige un estilo y una duración. La IA busca lo mejor, corta y sincroniza con la música."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basta escolher um estilo e uma duração. A IA encontra os destaques, faz os cortes e sincroniza com a música."
+          }
+        }
+      }
+    },
     "スタイルに合った色味にする": {
       "extractionState": "manual",
       "localizations": {
@@ -28751,6 +29037,50 @@
         }
       }
     },
+    "タイトル「%@」": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title \"%@\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Título \"%@\""
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Título \"%@\""
+          }
+        }
+      }
+    },
+    "タイトルあり": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With title"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con título"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com título"
+          }
+        }
+      }
+    },
     "タイトルは画面の左上に大きく、メモはカードの中に表示されます。": {
       "extractionState": "manual",
       "localizations": {
@@ -28977,6 +29307,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Toque para começar agora"
+          }
+        }
+      }
+    },
+    "タップでオン・オフ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to turn on or off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca para activar o desactivar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque para ativar ou desativar"
           }
         }
       }
@@ -30702,6 +31054,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Transição: como este clipe muda para o próximo."
+          }
+        }
+      }
+    },
+    "トランジションなし": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No transitions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin transiciones"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem transições"
           }
         }
       }
@@ -38434,6 +38808,50 @@
         }
       }
     },
+    "リンクを解除しました": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio unlinked"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio desvinculado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Áudio desvinculado"
+          }
+        }
+      }
+    },
+    "リンク解除": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlink"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desvincular"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desvincular"
+          }
+        }
+      }
+    },
     "ルック": {
       "extractionState": "manual",
       "localizations": {
@@ -40178,6 +40596,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Insira “Sua chave da OpenAI” abaixo para usar."
+          }
+        }
+      }
+    },
+    "下の項目は自由に変えられます": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can still change everything below"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puedes cambiar todo lo de abajo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você pode mudar tudo abaixo"
           }
         }
       }
@@ -45955,6 +46395,28 @@
         }
       }
     },
+    "再生位置をオーバーレイの上に合わせてください": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move the playhead over the overlay"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mueve la posición de reproducción sobre la superposición"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mova a posição de reprodução sobre a sobreposição"
+          }
+        }
+      }
+    },
     "再生位置をクリップの上に合わせてください": {
       "extractionState": "manual",
       "localizations": {
@@ -45974,6 +46436,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mova a posição de reprodução sobre um clipe"
+          }
+        }
+      }
+    },
+    "再生位置を音声の上に合わせてください": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move the playhead over the audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mueve la posición de reproducción sobre el audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mova a posição de reprodução sobre o áudio"
           }
         }
       }
@@ -52579,6 +53063,28 @@
         }
       }
     },
+    "商品レビューを解説動画に。言い直しは最後だけ残して": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make my product review an explainer, keeping only the last retake"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz de mi reseña un video explicativo y deja solo la última toma"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transforme minha análise em um vídeo explicativo, só com a última tomada"
+          }
+        }
+      }
+    },
     "商品紹介": {
       "extractionState": "manual",
       "localizations": {
@@ -54672,6 +55178,28 @@
         }
       }
     },
+    "子どもの運動会を3分の家族の記録に。タイトルは「はじめての運動会」": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A 3-minute family video of the sports day, titled \"First Sports Day\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un video familiar de 3 minutos del día deportivo, con el título \"Mi primer día deportivo\""
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um vídeo de família de 3 minutos do dia esportivo, com o título \"Primeiro dia esportivo\""
+          }
+        }
+      }
+    },
     "子守唄": {
       "extractionState": "manual",
       "localizations": {
@@ -55772,6 +56300,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Concluído (%lld)"
+          }
+        }
+      }
+    },
+    "完成": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Result"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resultado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resultado"
           }
         }
       }
@@ -58582,6 +59132,28 @@
         }
       }
     },
+    "手順がわかる解説に": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A clear step-by-step explainer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una explicación paso a paso"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma explicação passo a passo"
+          }
+        }
+      }
+    },
     "投稿": {
       "extractionState": "manual",
       "localizations": {
@@ -60491,6 +61063,28 @@
         }
       }
     },
+    "旅の空気をテンポよく": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your trip, with rhythm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu viaje, con ritmo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua viagem, com ritmo"
+          }
+        }
+      }
+    },
     "旅の記録": {
       "extractionState": "manual",
       "localizations": {
@@ -60533,6 +61127,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dia da partida"
+          }
+        }
+      }
+    },
+    "旅行の動画を1分のVlogに。BGMのビートに合わせてテンポよく": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn my trip into a 1-minute vlog, cut to the beat of the music"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convierte mi viaje en un vlog de 1 minuto, al ritmo de la música"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transforme minha viagem em um vlog de 1 minuto, no ritmo da música"
           }
         }
       }
@@ -62097,6 +62713,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível usar a música"
+          }
+        }
+      }
+    },
+    "曲を入れると、ビートに合わせて切り替えます": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a song and the cuts land on the beat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade una canción y los cortes caerán en el ritmo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione uma música e os cortes caem na batida"
           }
         }
       }
@@ -69484,6 +70122,28 @@
         }
       }
     },
+    "章立てで、じっくり見せる": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chapters that take their time"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por capítulos, con calma"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em capítulos, com calma"
+          }
+        }
+      }
+    },
     "端末の声": {
       "extractionState": "manual",
       "localizations": {
@@ -69825,6 +70485,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sorrisos estão visíveis"
+          }
+        }
+      }
+    },
+    "笑顔の場面をやさしくつなぐ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gently strings the smiles together"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une las sonrisas con suavidad"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une os sorrisos com suavidade"
           }
         }
       }
@@ -70469,6 +71151,50 @@
           "stringUnit": {
             "state": "translated",
             "value": "A mídia soma %@. Se o alvo for menor, os destaques são mantidos."
+          }
+        }
+      }
+    },
+    "素材より長いので、ほぼすべて使います": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Longer than the footage, so almost all of it is used"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es más largo que el material, así que se usa casi todo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É maior que o material, então quase tudo é usado"
+          }
+        }
+      }
+    },
+    "素材をすべて使い、間だけ詰めます": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses all the footage and only trims the gaps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa todo el material y solo recorta las pausas"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa todo o material e só corta as pausas"
           }
         }
       }
@@ -73969,6 +74695,28 @@
         }
       }
     },
+    "色味はそのまま": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original colors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores originales"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cores originais"
+          }
+        }
+      }
+    },
     "色味をコピー": {
       "extractionState": "manual",
       "localizations": {
@@ -75280,6 +76028,28 @@
         }
       }
     },
+    "見どころだけを速いテンポで": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the best bits, fast"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo lo mejor, a buen ritmo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só os melhores momentos, rápido"
+          }
+        }
+      }
+    },
     "見どころは見つかりませんでした": {
       "extractionState": "manual",
       "localizations": {
@@ -75299,6 +76069,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nenhum destaque encontrado"
+          }
+        }
+      }
+    },
+    "見どころを先に見てみる": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview the highlights first"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver primero los mejores momentos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver os destaques primeiro"
           }
         }
       }
@@ -77668,6 +78460,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Criando voz"
+          }
+        }
+      }
+    },
+    "読み取る": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read order"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interpretar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interpretar"
           }
         }
       }
@@ -82216,6 +83030,28 @@
         }
       }
     },
+    "長さは?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Qué duración?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qual duração?"
+          }
+        }
+      }
+    },
     "長さを読み取れません": {
       "extractionState": "manual",
       "localizations": {
@@ -84401,6 +85237,28 @@
         }
       }
     },
+    "音声の編集": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio Edit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edición de audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edição do áudio"
+          }
+        }
+      }
+    },
     "音声の読み込みに失敗しました: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -84443,52 +85301,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível criar o áudio (tente outra voz)"
-          }
-        }
-      }
-    },
-    "音声を分けました": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio detached"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio separado"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Áudio separado"
-          }
-        }
-      }
-    },
-    "音声を分離": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detach Audio"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Separar audio"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Separar áudio"
           }
         }
       }

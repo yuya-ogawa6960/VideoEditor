@@ -2016,6 +2016,8 @@ private struct StoredNarration: Codable {
     var fadeOut: Double?
     /// レシピで作った効果音の id(省略可能。後から追加)
     var soundRecipeID: String?
+    /// リンクを解除した音声の段(1 = A1 …。省略可能。nil = ナレーション)
+    var track: Int?
 
     init(_ n: NarrationClip) {
         id = n.id
@@ -2031,6 +2033,7 @@ private struct StoredNarration: Codable {
         fadeIn = n.fadeIn > 0 ? n.fadeIn : nil
         fadeOut = n.fadeOut > 0 ? n.fadeOut : nil
         soundRecipeID = n.soundRecipeID
+        track = n.track
     }
 
     /// 音声ファイルが消えていれば nil(内蔵の効果音は Caches から消えていても作り直す)
@@ -2047,6 +2050,8 @@ private struct StoredNarration: Codable {
         n.fadeIn = fadeIn ?? 0
         n.fadeOut = fadeOut ?? 0
         n.soundRecipeID = soundRecipeID
+        // 壊れた値(0 以下)はナレーションに戻す(どの段にも出ず選べなくなるのを防ぐ)
+        n.track = track.flatMap { $0 >= 1 ? $0 : nil }
         return n
     }
 }

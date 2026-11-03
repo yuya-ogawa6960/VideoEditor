@@ -52,6 +52,18 @@ struct NormalizedRect: Equatable {
         return NormalizedRect(x: px, y: py, width: w, height: h)
     }
 
+    /// オーバーレイの枠の一辺の上限(画面の 3 倍まで大きくできる。はみ出した分は映らない)
+    static let maxOverlaySide: Double = 3
+
+    /// 動かすとき用: 大きさは画面の 3 倍まで、位置は枠の中心が画面の中にある所まで(枠は画面の外へはみ出せる)
+    func movable() -> NormalizedRect {
+        let w = min(max(width, 0.01), Self.maxOverlaySide)
+        let h = min(max(height, 0.01), Self.maxOverlaySide)
+        let cx = min(max(x + width / 2, 0), 1)
+        let cy = min(max(y + height / 2, 0), 1)
+        return NormalizedRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
+    }
+
     /// 実ピクセルサイズに展開した CGRect(原点左上)
     func rect(in size: CGSize) -> CGRect {
         CGRect(x: CGFloat(x) * size.width,
@@ -246,6 +258,24 @@ struct OverlayClip: Identifiable, Equatable {
         if duration < 0 { duration = 0 }
     }
 
+    /// 素材の縦横比(表示の向き)に合わせて frame の中に収めた枠(中心は同じ)。canvasAspect = キャンバスの幅 / 高さ。
+    /// 「全体が見える」の枠を中身と同じ大きさにする(枠の余白が無くなるだけで、見た目は変わらない)
+    func aspectFitted(_ frame: NormalizedRect, canvasAspect: Double) -> NormalizedRect {
+        let source = displaySize
+        guard source.width > 0, source.height > 0, canvasAspect > 0,
+              frame.width > 0, frame.height > 0 else { return frame }
+        // 正規化した枠の幅 / 高さを、素材の縦横比に合わせる
+        let target = Double(source.width / source.height) / canvasAspect
+        var w = frame.width
+        var h = frame.height
+        if w / h > target {
+            w = h * target
+        } else {
+            h = w / target
+        }
+        return NormalizedRect(x: frame.midX - w / 2, y: frame.midY - h / 2, width: w, height: h)
+    }
+
     /// 新しい ID を持つ複製
     func duplicated() -> OverlayClip {
         var copy = self
@@ -323,7 +353,7 @@ enum OverlayPreset: String, CaseIterable, Identifiable {
             overlay.fit = .fit
             overlay.fadeIn = 0.5
             overlay.fadeOut = 0.5
-            // 音量は変えない(V2・V3 にも音声入りの動画を置けるように。要らなければ音量・音声を分離で)
+            // 音量は変えない(V2・V3 にも音声入りの動画を置けるように。要らなければ音量・リンク解除で)
             overlay.cornerRadius = 0
         case .pipSmallCorner:
             overlay.fit = .fit

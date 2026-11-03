@@ -88,7 +88,8 @@ enum TimelineMetrics {
     /// 表示するトラック行(中身のあるトラックだけ + 映像 + 追加行)
     static func visibleTracks(overlayLanes: Int, textLanes: Int, hasDrawings: Bool,
                               hasSubtitles: Bool, hasBGM: Bool, narrationLanes: Int,
-                              mosaicLanes: Int, effectLanes: Int = 0, cameraLanes: Int = 0) -> [TimelineTrackKind] {
+                              mosaicLanes: Int, effectLanes: Int = 0, cameraLanes: Int = 0,
+                              linkedAudioTracks: Int = 0) -> [TimelineTrackKind] {
         var rows: [TimelineTrackKind] = []
         // 映像のトラックは業務用ソフトと同じく V1 の上へ積み重ねる(上の行ほど上に重なって映る):
         // テキスト・ステッカー(いちばん上)→ 手書き → オーバーレイ → モザイク(FX)→ V1
@@ -102,6 +103,8 @@ enum TimelineMetrics {
         // マルチカメラのアングルは V1 のクリップの中で描かれる(モザイクもかかる)ので、モザイクの下・V1 の直上
         if cameraLanes > 0 { rows.append(.camera(lanes: cameraLanes)) }
         rows.append(.video)
+        // 映像の音声の段(A1 = V1、A2 = V2 …)は業務用ソフトと同じく V1 の直下へ並べる
+        if linkedAudioTracks > 0 { rows.append(.linkedAudio(tracks: linkedAudioTracks)) }
         if hasSubtitles { rows.append(.subtitle) }
         if hasBGM { rows.append(.audio) }
         if narrationLanes > 0 { rows.append(.narration(lanes: narrationLanes)) }
@@ -118,8 +121,43 @@ enum TimelineMetrics {
                       narrationLanes: narrationLaneCount(snapshot.narration),
                       mosaicLanes: mosaicLaneCount(snapshot.textClips),
                       effectLanes: effectLaneCount(snapshot.videoEffects),
-                      cameraLanes: cameraLaneCount(snapshot.clips))
+                      cameraLanes: cameraLaneCount(snapshot.clips),
+                      linkedAudioTracks: linkedAudioTrackCount(clips: snapshot.clips, overlays: snapshot.overlays,
+                                                               narration: snapshot.narration))
     }
+
+    /// 音声の段(A1 = V1、A2 = V2 …)の数。映像とリンク中の音声と、リンクを解除した音声のいちばん大きい段まで
+    static func linkedAudioTrackCount(clips: [Clip], overlays: [OverlayClip], narration: [NarrationClip]) -> Int {
+        var count = clips.contains(where: { clipHasLinkedAudio($0) }) ? 1 : 0
+        if overlays.contains(where: { overlayHasLinkedAudio($0) }) {
+            let lanes = overlayLanes(overlays)
+            for o in overlays where overlayHasLinkedAudio(o) {
+                count = max(count, (lanes[o.id] ?? 0) + 2)
+            }
+        }
+        for n in narration {
+            if let track = n.track { count = max(count, track) }
+        }
+        return count
+    }
+
+    /// V1 のクリップの音声を A1 に出すか(音声があり、ミュートしていない動画)
+    static func clipHasLinkedAudio(_ clip: Clip) -> Bool {
+        !clip.isStill && clip.hasAudio && !clip.isMuted
+    }
+
+    /// オーバーレイの音声を A2 … に出すか(音量のある動画)
+    static func overlayHasLinkedAudio(_ overlay: OverlayClip) -> Bool {
+        !overlay.isImage && overlay.volume > 0.001
+    }
+
+    /// ナレーションの段に並べる音声(リンクを解除した音声は A1 … の段)
+    static func narrationOnly(_ narration: [NarrationClip]) -> [NarrationClip] {
+        narration.filter { $0.track == nil }
+    }
+
+    /// 映像とリンク中の音声のバー
+    static let linkedAudioColor = Color(red: 0.13, green: 0.55, blue: 0.50)
 
     /// カメラのトラックの段数(V1 のクリップの中で実際に区間のあるアングルの番号のいちばん大きいもの。
     /// 使っていないアングルの空の段は作らない。逆再生中のクリップは合成で使わないので数えない)
@@ -296,7 +334,7 @@ enum TimelineMetrics {
     }
 
     static func narrationLanes(_ narration: [NarrationClip]) -> [UUID: Int] {
-        lanes(narration.map { (id: $0.id, start: $0.start, end: $0.start + $0.duration) })
+        lanes(narrationOnly(narration).map { (id: $0.id, start: $0.start, end: $0.start + $0.duration) })
     }
 
     static func textLaneCount(_ clips: [TextClip]) -> Int { laneCount(textLanes(clips)) }
@@ -327,6 +365,7 @@ enum TimelineMetrics {
         var hasAudio = false
         var effectLanes = 0
         var cameraLanes = 0
+        var linkedTracks = 0
         for row in rows {
             switch row {
             case .camera(let lanes): cameraLanes = lanes
@@ -337,6 +376,7 @@ enum TimelineMetrics {
             case .drawing: hasDrawing = true
             case .narration(let lanes): narrationLanes = lanes
             case .audio: hasAudio = true
+            case .linkedAudio(let tracks): linkedTracks = tracks
             case .video, .subtitle, .add: break
             }
         }
@@ -372,9 +412,18 @@ enum TimelineMetrics {
             nextV += textLanes
         }
         result["subtitle"] = ["ST1"]
+        // 映像の音声の段は対応する V と同じ番号(A1 = V1。オーバーレイの段 k は V の番号と同じ)。BGM・ナレーションはその後ろ
         var nextA = 1
+        if linkedTracks > 0 {
+            let overlayBase = 2 + cameraLanes
+            let names: [String] = (1...linkedTracks).map { track in
+                track == 1 ? "A1" : "A\(overlayBase + track - 2)"
+            }
+            result["linkedAudio"] = names
+            nextA = (linkedTracks == 1 ? 1 : overlayBase + linkedTracks - 2) + 1
+        }
         if hasAudio {
-            result["audio"] = ["A1"]
+            result["audio"] = ["A\(nextA)"]
             nextA += 1
         }
         if narrationLanes > 0 {
@@ -413,6 +462,8 @@ enum TimelineTrackKind: Hashable {
     case narration(lanes: Int)
     /// 映像エフェクト(VideoEffectClip。重なる分だけ段を増やす)
     case effect(lanes: Int)
+    /// 映像の音声(A1 = V1、A2 = V2 …)。リンク中の音声と、リンクを解除した音声を並べる
+    case linkedAudio(tracks: Int)
 
     /// 行の見分け(段数が変わっても同じ行として扱う)
     var key: String {
@@ -427,6 +478,7 @@ enum TimelineTrackKind: Hashable {
         case .subtitle: return "subtitle"
         case .audio: return "audio"
         case .narration: return "narration"
+        case .linkedAudio: return "linkedAudio"
         case .add: return "add"
         }
     }
@@ -443,6 +495,7 @@ enum TimelineTrackKind: Hashable {
         case .subtitle: return TimelineMetrics.subtitleHeight
         case .audio: return TimelineMetrics.audioHeight
         case .narration(let lanes): return TimelineMetrics.stackedHeight(TimelineMetrics.narrationHeight, lanes: lanes)
+        case .linkedAudio(let tracks): return TimelineMetrics.stackedHeight(TimelineMetrics.narrationHeight, lanes: tracks)
         case .add: return TimelineMetrics.addRowHeight
         }
     }
@@ -460,6 +513,7 @@ enum TimelineTrackKind: Hashable {
         case .subtitle: return "captions.bubble"
         case .audio: return "music.note"
         case .narration: return "mic.fill"
+        case .linkedAudio: return "waveform"
         case .add: return nil
         }
     }
@@ -715,6 +769,23 @@ struct TimelineNarrationItem: Identifiable {
     let visibleX: CGFloat
     let visibleWidth: CGFloat
     let labelX: CGFloat
+}
+
+/// A の段に描く、映像とリンク中の音声の 1 本(V1 のクリップ・オーバーレイの位置そのまま)
+struct TimelineLinkedAudioItem: Identifiable {
+    /// クリップ・オーバーレイの id
+    let id: UUID
+    /// 描画用(名前・音声ファイル・ファイル上の開始秒)
+    let clip: NarrationClip
+    /// 上から数えた段(0 = A1)
+    let lane: Int
+    let screenX: CGFloat
+    let visibleX: CGFloat
+    let visibleWidth: CGFloat
+    let labelX: CGFloat
+    /// タップで選ぶ映像の部品
+    let target: EditorSelection
+    let showsWaveform: Bool
 }
 
 /// テキスト・ステッカートラック上の 1 要素の配置
@@ -1476,6 +1547,10 @@ struct TimelineNarrationBar: View {
     let labelX: CGFloat
     let height: CGFloat
     let isSelected: Bool
+    /// A の段の音声(リンク中・リンク解除)は色とアイコンを変える。速度を変えたクリップは波形を出さない
+    var color: Color = TimelineMetrics.narrationColor
+    var iconName: String = "mic.fill"
+    var showsWaveform: Bool = true
 
     var body: some View {
         let pps = max(pointsPerSecond, 0.0001)
@@ -1486,8 +1561,8 @@ struct TimelineNarrationBar: View {
 
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(TimelineMetrics.narrationColor)
-            if visibleWidth >= 6 {
+                .fill(color)
+            if visibleWidth >= 6 && showsWaveform {
                 TimelineWaveformStrip(url: clip.url,
                                       sourceStart: waveStart,
                                       sourceEnd: waveEnd,
@@ -1496,7 +1571,7 @@ struct TimelineNarrationBar: View {
                     .frame(width: visibleWidth, height: max(1, height - 6))
             }
             HStack(spacing: 4) {
-                Image(systemName: "mic.fill")
+                Image(systemName: iconName)
                     .font(.system(size: 9, weight: .bold))
                 Text(clip.name.isEmpty ? " " : clip.name)
                     .font(.system(size: 10, weight: .semibold))

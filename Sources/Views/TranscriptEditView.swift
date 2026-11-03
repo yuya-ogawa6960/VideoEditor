@@ -373,9 +373,12 @@ private struct TranscriptLineRow: View {
             .accessibilityLabel("行を選ぶ")
 
             if line.hasWordTimings {
-                TranscriptFlowLayout(spacingX: 2, spacingY: 6) {
-                    ForEach(line.items) { item in
-                        TranscriptWordChip(item: item, isSelected: selected.contains(item.id))
+                // 日本語の単語どうしは詰めて並べる(1 文字ずつ隙間が空いて読みにくかった)。英数字どうしの間だけ空ける
+                TranscriptFlowLayout(spacingX: 0, spacingY: 6) {
+                    ForEach(Array(line.items.enumerated()), id: \.element.id) { index, item in
+                        let next: TranscriptEditor.Item? = index + 1 < line.items.count ? line.items[index + 1] : nil
+                        TranscriptWordChip(item: item, isSelected: selected.contains(item.id),
+                                           trailingSpace: TranscriptWordChip.needsSpace(after: item.text, before: next?.text))
                             .onTapGesture { onTapItem(item) }
                             .onLongPressGesture(minimumDuration: 0.4) { onPlay(item) }
                     }
@@ -406,14 +409,23 @@ private struct TranscriptLineRow: View {
 private struct TranscriptWordChip: View {
     let item: TranscriptEditor.Item
     let isSelected: Bool
+    /// 後ろに空白を入れる(英数字の単語どうし)
+    var trailingSpace: Bool = false
+
+    /// 英数字で終わる単語と英数字で始まる単語の間だけ空白を入れる
+    static func needsSpace(after text: String, before next: String?) -> Bool {
+        guard let last = text.last, let first = next?.first else { return false }
+        func isLatin(_ c: Character) -> Bool { c.isASCII && (c.isLetter || c.isNumber) }
+        return isLatin(last) && isLatin(first)
+    }
 
     var body: some View {
-        Text(item.text)
+        Text(trailingSpace ? item.text + " " : item.text)
             .font(.body)
             .strikethrough(item.isDeleted, color: .secondary)
             .underline(item.isSuspicious && !item.isDeleted, pattern: .dot, color: .orange)
             .foregroundStyle(item.isDeleted ? Color.secondary.opacity(0.6) : (isSelected ? Color.white : Color.primary))
-            .padding(.horizontal, 3)
+            .padding(.horizontal, 1)
             .padding(.vertical, 2)
             .background(isSelected ? Color.accentColor.opacity(0.85) : Color.clear,
                         in: RoundedRectangle(cornerRadius: 4))

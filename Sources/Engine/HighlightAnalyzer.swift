@@ -4,6 +4,7 @@ import Accelerate
 import CoreImage
 import CoreVideo
 import Vision
+import SoundAnalysis
 
 // =====================================================================
 // 自動ハイライト解析(おまかせ編集の材料)。
@@ -159,7 +160,7 @@ enum HighlightAnalyzer {
     /// (「見どころを探す」を先に済ませて解析を飛ばすとき、アプリを開き直したあとなど)
     static func ensureVoiceRuns(snapshot: ProjectSnapshot, progress: ((Double) -> Void)?) async throws {
         let pending = snapshot.clips.filter {
-            $0.hasAudio && !$0.isStill && $0.trimmedDuration > 0.3 && voiceRuns(for: $0.id).isEmpty
+            $0.hasAudio && !$0.isStill && $0.trimmedDuration > 0.3 && !hasVoiceAnalysis(for: $0.id)
         }
         guard !pending.isEmpty else { return }
         for (i, clip) in pending.enumerated() {
@@ -182,13 +183,35 @@ enum HighlightAnalyzer {
         voiceLock.unlock()
     }
 
+    /// 声の解析を済ませたか(声が無かったクリップも、解析済みなら何度も解析し直さない)
+    static func hasVoiceAnalysis(for clipID: UUID) -> Bool {
+        voiceLock.lock()
+        defer { voiceLock.unlock() }
+        return voiceCache[clipID] != nil
+    }
+
     private static func analyzeAudio(clip: Clip, seconds: Int,
                                      progress: @escaping (Double) -> Void) async throws -> (loud: [Double], speech: [Double]) {
         final class Collector {
             var rms: [Float] = []
             var zcr: [Float] = []
+            /// 音の分類(話し声か、風・車・音楽などの雑音か)。使えない端末では nil
+            var classifier: SNAudioStreamAnalyzer?
+            var format: AVAudioFormat?
+            var position: AVAudioFramePosition = 0
         }
         let collector = Collector()
+        let speechObserver = SpeechClassObserver()
+        if let format = AVAudioFormat(standardFormatWithSampleRate: audioSampleRate, channels: 1),
+           let request = try? SNClassifySoundRequest(classifierIdentifier: .version1) {
+            request.windowDuration = CMTime(seconds: 1.0, preferredTimescale: 600)
+            request.overlapFactor = 0.5
+            let analyzer = SNAudioStreamAnalyzer(format: format)
+            if (try? analyzer.add(request, withObserver: speechObserver)) != nil {
+                collector.classifier = analyzer
+                collector.format = format
+            }
+        }
         let splitter = AudioAnalysisFrameSplitter(frameLength: audioWindow)
         let windowLength = vDSP_Length(audioWindow)
         let count = audioWindow
@@ -212,9 +235,28 @@ enum HighlightAnalyzer {
                 collector.rms.append(rms)
                 collector.zcr.append(Float(crossings) / Float(count))
             }
+            // 同じ音を音の分類にも渡す(話し声と雑音を分けるため)
+            if let analyzer = collector.classifier, let format = collector.format, !chunk.isEmpty,
+               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(chunk.count)),
+               let channel = buffer.floatChannelData?[0] {
+                buffer.frameLength = AVAudioFrameCount(chunk.count)
+                chunk.withUnsafeBufferPointer { source in
+                    if let base = source.baseAddress {
+                        memcpy(channel, base, chunk.count * MemoryLayout<Float>.size)
+                    }
+                }
+                analyzer.analyze(buffer, atAudioFramePosition: collector.position)
+                collector.position += AVAudioFramePosition(chunk.count)
+            }
             let done = Double(collector.rms.count) / windowsPerSecond
             progress(min(1, done / span))
         }
+
+        collector.classifier?.completeAnalysis()
+        // 音の分類で話し声と判定された区間(元素材上の秒)。分類できなかったときは nil(音量だけで見る)
+        let classifiedSpeech: [ClosedRange<Double>]? = collector.classifier == nil
+            ? nil
+            : speechObserver.speechRanges(offset: start)
 
         let n = max(1, seconds)
         var loud = [Double](repeating: 0, count: n)
@@ -252,6 +294,20 @@ enum HighlightAnalyzer {
             let a = start + Double(s) / windowsPerSecond
             let b = start + Double(lastVoiced + 1) / windowsPerSecond
             if b - a >= 0.25 { runs.append(a...b) }
+        }
+        // 音量で見つけた声の区間のうち、音の分類でも話し声と判定された所だけを声とする
+        // (風・車・水の音・BGM だけの所を声と数えて、切るべき所を残していた)
+        if let classifiedSpeech {
+            runs = runs.filter { run in
+                let length = run.upperBound - run.lowerBound
+                var overlap = 0.0
+                for s in classifiedSpeech {
+                    let lo = max(run.lowerBound, s.lowerBound)
+                    let hi = min(run.upperBound, s.upperBound)
+                    if hi > lo { overlap += hi - lo }
+                }
+                return overlap >= min(0.4, length * 0.3)
+            }
         }
         storeVoiceRuns(runs, for: clip.id)
 
@@ -680,5 +736,60 @@ enum HighlightAnalyzer {
             }
         default: return String(localized: "音が盛り上がる場面")
         }
+    }
+}
+
+/// 音の分類(SoundAnalysis)の結果から、話し声らしい区間を集める。
+/// 1 秒の窓ごとに「話し声・会話・ナレーション・ささやき・叫び」などのいちばん高い確からしさを見る
+final class SpeechClassObserver: NSObject, SNResultsObserving {
+    private let lock = NSLock()
+    private var ranges: [(start: Double, end: Double)] = []
+    /// この確からしさ以上なら話し声とみなす(BGM や雑音と重なった声も拾えるよう低め)
+    private static let threshold = 0.25
+
+    private static func isSpeechLabel(_ identifier: String) -> Bool {
+        let id = identifier.lowercased()
+        return id.contains("speech") || id.contains("speak") || id.contains("conversation")
+            || id.contains("narration") || id.contains("whisper") || id.contains("shout")
+            || id.contains("yell") || id.contains("babbl")
+            // 笑い声・歌も「声」として残す(切ると笑っている所が消える)
+            || id.contains("laugh") || id.contains("giggl") || id.contains("chuckl") || id.contains("sing")
+    }
+
+    func request(_ request: SNRequest, didProduce result: SNResult) {
+        guard let result = result as? SNClassificationResult else { return }
+        var best = 0.0
+        for c in result.classifications where Self.isSpeechLabel(c.identifier) {
+            best = max(best, c.confidence)
+        }
+        guard best >= Self.threshold else { return }
+        let start = result.timeRange.start.seconds
+        let end = (result.timeRange.start + result.timeRange.duration).seconds
+        guard start.isFinite, end.isFinite, end > start else { return }
+        lock.lock()
+        ranges.append((start, end))
+        lock.unlock()
+    }
+
+    func request(_ request: SNRequest, didFailWithError error: Error) {}
+
+    func requestDidComplete(_ request: SNRequest) {}
+
+    /// 話し声の区間(offset を足した秒。重なる窓はつなぐ)
+    func speechRanges(offset: Double) -> [ClosedRange<Double>] {
+        lock.lock()
+        let sorted = ranges.sorted { $0.start < $1.start }
+        lock.unlock()
+        var merged: [ClosedRange<Double>] = []
+        for r in sorted {
+            let a = r.start + offset
+            let b = r.end + offset
+            if let last = merged.last, a <= last.upperBound {
+                merged[merged.count - 1] = last.lowerBound...max(last.upperBound, b)
+            } else {
+                merged.append(a...b)
+            }
+        }
+        return merged
     }
 }

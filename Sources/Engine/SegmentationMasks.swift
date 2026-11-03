@@ -22,7 +22,9 @@ enum SegmentationMasks {
 
     /// image(rect を覆う不透明な画像)の切り抜きを、rect の大きさ・位置にそろえて返す。
     /// maxInputSide を指定すると、Vision に渡す前にその長辺まで縮める(速くするため)
-    static func mask(for image: CIImage, in rect: CGRect, kind: Kind, maxInputSide: CGFloat? = nil) -> CIImage? {
+    /// edgeAware: 小さな切り抜きを元の映像の明るさの境目に沿って広げる(髪・肩のふちが映像の輪郭に付く。背景を消す用)
+    static func mask(for image: CIImage, in rect: CGRect, kind: Kind, maxInputSide: CGFloat? = nil,
+                     edgeAware: Bool = false) -> CIImage? {
         guard rect.width >= 2, rect.height >= 2, !rect.isInfinite else { return nil }
         var input = image.cropped(to: rect)
             .transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
@@ -44,7 +46,45 @@ enum SegmentationMasks {
             buffer = foregroundMask(handler: handler, point: point)
         }
         guard let buffer else { return nil }
+        // 輪郭に沿って広げるのは、切り抜きが元の映像より小さいとき(広げる処理なので)
+        if edgeAware, CGFloat(CVPixelBufferGetWidth(buffer)) < rect.width,
+           CGFloat(CVPixelBufferGetHeight(buffer)) < rect.height,
+           let refined = edgeAwareMask(from: buffer, guide: image, fitting: rect) {
+            return refined
+        }
         return grayMask(from: buffer, fitting: rect)
+    }
+
+    /// 赤の値で灰色(不透明)にする
+    private static func grayFromRed(_ image: CIImage) -> CIImage {
+        image.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: 1, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: 1, y: 0, z: 0, w: 0),
+            "inputBVector": CIVector(x: 1, y: 0, z: 0, w: 0),
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1)
+        ])
+    }
+
+    /// 小さな切り抜きを、元の映像(guide)を手がかりに rect の大きさへ広げる(CIEdgePreserveUpsampleFilter)。
+    /// ただ引き伸ばすと境界がぼやけて背景がにじむので、映像の輪郭に沿った境界にする
+    static func edgeAwareMask(from buffer: CVPixelBuffer, guide: CIImage, fitting rect: CGRect) -> CIImage? {
+        let raw = CIImage(cvPixelBuffer: buffer)
+        let extent = raw.extent
+        guard extent.width >= 1, extent.height >= 1, rect.width >= 2, rect.height >= 2 else { return nil }
+        let small = grayFromRed(raw)
+            .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+        let guideImage = guide.cropped(to: rect)
+            .transformed(by: CGAffineTransform(translationX: -rect.minX, y: -rect.minY))
+        let upsampled = guideImage.applyingFilter("CIEdgePreserveUpsampleFilter", parameters: [
+            "inputSmallImage": small,
+            "inputSpatialSigma": 3.0,
+            "inputLumaSigma": 0.15
+        ])
+        guard !upsampled.extent.isInfinite, upsampled.extent.width >= 1 else { return nil }
+        return grayFromRed(upsampled)
+            .transformed(by: CGAffineTransform(translationX: rect.minX, y: rect.minY))
+            .cropped(to: rect)
     }
 
     /// 1 チャンネルの切り抜きを、赤の値で灰色(不透明)にそろえて rect に合わせる(8bit / float のどちらでも同じに扱う)
