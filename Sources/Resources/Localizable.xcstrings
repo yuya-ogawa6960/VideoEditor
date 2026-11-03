@@ -392,6 +392,29 @@
         }
       }
     },
+    "%@ の音声": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio de %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Áudio de %@"
+          }
+        }
+      }
+    },
     "%@ を使います": {
       "extractionState": "manual",
       "localizations": {
@@ -1952,6 +1975,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Excluir %lld vídeos (%@)?"
+          }
+        }
+      }
+    },
+    "%lld 本のカットにしました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Made %lld cuts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se crearon %lld cortes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld cortes criados"
           }
         }
       }
@@ -9224,6 +9270,29 @@
         }
       }
     },
+    "V1 に書き出す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flatten to V1"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasar a V1"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passar para a V1"
+          }
+        }
+      }
+    },
     "VHS": {
       "extractionState": "manual",
       "localizations": {
@@ -14671,6 +14740,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível carregar esta foto. Escolha outra."
+          }
+        }
+      }
+    },
+    "この動画には音声がありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video has no audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este video no tiene audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este vídeo não tem áudio"
           }
         }
       }
@@ -36847,6 +36939,29 @@
         }
       }
     },
+    "マルチカメラのクリップではありません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This isn't a multicam clip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este no es un clip multicámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este não é um clipe multicâmera"
+          }
+        }
+      }
+    },
     "マルチカメラのクリップは逆再生にできません": {
       "extractionState": "manual",
       "localizations": {
@@ -37142,6 +37257,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Silenciar"
+          }
+        }
+      }
+    },
+    "ミュート中のクリップは音声を分けられません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muted clips can't have their audio detached"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede separar el audio de un clip silenciado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível separar o áudio de um clipe silenciado"
           }
         }
       }
@@ -48918,6 +49056,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Imagem animada"
+          }
+        }
+      }
+    },
+    "動く画像は V1 に入れられません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animated images can't go into V1"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las imágenes animadas no pueden ir a V1"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagens animadas não podem ir para a V1"
           }
         }
       }
@@ -63155,6 +63316,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível exportar"
+          }
+        }
+      }
+    },
+    "書き出せませんでした。もう一度試してください": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't flatten. Please try again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo convertir. Inténtalo de nuevo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível converter. Tente novamente"
           }
         }
       }
@@ -80294,6 +80478,29 @@
         }
       }
     },
+    "速度を変えたオーバーレイは音声を分けられません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio can't be detached from overlays with changed speed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede separar el audio de superposiciones con velocidad cambiada"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível separar o áudio de sobreposições com velocidade alterada"
+          }
+        }
+      }
+    },
     "速度カーブ": {
       "extractionState": "manual",
       "localizations": {
@@ -80382,6 +80589,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Velocidade/Duração"
+          }
+        }
+      }
+    },
+    "速度・逆再生・タイムリマップを使ったマルチカメラは書き出せません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Multicam clips that use speed, reverse or time remapping can't be flattened"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pueden convertir clips multicámara con velocidad, reversa o reasignación de tiempo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível converter clipes multicâmera com velocidade, reverso ou remapeamento de tempo"
+          }
+        }
+      }
+    },
+    "速度・逆再生・タイムリマップ・マルチカメラを使ったクリップは音声を分けられません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio can't be detached from clips that use speed, reverse, time remapping or multicam"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede separar el audio de clips con velocidad, reversa, reasignación de tiempo o multicámara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível separar o áudio de clipes com velocidade, reverso, remapeamento de tempo ou multicâmera"
           }
         }
       }
@@ -82446,6 +82699,52 @@
         }
       }
     },
+    "離すと V%lld に移します": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release to move to V%lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelta para moverlo a V%lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte para mover para a V%lld"
+          }
+        }
+      }
+    },
+    "離すと V%lld に重ねます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release to place on V%lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelta para colocarlo en V%lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte para colocar na V%lld"
+          }
+        }
+      }
+    },
     "離すと V1 に入れます": {
       "extractionState": "manual",
       "localizations": {
@@ -82465,29 +82764,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Solte para colocar na V1"
-          }
-        }
-      }
-    },
-    "離すと V2 に重ねます": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Release to place on V2"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suelta para ponerlo en V2"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solte para colocar na V2"
           }
         }
       }
@@ -84171,6 +84447,52 @@
         }
       }
     },
+    "音声を分けました": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio detached"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio separado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Áudio separado"
+          }
+        }
+      }
+    },
+    "音声を分離": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detach Audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separar audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separar áudio"
+          }
+        }
+      }
+    },
     "音声を取り出しています": {
       "extractionState": "manual",
       "localizations": {
@@ -84995,6 +85317,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Volume"
+          }
+        }
+      }
+    },
+    "音量が 0 のオーバーレイは音声を分けられません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlays with volume 0 can't have their audio detached"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede separar el audio de una superposición con volumen 0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível separar o áudio de uma sobreposição com volume 0"
           }
         }
       }

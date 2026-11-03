@@ -110,14 +110,15 @@ struct EditorTransitionPanel: View {
 
     private var isLast: Bool { project.clips.last?.id == clip.id }
 
-    /// 前後のクリップの出力長の半分まで(0.2 ... 2.0)
+    /// 前後のクリップの出力長の半分まで(種類ごとの上限まで。最大 8 秒)
     private var maxDuration: Double {
-        guard let i = project.index(of: clip.id) else { return 2 }
+        let typeLimit = clip.transition.type.maxDuration
+        guard let i = project.index(of: clip.id) else { return typeLimit }
         var limit = clip.outputDuration / 2
         if i + 1 < project.clips.count {
             limit = min(limit, project.clips[i + 1].outputDuration / 2)
         }
-        return max(0.2, min(2, limit))
+        return max(0.2, min(typeLimit, limit))
     }
 
     /// トランジションを変えると出力の長さが変わるので、字幕・テキストなどが同じ元素材の位置に付いたままになるよう前後で配置を直す
@@ -125,7 +126,10 @@ struct EditorTransitionPanel: View {
         Binding(get: { clip.transition },
                 set: { newValue in
                     let layout = project.captureClipLayout()
-                    clip.transition = newValue
+                    var value = newValue
+                    // 上限の短い種類に変えたら、長さもその上限まで縮める
+                    value.duration = min(value.duration, value.type.maxDuration)
+                    clip.transition = value
                     project.rippleTimelineItems(from: layout)
                 })
     }
@@ -150,7 +154,7 @@ struct EditorTransitionPanel: View {
 
             EditorSliderRow(title: String(localized: "長さ"),
                             value: transition.duration,
-                            range: 0.2...2.0,
+                            range: 0.2...clip.transition.type.maxDuration,
                             display: clipFXSeconds(clip.transition.duration))
                 .disabled(isLast || isNone)
                 .opacity(isLast || isNone ? 0.4 : 1)
@@ -1617,8 +1621,11 @@ struct EditorOverlayTransitionPanel: View {
 
     @State private var side: EditorInOutSide = .enter
 
-    /// オーバーレイの長さの半分まで(最大 2 秒。描画の transitionState と同じ上限)
-    private var maxDuration: Double { max(0.25, min(2, overlay.duration / 2)) }
+    /// オーバーレイの長さの半分まで(種類ごとの上限まで。最大 8 秒。描画の transitionState も長さの半分まで)
+    private var maxDuration: Double {
+        let typeLimit = (side == .enter ? overlay.transitionIn : overlay.transitionOut).type.maxDuration
+        return max(0.25, min(typeLimit, overlay.duration / 2))
+    }
 
     /// イン: 出てくる 0.5 秒前〜切り替わりの 1 秒後 / アウト: 切り替わりの 1 秒前〜消えた 0.5 秒後
     private var loopRange: ClosedRange<Double> {
@@ -1634,10 +1641,13 @@ struct EditorOverlayTransitionPanel: View {
     private var current: Binding<ClipTransition> {
         Binding(get: { side == .enter ? overlay.transitionIn : overlay.transitionOut },
                 set: { newValue in
+                    var value = newValue
+                    // 上限の短い種類に変えたら、長さもその上限まで縮める
+                    value.duration = min(value.duration, value.type.maxDuration)
                     if side == .enter {
-                        overlay.transitionIn = newValue
+                        overlay.transitionIn = value
                     } else {
-                        overlay.transitionOut = newValue
+                        overlay.transitionOut = value
                     }
                 })
     }

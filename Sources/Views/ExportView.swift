@@ -707,7 +707,7 @@ struct ExportView: View {
 
     /// 出力タイムラインの長さ(トランジションの重なりを反映)
     private var timelineDuration: Double {
-        let total = CompositionBuilder.totalDuration(for: project.snapshot())
+        let total = CompositionBuilder.playbackDuration(for: project.snapshot())
         return total.isFinite ? max(0, total) : 0
     }
 

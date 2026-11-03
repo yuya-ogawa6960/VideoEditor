@@ -81,6 +81,10 @@ final class TimelineState {
     /// 編集チェック(YouTuber・インフルエンサーが気をつける点)の結果
     var pacingChecks: [EditingCheck] = []
 
+    /// タイムラインで選んだオーバーレイの段(0 = V2。左端の V2・V3 … の札をタップ)。
+    /// 選んでいる間はオーバーレイの追加(動画・写真)をこの段の再生位置に置く
+    var targetOverlayLane: Int? = nil
+
     /// クリップの複数選択モード中か(タップで選択を足したり外したりする)
     var isMultiSelecting: Bool = false
     /// 複数選択中のクリップ

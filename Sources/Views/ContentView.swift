@@ -166,6 +166,8 @@ struct ContentView: View {
     @State private var incomingCheckAttempts = 0
     /// タイムラインの「+」から開くオーバーレイの PhotosPicker
     @State private var showOverlayPicker = false
+    /// マルチカメラを V1 のカットに書き出している最中
+    @State private var isFlatteningMulticam = false
     /// ステッカーパネルの「GIF を読み込む」(写真ライブラリ / 「ファイル」。どちらもオーバーレイとして入る)
     @State private var showGIFPhotoPicker = false
     @State private var showGIFFileImporter = false
@@ -1043,15 +1045,19 @@ struct ContentView: View {
 
                         if !isKeyboardVisible {
                             if panelOpen {
-                                // パネルを開いている間はタイムラインの代わりに細いシークバーを出す(プレビューを広く保つ)
+                                // パネルを開いている間はタイムラインの代わりに細いシークバーを出す(プレビューを広く保つ)。
+                                // タイムラインと同じく右の列(時刻などが出る列)の下まで伸ばす
                                 scrubBar
+                                    .ignoresSafeArea(.container, edges: .trailing)
                             } else {
                                 transportAndTimeline
                             }
                         }
 
                         if !sideToolbar {
-                            bottomArea(maxPanelHeight: panelMax)
+                            // パネルの上端(いちばん高いとき)が右の列の時刻などより下なら、パネルも右の列の下まで使う
+                            bottomArea(maxPanelHeight: panelMax,
+                                       panelUsesSideColumn: geo.size.height - panelMax > sideTop + 12)
                         }
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -1400,11 +1406,12 @@ struct ContentView: View {
 
     // MARK: - 下部(ツールバー or パネル)
 
-    private func bottomArea(maxPanelHeight: CGFloat) -> some View {
+    /// panelUsesSideColumn: パネルをいちばん高くしても右の列の時刻などに届かないので、パネルも右の列の下まで伸ばす
+    private func bottomArea(maxPanelHeight: CGFloat, panelUsesSideColumn: Bool = false) -> some View {
         toolConfirmationDialogs(bottomAreaContent(maxPanelHeight: maxPanelHeight))
             // 右側(時刻などが縦に並ぶ列)の下までツールバーを伸ばす。時刻などは列の上のほうにしか出ないので、下は空けない
-            // (パネルは高くなると列の上の時刻などに届くので、伸ばさない)
-            .ignoresSafeArea(.container, edges: activePanel == nil ? .trailing : [])
+            // (パネルは、高くすると列の上の時刻などに届くときだけ伸ばさない)
+            .ignoresSafeArea(.container, edges: activePanel == nil || panelUsesSideColumn ? .trailing : [])
     }
 
     private func bottomAreaContent(maxPanelHeight: CGFloat) -> some View {
@@ -2550,6 +2557,12 @@ struct ContentView: View {
                                         enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
                 openPanel(.volume(clipID))
             })
+            // 音声を映像から分けて A の段へ(映像はミュート)
+            let detachReason: String? = clip.flatMap { EditorProject.audioDetachBlockReason($0) }
+            items.append(EditorToolItem(String(localized: "音声を分離"), systemImage: "rectangle.split.1x2",
+                                        enabled: detachReason == nil, disabledReason: detachReason) {
+                detachAudio(clipID: clipID)
+            })
             var speedItems: [EditorToolItem] = []
             speedItems.append(EditorToolItem(String(localized: "速度"), systemImage: "speedometer") {
                 openPanel(.speed(clipID))
@@ -2864,6 +2877,12 @@ struct ContentView: View {
         if !isImage {
             items.append(EditorToolItem(String(localized: "音量"), systemImage: "speaker.wave.2") {
                 openPanel(.overlayVolume(overlayID))
+            })
+            let detachReason: String? = project.overlays.first(where: { $0.id == overlayID })
+                .flatMap { EditorProject.audioDetachBlockReason($0) }
+            items.append(EditorToolItem(String(localized: "音声を分離"), systemImage: "rectangle.split.1x2",
+                                        enabled: detachReason == nil, disabledReason: detachReason) {
+                detachAudio(overlayID: overlayID)
             })
             items.append(EditorToolItem(String(localized: "速度"), systemImage: "speedometer") {
                 openPanel(.overlaySpeed(overlayID))
@@ -3650,6 +3669,19 @@ struct ContentView: View {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("完了") { activeSheet = nil }
                         }
+                        // 切り替えたとおりに V1 のカットへ分け、メインの音声は A の段へ(MulticamFlatten.swift)
+                        ToolbarItem(placement: .bottomBar) {
+                            let reason: String? = project.clips.first(where: { $0.id == clipID })
+                                .flatMap { EditorProject.multicamFlattenBlockReason($0) }
+                            Button {
+                                flattenMulticam(clipID)
+                            } label: {
+                                Label("V1 に書き出す", systemImage: "square.and.arrow.down.on.square")
+                                    .labelStyle(.titleAndIcon)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(reason != nil || isFlatteningMulticam)
+                        }
                     }
             }
         case .subtitles:
@@ -4140,6 +4172,68 @@ struct ContentView: View {
 
     // MARK: オーバーレイ
 
+    /// クリップの音声を分ける(A の段に置き、映像はミュート)。分けた音声を選ぶ
+    private func detachAudio(clipID: UUID) {
+        player.pause()
+        history.record(project)
+        guard let audioID = project.detachAudio(clipID: clipID) else {
+            history.discardLastIfUnchanged(project)
+            return
+        }
+        selection = .narration(audioID)
+        showToast(String(localized: "音声を分けました"), undo: true)
+    }
+
+    /// オーバーレイの音声を分ける。動画に音声トラックが無いときは分けない
+    private func detachAudio(overlayID: UUID) {
+        guard let overlay = project.overlays.first(where: { $0.id == overlayID }) else { return }
+        player.pause()
+        Task { @MainActor in
+            let tracks = (try? await AVURLAsset(url: overlay.url).loadTracks(withMediaType: .audio)) ?? []
+            guard !tracks.isEmpty else {
+                showToast(String(localized: "この動画には音声がありません"), style: .warning)
+                return
+            }
+            history.record(project)
+            guard let audioID = project.detachAudio(overlayID: overlayID) else {
+                history.discardLastIfUnchanged(project)
+                return
+            }
+            selection = .narration(audioID)
+            showToast(String(localized: "音声を分けました"), undo: true)
+        }
+    }
+
+    /// マルチカメラを V1 のカットに書き出す(切り替えたとおりに分ける。メインの音声は映像から分けて A の段へ)
+    private func flattenMulticam(_ clipID: UUID) {
+        guard !isFlatteningMulticam else { return }
+        isFlatteningMulticam = true
+        player.pause()
+        history.record(project)
+        Task { @MainActor in
+            let ids = await project.flattenMulticam(clipID: clipID)
+            isFlatteningMulticam = false
+            guard let ids, let first = ids.first else {
+                history.discardLastIfUnchanged(project)
+                showToast(String(localized: "書き出せませんでした。もう一度試してください"), style: .warning)
+                return
+            }
+            activeSheet = nil
+            selection = .clip(first)
+            showToast(String(localized: "\(ids.count) 本のカットにしました"), undo: true)
+        }
+    }
+
+    /// 追加したオーバーレイを置く: 再生位置から。タイムラインで段(V2・V3 …)を選んでいればその段へ
+    private func placeAddedOverlay(_ id: UUID) {
+        if let lane = timeline.targetOverlayLane {
+            // 選んだ段が今は無い(消した後など)ときは、いちばん上の次の段まで
+            let others = TimelineMetrics.overlayLaneCount(project.overlays.filter { $0.id != id })
+            project.placeOverlay(id: id, inLane: min(lane, others))
+        }
+        project.sortOverlays()
+    }
+
     /// 選択中のオーバーレイを複製して直後に置き、複製を選択する
     private func duplicateOverlay(_ overlayID: UUID) {
         guard let i = project.overlays.firstIndex(where: { $0.id == overlayID }) else { return }
@@ -4176,6 +4270,8 @@ struct ContentView: View {
                     let movieURL = try await importMovieURL(item, onProgress: progress)
                     var video = try await MediaStore.makeOverlay(fromVideo: movieURL)
                     OverlayPreset.bRollFull.apply(to: &video)
+                    // V1 と同じく音声も入れる(要らなければ音量・音声を分離で)
+                    video.volume = 1
                     overlay = video
                 } else if item.isGIF, let gif = try? await item.loadTransferable(type: PickedGIF.self) {
                     // GIF は .gif のまま受け取り、動く写真オーバーレイにする(AnimatedImageCache)
@@ -4191,6 +4287,7 @@ struct ContentView: View {
                     let movieURL = try await importMovieURL(item, onProgress: progress)
                     var video = try await MediaStore.makeOverlay(fromVideo: movieURL)
                     OverlayPreset.bRollFull.apply(to: &video)
+                    video.volume = 1
                     overlay = video
                 }
                 guard var added = overlay else {
@@ -4205,7 +4302,7 @@ struct ContentView: View {
                     recorded = true
                 }
                 project.overlays.append(added)
-                project.sortOverlays()
+                placeAddedOverlay(added.id)
                 lastAdded = added.id
             } catch {
                 // キャンセルは失敗として数えない
@@ -5593,6 +5690,7 @@ struct ContentView: View {
                 case .movie:
                     overlay = try await MediaStore.makeOverlay(fromVideo: destination)
                     OverlayPreset.bRollFull.apply(to: &overlay)
+                    overlay.volume = 1
                 case .image:
                     overlay = try MediaStore.makeImageOverlay(from: destination)
                     overlay.duration = overlay.isAnimatedImage ? AnimatedImageCache.suggestedOverlayDuration(for: destination) : 4
@@ -5604,7 +5702,7 @@ struct ContentView: View {
                     recorded = true
                 }
                 project.overlays.append(overlay)
-                project.sortOverlays()
+                placeAddedOverlay(overlay.id)
                 lastAdded = overlay.id
             } catch {
                 if let stored { try? FileManager.default.removeItem(at: stored) }

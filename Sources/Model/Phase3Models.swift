@@ -65,9 +65,25 @@ enum TransitionType: String, CaseIterable, Identifiable {
     }
 }
 
+extension TransitionType {
+    /// 長さの上限(秒)。ゆっくり溶ける・暗転するものは最大 8 秒、動きのあるものは 5 秒、
+    /// 一瞬で見せるもの(ホイップパン・フラッシュ・グリッチ)は 2 秒まで
+    var maxDuration: Double {
+        switch self {
+        case .none: return 2
+        case .dissolve, .fadeBlack, .fadeWhite, .lightLeak, .blur, .irisOpen, .irisClose, .doorOpen, .pageCurl, .swirl:
+            return 8
+        case .whipLeft, .whipRight, .flash, .exposureFlash, .glitch:
+            return 2
+        default:
+            return 5
+        }
+    }
+}
+
 struct ClipTransition: Equatable {
     var type: TransitionType = .none
-    /// 0.2 ... 2.0 秒。前後のクリップがこの長さだけ重なる(出力の合計は短くなる)
+    /// 0.2 ... type.maxDuration 秒(最大 8 秒)。前後のクリップがこの長さだけ重なる(出力の合計は短くなる)
     var duration: Double = 0.5
     var isActive: Bool { type != .none && duration > 0.05 }
 }

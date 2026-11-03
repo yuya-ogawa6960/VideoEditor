@@ -323,7 +323,7 @@ enum OverlayPreset: String, CaseIterable, Identifiable {
             overlay.fit = .fit
             overlay.fadeIn = 0.5
             overlay.fadeOut = 0.5
-            overlay.volume = 0
+            // 音量は変えない(V2・V3 にも音声入りの動画を置けるように。要らなければ音量・音声を分離で)
             overlay.cornerRadius = 0
         case .pipSmallCorner:
             overlay.fit = .fit

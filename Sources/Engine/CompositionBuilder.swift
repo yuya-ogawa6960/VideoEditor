@@ -146,6 +146,20 @@ enum CompositionBuilder {
         timelineLayout(for: snapshot).last?.end ?? 0
     }
 
+    /// オーバーレイのいちばん後ろの終わり(秒)
+    static func overlayTailEnd(_ overlays: [OverlayClip]) -> Double {
+        overlays.filter { $0.duration > 0.01 && $0.end.isFinite }.map(\.end).max() ?? 0
+    }
+
+    /// 再生・書き出しの長さ(秒)。V1 の終わりより後ろへはみ出したオーバーレイがあれば、その終わりまで(後ろは黒)。
+    /// 丸めの差だけのはみ出し(1 コマの半分まで)は数えない
+    static func playbackDuration(for snapshot: ProjectSnapshot) -> Double {
+        let main = totalDuration(for: snapshot)
+        let tail = overlayTailEnd(snapshot.overlays)
+        let fps = Double(min(max(snapshot.canvas.frameRate, 1), 120))
+        return tail - main > 0.5 / fps ? tail : main
+    }
+
     // MARK: - build
 
     /// 命令の材料(シーン情報が揃ってから VideoCompositorInstruction にする)
@@ -564,6 +578,14 @@ enum CompositionBuilder {
             }
         }
         guard !specs.isEmpty, cursor > .zero else { throw CompositionBuilderError.noVideo }
+        // V1 より後ろへはみ出したオーバーレイの分は、黒の上にオーバーレイ(と文字など)だけを描く区間を足す
+        let tailEnd = compositionTime(overlayTailEnd(snapshot.overlays), method: .roundHalfAwayFromZero)
+        // 丸めの差だけのはみ出し(1 コマの半分まで)では足さない(最後に黒の 1 コマが付かないように)
+        let tailFPS = Double(min(max(snapshot.canvas.frameRate, 1), 120))
+        if (tailEnd - cursor).seconds > 0.5 / tailFPS {
+            specs.append(InstructionSpec(range: CMTimeRange(start: cursor, end: tailEnd), layers: [], transition: nil))
+            cursor = tailEnd
+        }
         let totalDuration = cursor
         let totalSeconds = totalDuration.seconds
 

@@ -113,6 +113,13 @@ struct TimelineView: View {
     @State private var reorderTranslation: CGFloat = 0
     /// V1 と V2 のあいだで移すドラッグ中に出す案内(離すとどうなるか)
     @State private var trackDropHint: String? = nil
+    /// 段を移すドラッグ中の、離したときの置き場所の印
+    @State private var carrySlot: TimelineCarrySlot? = nil
+    /// 上下に動かしているオーバーレイ(バーを指に付けて上下に動かす)と、その量
+    @State private var carryingOverlayID: UUID? = nil
+    @State private var carryOffsetY: CGFloat = 0
+    /// 並べ替え中のクリップを V1 より上へ持ち上げている(並べ替えは止めて、影をオーバーレイの段に出す)
+    @State private var liftingClip = false
     /// 複数選択したクリップをまとめて動かしているときの、かたまりのクリップ(並び順)
     @State private var reorderGroupIDs: [UUID] = []
     /// 並べ替え中のタイルの並びの左端(タイムライン原点からの pt)。全クリップを同じ幅のタイルにして詰め、
@@ -143,7 +150,9 @@ struct TimelineView: View {
         let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
         let snapshot = project.snapshot()
         let ranges = TimelineView.clipRanges(for: snapshot)
-        let total = TimelineView.totalEnd(of: ranges, fallback: snapshot.totalDuration)
+        // V1 より後ろへはみ出したオーバーレイの終わりまで(目盛り・BGM・スクロールの範囲)
+        let total = max(TimelineView.totalEnd(of: ranges, fallback: snapshot.totalDuration),
+                        CompositionBuilder.overlayTailEnd(snapshot.overlays))
         let frameData = TimelineFrameData(time: time, pps: pps, total: total, ranges: ranges, snapshot: snapshot)
         let rows = frozenLanes?.rows ?? TimelineMetrics.visibleTracks(for: snapshot)
         let height = TimelineMetrics.height(for: rows)
@@ -164,6 +173,12 @@ struct TimelineView: View {
                             titleVisibility: .visible,
                             presenting: cameraActionSegment) { segment in
             cameraSegmentActions(segment)
+        }
+        .onChange(of: selection) { _, new in
+            // 部品を選んだら、段の選択(追加先)は外す
+            if new != nil, timeline.targetOverlayLane != nil {
+                timeline.targetOverlayLane = nil
+            }
         }
         .onChange(of: editGestureActive) { _, active in
             if !active { finishEdit() }
@@ -216,7 +231,8 @@ struct TimelineView: View {
 
     /// トランジションの重なりを反映した全体の長さ(秒)
     static func timelineDuration(for snapshot: ProjectSnapshot) -> Double {
-        totalEnd(of: clipRanges(for: snapshot), fallback: snapshot.totalDuration)
+        max(totalEnd(of: clipRanges(for: snapshot), fallback: snapshot.totalDuration),
+            CompositionBuilder.overlayTailEnd(snapshot.overlays))
     }
 
     private func clipRanges() -> [TimelineClipRange] {
@@ -249,6 +265,7 @@ struct TimelineView: View {
                 .onTapGesture {
                     if tapStopsMomentum() { return }
                     selection = nil
+                    timeline.targetOverlayLane = nil
                 }
 
             rulerTrack(width: width, originX: originX, pps: pps, total: f.total, markers: f.snapshot.markers)
@@ -263,6 +280,13 @@ struct TimelineView: View {
                 .contentShape(TimelineHitShape(top: TimelineMetrics.trackSpacing / 2,
                                                bottom: TimelineMetrics.trackSpacing / 2))
                 .offset(y: rowsTop)
+
+            // 置き場所の印(行の領域の外にも出す。いちばん上の行より上の新しい段や、V1 しかないときの V2 の影)
+            if let slot = carrySlot {
+                carrySlotView(slot, originX: originX, pps: pps)
+                    .offset(y: max(0, rowsTop + slot.y - vOffset))
+                    .allowsHitTesting(false)
+            }
 
             if maxOffset > 0 {
                 TimelineScrollIndicator(offset: vOffset, maxOffset: maxOffset, viewportHeight: viewportH)
@@ -296,6 +320,7 @@ struct TimelineView: View {
             }
         }
         .frame(width: width, height: totalH, alignment: .topLeading)
+        .coordinateSpace(.named(TimelineView.carrySpace))
         .overlay(alignment: .top) {
             if let trackDropHint {
                 Text(trackDropHint)
@@ -332,13 +357,38 @@ struct TimelineView: View {
                 .onTapGesture {
                     if tapStopsMomentum() { return }
                     selection = nil
+                    timeline.targetOverlayLane = nil
                 }
                 .offset(y: -TimelineMetrics.trackSpacing / 2)
             ForEach(placements) { p in
                 trackRow(kind: p.kind, width: width, originX: originX, frame: f, labels: labels[p.kind.key] ?? [])
                     .offset(y: p.y - offset)
+                    // 上下に動かしているオーバーレイが、ほかの行(V1 など)の上に出るように
+                    .zIndex(carryingOverlayID != nil && isOverlayRow(p.kind) ? 40 : 0)
             }
         }
+    }
+
+    private func isOverlayRow(_ kind: TimelineTrackKind) -> Bool {
+        if case .overlay = kind { return true }
+        return false
+    }
+
+    private func overlayLaneCount(of kind: TimelineTrackKind) -> Int? {
+        if case .overlay(let lanes) = kind { return lanes }
+        return nil
+    }
+
+    /// V2・V3 … の札のタップ: その段を追加先に選ぶ(もう一度で外す)。部品の選択は外す
+    private func toggleTargetLane(_ lane: Int) {
+        if tapStopsMomentum() { return }
+        if timeline.targetOverlayLane == lane {
+            timeline.targetOverlayLane = nil
+        } else {
+            selection = nil
+            timeline.targetOverlayLane = lane
+        }
+        UISelectionFeedbackGenerator().selectionChanged()
     }
 
     /// 1 行(中身 + 左端のアイコン)
@@ -368,7 +418,14 @@ struct TimelineView: View {
                 }
             } else {
                 ForEach(Array(labels.enumerated()), id: \.offset) { entry in
-                    TimelineTrackLabelChip(label: entry.element, rowHeight: laneHeight)
+                    // オーバーレイの段(V2・V3 …)は札をタップすると追加先に選べる(上の段から並ぶ)
+                    let lane: Int? = overlayLaneCount(of: kind).map { $0 - 1 - entry.offset }
+                    TimelineTrackLabelChip(label: entry.element, rowHeight: laneHeight,
+                                           isSelected: lane != nil && lane == timeline.targetOverlayLane,
+                                           tappable: lane != nil)
+                        .onTapGesture {
+                            if let lane { toggleTargetLane(lane) }
+                        }
                         .offset(x: 4, y: CGFloat(entry.offset) * laneStep + chipInset)
                         .zIndex(30)
                 }
@@ -387,7 +444,9 @@ struct TimelineView: View {
         case .overlay:
             overlayTrack(width: width, originX: originX, pps: pps, overlays: f.snapshot.overlays)
         case .video:
-            videoTrack(width: width, originX: originX, pps: pps, ranges: f.ranges, total: f.total)
+            // 「+」タイルは V1 の終わりに置く(f.total は V1 より後ろへはみ出したオーバーレイまで含む)
+            videoTrack(width: width, originX: originX, pps: pps, ranges: f.ranges,
+                       total: TimelineView.totalEnd(of: f.ranges, fallback: f.snapshot.totalDuration))
         case .text:
             textTrack(width: width, originX: originX, pps: pps,
                       textClips: TimelineMetrics.textOnlyClips(f.snapshot.textClips), mosaic: false)
@@ -823,16 +882,45 @@ struct TimelineView: View {
                                    height: h,
                                    isSelected: isSel)
                     .timelineLaneHitArea(row: laneCount - 1 - item.depth, rows: laneCount)
-                    .offset(x: item.visibleX, y: laneY)
+                    .shadow(color: .black.opacity(item.id == carryingOverlayID ? 0.45 : 0), radius: 6, y: 3)
+                    // 上下に動かしている間は指に付いて動く(離した段へ置く)
+                    .offset(x: item.visibleX, y: laneY + (item.id == carryingOverlayID ? carryOffsetY : 0))
                     .onTapGesture {
                         if tapStopsMomentum() { return }
                         selection = .overlay(item.id)
                     }
-                    .gesture(overlayMoveGesture(id: item.id), including: isSel ? .all : .subviews)
-                    .zIndex(isSel ? 10 : Double(item.depth))
+                    .gesture(overlayMoveGesture(id: item.id, width: width), including: isSel ? .all : .subviews)
+                    // 選んでいないものは長押しでつかんで動かす(V1 の並べ替えと同じ)
+                    .gesture(overlayLiftGesture(id: item.id, width: width), including: isSel ? .subviews : .all)
+                    .zIndex(item.id == carryingOverlayID ? 20 : (isSel ? 10 : Double(item.depth)))
             }
 
-            if let sel = selectedItem {
+            // 選んだ段(追加先)を薄く塗り、再生位置の右に「動画・写真を追加」を出す
+            if let target = timeline.targetOverlayLane, target < laneCount {
+                let laneTop: CGFloat = CGFloat(laneCount - 1 - target) * laneStep
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.16))
+                    .frame(width: width, height: h)
+                    .offset(y: laneTop)
+                    .allowsHitTesting(false)
+                    .zIndex(-1)
+                Button {
+                    onAdd(.overlay)
+                } label: {
+                    Label("動画・写真を追加", systemImage: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .frame(height: max(20, h - 8))
+                        .background(Color.accentColor, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .offset(x: width / 2 + 6, y: laneTop + (h - max(20, h - 8)) / 2)
+                .zIndex(25)
+            }
+
+            if let sel = selectedItem, sel.id != carryingOverlayID {
                 let inset: CGFloat = CGFloat(laneCount - 1 - sel.depth) * laneStep
                 let barH = h
                 if !sel.overlay.keyframes.isEmpty {
@@ -1934,7 +2022,18 @@ struct TimelineView: View {
         interaction.editPending = false
         interaction.editDeclined = false
         interaction.editAllowsVertical = false
+        let startOverlayLanes = interaction.editStartOverlayLanes
         interaction.editStartOverlayLanes = nil
+        let carryLane = interaction.carryLane
+        let carryStart = interaction.carryStart
+        interaction.carryLane = nil
+        interaction.carryStart = nil
+        if liftingClip {
+            liftingClip = false
+        }
+        if carrySlot != nil {
+            carrySlot = nil
+        }
         let overlayToMain = interaction.overlayToMain
         let clipToOverlay = interaction.clipToOverlay
         interaction.overlayToMain = false
@@ -1959,7 +2058,7 @@ struct TimelineView: View {
             reorderScrollTask = nil
             interaction.reorderScrollFactor = 0
             // V2 へ持ち上げるときは、並べ替えた分を戻してから(持ち上げる前の位置の時刻から重ねる)
-            // 持ち上げられるかは並べ替える前の並び(戻した後)で決める(最後のクリップは持ち上げない)
+            // 持ち上げられるかは並べ替える前の並び(戻した後)で決める
             if clipToOverlay, let startClips = interaction.editStartClips {
                 let reordered = project.clips
                 project.clips = startClips
@@ -1980,7 +2079,22 @@ struct TimelineView: View {
         case let .moveOverlay(id, _) where overlayToMain:
             project.sortOverlays()
             dropOverlayToMain(id: id)
-        case .moveOverlay, .trimOverlay:
+        case let .moveOverlay(id, _):
+            // 上下に動かして別の段で離したら、その段へ(ほかのオーバーレイは動かし始めたときの段のまま固定)
+            if let lane = carryLane, let original = startOverlayLanes, lane != original[id] {
+                if !interaction.historyRecorded {
+                    history.record(project)
+                    interaction.historyRecorded = true
+                }
+                for j in project.overlays.indices {
+                    project.overlays[j].lane = original[project.overlays[j].id] ?? 0
+                }
+                if let i = project.overlays.firstIndex(where: { $0.id == id }) {
+                    project.overlays[i].lane = lane
+                }
+            }
+            project.sortOverlays()
+        case .trimOverlay:
             project.sortOverlays()
         case .moveNarration, .trimNarration:
             project.sortNarration()
@@ -2004,7 +2118,7 @@ struct TimelineView: View {
                 history.record(project)
                 interaction.historyRecorded = true
             }
-            if let overlayID = project.liftClipToOverlay(id: liftClipID) {
+            if let overlayID = project.liftClipToOverlay(id: liftClipID, start: carryStart, lane: carryLane) {
                 selection = .overlay(overlayID)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
@@ -2023,6 +2137,8 @@ struct TimelineView: View {
         }
         withAnimation(.easeOut(duration: 0.18)) {
             frozenLanes = nil
+            carryingOverlayID = nil
+            carryOffsetY = 0
         }
         player.endInteraction()
     }
@@ -2036,13 +2152,11 @@ struct TimelineView: View {
             }
         } else {
             applyEdit(translation: 0)
-            if case let .moveOverlay(id, _) = edit {
-                applyOverlayLane(id: id, translation: 0)
-            }
         }
-        // 取り消したときは V1・V2 のあいだで移さない
+        // 取り消したときは V1・V2 のあいだ・段のあいだで移さない
         interaction.clipToOverlay = false
         interaction.overlayToMain = false
+        interaction.carryLane = nil
         finishEdit()
         interaction.editDeclined = true
     }
@@ -2159,7 +2273,7 @@ struct TimelineView: View {
 
     private func reorderGesture(clipID: UUID, width: CGFloat) -> some Gesture {
         LongPressGesture(minimumDuration: 0.35)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(TimelineView.carrySpace)))
             .updating($editGestureActive) { value, state, _ in
                 if case .second(true, _) = value {
                     state = true
@@ -2175,19 +2289,14 @@ struct TimelineView: View {
                     beginReorder(clipID: clipID)
                 }
                 guard case let .reorder(id)? = interaction.edit, id == clipID else { return }
-                reorderTranslation = drag?.translation.width ?? 0
-                updateReorder()
-                updateReorderAutoScroll(width: width)
-                // 指を V1 より上(クリップ 1 本ぶん近く)へ上げたら、離したときに V2 へ持ち上げる
-                let lift = (drag?.translation.height ?? 0) < -TimelineMetrics.videoHeight * 0.75
-                    && reorderGroupIDs.isEmpty
-                    && EditorProject.canLiftClipToOverlay(id: clipID, in: interaction.editStartClips ?? project.clips)
-                if lift != interaction.clipToOverlay {
-                    interaction.clipToOverlay = lift
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        trackDropHint = lift ? String(localized: "離すと V2 に重ねます") : nil
-                    }
-                    UISelectionFeedbackGenerator().selectionChanged()
+                // 指を V1 より上へ上げたら持ち上げて、指の時刻・指のある段に置く(V1 へ戻すと並べ替えに戻る)
+                if let drag {
+                    updateClipCarry(clipID: clipID, drag: drag, width: width)
+                }
+                if !liftingClip {
+                    reorderTranslation = drag?.translation.width ?? 0
+                    updateReorder()
+                    updateReorderAutoScroll(width: width)
                 }
             }
             .onEnded { _ in
@@ -2199,6 +2308,7 @@ struct TimelineView: View {
         guard project.index(of: clipID) != nil else { return }
         beginEdit(.reorder(id: clipID), snaps: false)
         interaction.editStartClips = project.clips
+        interaction.carryPressTime = scrubTime ?? player.currentTime
         // 複数選択中に選んだクリップを持ち上げたら、選んだクリップをひとかたまりにして一緒に動かす
         var group: [UUID] = []
         if timeline.isMultiSelecting {
@@ -2437,8 +2547,8 @@ struct TimelineView: View {
 
     // MARK: - 重ね合わせの移動・長さ変更
 
-    private func overlayMoveGesture(id: UUID) -> some Gesture {
-        DragGesture(minimumDistance: 2, coordinateSpace: .global)
+    private func overlayMoveGesture(id: UUID, width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .named(TimelineView.carrySpace))
             .updating($editGestureActive) { _, state, _ in
                 state = true
             }
@@ -2448,12 +2558,51 @@ struct TimelineView: View {
                           let overlay = project.overlays.first(where: { $0.id == id }) else { return }
                     beginEdit(.moveOverlay(id: id, originalStart: overlay.start), snapExcluding: id)
                     interaction.editStartOverlayLanes = frozenLanes?.overlayLanes
+                    interaction.carryLane = frozenLanes?.overlayLanes[id]
                 }
                 applyOverlayEdit(translation: value.translation.width)
-                applyOverlayLane(id: id, translation: value.translation.height)
+                updateOverlayCarry(id: id, value: value, width: width)
             }
             .onEnded { _ in
                 finishEdit()
+            }
+    }
+
+    /// 選んでいないオーバーレイを長押しでつかみ、そのまま左右(時間)・上下(段、V2 より下なら V1 へ)に動かす。
+    /// 途中で選択を変えると上の including が切り替わってジェスチャーが切れるので、選ぶのは離したとき
+    private func overlayLiftGesture(id: UUID, width: CGFloat) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(TimelineView.carrySpace)))
+            .updating($editGestureActive) { value, state, _ in
+                if case .second(true, _) = value {
+                    state = true
+                }
+            }
+            .onChanged { value in
+                guard case .second(true, let drag) = value else { return }
+                if interaction.edit == nil {
+                    guard interaction.scrollStartTime == nil, interaction.verticalScroll == nil,
+                          !interaction.editDeclined,
+                          let overlay = project.overlays.first(where: { $0.id == id }) else { return }
+                    beginEdit(.moveOverlay(id: id, originalStart: overlay.start), snapExcluding: id)
+                    interaction.editStartOverlayLanes = frozenLanes?.overlayLanes
+                    interaction.carryLane = frozenLanes?.overlayLanes[id]
+                    carryingOverlayID = id
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
+                guard case let .moveOverlay(editID, _)? = interaction.edit, editID == id, let drag else { return }
+                applyOverlayEdit(translation: drag.translation.width)
+                updateOverlayCarry(id: id, value: drag, width: width)
+            }
+            .onEnded { _ in
+                var grabbed = false
+                if case let .moveOverlay(editID, _)? = interaction.edit, editID == id { grabbed = true }
+                let toMain = interaction.overlayToMain
+                finishEdit()
+                // V1 へ入れたときは dropOverlayToMain が入れたクリップを選ぶ
+                if grabbed, !toMain, project.overlays.contains(where: { $0.id == id }) {
+                    selection = .overlay(id)
+                }
             }
     }
 
@@ -2474,51 +2623,239 @@ struct TimelineView: View {
             }
     }
 
-    /// 縦のドラッグで段を変える(上へ = V3・V4 …。いちばん上の段より上へ出すと段が 1 つ増える。V1 の中へは入れない)。
-    /// 段は動かし始めたときの割り当て(editStartOverlayLanes)を基準に決め、時間の重なる部品がある段は動かす向きへ飛ばす。
-    /// 段を変えたら全部のオーバーレイの段を固定(lane)して、ほかの部品が段を飛ばないようにする
-    private func applyOverlayLane(id: UUID, translation: CGFloat) {
-        guard let original = interaction.editStartOverlayLanes,
-              let startLane = original[id],
-              let i = project.overlays.firstIndex(where: { $0.id == id }) else { return }
-        let laneStep = TimelineMetrics.overlayHeight + TimelineMetrics.textLaneGap
-        let laneCount = TimelineMetrics.laneCount(original)
-        let steps = Int((-translation / laneStep).rounded())
-        // V2(段 0)よりさらに 1 段ぶん下へ下ろしたら、離したときに V1 へ入れる
-        let toMain = startLane + steps < 0 && !project.overlays[i].isAnimatedImage
-        if toMain != interaction.overlayToMain {
-            interaction.overlayToMain = toMain
-            withAnimation(.easeOut(duration: 0.12)) {
-                trackDropHint = toMain ? String(localized: "離すと V1 に入れます") : nil
+    // MARK: - 段を移すドラッグ(Premiere Rush のように、つかんだものを指に付けて動かし、離した行へ置く)
+
+    /// 段を移すドラッグの指の位置を測る座標(タイムライン全体)
+    static let carrySpace = "timelineCarry"
+
+    /// 今の行の並び(ドラッグ中は固定したもの)
+    private func carryRows() -> [TimelineTrackKind] {
+        frozenLanes?.rows ?? TimelineMetrics.visibleTracks(for: project.snapshot())
+    }
+
+    /// V1 の行の上端の y(トラック行の座標。縦スクロール前)
+    private func videoRowY(_ rows: [TimelineTrackKind]) -> CGFloat {
+        TimelineView.rowPlacements(rows).first(where: { p in
+            if case .video = p.kind { return true }
+            return false
+        })?.y ?? 0
+    }
+
+    /// 指の位置(carrySpace の座標)を、時刻(秒)とトラック行の y(縦スクロール前)に直す
+    /// playhead: 指を置いたときの再生位置で測る(nil = 今の再生位置)
+    private func carryPoint(_ location: CGPoint, width: CGFloat, playhead: Double? = nil) -> (time: Double, rowY: CGFloat) {
+        let pps = CGFloat(max(timeline.pointsPerSecond, 0.0001))
+        let originX = width / 2 - CGFloat(playhead ?? scrubTime ?? player.currentTime) * pps
+        let rows = carryRows()
+        let viewportH = TimelineMetrics.rowsViewportHeight(rows)
+        let maxOffset = max(0, TimelineMetrics.rowsHeight(rows) - viewportH)
+        let vOffset = min(max(0, verticalOffset), maxOffset)
+        let rowsTop: CGFloat = TimelineMetrics.topPadding + TimelineMetrics.rulerHeight + TimelineMetrics.trackSpacing
+        return (Double((location.x - originX) / pps), location.y - rowsTop + vOffset)
+    }
+
+    /// 指のある行から置き場所を決める。V1 の行(とその下)なら V1(lane = nil)、オーバーレイの行ならその段、
+    /// オーバーレイの行より上なら新しい段(いちばん上の段の上)。V1 との間の行(モザイクなど)は V2。
+    /// 決めた段に時間の重なるオーバーレイがあれば、空いている上の段へずらす。y は印の上端(トラック行の座標)
+    private func carryTarget(rowY: CGFloat, start: Double, duration: Double,
+                             excluding excluded: UUID?, lanes: [UUID: Int]) -> (lane: Int?, y: CGFloat) {
+        let rows = carryRows()
+        let videoY = videoRowY(rows)
+        if rowY >= videoY - TimelineMetrics.trackSpacing / 2 { return (nil, videoY) }
+        let step = TimelineMetrics.overlayHeight + TimelineMetrics.textLaneGap
+        let laneCount = TimelineMetrics.laneCount(lanes)
+        let overlayY: CGFloat? = laneCount > 0 ? TimelineView.rowPlacements(rows).first(where: { p in
+            if case .overlay = p.kind { return true }
+            return false
+        })?.y : nil
+        var lane = 0
+        if let overlayY {
+            if rowY < overlayY {
+                lane = laneCount
+            } else {
+                let fromTop = Int(((rowY - overlayY) / step).rounded(.down))
+                lane = min(max(0, laneCount - 1 - fromTop), laneCount - 1)
             }
+        }
+        let end = start + duration
+        func occupied(_ k: Int) -> Bool {
+            project.overlays.contains { o in
+                o.id != excluded && lanes[o.id] == k && o.start < end - 0.0005 && start < o.end - 0.0005
+            }
+        }
+        while occupied(lane) {
+            lane += 1
+        }
+        let y: CGFloat
+        if let overlayY {
+            y = overlayY + CGFloat(laneCount - 1 - lane) * step
+        } else {
+            y = videoY - TimelineMetrics.trackSpacing - TimelineMetrics.overlayHeight - CGFloat(lane) * step
+        }
+        return (lane, y)
+    }
+
+    /// V1 のいちばん近い切れ目の時刻(オーバーレイを V1 に入れる場所。moveOverlayToMain と同じ選び方)
+    private func mainBoundary(near time: Double) -> Double {
+        var best = 0.0
+        for t in clipRanges().map(\.end) where abs(t - time) < abs(best - time) {
+            best = t
+        }
+        return best
+    }
+
+    /// オーバーレイを動かしている指: バーを指に付けて上下に動かし、離したときの置き場所(段 / V1)の印を出す
+    private func updateOverlayCarry(id: UUID, value: DragGesture.Value, width: CGFloat) {
+        guard let original = interaction.editStartOverlayLanes,
+              let overlay = project.overlays.first(where: { $0.id == id }) else { return }
+        if carryingOverlayID != id {
+            carryingOverlayID = id
+        }
+        carryOffsetY = value.translation.height
+        let startLane = original[id] ?? 0
+        let point = carryPoint(value.location, width: width)
+        let target = carryTarget(rowY: point.rowY, start: overlay.start, duration: overlay.duration,
+                                 excluding: id, lanes: original)
+        var slot: TimelineCarrySlot? = nil
+        var hint: String? = nil
+        var lane: Int? = startLane
+        if let k = target.lane {
+            lane = k
+            if k != startLane {
+                slot = TimelineCarrySlot(isMain: false, y: target.y, start: overlay.start,
+                                         duration: overlay.duration, label: "V\(k + 2)")
+                hint = String(localized: "離すと V\(k + 2) に移します")
+            }
+        } else if overlay.isAnimatedImage {
+            hint = String(localized: "動く画像は V1 に入れられません")
+        } else {
+            lane = nil
+            slot = TimelineCarrySlot(isMain: true, y: target.y, start: mainBoundary(near: overlay.start), duration: 0)
+            hint = String(localized: "離すと V1 に入れます")
+        }
+        let toMain = slot?.isMain == true
+        if interaction.carryLane != lane || interaction.overlayToMain != toMain {
+            interaction.carryLane = lane
+            interaction.overlayToMain = toMain
             UISelectionFeedbackGenerator().selectionChanged()
         }
-        var target = min(max(0, startLane + steps), laneCount)
-        if target != startLane {
-            let moving = project.overlays[i]
-            func occupied(_ lane: Int) -> Bool {
-                project.overlays.contains { o in
-                    o.id != id && original[o.id] == lane
-                        && o.start < moving.end - 0.0005 && moving.start < o.end - 0.0005
+        if slot != carrySlot {
+            carrySlot = slot
+        }
+        if hint != trackDropHint {
+            withAnimation(.easeOut(duration: 0.12)) {
+                trackDropHint = hint
+            }
+        }
+    }
+
+    /// 並べ替え中の指が V1 より上へ出たら持ち上げる(並びを元に戻し、クリップの影を指の時刻・指のある段に出す)。
+    /// V1 の行へ戻したら持ち上げをやめて並べ替えに戻る
+    private func updateClipCarry(clipID: UUID, drag: DragGesture.Value, width: CGFloat) {
+        let startClips = interaction.editStartClips ?? project.clips
+        guard reorderGroupIDs.isEmpty,
+              EditorProject.canLiftClipToOverlay(id: clipID, in: startClips),
+              let clip = startClips.first(where: { $0.id == clipID }) else { return }
+        let point = carryPoint(drag.location, width: width)
+        let videoY = videoRowY(carryRows())
+        if !liftingClip {
+            guard point.rowY < videoY - 8 else { return }
+            interaction.reorderScrollFactor = 0
+            withAnimation(.easeOut(duration: 0.15)) {
+                if project.clips.map(\.id) != startClips.map(\.id) {
+                    project.clips = startClips
+                }
+                reorderTranslation = 0
+            }
+            liftingClip = true
+            interaction.clipToOverlay = true
+            interaction.carryLane = nil
+            // 指がクリップのどこにあったか(元の並びの時刻で)。影はその位置を指に付けて動かす
+            let ranges = clipRanges()
+            let index = startClips.firstIndex(where: { $0.id == clipID }) ?? 0
+            let clipStart = index < ranges.count ? ranges[index].start : 0
+            let grabTime = carryPoint(drag.startLocation, width: width, playhead: interaction.carryPressTime).time
+            interaction.carryGrabOffset = min(max(0, grabTime - clipStart), clip.outputDuration)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } else if point.rowY > videoY + 8 {
+            liftingClip = false
+            interaction.clipToOverlay = false
+            interaction.carryLane = nil
+            interaction.carryStart = nil
+            carrySlot = nil
+            withAnimation(.easeOut(duration: 0.12)) {
+                trackDropHint = nil
+            }
+            UISelectionFeedbackGenerator().selectionChanged()
+            return
+        }
+        let duration = clip.outputDuration
+        let start = max(0, point.time - interaction.carryGrabOffset)
+        let lanes = frozenLanes?.overlayLanes ?? TimelineMetrics.overlayLanes(project.overlays)
+        // V1 のすぐ上(持ち上げ始めの境目)は V2 として扱う
+        let target = carryTarget(rowY: min(point.rowY, videoY - TimelineMetrics.trackSpacing),
+                                 start: start, duration: duration, excluding: nil, lanes: lanes)
+        let lane = target.lane ?? 0
+        if interaction.carryLane != lane {
+            if interaction.carryLane != nil {
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+            interaction.carryLane = lane
+            withAnimation(.easeOut(duration: 0.12)) {
+                trackDropHint = String(localized: "離すと V\(lane + 2) に重ねます")
+            }
+        }
+        interaction.carryStart = start
+        carrySlot = TimelineCarrySlot(isMain: false, y: target.y, start: start, duration: duration,
+                                      label: "V\(lane + 2)", showsGhost: true, thumbnail: clip.thumbnail)
+    }
+
+    /// 置き場所の印: V1 なら切れ目の縦線、段なら点線の枠(V1 から持ち上げたクリップはサムネイル付きの影)
+    @ViewBuilder
+    private func carrySlotView(_ slot: TimelineCarrySlot, originX: CGFloat, pps: CGFloat) -> some View {
+        let x = originX + CGFloat(slot.start) * pps
+        if slot.isMain {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(Color.accentColor)
+                .frame(width: 3, height: TimelineMetrics.videoHeight + 8)
+                .shadow(color: Color.accentColor.opacity(0.6), radius: 4)
+                .offset(x: x - 1.5, y: -4)
+        } else {
+            let w: CGFloat = min(max(CGFloat(slot.duration) * pps, 6), 6000)
+            let h: CGFloat = TimelineMetrics.overlayHeight
+            let thumbW: CGFloat = min(w, h * 16 / 9)
+            ZStack(alignment: .leading) {
+                if slot.showsGhost {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(TimelineMetrics.overlayColor.opacity(0.85))
+                    if let thumb = slot.thumbnail {
+                        Image(uiImage: thumb)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: thumbW, height: h)
+                            .clipped()
+                    }
+                } else {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.white.opacity(0.12))
+                }
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                if !slot.label.isEmpty {
+                    Text(slot.label)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.black.opacity(0.45), in: Capsule())
+                        .padding(.leading, slot.showsGhost && slot.thumbnail != nil ? thumbW + 4 : 4)
                 }
             }
-            let direction = target > startLane ? 1 : -1
-            while target >= 0, target < laneCount, target != startLane, occupied(target) {
-                target += direction
-            }
-            if target < 0 { target = startLane }
+            .frame(width: w, height: h)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .shadow(color: .black.opacity(slot.showsGhost ? 0.4 : 0), radius: 6, y: 3)
+            .offset(x: x)
         }
-        let pinned = project.overlays.allSatisfy { $0.lane != nil }
-        // 段を一度も変えていない(元の段のまま)なら、自動の割り当てのままにしておく
-        if target == startLane && (!pinned || project.overlays[i].lane == startLane) { return }
-        if pinned && project.overlays[i].lane == target { return }
-        recordEditHistory()
-        for j in project.overlays.indices {
-            project.overlays[j].lane = original[project.overlays[j].id] ?? 0
-        }
-        project.overlays[i].lane = target
-        // 行の高さと段の割り当てを新しい段で固定し直す(基準は editStartOverlayLanes のまま)
-        freezeLanes()
     }
 
     /// オーバーレイを V1 に入れる(素材を読み直すので少し待つ)。入れられないときは振動で知らせる
@@ -2546,7 +2883,9 @@ struct TimelineView: View {
         case let .moveOverlay(id, originalStart)?:
             guard let i = project.overlays.firstIndex(where: { $0.id == id }) else { return }
             let length = max(0, project.overlays[i].duration)
-            let upperStart = max(0, max(timelineDuration(), originalStart + length) - length)
+            // V1 の終わりより後ろへもはみ出せる(後ろは黒の上に映る)。頭は V1 の終わりまで
+            let mainEnd = TimelineView.totalEnd(of: clipRanges(), fallback: 0)
+            let upperStart = max(0, max(mainEnd, originalStart))
             let moved = snappedDelta(delta, edges: [originalStart, originalStart + length])
             let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.overlays[i].start - newStart) > 0.0001 {

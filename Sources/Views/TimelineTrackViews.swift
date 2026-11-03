@@ -268,7 +268,7 @@ enum TimelineMetrics {
     }
 
     /// オーバーレイの段。段を選んだもの(lane)を先に、その段か重ならない一つ上の段へ置き、残りは空いている一番下の段へ。
-    /// 使われていない段は詰める(段の順は保つ)。合成の重なり順(CompositionBuilder.sortedOverlaysByLane)もこれを使う
+    /// 選んだ段は詰めない(空いた V2 の上の V3 へも置ける)。合成の重なり順(CompositionBuilder.sortedOverlaysByLane)もこれを使う
     static func overlayLanes(_ overlays: [OverlayClip]) -> [UUID: Int] {
         guard overlays.contains(where: { $0.lane != nil }) else {
             return lanes(overlays.map { (id: $0.id, start: $0.start, end: $0.end) })
@@ -292,9 +292,7 @@ enum TimelineMetrics {
             occupied[lane].append((start: o.start, end: o.end))
             raw[o.id] = lane
         }
-        let used = Array(Set(raw.values)).sorted()
-        let dense = Dictionary(uniqueKeysWithValues: used.enumerated().map { ($0.element, $0.offset) })
-        return raw.mapValues { dense[$0] ?? 0 }
+        return raw
     }
 
     static func narrationLanes(_ narration: [NarrationClip]) -> [UUID: Int] {
@@ -544,6 +542,22 @@ struct TimelineFrozenLanes {
     var effectLanes: [UUID: Int] = [:]
 }
 
+/// 段を移すドラッグ中に出す、離したときの置き場所の印(位置はトラック行の座標。縦スクロール前)
+struct TimelineCarrySlot: Equatable {
+    /// V1 へ入れる(切れ目に縦線を出す)
+    var isMain: Bool
+    /// 印の上端の y
+    var y: CGFloat
+    /// 置く時刻(秒。V1 は切れ目の時刻)と長さ(秒)
+    var start: Double
+    var duration: Double
+    /// 段の名前(V2・V3 …)
+    var label: String = ""
+    /// V1 から持ち上げたクリップの影(サムネイル)を印の中に出す
+    var showsGhost: Bool = false
+    var thumbnail: UIImage? = nil
+}
+
 /// 再描画を伴わないジェスチャー管理用の状態
 final class TimelineInteraction {
     var scrollStartTime: Double? = nil
@@ -564,6 +578,14 @@ final class TimelineInteraction {
     var overlayToMain: Bool = false
     /// 離したら、並べ替え中のクリップを V2 へ持ち上げる(V1 より上へ上げた)
     var clipToOverlay: Bool = false
+    /// 段を移すドラッグで、離したときに置く段(0 = V2。nil なら段は変えない)
+    var carryLane: Int? = nil
+    /// V1 から持ち上げたクリップを置く時刻(秒)
+    var carryStart: Double? = nil
+    /// 持ち上げたときに指があった位置の、クリップの頭からの秒(影を指に付けて動かす)
+    var carryGrabOffset: Double = 0
+    /// 並べ替えを始めたときの再生位置(端の自動スクロールで動いても、押した位置の時刻を出せるように)
+    var carryPressTime: Double = 0
     /// この編集で履歴を取ったか(最初に実際に値が変わるときに 1 回だけ取る)
     var historyRecorded: Bool = false
     /// V1 の編集(トリム・並べ替え)を始める前のクリップの配置(終わったら部品を付いて動かす)
@@ -1249,6 +1271,10 @@ struct TimelineSelectionFrame: View {
 struct TimelineTrackLabelChip: View {
     let label: String
     let rowHeight: CGFloat
+    /// 段を選んでいる(V2・V3 … をタップして、追加先にした)
+    var isSelected: Bool = false
+    /// タップで段を選べる(オーバーレイの段だけ)
+    var tappable: Bool = false
 
     var body: some View {
         let h = min(TimelineMetrics.trackChipSize, max(12, rowHeight - 2))
@@ -1258,9 +1284,14 @@ struct TimelineTrackLabelChip: View {
             .lineLimit(1)
             .padding(.horizontal, 4)
             .frame(minWidth: h, minHeight: h, maxHeight: h)
-            .background(Color.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .opacity(0.6)
-            .allowsHitTesting(false)
+            .background(isSelected ? Color.accentColor : Color.black.opacity(0.75),
+                        in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .opacity(isSelected ? 1 : (tappable ? 0.8 : 0.6))
+            // 小さいので、押せる範囲は周りに広げる
+            .padding(4)
+            .contentShape(Rectangle())
+            .padding(-4)
+            .allowsHitTesting(tappable)
     }
 }
 

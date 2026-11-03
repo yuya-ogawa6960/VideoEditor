@@ -2019,7 +2019,8 @@ private struct StoredNarration: Codable {
 
     init(_ n: NarrationClip) {
         id = n.id
-        file = n.url.lastPathComponent
+        // 動画から分けた音声は、写真ライブラリの動画(photos:)を指していることもある
+        file = ProjectStore.storedMediaName(for: n.url)
         name = n.name
         start = n.start
         sourceStart = n.sourceStart
