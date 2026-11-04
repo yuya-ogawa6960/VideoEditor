@@ -29,6 +29,16 @@ enum CloudAISource: String, CaseIterable, Identifiable {
     }
 }
 
+/// 購入の記録をサーバーに送った結果
+enum SubscriptionSyncResult {
+    case synced
+    /// サインインしていない・送るものがない
+    case skipped
+    /// 購入がほかのアカウントに結びついている(毎月のポイントはそちらに付く)
+    case ownedByOtherAccount
+    case failed
+}
+
 enum AccountError: LocalizedError {
     case notConfigured
     /// サーバーがエラーを返した(見せる文・HTTP ステータス・server/src/index.js の code)
@@ -213,6 +223,8 @@ final class AccountService {
             dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
             if let flag = json["googleTTS"] as? Bool { googleVoicesAvailable = flag }
             source = .points
+            // 先に買ったプランがあれば、このアカウントで毎月のポイントを受け取る
+            Task { await PlanStore.shared.refresh() }
         } catch {
             lastError = error.localizedDescription
         }
@@ -372,6 +384,22 @@ final class AccountService {
         }
     }
 
+    /// アプリ内課金の購入の記録(StoreKit の JWS)をサーバーに送り、毎月のポイントを受け取る。
+    /// サインインしていないときは何もしない(サインインしたあとに PlanStore がもう一度送る)
+    @MainActor
+    func syncSubscriptions(_ signedTransactions: [String]) async -> SubscriptionSyncResult {
+        guard isSignedIn, isAvailable, !signedTransactions.isEmpty else { return .skipped }
+        do {
+            let body = try JSONSerialization.data(withJSONObject: ["transactions": signedTransactions])
+            let json = try await request("v1/subscription/sync", method: "POST", body: body, authorized: true)
+            if let value = json["points"] as? Int { points = value }
+            let rejected = json["rejected"] as? [String] ?? []
+            return rejected.contains("owned_by_other") ? .ownedByOtherAccount : .synced
+        } catch {
+            return .failed
+        }
+    }
+
     /// 広告のポイントを受け取るときの本文。テスト版なら Apple の証明(AppTransaction)を添える
     private func adClaimBody() async -> Data {
         guard AdsManager.usesTestAds else { return Data("{}".utf8) }
@@ -383,6 +411,14 @@ final class AccountService {
             return Data("{}".utf8)
         }
         return data
+    }
+
+    /// 有料プランの機能を 1 回だけポイントで使う(無料プラン向け。サーバーが PlanFeature.trialPoints を引く。PlanTrial)
+    @MainActor
+    func spendForFeature(_ feature: PlanFeature) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["feature": feature.rawValue])
+        let json = try await request("v1/points/feature", method: "POST", body: body, authorized: true)
+        if let value = json["points"] as? Int { points = value }
     }
 
     /// AI を使ったあとの応答ヘッダ(X-VM-Points)で残りを更新する
@@ -562,6 +598,11 @@ extension CloudAIGateway {
     /// プライバシーポリシーの URL(サーバーの /privacy)
     static var privacyPolicyURL: URL {
         (AccountService.serverURL ?? fallbackServer).appendingPathComponent("privacy")
+    }
+
+    /// 利用規約と特定商取引法に基づく表記の URL(サーバーの /terms)
+    static var termsURL: URL {
+        (AccountService.serverURL ?? fallbackServer).appendingPathComponent("terms")
     }
 
     /// サポートページの URL(サーバーの /support)

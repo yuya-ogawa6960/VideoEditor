@@ -16,6 +16,7 @@
 
 import { verifyAppTransaction, isSandbox } from "./appTransaction.js";
 import { isBGMPath, serveBGM } from "./bgm.js";
+import { ensureSubscriptionTables, forgetSubscriptions, handleNotification, subscriptionState, syncSubscriptions } from "./subscriptions.js";
 
 const POINTS = {
   signup: 100,            // はじめてのサインイン
@@ -26,7 +27,10 @@ const POINTS = {
   speechPerThousandChars: 100, // 上と同じ値段を 1000 文字あたりで(古いアプリの料金表示用)
   adReward: 10,           // リワード広告 1 回
   adRewardDailyLimit: 3,  // リワード広告の 1 日の上限(日本時間)
+  featureTrial: 50,       // 有料プランの機能を無料プランで 1 回使う(FEATURE_TRIALS)
 };
+// 無料プランでも 1 回 POINTS.featureTrial で使える有料の機能(アプリの PlanFeature の raw value。端末で動くので AI の費用はかからない)
+const FEATURE_TRIALS = new Set(["ai.fillerCut", "ai.editCheck", "ai.endScreen", "motion.bgRemoval", "color.aiQuality"]);
 const SPEECH_MODEL = "gpt-4o-mini-tts";
 // Google の読み上げ(日本語)。キー(GOOGLE_TTS_API_KEY)は GitHub の secret から入れる
 const GOOGLE_TTS = "https://texttospeech.googleapis.com/v1/text:synthesize";
@@ -69,6 +73,7 @@ export default {
       const path = url.pathname;
       if (request.method === "GET" && path === "/") return json({ ok: true, service: "videomania-api" });
       if (request.method === "GET" && path === "/privacy") return html(PRIVACY_HTML);
+      if (request.method === "GET" && path === "/terms") return html(TERMS_HTML);
       if (request.method === "POST" && path === "/v1/events") return await ingestEvents(request, env);
       if (request.method === "GET" && path === "/stats") return await stats(url, env);
       if (request.method === "GET" && path === "/support") return html(SUPPORT_HTML);
@@ -78,6 +83,11 @@ export default {
       if (request.method === "GET" && path === "/v1/ads/ssv") return await admobSSV(url, env);
       // BGM の一覧と曲(ログイン不要。src/bgm.js)
       if ((request.method === "GET" || request.method === "HEAD") && isBGMPath(path)) return await serveBGM(request, env, path);
+      // App Store のサーバー通知(ログイン不要。Apple の署名で確かめる。src/subscriptions.js)
+      if (request.method === "POST" && path === "/v1/appstore/notifications") {
+        const result = await handleNotification(await request.json().catch(() => null), env);
+        return result.ok ? json({ ok: true }) : error(400, "通知を確認できませんでした", "bad_notification");
+      }
 
       // ここから先はログインが必要
       const user = await authenticate(request, env);
@@ -86,10 +96,15 @@ export default {
       if (request.method === "GET" && path === "/v1/me") return await me(user, env);
       if (request.method === "DELETE" && path === "/v1/me") return await deleteAccount(user, env);
       if (request.method === "POST" && path === "/v1/points/daily") return await daily(user, env);
+      if (request.method === "POST" && path === "/v1/points/feature") return await featureTrial(request, user, env);
       if (request.method === "POST" && path === "/v1/audio/transcriptions") return await transcribe(request, user, env);
       if (request.method === "POST" && path === "/v1/chat/completions") return await chat(request, user, env);
       if (request.method === "POST" && path === "/v1/audio/speech") return await speech(request, user, env);
       if (request.method === "POST" && path === "/v1/ads/claim") return await adClaim(request, user, env);
+      if (request.method === "POST" && path === "/v1/subscription/sync") {
+        const result = await syncSubscriptions(await request.json().catch(() => ({})), user.id, env);
+        return json({ ...result, points: await balance(env, user.id) });
+      }
       return error(404, "見つかりません", "not_found");
     } catch (e) {
       return error(500, "サーバーでエラーが起きました: " + (e && e.message ? e.message : String(e)), "server_error");
@@ -354,6 +369,8 @@ async function me(user, env) {
     prices: POINTS,
     // Google の声(日本語)が使えるか。アプリはこれが false のとき Google の声の選択肢を出さない
     googleTTS: Boolean(env.GOOGLE_TTS_API_KEY),
+    // アプリ内課金のプラン(free / standard / pro)と期限(ミリ秒)。src/subscriptions.js
+    subscription: await subscriptionState(env, user.id),
     ...(await adState(env, user.id)),
   });
 }
@@ -706,6 +723,7 @@ async function deleteAccount(user, env) {
       if (row && row.apple_refresh_token) await appleRevoke(row.apple_refresh_token, env);
     } catch (_) {}
   }
+  await forgetSubscriptions(env, user.id);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM ad_rewards WHERE user_id = ?").bind(user.id),
     env.DB.prepare("DELETE FROM ledger WHERE user_id = ?").bind(user.id),
@@ -722,13 +740,14 @@ const PAGE_STYLE = `<meta name="viewport" content="width=device-width, initial-s
 
 const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania プライバシーポリシー</title>${PAGE_STYLE}</head><body>
 <h1>Video Mania プライバシーポリシー</h1>
-<p>最終更新日: 2026年10月28日</p>
+<p>最終更新日: 2026年11月4日</p>
 <h2>1. 動画・写真</h2>
 <p>編集する動画・写真・プロジェクトは、お使いの iPhone の中だけで処理・保存されます。開発者のサーバーに送られることはありません。</p>
 <h2>2. クラウド AI を使う場合</h2>
 <p>「クラウド AI」を選んだときだけ、文字起こしのための音声、キャプションの整え・翻訳・台本作成のための文章、読み上げのための文章が OpenAI, L.L.C. に送られます(読み上げで Google の声を選んだときは、その文章が Google LLC に送られます)(ポイントを使う場合は開発者のサーバーを経由し、内容は保存しません)。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
 <h2>3. アカウントとポイント</h2>
 <p>Apple でサインインすると、Apple が発行する利用者ごとの識別子と、ポイントの残高・増減の記録を開発者のサーバー(Cloudflare)に保存します。氏名やメールアドレスは受け取りません。削除は、プロジェクト一覧の左上の星 → アカウントとポイント → アカウントを削除 から、いつでもできます(ポイントと記録はその場で消えます)。</p>
+<p>有料プランを購入してサインインしている場合は、毎月のポイントを付けるために、Apple が発行する購入の番号・商品・期限を開発者のサーバーに保存します。支払いの情報(カード番号など)は Apple が扱い、開発者は受け取りません。</p>
 <h2>4. 使い方の統計</h2>
 <p>どの機能がどれだけ使われているか、操作のどこで迷っているか(キャンセルや元に戻した回数など)、動作の重さ・異常終了の回数(Apple の MetricKit のまとめ)、書き出し後の任意の感想を、端末ごとのランダムな ID(アプリを削除すると変わります)だけを付けて開発者のサーバーに送り、改善に役立てます。動画・文章・検索した言葉・氏名・アカウントは送りません。このデータは 90 日で削除します。オフにするには 設定 → プライバシーと広告 → 使い方の統計を送信(匿名) を切ってください。削除の依頼は<a href="/support#contact">問い合わせフォーム</a>からできます。</p>
 <h2>5. 広告</h2>
@@ -750,12 +769,55 @@ const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <p>Video Mania's use and transfer to any other app of information received from Google APIs will adhere to <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
 </body></html>`;
 
+// 利用規約・特定商取引法に基づく表記(アプリのプランの画面からリンクする)。
+// 個人の販売者は、氏名・住所・電話番号を「請求があれば遅滞なく開示」とできる(消費者庁のガイドライン)
+const TERMS_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania 利用規約</title>${PAGE_STYLE}</head><body>
+<h1>Video Mania 利用規約</h1>
+<p>最終更新日: 2026年11月4日</p>
+<h2>1. 有料プラン(自動更新サブスクリプション)</h2>
+<p>Standard(月額 490 円・税込)と Pro(月額 1,490 円・税込)は、App Store の自動更新サブスクリプションです。お支払いは Apple ID に請求され、期間が終わる 24 時間前までに解約しない限り、同じ料金で 1 か月ごとに自動で更新されます。解約は iPhone の 設定 → Apple アカウント → サブスクリプション から、いつでもできます。解約しても、その期間の終わりまでは有料プランを使えます。値段は国・地域によって異なり、アプリの購入画面に表示される金額が優先されます。</p>
+<p>書き出せる画質と長さは、Starter(無料)が 720p・5 分まで、Standard が 1080p・10 分まで、Pro が 4K・制限なしです。有料プランでは、このほかに広告の非表示、有料の機能(背景を消す・LUT・言いよどみカット など。Pro はマルチカメラも)、毎月のポイント(Standard 1,500pt・Pro 5,000pt)が使えます。有料の機能のうち一部(言いよどみカット・編集チェック・終了画面・背景を消す・画質補正)は、Starter(無料)でも 1 回 50 ポイントで使えます。毎月のポイントは、サインインしたアカウントに付き、使い切れなかった分は翌月に繰り越しません。1 つの購入で毎月のポイントを受け取れるのは 1 つのアカウントだけです。</p>
+<h2>2. ポイント</h2>
+<p>ポイントはクラウド AI(文字起こし・字幕の整え・翻訳・台本・読み上げ)に使うためのもので、現金や他のサービスと交換できず、払い戻しもできません。アカウントを削除するとポイントは消えます。不正な方法で得たポイントは取り消すことがあります。</p>
+<h2>3. 返金</h2>
+<p>購入は Apple が処理するため、返金は Apple の規定に従います(<a href="https://reportaproblem.apple.com/">reportaproblem.apple.com</a> から申請できます)。返金された期間の毎月のポイントは、残っている分を取り消します。</p>
+<h2>4. 禁止事項</h2>
+<p>法令や公序良俗に反する動画・文章の作成、他人の権利(著作権・肖像権など)を侵害する利用、アプリやサーバーへの不正なアクセス・解析・負荷をかける行為を禁止します。</p>
+<h2>5. 免責</h2>
+<p>アプリは現状のまま提供します。AI の結果(文字起こし・翻訳・台本など)の正確さは保証しません。編集中のデータは iPhone の中に保存されるため、大切な動画は別に保管してください。</p>
+<h2>6. 変更</h2>
+<p>この規約は変更することがあります。大きな変更はアプリまたはこのページでお知らせします。</p>
+<h2>7. 準拠法</h2>
+<p>この規約は日本の法律に従います。</p>
+<p>このほか、App Store の<a href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/">標準使用許諾契約(EULA)</a>が適用されます。</p>
+
+<h1 id="tokushoho">特定商取引法に基づく表記</h1>
+<table>
+<tr><th>販売事業者・運営統括責任者</th><td>請求があった場合、遅滞なく開示します</td></tr>
+<tr><th>所在地・電話番号</th><td>請求があった場合、遅滞なく開示します</td></tr>
+<tr><th>お問い合わせ</th><td><a href="/support#contact">お問い合わせフォーム</a>(開示の請求もこちらから)</td></tr>
+<tr><th>販売価格</th><td>Standard 月額 490 円、Pro 月額 1,490 円(いずれも税込。アプリの購入画面に表示される金額)</td></tr>
+<tr><th>商品代金以外の必要料金</th><td>インターネット接続の通信料</td></tr>
+<tr><th>支払方法・支払時期</th><td>App Store(Apple)の決済。購入時と、以後 1 か月ごとの自動更新時</td></tr>
+<tr><th>提供時期</th><td>購入の手続きが終わり次第、すぐに使えます</td></tr>
+<tr><th>解約</th><td>iPhone の 設定 → Apple アカウント → サブスクリプション から。次の更新日の 24 時間前までに解約すると、次の請求はされません</td></tr>
+<tr><th>返品・返金</th><td>デジタルの性質上、購入後の返品はできません。返金は Apple の規定に従います</td></tr>
+<tr><th>動作環境</th><td>iOS 18 以降の iPhone</td></tr>
+</table>
+<p><a href="/privacy">プライバシーポリシー</a> ・ <a href="/support">サポート</a></p>
+<style>table{border-collapse:collapse;margin:8px 0 20px;font-size:14px}th,td{border:1px solid #8884;padding:6px 10px;text-align:left;vertical-align:top}th{background:#8882;white-space:nowrap}</style>
+<hr>
+<h1>Terms of Use (English)</h1>
+<p>Standard and Pro are auto-renewable monthly subscriptions sold through the App Store. Payment is charged to your Apple ID and renews automatically each month at the same price unless you cancel at least 24 hours before the end of the current period. Manage or cancel in Settings &rarr; Apple Account &rarr; Subscriptions; you keep the plan until the period ends. Export limits are 720p / 5 minutes on Starter (free), 1080p / 10 minutes on Standard, and 4K / no limit on Pro. Paid plans also remove ads, unlock paid features (background removal, LUTs, filler-word cut and more; multicam on Pro), and add monthly points (Standard 1,500 / Pro 5,000). Some paid features can be used on Starter for 50 points per use that go to one signed-in account and do not carry over. Points have no cash value and are not refundable. Refunds are handled by Apple under its policies. The Apple <a href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/">Standard EULA</a> also applies. These terms are governed by the laws of Japan.</p>
+</body></html>`;
+
 const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania サポート</title>${PAGE_STYLE}</head><body>
 <h1>Video Mania サポート</h1>
 <h2>よくある質問</h2>
 <p><b>書き出しが途中で止まる</b><br>iPhone の空き容量を確認し、書き出し中はアプリを開いたままにするか、iOS 26 以降ではロック画面の表示を止めずにお待ちください。</p>
 <p><b>キャプションが作れない</b><br>「設定」→「Video Mania」で「音声認識」を許可してください。BGM だけの動画ではキャプションは作られません。</p>
-<p><b>ポイントについて</b><br>はじめてのサインインで 100 ポイント、毎日 10 ポイント、広告を見て 1 日 3 回まで 10 ポイントずつもらえます。</p>
+<p><b>ポイントについて</b><br>はじめてのサインインで 100 ポイント、毎日 10 ポイント、広告を見て 1 日 3 回まで 10 ポイントずつもらえます。有料プラン(Standard・Pro)では毎月ポイントが付きます(翌月に繰り越しません)。</p>
+<p><b>有料プランの解約</b><br>iPhone の 設定 → Apple アカウント → サブスクリプション から解約できます。期間の終わりまでは有料プランを使えます。</p>
 <p><b>アカウントの削除</b><br>プロジェクト一覧の左上の星 → アカウントとポイント → アカウントを削除。ポイントと記録はその場で消えます。</p>
 <p><b>使い方の統計を止める</b><br>設定 → プライバシーと広告 → 使い方の統計を送信(匿名) を切ってください。送った分は 90 日で消えます。削除を急ぐときは下のフォームから。</p>
 <h2 id="contact">お問い合わせ / Contact</h2>
@@ -772,7 +834,7 @@ const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <p><label>返信先メール / Email(任意 / optional)<br><input type="email" name="email" maxlength="200" autocomplete="email"></label></p>
 <p><button type="submit">送信 / Send</button></p>
 </form>
-<p><a href="/privacy">プライバシーポリシー</a></p>
+<p><a href="/privacy">プライバシーポリシー</a> ・ <a href="/terms">利用規約・特定商取引法に基づく表記</a></p>
 </body></html>`;
 
 /** AdMob のサーバー側検証のコールバック。署名(ECDSA P-256 / SHA-256)を Google の公開鍵で確かめてから付与 */
@@ -847,16 +909,30 @@ async function daily(user, env) {
   return json({ points: row.points, added: POINTS.daily });
 }
 
+/** 有料プランの機能を 1 回だけポイントで使う(無料プラン向け)。使える機能と値段はサーバーで決める */
+async function featureTrial(request, user, env) {
+  const body = await request.json().catch(() => ({}));
+  const feature = String((body && body.feature) || "");
+  if (!FEATURE_TRIALS.has(feature)) return error(400, "この機能はポイントで使えません。", "unknown_feature");
+  const cost = POINTS.featureTrial;
+  if (!(await reserve(env, user.id, cost, "feature:" + feature))) return insufficient(cost, await balance(env, user.id));
+  return json({ points: await balance(env, user.id), spent: cost });
+}
+
 async function addLedger(env, userID, delta, reason) {
   await env.DB.prepare("INSERT INTO ledger (user_id, delta, reason, created_at) VALUES (?, ?, ?, ?)")
     .bind(userID, delta, reason, nowISO())
     .run();
 }
 
-/** 足りていれば amount を引いて true(同時に使われても残高がマイナスにならない) */
+/** 足りていれば amount を引いて true(同時に使われても残高がマイナスにならない)。
+ *  プランで付けたポイント(sub_points。月が替わると消える)から先に使う */
 async function reserve(env, userID, amount, reason) {
-  const result = await env.DB.prepare("UPDATE users SET points = points - ? WHERE id = ? AND points >= ?")
-    .bind(amount, userID, amount)
+  await ensureSubscriptionTables(env);
+  const result = await env.DB.prepare(
+    "UPDATE users SET points = points - ?, sub_points = MAX(sub_points - ?, 0) WHERE id = ? AND points >= ?"
+  )
+    .bind(amount, amount, userID, amount)
     .run();
   if (!result.meta || result.meta.changes === 0) return false;
   await addLedger(env, userID, -amount, reason);
@@ -872,7 +948,10 @@ async function refund(env, userID, amount, reason) {
 /** 追加で引く(残高が足りない分は 0 で止める) */
 async function chargeExtra(env, userID, amount, reason) {
   if (amount <= 0) return;
-  await env.DB.prepare("UPDATE users SET points = MAX(points - ?, 0) WHERE id = ?").bind(amount, userID).run();
+  await ensureSubscriptionTables(env);
+  await env.DB.prepare("UPDATE users SET points = MAX(points - ?, 0), sub_points = MAX(sub_points - ?, 0) WHERE id = ?")
+    .bind(amount, amount, userID)
+    .run();
   await addLedger(env, userID, -amount, reason);
 }
 

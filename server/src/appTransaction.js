@@ -30,6 +30,19 @@ const JWS_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
  * 本番(index.js)は渡さないので、常に apple.com の Apple Root CA - G3 と今の時刻で確かめる
  */
 export async function verifyAppTransaction(jws, { bundleID, fetchRoot = fetchAppleRoot, now = new Date() } = {}) {
+  const payload = await verifyAppleJWS(jws, { fetchRoot, now });
+  // 6) このアプリの、サンドボックス(TestFlight・App Review)の JWS か
+  if (!payload || !bundleID || payload.bundleId !== bundleID) return null;
+  if (!isSandbox(payload)) return null;
+  return payload;
+}
+
+/**
+ * App Store が署名した JWS(AppTransaction・購入の記録 JWSTransaction・App Store のサーバー通知の signedPayload)の
+ * 1)〜5) を確かめて、通れば中身(payload)を返す。どれも同じ App Store の署名用の証明書で署名されている。
+ * 中身(どのアプリか・本番かテストか)は呼ぶ側が確かめる
+ */
+export async function verifyAppleJWS(jws, { fetchRoot = fetchAppleRoot, now = new Date() } = {}) {
   try {
     const text = String(jws || "");
     if (!JWS_PATTERN.test(text)) return null;
@@ -64,10 +77,6 @@ export async function verifyAppTransaction(jws, { bundleID, fetchRoot = fetchApp
     const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, signature,
                                           new TextEncoder().encode(parts[0] + "." + parts[1]));
     if (!ok) return null;
-
-    // 6) このアプリの、サンドボックス(TestFlight・App Review)の JWS か
-    if (!bundleID || payload.bundleId !== bundleID) return null;
-    if (!isSandbox(payload)) return null;
     return payload;
   } catch {
     return null;

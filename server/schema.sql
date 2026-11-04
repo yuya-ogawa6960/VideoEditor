@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT NOT NULL,
   last_daily TEXT,                -- 毎日ボーナスを最後に受け取った日(日本時間 YYYY-MM-DD)
   apple_refresh_token TEXT,       -- Apple のトークン(アカウント削除時に失効させる)。既存の DB には index.js が ALTER TABLE で足す
-  speech_carry INTEGER NOT NULL DEFAULT 0 -- まだポイントにしていない読み上げの文字数(10 文字で 1pt の端数)。既存の DB には index.js が ALTER TABLE で足す
+  speech_carry INTEGER NOT NULL DEFAULT 0, -- まだポイントにしていない読み上げの文字数(10 文字で 1pt の端数)。既存の DB には index.js が ALTER TABLE で足す
+  sub_points INTEGER NOT NULL DEFAULT 0    -- points のうち、プランで付けた今月の分の残り(月が替わると消す)。既存の DB には subscriptions.js が ALTER TABLE で足す
 );
 
 CREATE TABLE IF NOT EXISTS ledger (
@@ -17,6 +18,27 @@ CREATE TABLE IF NOT EXISTS ledger (
 );
 
 CREATE INDEX IF NOT EXISTS ledger_user ON ledger (user_id, id);
+
+-- アプリ内課金(src/subscriptions.js)。購入(original_transaction_id)は 1 つのアカウントにだけ結びつく
+CREATE TABLE IF NOT EXISTS subscriptions (
+  original_transaction_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  product_id TEXT NOT NULL,
+  plan TEXT NOT NULL,             -- standard / pro
+  expires_at INTEGER NOT NULL,    -- 期限(ミリ秒)
+  environment TEXT NOT NULL,      -- Production / Sandbox(TestFlight)
+  revoked INTEGER NOT NULL DEFAULT 0, -- 返金・取り消し
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS subscriptions_user ON subscriptions (user_id);
+
+-- 毎月のポイントを付けた期間(transaction_id ごとに 1 回だけ。アカウントを消しても残し、同じ月に二重に付けない)
+CREATE TABLE IF NOT EXISTS subscription_grants (
+  transaction_id TEXT PRIMARY KEY,
+  amount INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
 
 -- リワード広告でもらったポイント(transaction_id で二重付与を防ぐ。day は日本時間 YYYY-MM-DD)
 CREATE TABLE IF NOT EXISTS ad_rewards (

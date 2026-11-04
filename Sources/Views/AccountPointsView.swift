@@ -1,5 +1,6 @@
 import SwiftUI
 import AuthenticationServices
+import StoreKit
 
 // =====================================================================
 // 「アカウントとポイント」の画面。
@@ -17,9 +18,13 @@ struct AccountPointsView: View {
     @State private var isDeleting = false
     /// 削除が終わった(サインイン前の画面に戻るだけでは、消えたのかわからないので知らせる)
     @State private var showDeleted = false
+    @State private var plans = PlanStore.shared
+    @State private var showPlans = false
+    @State private var showManageSubscriptions = false
 
     var body: some View {
         Form {
+            planSection
             if !account.isAvailable {
                 Section {
                     Text("ポイントで AI を使う機能は準備中です。今は自分の OpenAI キーで使えます。")
@@ -44,12 +49,56 @@ struct AccountPointsView: View {
         }
         .navigationTitle("アカウントとポイント")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await account.refresh() }
+        .refreshable {
+            await account.refresh()
+            await plans.refresh()
+        }
         .task { await account.refresh() }
+        .sheet(isPresented: $showPlans) {
+            PlanPaywallView()
+        }
+        .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
         .alert("アカウントを削除しました", isPresented: $showDeleted) {
             Button("OK") {}
         } message: {
             Text("ポイントと記録はサーバーから消えました。")
+        }
+    }
+
+    // MARK: プラン
+
+    /// いまのプランと、プランを見る・変える・解約(Apple のサブスクリプションの管理)
+    private var planSection: some View {
+        Section {
+            HStack {
+                Label(plans.tier.displayName, systemImage: plans.isPaid ? "crown.fill" : "person.crop.circle")
+                    .foregroundStyle(plans.isPaid ? BrandStyle.coral : Color.primary)
+                Spacer()
+                if plans.isPaid, let date = plans.expiresAt {
+                    Text("次の更新 \(date.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Button(plans.isPaid ? String(localized: "プランを変える") : String(localized: "プランを見る")) {
+                showPlans = true
+            }
+            if plans.isPaid {
+                Button("サブスクリプションを管理") {
+                    showManageSubscriptions = true
+                }
+            }
+        } header: {
+            Text("プラン")
+        } footer: {
+            if plans.ownedByOtherAccount {
+                Text("このプランは別のアカウントで購入されたため、毎月のポイントはそちらのアカウントに付きます。")
+                    .foregroundStyle(.orange)
+            } else if plans.isPaid {
+                Text("毎月 \(plans.terms.monthlyPoints.formatted())pt が付きます(サインインが必要です)。使い切れなかった分は翌月に繰り越しません。")
+            } else {
+                Text("有料プランでは、高い画質・長い動画で書き出せ、王冠の付いた機能が使え、広告が出ず、毎月ポイントが付きます。")
+            }
         }
     }
 
@@ -139,7 +188,7 @@ struct AccountPointsView: View {
             }
             .disabled(!account.dailyAvailable || account.isClaimingDaily)
 
-            if account.adRewardLimit > 0, AdsManager.hasRewarded {
+            if account.adRewardLimit > 0, AdsManager.hasRewarded, plans.terms.showsAds {
                 Button {
                     watchAd()
                 } label: {
@@ -170,7 +219,9 @@ struct AccountPointsView: View {
         } header: {
             Text("ポイントを増やす")
         } footer: {
-            Text("ポイントは無料です。購入はできません。")
+            if !plans.isPaid {
+                Text("ポイントは、クラウド AI(文字起こし・翻訳・AI台本・クラウドの声など)と、王冠の付いた一部の機能(1 回 \(PlanFeature.trialPoints)pt)に使えます。有料プランに入ると、毎月ポイントが付きます。")
+            }
         }
     }
 

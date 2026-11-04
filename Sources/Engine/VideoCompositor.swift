@@ -423,6 +423,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
     /// カラープリセットのパネルで動かしている途中のフィルタ(クリップごと・オーバーレイごと)と、全体の色味の強さ。
     /// liveRetouchByClip と同じく、新しい合成に入れ替わると消える(そのときは snapshot の値が最新)。lock で守る
     private var liveFilterByClip: [UUID: FilterSettings] = [:]
+    /// プレビューのドラッグ・ピンチで動かしている途中の映す範囲(クリップごと。PreviewClipFraming.swift)。
+    /// liveRetouchByClip と同じく、新しい合成に入れ替わると消える。lock で守る
+    private var liveGeometryByClip: [UUID: ClipGeometry] = [:]
     private var liveFilterByOverlay: [UUID: FilterSettings] = [:]
     private var liveLookIntensityValue: Double?
 
@@ -495,6 +498,19 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         lock.lock()
         liveFilterByClip[clipID] = filter
         lock.unlock()
+    }
+
+    /// 映す範囲(切り抜き・ズーム・位置)をこの合成に直接入れる(nil で snapshot の値に戻す)
+    func setLiveGeometry(_ geometry: ClipGeometry?, for clipID: UUID) {
+        lock.lock()
+        liveGeometryByClip[clipID] = geometry
+        lock.unlock()
+    }
+
+    private func liveGeometry(for clipID: UUID) -> ClipGeometry? {
+        lock.lock()
+        defer { lock.unlock() }
+        return liveGeometryByClip.isEmpty ? nil : liveGeometryByClip[clipID]
     }
 
     private func liveFilter(for clipID: UUID) -> FilterSettings? {
@@ -786,7 +802,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             usedParallax = true
         }
 
-        image = GeometryMath.applyClipGeometry(image, geometry: layer.geometry)
+        image = GeometryMath.applyClipGeometry(image, geometry: liveGeometry(for: layer.clipID) ?? layer.geometry)
         if !bypassLook {
             image = FilterEngine.apply(liveFilter(for: layer.clipID) ?? layer.filter, to: image)
         }

@@ -475,6 +475,14 @@ final class PlayerController {
         redrawPausedFrame()
     }
 
+    /// プレビューのドラッグ・ピンチで映す範囲を変えている間(PreviewClipFraming.swift): 合成を作り直さずに、いまの映像へ入れる。
+    /// 再生中なら次のコマから効く。止めているときはいまのコマを描き直す
+    func setLiveGeometry(_ geometry: ClipGeometry, for clipID: UUID) {
+        guard let compositor = player.currentItem?.customVideoCompositor as? VideoCompositor else { return }
+        compositor.setLiveGeometry(geometry, for: clipID)
+        redrawPausedFrame()
+    }
+
     /// オーバーレイのカラープリセットのパネルから(setLiveFilter と同じ)
     func setLiveOverlayFilter(_ filter: FilterSettings, for overlayID: UUID) {
         guard let compositor = player.currentItem?.customVideoCompositor as? VideoCompositor else { return }

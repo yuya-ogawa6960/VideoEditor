@@ -646,6 +646,11 @@ enum ResolutionCap: String, CaseIterable, Identifiable {
         case .hd720: return 720
         }
     }
+
+    /// cap を超えるなら cap に下げる(プランの最高画質)
+    func capped(at cap: ResolutionCap) -> ResolutionCap {
+        maxShortSide <= cap.maxShortSide ? self : cap
+    }
 }
 
 enum ExportQuality: String, CaseIterable, Identifiable {

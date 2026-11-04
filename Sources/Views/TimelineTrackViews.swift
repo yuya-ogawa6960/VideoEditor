@@ -890,23 +890,48 @@ struct TimelineWaveformStrip: View {
 
         Canvas { context, size in
             guard let wf = current, size.width >= 2, size.height >= 1, end > start else { return }
-            let count = max(1, min(Int(size.width / 2), 4000))
             let loop = looping ? wf.duration : 0
-            var peaks = TimelineWaveformStrip.peaks(wf, from: start, to: end, count: count, loop: loop)
-            guard !peaks.isEmpty else { return }
-            if mirrored { peaks.reverse() }
-            let step = size.width / CGFloat(count)
-            let barWidth = max(1, step - 1)
+            let secondsPerPoint = (end - start) / Double(size.width)
+            // 波形の区切りは素材の時刻に固定する(見えている左端に合わせると、横に動かすたびに区切りがずれて
+            // 波形が揺れたり流れたりして見えた)。拡大・縮小でも細かく変わらないよう、区切りの幅は 2 倍ずつの段にそろえる
+            let rawBin = 2 * secondsPerPoint
+            let bin = rawBin > 0 && rawBin.isFinite ? pow(2, log2(rawBin).rounded()) : 0
             var shape = Path()
-            for (i, p) in peaks.enumerated() {
-                let v = CGFloat(min(max(p * scale, 0), 1))
-                let x = CGFloat(i) * step
-                let h = max(1, v * size.height)
-                let y = symmetric ? (size.height - h) / 2 : size.height - h
-                shape.addRect(CGRect(x: x, y: y, width: barWidth, height: h))
+            if !mirrored, bin > 0, bin.isFinite, secondsPerPoint > 0 {
+                let gridStart = (start / bin).rounded(.down) * bin
+                let count = max(1, min(Int(((end - gridStart) / bin).rounded(.up)), 4000))
+                let peaks = TimelineWaveformStrip.peaks(wf, from: gridStart, to: gridStart + Double(count) * bin,
+                                                        count: count, loop: loop)
+                guard !peaks.isEmpty else { return }
+                let step = CGFloat(bin / secondsPerPoint)
+                let x0 = CGFloat((gridStart - start) / secondsPerPoint)
+                let barWidth = max(1, step - 1)
+                for (i, p) in peaks.enumerated() {
+                    let v = CGFloat(min(max(p * scale, 0), 1))
+                    let x = x0 + CGFloat(i) * step
+                    let h = max(1, v * size.height)
+                    let y = symmetric ? (size.height - h) / 2 : size.height - h
+                    shape.addRect(CGRect(x: x, y: y, width: barWidth, height: h))
+                }
+            } else {
+                // 逆再生(左右反転)は見えている範囲を等分する
+                let count = max(1, min(Int(size.width / 2), 4000))
+                var peaks = TimelineWaveformStrip.peaks(wf, from: start, to: end, count: count, loop: loop)
+                guard !peaks.isEmpty else { return }
+                if mirrored { peaks.reverse() }
+                let step = size.width / CGFloat(count)
+                let barWidth = max(1, step - 1)
+                for (i, p) in peaks.enumerated() {
+                    let v = CGFloat(min(max(p * scale, 0), 1))
+                    let x = CGFloat(i) * step
+                    let h = max(1, v * size.height)
+                    let y = symmetric ? (size.height - h) / 2 : size.height - h
+                    shape.addRect(CGRect(x: x, y: y, width: barWidth, height: h))
+                }
             }
             context.fill(shape, with: .color(fill))
         }
+        .clipped()
         .allowsHitTesting(false)
         .task(id: urlPath) {
             if let hit = TimelineWaveformCache.shared.cached(for: url) {

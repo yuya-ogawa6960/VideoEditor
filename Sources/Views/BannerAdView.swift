@@ -56,7 +56,8 @@ struct BannerAdSlot: View {
     var body: some View {
         // SDK が始まったら読み込む(AdsManager は @Observable なので、ここで読むと始まったときに描き直される)
         let started = AdsManager.shared.isStarted
-        if BannerAds.isAvailable {
+        // 有料プランでは出さない(PlanStore)
+        if BannerAds.isAvailable, PlanStore.shared.terms.showsAds {
             ZStack {
                 Color.black
                 if let width {

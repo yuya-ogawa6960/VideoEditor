@@ -1201,10 +1201,25 @@ struct ContentView: View {
         return size.width / size.height
     }
 
-    /// プレビュー(ほかのアプリから落とした動画・写真を、再生位置からオーバーレイとして重ねる受け口つき)
+    /// プレビューのドラッグ・ピンチで映す範囲を変えるクリップ(PreviewClipFraming.swift)。
+    /// クリップを 1 つ選んでいて、パネルを開いていない(または「位置・クロップ」を開いている)とき。
+    /// 手書き・マスク・範囲選択の最中と、自動リフレーム(人物追尾)を使っているクリップは除く
+    private var framingClipID: UUID? {
+        guard !isDrawingNew, previewMaskTarget == nil, previewRectSelection == nil, !timeline.isMultiSelecting,
+              case .clip(let id) = selection,
+              let clip = project.clips.first(where: { $0.id == id }), !clip.reframe.isActive else { return nil }
+        if let panel = activePanel, panel != .geometry(id) { return nil }
+        return id
+    }
+
+    /// プレビュー(ほかのアプリから落とした動画・写真を、再生位置からオーバーレイとして重ねる受け口つき)。
+    /// 置き場所いっぱいに広げ、クリップを選んでいれば上下・左右の黒帯でもドラッグ・ピンチで映す範囲を変えられる
     private var previewBlock: some View {
         previewArea
             .background(Color.black)
+            .clipFraming(project: project, history: history, player: player,
+                         clipID: framingClipID,
+                         showsSourceAlways: framingClipID.map { activePanel == .geometry($0) } ?? false)
             .onDrop(of: MediaDrop.types, isTargeted: $previewDropTargeted) { providers in
                 handleOverlayDrop(providers)
             }
@@ -2120,9 +2135,10 @@ struct ContentView: View {
         if isWholeEdit, let clipID = clipIDAtPlayhead {
             // 選ぶとそのクリップを選択してから実行する(runSearchedTool)
             let clipTitle = String(localized: "再生位置のクリップ")
-            return EditorToolSearchSheet(contextEntries: EditorToolSearchIndex.flatten(rootItems, isRoot: true, contextTitle: wholeTitle),
+            return EditorToolSearchSheet(contextEntries: EditorToolSearchIndex.flatten(EditorToolItem.gatedByPlan(rootItems), isRoot: true,
+                                                                                       contextTitle: wholeTitle),
                                          contextTitle: wholeTitle,
-                                         rootEntries: EditorToolSearchIndex.flatten(clipItems(clipID), isRoot: false,
+                                         rootEntries: EditorToolSearchIndex.flatten(EditorToolItem.gatedByPlan(clipItems(clipID)), isRoot: false,
                                                                                     contextTitle: clipTitle, selectsClipID: clipID),
                                          rootTitle: clipTitle,
                                          onPick: { entry in runSearchedTool(entry) })
@@ -2132,7 +2148,7 @@ struct ContentView: View {
                                                                              contextTitle: contextTitle)
         let root: [EditorToolSearchEntry] = isWholeEdit
             ? []
-            : EditorToolSearchIndex.flatten(rootItems, isRoot: true, contextTitle: wholeTitle)
+            : EditorToolSearchIndex.flatten(EditorToolItem.gatedByPlan(rootItems), isRoot: true, contextTitle: wholeTitle)
         return EditorToolSearchSheet(contextEntries: context,
                                      contextTitle: contextTitle,
                                      rootEntries: root,
@@ -2195,7 +2211,12 @@ struct ContentView: View {
         }
     }
 
+    /// ツールバーの項目(有料の機能は、いまのプランで使えなければ王冠付き・タップでプランの画面。EditorToolItem.gatedByPlan)
     private var toolbarItems: [EditorToolItem] {
+        EditorToolItem.gatedByPlan(planlessToolbarItems)
+    }
+
+    private var planlessToolbarItems: [EditorToolItem] {
         if timeline.isMultiSelecting { return multiSelectItems }
         guard let current = selection else { return rootItems }
         switch current {
@@ -2374,7 +2395,7 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "モザイク"), systemImage: "square.grid.3x3", id: "addMosaic") {
             addMosaicAtPlayhead()
         })
-        items.append(EditorToolItem(String(localized: "顔モザイク"), systemImage: "face.dashed",
+        items.append(EditorToolItem(String(localized: "顔モザイク"), systemImage: "face.dashed", id: "face-mosaic",
                                     enabled: !analysis.isRunning && !project.clips.isEmpty,
                                     disabledReason: project.clips.isEmpty ? String(localized: "先に動画を追加してください") : Self.analysisBusyReason) {
             autoMosaicFaces()
@@ -2395,7 +2416,7 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "ロゴ・透かし"), systemImage: "seal") {
             openPanel(.watermark)
         })
-        items.append(EditorToolItem(String(localized: "音量そろえ"), systemImage: "waveform",
+        items.append(EditorToolItem(String(localized: "音量そろえ"), systemImage: "waveform", id: "root-loudness",
                                     enabled: hasAudioClips || hasNarration,
                                     disabledReason: String(localized: "音声のあるクリップやナレーションがありません")) {
             normalizeAll()
@@ -2441,7 +2462,7 @@ struct ContentView: View {
                                     enabled: !running && !noClips, disabledReason: noClips ? needClips : Self.analysisBusyReason) {
             showPunchInDialog = true
         })
-        items.append(EditorToolItem(String(localized: "編集チェック"), systemImage: "gauge.with.dots.needle.33percent",
+        items.append(EditorToolItem(String(localized: "編集チェック"), systemImage: "gauge.with.dots.needle.33percent", id: "ai-editcheck",
                                     enabled: !running && !noClips,
                                     disabledReason: noClips ? needClips : Self.analysisBusyReason) {
             runPacingCheck()
@@ -2475,7 +2496,7 @@ struct ContentView: View {
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
             openPanel(.autoEditTemplates)
         })
-        items.append(EditorToolItem(String(localized: "AI台本"), systemImage: "text.badge.star") {
+        items.append(EditorToolItem(String(localized: "AI台本"), systemImage: "text.badge.star", id: "ai-script") {
             player.pause()
             activePanel = nil
             activeSheet = .scriptWriter
@@ -2715,7 +2736,7 @@ struct ContentView: View {
     /// クリップの「オーディオ」(その他の中): 音声効果(スピーチを強調もここ) / J/Lカット / ビート合わせ
     private func clipAudioItems(_ clipID: UUID, hasAudio: Bool) -> [EditorToolItem] {
         var items: [EditorToolItem] = []
-        items.append(EditorToolItem(String(localized: "音声効果"), systemImage: "waveform.and.magnifyingglass",
+        items.append(EditorToolItem(String(localized: "音声効果"), systemImage: "waveform.and.magnifyingglass", id: "clip-audio-effects",
                                     enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
             openPanel(.audioEffects(clipID))
         })
@@ -2766,7 +2787,7 @@ struct ContentView: View {
                                     disabledReason: String(localized: "クリップが 2 つ以上あるときに使えます")) {
             openPanel(.colorMatch(clipID))
         })
-        items.append(EditorToolItem("LUT", systemImage: "cube") {
+        items.append(EditorToolItem("LUT", systemImage: "cube", id: "clip-lut") {
             openPanel(.lut(clipID))
         })
         items.append(EditorToolItem(String(localized: "カラースコープ"), systemImage: "chart.bar.xaxis") {
@@ -2815,7 +2836,7 @@ struct ContentView: View {
             })
             // 逆再生中のクリップは合成でマルチカメラを使わないので開かせない(切り替えても映らない)
             let isReversedClip = clip.map { $0.isReversed && $0.reversedURL != nil } ?? false
-            items.append(EditorToolItem(String(localized: "マルチカメラ"), systemImage: "camera.on.rectangle",
+            items.append(EditorToolItem(String(localized: "マルチカメラ"), systemImage: "camera.on.rectangle", id: "clip-multicam",
                                         enabled: !isReversedClip,
                                         disabledReason: String(localized: "逆再生中のクリップでは使えません。逆再生を解除してください")) {
                 history.record(project)
@@ -2945,13 +2966,13 @@ struct ContentView: View {
         items.append(EditorToolItem(String(localized: "音量"), systemImage: "speaker.wave.2") {
             openPanel(.narrationVolume(narrationID))
         })
-        items.append(EditorToolItem(String(localized: "音声効果"), systemImage: "waveform.and.magnifyingglass") {
+        items.append(EditorToolItem(String(localized: "音声効果"), systemImage: "waveform.and.magnifyingglass", id: "narration-audio-effects") {
             openPanel(.narrationEffects(narrationID))
         })
         items.append(EditorToolItem(String(localized: "分割"), systemImage: "scissors") {
             splitNarration(narrationID)
         })
-        items.append(EditorToolItem(String(localized: "音量そろえ"), systemImage: "waveform",
+        items.append(EditorToolItem(String(localized: "音量そろえ"), systemImage: "waveform", id: "narration-loudness",
                                     enabled: audioToolProgress == nil,
                                     disabledReason: Self.busyReason) {
             startNormalize(clipIDs: [], narrationIDs: [narrationID])

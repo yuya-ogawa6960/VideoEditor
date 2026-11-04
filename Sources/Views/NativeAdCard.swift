@@ -120,6 +120,13 @@ struct NativeAdCard: View {
     @State private var timedOut = false
 
     var body: some View {
+        // 有料プランでは出さない(PlanStore)
+        if PlanStore.shared.terms.showsAds {
+            adBody
+        }
+    }
+
+    private var adBody: some View {
         // Color.clear は .onAppear を呼ばせるため(中身が空だと呼ばれない)
         ZStack {
             Color.clear
@@ -250,6 +257,13 @@ struct NativeAdPanel: View {
     @State private var timedOut = false
 
     var body: some View {
+        // 有料プランでは出さない(PlanStore)
+        if PlanStore.shared.terms.showsAds {
+            adBody
+        }
+    }
+
+    private var adBody: some View {
         // NativeAdCard と同じく、広告が届くまでも同じ大きさの枠を置いて .onAppear を呼ばせる
         ZStack {
             Color.clear

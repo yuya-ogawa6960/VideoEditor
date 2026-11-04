@@ -323,6 +323,29 @@
         }
       }
     },
+    "%@ で書き出す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export in %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar en %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar em %@"
+          }
+        }
+      }
+    },
     "%@ に %@ 秒のナレーションを追加しました。": {
       "extractionState": "manual",
       "localizations": {
@@ -392,6 +415,29 @@
         }
       }
     },
+    "%@ の機能": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ feature"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Función de %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recurso do %@"
+          }
+        }
+      }
+    },
     "%@ の素材から、いちばん良い %@ を選びます": {
       "localizations": {
         "en": {
@@ -433,6 +479,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Áudio de %@"
+          }
+        }
+      }
+    },
+    "%@ は %@ で書き出せます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ export is available on %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La exportación en %@ está disponible en %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A exportação em %@ está disponível no %@"
           }
         }
       }
@@ -617,6 +686,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ (melhor qualidade)"
+          }
+        }
+      }
+    },
+    "%@(有料プラン)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (paid plan)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (plan de pago)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (plano pago)"
           }
         }
       }
@@ -2322,6 +2414,29 @@
         }
       }
     },
+    "%lldpt で使う": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use for %lld pt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar por %lld pt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar por %lld pt"
+          }
+        }
+      }
+    },
     "%lldアングル": {
       "extractionState": "manual",
       "localizations": {
@@ -3058,6 +3173,52 @@
         }
       }
     },
+    "1 回 %lldpt で使えます(いま %lldpt)。%@ なら何回でも使えます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use it once for %lld pt (you have %lld pt). With %@ you can use it as often as you like."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Úsala una vez por %lld pt (tienes %lld pt). Con %@ puedes usarla sin límite."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use uma vez por %lld pt (você tem %lld pt). Com o %@ você usa quantas vezes quiser."
+          }
+        }
+      }
+    },
+    "1 回 %lldpt で使えます。%@ なら何回でも使えます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use it once for %lld pt. With %@ you can use it as often as you like."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Úsala una vez por %lld pt. Con %@ puedes usarla sin límite."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use uma vez por %lld pt. Com o %@ você usa quantas vezes quiser."
+          }
+        }
+      }
+    },
     "1 回で、YouTube 用の横動画、ショート用の縦動画、サムネ、字幕ファイル、チャプター一覧をまとめて作ります。動画は上の「書き出した動画」に並びます。": {
       "extractionState": "manual",
       "localizations": {
@@ -3353,6 +3514,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "10 s"
+          }
+        }
+      }
+    },
+    "1080p で書き出す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export in 1080p"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar en 1080p"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar em 1080p"
           }
         }
       }
@@ -4041,6 +4225,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "4:5 vertical (publicações)"
+          }
+        }
+      }
+    },
+    "4K で書き出せる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export in 4K"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporta en 4K"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporte em 4K"
+          }
+        }
+      }
+    },
+    "4K は有料プランで書き出せます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4K export needs a paid plan"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar en 4K requiere un plan de pago"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar em 4K requer um plano pago"
           }
         }
       }
@@ -9170,6 +9400,167 @@
         }
       }
     },
+    "Standard %@pt・Pro %@pt(翌月に繰り越しません)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard %@ pt, Pro %@ pt (no carry-over)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard %@ pt, Pro %@ pt (no se acumulan)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard %@ pt, Pro %@ pt (não acumulam)"
+          }
+        }
+      }
+    },
+    "Standard 1080p・10 分まで/Pro 4K・長さの制限なし(無料は 720p・5 分まで)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard: 1080p, up to 10 min / Pro: 4K, no limit (Free: 720p, up to 5 min)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard: 1080p, hasta 10 min / Pro: 4K, sin límite (Gratis: 720p, hasta 5 min)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard: 1080p, até 10 min / Pro: 4K, sem limite (Grátis: 720p, até 5 min)"
+          }
+        }
+      }
+    },
+    "Standard で有料の機能がすべて使えます。Pro はさらに 4K・長さの制限なし・マルチカメラと、毎月のポイントが多くなります。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard unlocks every paid feature. Pro adds 4K, no length limit, multicam and more monthly points."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard desbloquea todas las funciones de pago. Pro añade 4K, sin límite de duración, multicámara y más puntos al mes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Standard libera todos os recursos pagos. O Pro adiciona 4K, sem limite de duração, multicâmera e mais pontos por mês."
+          }
+        }
+      }
+    },
+    "Standard と Pro は、毎月ポイントが付くほかはどちらも同じ機能です。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard and Pro have the same features; they differ only in monthly points."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard y Pro tienen las mismas funciones; solo cambian los puntos mensuales."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard e Pro têm os mesmos recursos; só mudam os pontos mensais."
+          }
+        }
+      }
+    },
+    "Starter(無料)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter (free)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter (gratis)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter (grátis)"
+          }
+        }
+      }
+    },
+    "Starter(無料)では 1080p まで書き出せます。Standard・Pro なら 4K で書き出せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter (free) exports up to 1080p. Standard and Pro export in 4K."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter (gratis) exporta hasta 1080p. Standard y Pro exportan en 4K."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Starter (grátis) exporta até 1080p. Standard e Pro exportam em 4K."
+          }
+        }
+      }
+    },
+    "Starter(無料)で書き出せるのは %lld 分までです。編集画面で短くするか、Standard・Pro にすると長さの制限なく書き出せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter (free) exports videos up to %lld minutes. Shorten it in the editor, or switch to Standard or Pro to export any length."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter (gratis) exporta videos de hasta %lld minutos. Acórtalo en el editor o pásate a Standard o Pro para exportar sin límite de duración."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Starter (grátis) exporta vídeos de até %lld minutos. Encurte no editor ou mude para Standard ou Pro para exportar sem limite de duração."
+          }
+        }
+      }
+    },
     "TikTok から結果を受け取れませんでした": {
       "extractionState": "manual",
       "localizations": {
@@ -10964,6 +11355,52 @@
         }
       }
     },
+    "「%@」は %@ で使えます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is available on %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» está disponible en %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” está disponível no %@"
+          }
+        }
+      }
+    },
+    "「%@」は %@ の機能です": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is a %@ feature"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» es una función de %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” é um recurso do %@"
+          }
+        }
+      }
+    },
     "「%@」を%@として保存しました。": {
       "extractionState": "manual",
       "localizations": {
@@ -12620,6 +13057,52 @@
         }
       }
     },
+    "いまのプラン(%@)では %@ まで書き出せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan (%@) exports up to %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu plan (%@) exporta hasta %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu plano (%@) exporta até %@."
+          }
+        }
+      }
+    },
+    "いまのプラン(%@)で書き出せるのは %lld 分までです。編集画面で短くするか、%@ にすると書き出せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan (%@) exports videos up to %lld min. Shorten it in the editor, or switch to %@ to export it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu plan (%@) exporta vídeos de hasta %lld min. Acórtalo en el editor o cambia a %@ para exportarlo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu plano (%@) exporta vídeos de até %lld min. Encurte no editor ou mude para o %@ para exportar."
+          }
+        }
+      }
+    },
     "いまのプロジェクト": {
       "extractionState": "manual",
       "localizations": {
@@ -13632,6 +14115,29 @@
         }
       }
     },
+    "きれいに、長く書き出せる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharper, longer exports"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporta con más calidad y duración"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporte com mais qualidade e duração"
+          }
+        }
+      }
+    },
     "きれいにする": {
       "extractionState": "manual",
       "localizations": {
@@ -14525,6 +15031,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível encontrar o arquivo desta fonte."
+          }
+        }
+      }
+    },
+    "このプランは別のアカウントで購入されたため、毎月のポイントはそちらのアカウントに付きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This plan was bought with another account, so the monthly points go to that account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este plan se compró con otra cuenta, así que los puntos mensuales van a esa cuenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este plano foi comprado com outra conta, então os pontos mensais vão para essa conta."
           }
         }
       }
@@ -17493,6 +18022,29 @@
         }
       }
     },
+    "ほかのアプリにない AI 編集": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI editing you won't find elsewhere"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edición con IA que no encontrarás en otras apps"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edição com IA que você não encontra em outros apps"
+          }
+        }
+      }
+    },
     "ほかのアプリの「共有」から Video Mania を選んで送ることもできます。": {
       "extractionState": "manual",
       "localizations": {
@@ -18869,6 +19421,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Buscar mais"
+          }
+        }
+      }
+    },
+    "もっと自由に、もっときれいに": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More freedom, sharper videos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más libertad, videos más nítidos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais liberdade, vídeos mais nítidos"
           }
         }
       }
@@ -22502,6 +23077,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "LUT de cor"
+          }
+        }
+      }
+    },
+    "カラーのコピー・貼り付け": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy & paste color"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar y pegar color"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar e colar cor"
           }
         }
       }
@@ -26370,6 +26968,29 @@
         }
       }
     },
+    "サインインすると 1 回 %lldpt で使えます(「アカウントとポイント」から)。%@ なら何回でも使えます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in (from Account & Points) to use it for %lld pt per use. With %@ you can use it as often as you like."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión (en Cuenta y puntos) para usarla por %lld pt cada vez. Con %@ puedes usarla sin límite."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre (em Conta e pontos) para usar por %lld pt cada vez. Com o %@ você usa quantas vezes quiser."
+          }
+        }
+      }
+    },
     "サインインすると、自分の OpenAI キーがなくてもポイントでクラウド AI(高精度の文字起こし・字幕の整え・翻訳・台本)を使えます。はじめてのサインインで 100 ポイント、毎日 20 ポイントもらえます。": {
       "extractionState": "manual",
       "localizations": {
@@ -26435,6 +27056,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Crocante"
+          }
+        }
+      }
+    },
+    "サブスクリプションを管理": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage subscription"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestionar suscripción"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerenciar assinatura"
           }
         }
       }
@@ -31517,6 +32161,29 @@
         }
       }
     },
+    "ドラッグで映す位置・2本指でズーム": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to reframe · pinch to zoom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra para encuadrar · pellizca para hacer zoom"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para enquadrar · pinça para dar zoom"
+          }
+        }
+      }
+    },
     "ドラッグで移動・2本指で拡大/回転": {
       "extractionState": "manual",
       "localizations": {
@@ -35335,6 +36002,75 @@
         }
       }
     },
+    "プラン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plano"
+          }
+        }
+      }
+    },
+    "プランを変える": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change plan"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar de plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar de plano"
+          }
+        }
+      }
+    },
+    "プランを見る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See plans"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver planes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver planos"
+          }
+        }
+      }
+    },
     "プリセット %lld": {
       "extractionState": "manual",
       "localizations": {
@@ -35745,6 +36481,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Atualizando prévia"
+          }
+        }
+      }
+    },
+    "プロの仕上げ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro finishing tools"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acabado profesional"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acabamento profissional"
           }
         }
       }
@@ -36761,6 +37520,29 @@
         }
       }
     },
+    "ポイントで使えませんでした": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't use points"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron usar los puntos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível usar os pontos"
+          }
+        }
+      }
+    },
     "ポイントと利用の記録がサーバーから削除され、元に戻せません。プロジェクトや動画はこの iPhone に残ります。": {
       "extractionState": "manual",
       "localizations": {
@@ -36853,25 +37635,25 @@
         }
       }
     },
-    "ポイントは無料です。購入はできません。": {
+    "ポイントは、クラウド AI(文字起こし・翻訳・AI台本・クラウドの声など)と、王冠の付いた一部の機能(1 回 %lldpt)に使えます。有料プランに入ると、毎月ポイントが付きます。": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Points are free. They can't be purchased."
+            "value": "Points are used for cloud AI (transcription, translation, AI script, cloud voices and more) and for some crown-marked features (%lld pt per use). Paid plans add points every month."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los puntos son gratis. No se pueden comprar."
+            "value": "Los puntos se usan en la IA en la nube (transcripción, traducción, guion con IA, voces en la nube y más) y en algunas funciones con corona (%lld pt por uso). Los planes de pago añaden puntos cada mes."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os pontos são gratuitos. Não é possível comprá-los."
+            "value": "Os pontos são usados na IA na nuvem (transcrição, tradução, roteiro com IA, vozes na nuvem e mais) e em alguns recursos com coroa (%lld pt por uso). Os planos pagos adicionam pontos todo mês."
           }
         }
       }
@@ -57706,6 +58488,29 @@
         }
       }
     },
+    "広告が出ない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No ads"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin anuncios"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem anúncios"
+          }
+        }
+      }
+    },
     "広告の同意: ": {
       "extractionState": "manual",
       "localizations": {
@@ -63774,6 +64579,29 @@
         }
       }
     },
+    "書き出し・AI 処理の待ち時間も": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not even while exporting or during AI tasks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tampoco al exportar ni durante las tareas de IA"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nem ao exportar nem durante as tarefas de IA"
+          }
+        }
+      }
+    },
     "書き出し先フォルダを作成できませんでした: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -63977,6 +64805,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível converter. Tente novamente"
+          }
+        }
+      }
+    },
+    "書き出せる長さを超えています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video is longer than your plan allows"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El video supera la duración de tu plan"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vídeo é mais longo do que seu plano permite"
           }
         }
       }
@@ -64759,6 +65610,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "Luar"
+          }
+        }
+      }
+    },
+    "有料プラン": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paid plan"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan de pago"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plano pago"
+          }
+        }
+      }
+    },
+    "有料プランでは 4K で書き出せ、広告が出ず、毎月ポイントが付きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paid plans export in 4K, show no ads and add points every month."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los planes de pago exportan en 4K, no muestran anuncios y suman puntos cada mes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os planos pagos exportam em 4K, não mostram anúncios e dão pontos todo mês."
+          }
+        }
+      }
+    },
+    "有料プランでは、高い画質・長い動画で書き出せ、王冠の付いた機能が使え、広告が出ず、毎月ポイントが付きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paid plans export in higher quality and longer, unlock features marked with a crown, remove ads and add monthly points."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los planes de pago exportan con más calidad y duración, desbloquean las funciones con corona, quitan los anuncios y añaden puntos cada mes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os planos pagos exportam com mais qualidade e duração, liberam os recursos com coroa, removem anúncios e adicionam pontos todo mês."
+          }
+        }
+      }
+    },
+    "有料プランに入ると、毎月ポイントが付きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With a paid plan you get points every month."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con un plan de pago recibes puntos cada mes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com um plano pago você recebe pontos todo mês."
           }
         }
       }
@@ -65867,6 +66810,29 @@
         }
       }
     },
+    "次の更新 %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renews %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se renueva el %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renova em %@"
+          }
+        }
+      }
+    },
     "歓声": {
       "extractionState": "manual",
       "localizations": {
@@ -66254,6 +67220,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Faltam cerca de %lld h %lld min"
+          }
+        }
+      }
+    },
+    "毎月 %@pt が付きます(サインインが必要です)。使い切れなかった分は翌月に繰り越しません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You get %@ pt every month (sign-in required). Unused points don't carry over to the next month."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recibes %@ pt cada mes (requiere iniciar sesión). Los puntos sin usar no pasan al mes siguiente."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você recebe %@ pt por mês (é preciso entrar). Pontos não usados não passam para o mês seguinte."
+          }
+        }
+      }
+    },
+    "毎月ポイントが付く": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Points every month"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puntos cada mes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pontos todo mês"
           }
         }
       }
@@ -67151,6 +68163,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fogueira"
+          }
+        }
+      }
+    },
+    "無料は 1080p まで": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free: up to 1080p"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratis: hasta 1080p"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grátis: até 1080p"
+          }
+        }
+      }
+    },
+    "無料は 5 分まで": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free: up to 5 minutes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratis: hasta 5 minutos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grátis: até 5 minutos"
           }
         }
       }
@@ -73453,6 +74511,29 @@
         }
       }
     },
+    "背景を消す・クロマキー・LUT・音声効果・音量そろえ・モザイク・テレプロンプター": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background removal, chroma key, LUTs, audio effects, loudness matching, mosaic, teleprompter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar fondo, croma, LUT, efectos de audio, igualar volumen, mosaico, teleprompter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover fundo, chroma key, LUT, efeitos de áudio, nivelar volume, mosaico, teleprompter"
+          }
+        }
+      }
+    },
     "背景セッションを作れません": {
       "extractionState": "manual",
       "localizations": {
@@ -76735,6 +77816,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cortar hesitações"
+          }
+        }
+      }
+    },
+    "言いよどみカット・編集チェック・被写体フラッシュ・画質補正": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filler-word cut, edit check, subject flash, AI enhance"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortar muletillas, revisión de edición, destello del sujeto, mejora de calidad"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corte de vícios de linguagem, verificação de edição, flash no assunto, melhoria de qualidade"
           }
         }
       }
@@ -83026,6 +84130,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Duração %@ (até %@ restantes na mídia)"
+          }
+        }
+      }
+    },
+    "長さの制限なし": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No length limit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin límite de duración"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem limite de duração"
           }
         }
       }

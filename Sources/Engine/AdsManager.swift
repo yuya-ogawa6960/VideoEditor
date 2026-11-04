@@ -248,6 +248,8 @@ final class AdsManager: NSObject {
 
     /// その場面で全画面広告を出す(準備できていない・前の広告から間がない・トラッキングの確認が出ているときは何もしない)
     func showInterstitial(_ placement: AdPlacement) {
+        // 有料プランでは出さない(PlanStore)
+        guard PlanStore.shared.terms.showsAds else { return }
         guard isStarted, !isShowing, !isRequestingTracking, let ad = interstitial else { return }
         guard Date().timeIntervalSince(lastShown) >= Self.minimumInterval else { return }
         guard let root = Self.topViewController() else { return }

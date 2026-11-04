@@ -275,12 +275,17 @@ struct WorkingCardWithAd<Card: View>: View {
     @ViewBuilder let card: (_ inlineAd: Bool) -> Card
 
     var body: some View {
-        ViewThatFits(in: .vertical) {
-            VStack(spacing: 14) {
-                NativeAdPanel()
-                card(false)
+        // 有料プランでは広告の枠を置かない(PlanStore)
+        if !PlanStore.shared.terms.showsAds {
+            card(false)
+        } else {
+            ViewThatFits(in: .vertical) {
+                VStack(spacing: 14) {
+                    NativeAdPanel()
+                    card(false)
+                }
+                card(true)
             }
-            card(true)
         }
     }
 }

@@ -43,18 +43,19 @@ fileprivate enum ExportViewPreset: String, CaseIterable, Identifiable {
 
     var frameRate: Int { 30 }
 
-    /// 画質だけを変える(比率・収め方・コーデックなどはそのまま。ビットレートは自動に戻す)
-    func apply(to canvas: CanvasSettings) -> CanvasSettings {
+    /// 画質だけを変える(比率・収め方・コーデックなどはそのまま。ビットレートは自動に戻す)。
+    /// 解像度はプランの最高画質までに下げる(無料は SNS 向け・軽量も 720p)
+    func apply(to canvas: CanvasSettings, cap: ResolutionCap) -> CanvasSettings {
         var c = canvas
-        c.resolution = resolution
+        c.resolution = resolution.capped(at: cap)
         c.quality = quality
         c.frameRate = frameRate
         c.bitrateMbps = nil
         return c
     }
 
-    func matches(_ canvas: CanvasSettings) -> Bool {
-        canvas.resolution == resolution && canvas.quality == quality
+    func matches(_ canvas: CanvasSettings, cap: ResolutionCap) -> Bool {
+        canvas.resolution == resolution.capped(at: cap) && canvas.quality == quality
             && canvas.frameRate == frameRate && canvas.bitrateMbps == nil
     }
 }
@@ -139,6 +140,13 @@ struct ExportView: View {
     @State private var packChapters = true
     @State private var packFiles: [URL] = []
     @State private var packMessage: String?
+    /// プランで書き出せない理由(4K・長さ)。出ているあいだは確認を出す
+    @State private var planBlock: PlanExportBlock?
+    /// planBlock が SNS パックから出たか(「1080p で書き出す」でパックを作り直す)
+    @State private var planBlockFromPack = false
+    /// プランの画面(PlanPaywallView)
+    @State private var showPlans = false
+    @State private var plans = PlanStore.shared
     @State private var gifError: String?
 
     private var exporter: ExportManager { ExportManager.shared }
@@ -156,6 +164,57 @@ struct ExportView: View {
                 exportingOverlay
             }
         }
+        .alert(planBlockTitle, isPresented: Binding(get: { planBlock != nil }, set: { if !$0 { planBlock = nil } }),
+               presenting: planBlock) { block in
+            if case .resolution = block {
+                Button("\(plans.terms.maxResolution.displayName) で書き出す") {
+                    planBlock = nil
+                    project.canvas.resolution = plans.terms.maxResolution
+                    if planBlockFromPack {
+                        makePack()
+                    } else {
+                        startExport()
+                    }
+                }
+            }
+            Button("プランを見る") {
+                planBlock = nil
+                showPlans = true
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: { block in
+            Text(planBlockMessage(block))
+        }
+        .sheet(isPresented: $showPlans) {
+            PlanPaywallView()
+        }
+    }
+
+    private var planBlockTitle: String {
+        switch planBlock {
+        case .resolution(let r):
+            return String(localized: "\(r.displayName) は \(PlanTerms.lowestTier(allowing: r).displayName) で書き出せます")
+        case .length: return String(localized: "書き出せる長さを超えています")
+        case nil: return ""
+        }
+    }
+
+    private func planBlockMessage(_ block: PlanExportBlock) -> String {
+        switch block {
+        case .resolution:
+            return String(localized: "いまのプラン(\(plans.tier.displayName))では \(plans.terms.maxResolution.displayName) まで書き出せます。")
+        case .length(let minutes):
+            return String(localized: "いまのプラン(\(plans.tier.displayName))で書き出せるのは \(minutes) 分までです。編集画面で短くするか、\(PlanTerms.lowestTier(allowingDuration: timelineDuration).displayName) にすると書き出せます。")
+        }
+    }
+
+    /// プランで書き出せないときは理由を出して true
+    private func blockedByPlan() -> Bool {
+        if let block = plans.exportBlock(resolution: project.canvas.resolution, duration: timelineDuration) {
+            planBlock = block
+            return true
+        }
+        return false
     }
 
     private var exportingOverlay: some View {
@@ -297,8 +356,9 @@ struct ExportView: View {
         let defaults = CanvasSettings()
         guard canvas.resolution == defaults.resolution, canvas.quality == defaults.quality,
               canvas.frameRate == defaults.frameRate, canvas.bitrateMbps == nil else { return }
-        guard !ExportViewPreset.allCases.contains(where: { $0.matches(canvas) }) else { return }
-        project.canvas = ExportViewPreset.sns.apply(to: canvas)
+        let cap = plans.terms.maxResolution
+        guard !ExportViewPreset.allCases.contains(where: { $0.matches(canvas, cap: cap) }) else { return }
+        project.canvas = ExportViewPreset.sns.apply(to: canvas, cap: cap)
     }
 
     private var presetSection: some View {
@@ -312,22 +372,39 @@ struct ExportView: View {
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         } footer: {
-            if !ExportViewPreset.allCases.contains(where: { $0.matches(project.canvas) }) {
+            if !ExportViewPreset.allCases.contains(where: { $0.matches(project.canvas, cap: plans.terms.maxResolution) }) {
                 Text("詳細設定の値で書き出します")
             }
         }
     }
 
     private func presetTile(_ preset: ExportViewPreset) -> some View {
-        let selected = preset.matches(project.canvas)
+        let cap = plans.terms.maxResolution
+        // 4K を押せないプラン(無料・Standard)では王冠を付け、押したらプランの画面を出す(選ばない)。
+        // SNS 向け・軽量はプランの最高画質に下げて選ぶ(下げた 4K は SNS 向けと同じ値になるので、選択中に見せない)
+        let locked = preset == .uhd4k && !plans.terms.allows(preset.resolution)
+        let selected = !locked && preset.matches(project.canvas, cap: cap)
         return Button {
             EditorHaptics.tap()
-            project.canvas = preset.apply(to: project.canvas)
+            if locked {
+                showPlans = true
+                return
+            }
+            project.canvas = preset.apply(to: project.canvas, cap: cap)
         } label: {
             VStack(spacing: 8) {
                 Image(systemName: preset.systemImage)
                     .font(.title2)
                     .foregroundStyle(selected ? Color.white : Color.secondary)
+                    .overlay(alignment: .topTrailing) {
+                        if locked {
+                            Image(systemName: "crown.fill")
+                                .font(.caption2)
+                                .foregroundStyle(BrandStyle.coral)
+                                .offset(x: 12, y: -6)
+                                .accessibilityLabel(Text("有料プラン"))
+                        }
+                    }
                 Text(preset.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(selected ? Color.white : Color.primary)
@@ -427,7 +504,11 @@ struct ExportView: View {
         Section {
             Picker("解像度", selection: $project.canvas.resolution) {
                 ForEach(ResolutionCap.allCases) { r in
-                    Text(r.displayName).tag(r)
+                    if plans.terms.allows(r) {
+                        Text(r.displayName).tag(r)
+                    } else {
+                        Text("\(r.displayName)(有料プラン)").tag(r)
+                    }
                 }
             }
             Picker("画質", selection: $project.canvas.quality) {
@@ -881,6 +962,8 @@ struct ExportView: View {
     private func startExport() {
         recomputeEstimate()
         guard canStart else { return }
+        planBlockFromPack = false
+        guard !blockedByPlan() else { return }
         let snapshot = project.snapshot()
         let wantsPhotos = saveToPhotos
         exporter.start(snapshot: snapshot, saveToPhotos: wantsPhotos)
@@ -1054,6 +1137,9 @@ struct ExportView: View {
     }
 
     private func makePack() {
+        // 動画を作るときだけプランで止める(サムネ・字幕・チャプターだけなら止めない)
+        planBlockFromPack = true
+        if packLandscape || packPortrait, blockedByPlan() { return }
         let snapshot = project.snapshot()
         let wantCover = packCover
         let wantSRT = packSRT && !snapshot.subtitles.isEmpty

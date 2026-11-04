@@ -158,6 +158,19 @@ struct CameraRecorderView: View {
         IdleTimerGuard.set(false, for: "camera")
     }
 
+    /// テレプロンプターは有料プラン(Standard)だけ。無料なら台本を出さず、「台本」を押すとプランの画面
+    private var teleprompterScript: String {
+        PlanStore.shared.allows(.teleprompter) ? script : ""
+    }
+
+    private func openScript() {
+        if PlanStore.shared.allows(.teleprompter) {
+            showScriptSheet = true
+        } else {
+            PlanPaywall.present(for: .teleprompter)
+        }
+    }
+
     // MARK: - プレビュー
 
     private var liveView: some View {
@@ -179,10 +192,10 @@ struct CameraRecorderView: View {
                             .frame(width: previewWidth)
                         VStack(spacing: 0) {
                             topBar
-                            TeleprompterOverlay(script: script, isScrolling: recorder.isRecording) {
-                                showScriptSheet = true
+                            TeleprompterOverlay(script: teleprompterScript, isScrolling: recorder.isRecording) {
+                                openScript()
                             }
-                            .frame(maxHeight: script.isEmpty ? nil : .infinity)
+                            .frame(maxHeight: teleprompterScript.isEmpty ? nil : .infinity)
                             .padding(.horizontal, 12)
                             .padding(.top, 8)
                             Spacer(minLength: 0)
@@ -194,10 +207,10 @@ struct CameraRecorderView: View {
                 } else {
                     VStack(spacing: 0) {
                         topBar
-                        TeleprompterOverlay(script: script, isScrolling: recorder.isRecording) {
-                            showScriptSheet = true
+                        TeleprompterOverlay(script: teleprompterScript, isScrolling: recorder.isRecording) {
+                            openScript()
                         }
-                        .frame(height: script.isEmpty ? nil : geo.size.height * 0.36)
+                        .frame(height: teleprompterScript.isEmpty ? nil : geo.size.height * 0.36)
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
                         Spacer(minLength: 0)

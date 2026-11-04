@@ -75,6 +75,8 @@ struct EditorToolItem: Identifiable {
     /// tapTitle があれば、いつもの動作(action)をその名前でメニューの先頭に入れる
     private(set) var menuOnTap: Bool = false
     private(set) var tapTitle: String?
+    /// いまのプランでは使えない有料の機能(王冠を付け、タップでプランの画面を出す。gatedByPlan)
+    private(set) var lockedPlan: PlanTier?
 
     init(_ title: String, systemImage: String, id: String? = nil, destructive: Bool = false,
          enabled: Bool = true, disabledReason: String? = nil, action: @escaping () -> Void) {
@@ -190,6 +192,35 @@ struct EditorToolItem: Identifiable {
     var isGroup: Bool {
         if case .group = kind { return true }
         return false
+    }
+
+    /// 有料の機能(PlanFeature.toolbarItems)のうち、いまのプランで使えないものを「王冠付き・タップでプランの画面」に
+    /// 差し替える(グループの中も)。ツールバーと「機能を探す」の両方に通す
+    @MainActor
+    static func gatedByPlan(_ items: [EditorToolItem]) -> [EditorToolItem] {
+        let plans = PlanStore.shared
+        return items.map { item in
+            if case .group(let children) = item.kind {
+                var copy = EditorToolItem(id: item.id, title: item.title, systemImage: item.systemImage,
+                                          enabled: item.isEnabled, disabledReason: item.disabledReason,
+                                          kind: .group(gatedByPlan(children)))
+                copy.menu = item.menu
+                return copy
+            }
+            guard let feature = PlanFeature.toolbarItems[item.id], !plans.allows(feature) else { return item }
+            // 1 回で終わる機能は、無料プランでもポイントで 1 回使える(確認を出してから元の動作。使えない状態ならその理由)
+            let tap: () -> Void
+            if feature.allowsTrial, item.isEnabled, case .action(let original) = item.kind {
+                tap = { PlanTrial.offer(feature, run: original) }
+            } else {
+                tap = { PlanPaywall.present(for: feature) }
+            }
+            var locked = EditorToolItem(id: item.id, title: item.title, systemImage: item.systemImage,
+                                        enabled: item.isEnabled || !feature.allowsTrial,
+                                        disabledReason: item.disabledReason, kind: .action(tap))
+            locked.lockedPlan = feature.requiredTier
+            return locked
+        }
     }
 
     var isSection: Bool {
@@ -571,6 +602,7 @@ struct EditorToolbar: View {
             Image(systemName: item.systemImage)
                 .font(.system(size: 20))
                 .frame(height: 26)
+                .overlay(alignment: .topTrailing) { planBadge(item) }
             Text(EditorToolLabel.wrapped(item.title))
                 .font(.system(size: 11))
                 .multilineTextAlignment(.center)
@@ -592,12 +624,25 @@ struct EditorToolbar: View {
         }
     }
 
+    /// 有料の機能でいまのプランでは使えないとき、アイコンの右上に小さな王冠
+    @ViewBuilder
+    private func planBadge(_ item: EditorToolItem) -> some View {
+        if let plan = item.lockedPlan {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(BrandStyle.coral)
+                .offset(x: 9, y: -3)
+                .accessibilityLabel(Text("\(plan.displayName) の機能"))
+        }
+    }
+
     private func horizontalLabel(_ item: EditorToolItem) -> some View {
         let color: Color = item.isDestructive ? Color.red : Color.white
         return VStack(spacing: 4) {
             Image(systemName: item.systemImage)
                 .font(.system(size: 20))
                 .frame(height: 26)
+                .overlay(alignment: .topTrailing) { planBadge(item) }
             // 長い名前は区切りのよいところで 2 行にする
             Text(EditorToolLabel.wrapped(item.title))
                 .font(.system(size: 11))

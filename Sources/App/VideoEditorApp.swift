@@ -23,6 +23,8 @@ struct VideoEditorApp: App {
         Task { @MainActor in
             await AccountService.shared.verifyAppleCredential()
         }
+        // アプリ内課金のプラン(購入・更新・返金を受け取り、サインインしていれば毎月のポイントを受け取る)
+        Task { @MainActor in PlanStore.shared.start() }
         // フィルタの LUT をバックグラウンドで先に作っておく(初回表示のもたつき防止)
         Task.detached(priority: .utility) { FilterLUT.prewarm() }
         // 読み込んだフォント(.ttf / .otf)を起動時に登録する
