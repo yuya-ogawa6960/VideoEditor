@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import StoreKit
+import CryptoKit
 
 // =====================================================================
 // アプリ内課金のプラン(Starter 無料 / Standard / Pro。自動更新サブスクリプション)。
@@ -191,14 +192,50 @@ final class PlanStore {
 
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
 
-    var terms: PlanTerms { .terms(for: tier) }
+    /// オーナー用の合言葉(設定のバージョンを 7 回タップ → 入力)で開けた状態。
+    /// 端末の中だけで効く機能(画質・長さ・プランの機能)を Pro と同じにする。広告はそのまま出す。
+    /// サーバーには送らないので、毎月のポイントは付かず、クラウド AI はこれまでどおりポイントを使う
+    private(set) var ownerPass: Bool
+    private static let ownerPassKey = "vm.ownerPass"
+    /// 合言葉の SHA-256(文字そのものはアプリに入れない)
+    private static let ownerPassHash = "383ff0754c8fb826ca80308344f8d91413d5c240b4d6cb862005855940a258bc"
+
+    /// 合言葉を使えるビルドか(TestFlight とデバッグだけ。App Store 版では入力も効き目もない)
+    static var ownerPassAvailable: Bool { AdsManager.usesTestAds }
+
+    /// 機能・書き出しの判断に使うプラン(TestFlight で合言葉が効いていれば Pro)
+    var effectiveTier: PlanTier { ownerPass && Self.ownerPassAvailable ? .pro : tier }
+    /// 画質・長さは effectiveTier、広告は実際に買ったプランで決める(合言葉では広告を消さない)
+    var terms: PlanTerms {
+        let unlocked = PlanTerms.terms(for: effectiveTier)
+        return PlanTerms(maxResolution: unlocked.maxResolution, maxMinutes: unlocked.maxMinutes,
+                         showsAds: PlanTerms.terms(for: tier).showsAds, monthlyPoints: unlocked.monthlyPoints)
+    }
+    /// 実際に購入しているか(合言葉は含めない。購入の管理・表示用)
     var isPaid: Bool { tier != .free }
 
     /// この機能をいまのプランで使えるか
-    func allows(_ feature: PlanFeature) -> Bool { tier >= feature.requiredTier }
+    func allows(_ feature: PlanFeature) -> Bool { effectiveTier >= feature.requiredTier }
+
+    /// 合言葉が合っていれば開ける(合っていたら true)
+    func unlockOwnerPass(code: String) -> Bool {
+        guard Self.ownerPassAvailable else { return false }
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digest = SHA256.hash(data: Data(trimmed.utf8)).map { String(format: "%02x", $0) }.joined()
+        guard digest == Self.ownerPassHash else { return false }
+        ownerPass = true
+        UserDefaults.standard.set(true, forKey: Self.ownerPassKey)
+        return true
+    }
+
+    func disableOwnerPass() {
+        ownerPass = false
+        UserDefaults.standard.set(false, forKey: Self.ownerPassKey)
+    }
 
     private init() {
         tier = PlanTier(rawValue: UserDefaults.standard.string(forKey: Self.cacheKey) ?? "") ?? .free
+        ownerPass = UserDefaults.standard.bool(forKey: Self.ownerPassKey)
     }
 
     static func tier(forProductID id: String) -> PlanTier? {

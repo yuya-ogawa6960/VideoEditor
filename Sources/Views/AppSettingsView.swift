@@ -29,6 +29,11 @@ struct AppSettingsView: View {
     @State private var revealsDiagnostics: Bool = false
     /// 開発者モード(AppSettings.developerMode)。バージョンの行を 7 回タップで切り替える
     @State private var settings = AppSettings.shared
+    /// 開発者モードをオンにするときに出す、オーナー用の合言葉の入力(PlanStore.unlockOwnerPass)
+    @State private var plans = PlanStore.shared
+    @State private var asksOwnerCode = false
+    @State private var ownerCode = ""
+    @State private var ownerCodeResult: String?
     /// iPhone Duo を開いたとき、編集画面のツールを右の列(時刻などが出る列)に縦に並べる(編集画面の「設定」からも切り替えられる)
     @AppStorage("editor.toolbarOnSide") private var toolbarOnSide = false
 
@@ -97,8 +102,17 @@ struct AppSettingsView: View {
                         refreshDiagnostics()
                     }
                     // 同じ行を続けて 7 回で開発者モードを切り替える(5 回のサポート用の情報はそのまま)
+                    // オンにするときは合言葉を聞く(空のまま・キャンセルでも開発者モードはオンになる)
                     if versionTaps == 7 {
-                        settings.developerMode.toggle()
+                        if settings.developerMode {
+                            settings.developerMode = false
+                        } else {
+                            settings.developerMode = true
+                            if PlanStore.ownerPassAvailable, !plans.ownerPass {
+                                ownerCode = ""
+                                asksOwnerCode = true
+                            }
+                        }
                         versionTaps = 0
                     }
                 } label: {
@@ -120,6 +134,26 @@ struct AppSettingsView: View {
         }
         .navigationTitle("設定")
         .navigationBarTitleDisplayMode(.inline)
+        // 開発者向けなので文字は翻訳しない
+        .alert(Text(verbatim: "合言葉"), isPresented: $asksOwnerCode) {
+            SecureField(text: $ownerCode) { Text(verbatim: "合言葉") }
+                .keyboardType(.numberPad)
+            Button {
+                if ownerCode.isEmpty { return }
+                let message = plans.unlockOwnerPass(code: ownerCode)
+                    ? "有料プランの機能を使えるようにしました"
+                    : "合言葉が違います"
+                // 入力のアラートが閉じきってから結果を出す
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ownerCodeResult = message }
+            } label: { Text(verbatim: "OK") }
+            Button(role: .cancel) {} label: { Text(verbatim: "キャンセル") }
+        }
+        .alert(Text(verbatim: ownerCodeResult ?? ""), isPresented: Binding(
+            get: { ownerCodeResult != nil },
+            set: { if !$0 { ownerCodeResult = nil } }
+        )) {
+            Button(role: .cancel) {} label: { Text(verbatim: "OK") }
+        }
         .onAppear {
             termCount = CaptionTermDictionary.load().count
             readingCount = ReadingDictionary.load().count
@@ -171,6 +205,26 @@ struct AppSettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             #endif
+            if !PlanStore.ownerPassAvailable {
+                // App Store 版では合言葉を使えない
+                EmptyView()
+            } else if plans.ownerPass {
+                Text(verbatim: "有料プランの機能を無料で使えます(4K・長さ無制限。広告は出ます。クラウド AI はポイントを使います)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button {
+                    plans.disableOwnerPass()
+                } label: {
+                    Text(verbatim: "有料プランの機能を戻す")
+                }
+            } else {
+                Button {
+                    ownerCode = ""
+                    asksOwnerCode = true
+                } label: {
+                    Text(verbatim: "合言葉を入れる")
+                }
+            }
             Button {
                 settings.developerMode = false
             } label: {

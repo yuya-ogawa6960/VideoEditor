@@ -95,7 +95,7 @@ struct AccountPointsView: View {
                 Text("このプランは別のアカウントで購入されたため、毎月のポイントはそちらのアカウントに付きます。")
                     .foregroundStyle(.orange)
             } else if plans.isPaid {
-                Text("毎月 \(plans.terms.monthlyPoints.formatted())pt が付きます(サインインが必要です)。使い切れなかった分は翌月に繰り越しません。")
+                Text("毎月 \(PlanTerms.terms(for: plans.tier).monthlyPoints.formatted())pt が付きます(サインインが必要です)。使い切れなかった分は翌月に繰り越しません。")
             } else {
                 Text("有料プランでは、高い画質・長い動画で書き出せ、王冠の付いた機能が使え、広告が出ず、毎月ポイントが付きます。")
             }
