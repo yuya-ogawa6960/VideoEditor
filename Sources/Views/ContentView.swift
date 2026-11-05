@@ -1825,7 +1825,7 @@ struct ContentView: View {
         // ---- 第3弾: オーバーレイ ----
         case .overlayPlacement(let overlayID):
             if let overlay = project.overlayBinding(id: overlayID) {
-                EditorOverlayPlacementPanel(project: project, overlay: overlay)
+                EditorOverlayPlacementPanel(project: project, overlay: overlay, history: history)
             } else {
                 EditorMissingPanelContent()
             }

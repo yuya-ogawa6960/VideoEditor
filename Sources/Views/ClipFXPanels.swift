@@ -453,7 +453,10 @@ struct EditorGeometryPanel: View {
             HStack {
                 Spacer()
                 EditorChip(title: String(localized: "リセット"), isSelected: false) {
-                    clip.geometry = ClipGeometry()
+                    // V2 と並べた置き場所は残す(オーバーレイのパネルの「元に戻す」で戻す)
+                    var reset = ClipGeometry()
+                    reset.canvasFrame = clip.geometry.canvasFrame
+                    clip.geometry = reset
                 }
                 .disabled(clip.geometry.isIdentity)
                 .opacity(clip.geometry.isIdentity ? 0.4 : 1)

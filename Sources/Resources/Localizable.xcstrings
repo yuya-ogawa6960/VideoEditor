@@ -9837,6 +9837,29 @@
         }
       }
     },
+    "V1 と 1 つの画面に並べる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show with V1 on one screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar junto a V1 en una pantalla"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar junto com V1 na mesma tela"
+          }
+        }
+      }
+    },
     "V1 に書き出す": {
       "extractionState": "manual",
       "localizations": {
@@ -9856,6 +9879,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Passar para a V1"
+          }
+        }
+      }
+    },
+    "V1 のクリップが V2 より長いため、V2 の無い時間は半分が黒くなります。V1 を V2 の長さに合わせて切ってください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The V1 clip is longer than V2, so half the screen is black where there is no V2. Trim V1 to match V2."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El clip de V1 es más largo que V2, así que la mitad queda en negro donde no hay V2. Recorta V1 al largo de V2."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O clipe de V1 é mais longo que o V2, então metade fica preta onde não há V2. Corte o V1 no tamanho do V2."
+          }
+        }
+      }
+    },
+    "V1 の音と V2 の音を聞き比べて、同じ瞬間がそろうように V2 を動かします。並べたあとは、プレビューをドラッグ・ピンチして、それぞれ映す位置を直せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compares the audio of V1 and V2 and moves V2 so the same moment lines up. After arranging, drag or pinch the preview to adjust what each side shows."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compara el audio de V1 y V2 y mueve V2 para que coincida el mismo momento. Después, arrastra o pellizca la vista previa para ajustar cada lado."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compara o áudio de V1 e V2 e move V2 para alinhar o mesmo momento. Depois, arraste ou use pinça na pré-visualização para ajustar cada lado."
           }
         }
       }
@@ -14502,6 +14571,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Passeio do gatinho"
+          }
+        }
+      }
+    },
+    "この V2 の下(同じ時間)に V1 のクリップがありません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no V1 clip under this V2 (at the same time)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay un clip de V1 debajo de este V2 (al mismo tiempo)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há um clipe de V1 sob este V2 (no mesmo tempo)."
+          }
+        }
+      }
+    },
+    "この V2 の下(同じ時間)に V1 のクリップがありません。V2 を V1 の動画の上に置いてから合わせてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no V1 clip under this V2 (at the same time). Place V2 over a V1 video first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay un clip de V1 debajo de este V2. Coloca V2 sobre un video de V1 primero."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há um clipe de V1 sob este V2. Coloque o V2 sobre um vídeo de V1 primeiro."
           }
         }
       }
@@ -41198,6 +41313,29 @@
         }
       }
     },
+    "上下に並べる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stack top/bottom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arriba y abajo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em cima e embaixo"
+          }
+        }
+      }
+    },
     "上下の黒帯": {
       "extractionState": "manual",
       "localizations": {
@@ -45889,6 +46027,29 @@
         }
       }
     },
+    "入れ替え": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intercambiar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar"
+          }
+        }
+      }
+    },
     "入学の春": {
       "extractionState": "manual",
       "localizations": {
@@ -48183,6 +48344,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nenhuma foto ou vídeo foi escolhido."
+          }
+        }
+      }
+    },
+    "写真・速度カーブ・逆再生のクリップとは、音声で合わせられません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't sync by audio with photos, speed-ramped or reversed clips."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede sincronizar por audio con fotos, clips con curva de velocidad o invertidos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível sincronizar pelo áudio com fotos, clipes com curva de velocidade ou invertidos."
           }
         }
       }
@@ -52990,6 +53174,75 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cada linha vira uma narração no seu tempo. Se sobrepuser a linha anterior, é deslocada para depois."
+          }
+        }
+      }
+    },
+    "合わせましたが、自信がありません。再生して、口の動きや手の音がそろっているか確かめてください。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced, but not confidently. Play it back and check that mouths and sounds line up."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado, pero sin seguridad. Reprodúcelo y comprueba que la boca y los sonidos coincidan."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado, mas sem certeza. Reproduza e verifique se a boca e os sons estão alinhados."
+          }
+        }
+      }
+    },
+    "合わせられませんでした: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't sync: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo sincronizar: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível sincronizar: %@"
+          }
+        }
+      }
+    },
+    "合わせられませんでした。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't sync."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo sincronizar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível sincronizar."
           }
         }
       }
@@ -58162,6 +58415,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Metade esquerda"
+          }
+        }
+      }
+    },
+    "左右に並べる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Side by side"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lado a lado"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lado a lado"
           }
         }
       }
@@ -85536,6 +85812,29 @@
         }
       }
     },
+    "音は合いましたが、V1 のクリップと同じ時間の部分が V2 にありません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The audio matched, but V2 has no part that overlaps the V1 clip."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El audio coincidió, pero V2 no tiene ninguna parte que coincida con el clip de V1."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O áudio coincidiu, mas o V2 não tem parte que coincida com o clipe de V1."
+          }
+        }
+      }
+    },
     "音をなめらかに": {
       "extractionState": "manual",
       "localizations": {
@@ -85720,6 +86019,29 @@
         }
       }
     },
+    "音を聞き比べています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparing audio…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparando el audio…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparando o áudio…"
+          }
+        }
+      }
+    },
     "音声": {
       "extractionState": "manual",
       "localizations": {
@@ -85877,6 +86199,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "Exportar só o áudio (m4a)"
+          }
+        }
+      }
+    },
+    "音声で V1 に合わせる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync to V1 by audio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar con V1 por audio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar com V1 pelo áudio"
+          }
+        }
+      }
+    },
+    "音声で合わせました。V2 の音は消してあります(音量で戻せます)。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synced by audio. V2's sound is muted (restore it in Volume)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado por audio. El sonido de V2 está silenciado (puedes recuperarlo en Volumen)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado pelo áudio. O som do V2 foi silenciado (restaure em Volume)."
           }
         }
       }

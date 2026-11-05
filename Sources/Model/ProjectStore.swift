@@ -1317,8 +1317,11 @@ private struct StoredGeometry: Codable {
     var zoom: Double
     var offsetX: Double
     var offsetY: Double
+    /// 画面の中の置き場所(古いファイルには無い)
+    var canvasFrame: StoredRect?
 
     init(_ g: ClipGeometry) {
+        canvasFrame = g.canvasFrame.isFull ? nil : StoredRect(g.canvasFrame)
         rotationQuarterTurns = g.rotationQuarterTurns
         flipHorizontal = g.flipHorizontal
         flipVertical = g.flipVertical
@@ -1337,6 +1340,9 @@ private struct StoredGeometry: Codable {
         g.zoom = zoom > 0 ? zoom : 1
         g.offsetX = offsetX
         g.offsetY = offsetY
+        if let frame = canvasFrame?.value, frame.width > 0.01, frame.height > 0.01 {
+            g.canvasFrame = frame
+        }
         return g
     }
 }

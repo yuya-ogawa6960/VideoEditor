@@ -86,6 +86,8 @@ private struct OverlayHeaderRow: View {
 struct EditorOverlayPlacementPanel: View {
     let project: EditorProject
     @Binding var overlay: OverlayClip
+    /// V1 と並べる・音声で合わせるときの取り消し用(OverlayPairSection)
+    var history: EditorHistory? = nil
 
     /// 位置チップ
     private enum Position: String, CaseIterable, Identifiable {
@@ -223,6 +225,11 @@ struct EditorOverlayPlacementPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+
+            // V1 と 1 つの画面に並べる(動画のとき。手元と表情など)
+            if !overlay.isImage {
+                OverlayPairSection(project: project, history: history, overlay: $overlay)
+            }
 
             // プリセット
             VStack(alignment: .leading, spacing: 6) {

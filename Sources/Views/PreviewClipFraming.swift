@@ -65,6 +65,27 @@ enum ClipFramingMath {
         return NormalizedRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
     }
 
+    /// V2 と並べて画面の一部に置いたクリップの、置き場所の縦横比(画面全体なら canvasAspect)
+    static func paneAspect(_ g: ClipGeometry, canvasAspect: Double) -> Double {
+        guard !g.canvasFrame.isFull, g.canvasFrame.height > 0.001 else { return canvasAspect }
+        return canvasAspect * g.canvasFrame.width / g.canvasFrame.height
+    }
+
+    /// 画面の一部に置いたクリップは、その枠を埋める
+    static func paneScaling(_ g: ClipGeometry, scaling: ScalingMode) -> ScalingMode {
+        g.canvasFrame.isFull ? scaling : .fill
+    }
+
+    /// 画面の一部に置いたクリップの置き場所(プレビューの座標。canvas は作品全体の場所)
+    static func paneRect(_ g: ClipGeometry, canvas: CGRect) -> CGRect {
+        guard !g.canvasFrame.isFull else { return canvas }
+        let f = g.canvasFrame
+        return CGRect(x: canvas.minX + CGFloat(f.x) * canvas.width,
+                      y: canvas.minY + CGFloat(f.y) * canvas.height,
+                      width: CGFloat(f.width) * canvas.width,
+                      height: CGFloat(f.height) * canvas.height)
+    }
+
     /// 映す範囲 window を crop・zoom・offset に分けて書く(回転・反転はそのまま)
     static func geometry(for window: NormalizedRect, base: ClipGeometry) -> ClipGeometry {
         var out = base
@@ -201,10 +222,11 @@ struct ClipFramingModifier: ViewModifier {
         if showsSource, let clipID, let i = project.index(of: clipID) {
             let clip = project.clips[i]
             let source = ClipFramingMath.sourceSize(of: clip)
-            let aspect = canvasAspect
-            let scaling = project.canvas.scaling
+            let aspect = ClipFramingMath.paneAspect(clip.geometry, canvasAspect: canvasAspect)
+            let scaling = ClipFramingMath.paneScaling(clip.geometry, scaling: project.canvas.scaling)
             let window = ClipFramingMath.visibleWindow(clip.geometry, source: source, canvasAspect: aspect, scaling: scaling)
-            let canvas = ClipFramingMath.canvasRect(in: size, canvasAspect: aspect)
+            let canvas = ClipFramingMath.paneRect(clip.geometry,
+                                                  canvas: ClipFramingMath.canvasRect(in: size, canvasAspect: canvasAspect))
             let rect = ClipFramingMath.sourceRect(window: window, source: source, canvas: canvas, scaling: scaling)
             let turns = ((clip.geometry.rotationQuarterTurns % 4) + 4) % 4
             // 映っている部分(ここには元の絵を重ねない。黒帯は作品の外でも中でも薄く出す)
@@ -326,7 +348,8 @@ struct ClipFramingModifier: ViewModifier {
                         // いまのズームでの元の絵の表示の大きさで、指の動き(pt)を比率に直す(絵が指に付いてくるように、窓は逆に動く)
                         let current = ClipFramingMath.moved(session.startWindow, magnify: Double(session.magnify),
                                                             shift: session.shift)
-                        let canvas = ClipFramingMath.canvasRect(in: size, canvasAspect: canvasAspect)
+                        let canvas = ClipFramingMath.paneRect(session.baseGeometry,
+                                                              canvas: ClipFramingMath.canvasRect(in: size, canvasAspect: canvasAspect))
                         let full = ClipFramingMath.sourceRect(window: current, source: session.source,
                                                               canvas: canvas, scaling: session.scaling)
                         if full.width > 0, full.height > 0 {
@@ -356,10 +379,11 @@ struct ClipFramingModifier: ViewModifier {
         session.isActive = true
         session.clipID = clipID
         session.source = ClipFramingMath.sourceSize(of: clip)
-        session.scaling = project.canvas.scaling
+        session.scaling = ClipFramingMath.paneScaling(clip.geometry, scaling: project.canvas.scaling)
         session.baseGeometry = clip.geometry
         session.startWindow = ClipFramingMath.visibleWindow(clip.geometry, source: session.source,
-                                                            canvasAspect: canvasAspect, scaling: session.scaling)
+                                                            canvasAspect: ClipFramingMath.paneAspect(clip.geometry, canvasAspect: canvasAspect),
+                                                            scaling: session.scaling)
         session.shift = .zero
         session.lastTranslation = nil
         session.magnify = 1

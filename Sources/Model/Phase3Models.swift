@@ -130,6 +130,9 @@ struct ClipGeometry: Equatable {
     var zoom: Double = 1
     var offsetX: Double = 0
     var offsetY: Double = 0
+    /// 画面の中の置き場所(左上原点の正規化。full = 画面全体)。V1 と V2 を上下・左右に並べるとき(OverlayPairSection.swift)。
+    /// 半分などに置くときは、その枠を埋める(はみ出しはクロップ)。isIdentity には含めない(切り抜きのリセットでも残す)
+    var canvasFrame: NormalizedRect = .full
     var isIdentity: Bool {
         rotationQuarterTurns % 4 == 0 && !flipHorizontal && !flipVertical && crop.isFull && zoom == 1 && offsetX == 0 && offsetY == 0
     }

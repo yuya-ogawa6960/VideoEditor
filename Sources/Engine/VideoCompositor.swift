@@ -802,7 +802,10 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             usedParallax = true
         }
 
-        image = GeometryMath.applyClipGeometry(image, geometry: liveGeometry(for: layer.clipID) ?? layer.geometry)
+        let geometry = liveGeometry(for: layer.clipID) ?? layer.geometry
+        image = GeometryMath.applyClipGeometry(image, geometry: geometry)
+        // V2 と並べるときの画面の中の置き場所(full なら画面全体)
+        let pane = geometry.canvasFrame
         if !bypassLook {
             image = FilterEngine.apply(liveFilter(for: layer.clipID) ?? layer.filter, to: image)
         }
@@ -813,12 +816,15 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         var reframed = false
         if !isStill, let st = sourceTime,
            let window = reframeCrop(layer: layer, sourceTime: st, time: time,
-                                    imageSize: sourceExtent.size, canvasSize: size, scaling: scene.scaling) {
+                                    imageSize: sourceExtent.size,
+                                    canvasSize: pane.isFull ? size : CGSize(width: size.width * CGFloat(pane.width),
+                                                                           height: size.height * CGFloat(pane.height)),
+                                    scaling: pane.isFull ? scene.scaling : .fill) {
             let cropped = GeometryMath.normalizedToOrigin(image.cropped(to: window))
-            placed = Self.place(cropped, canvasSize: size, scaling: .fill)
+            placed = Self.place(cropped, canvasSize: size, scaling: .fill, pane: pane)
             reframed = true
         } else {
-            placed = Self.place(image, canvasSize: size, scaling: scene.scaling)
+            placed = Self.place(image, canvasSize: size, scaling: scene.scaling, pane: pane)
         }
 
         // キーフレーム(位置・大きさ・回転・不透明度。配置のあとにキャンバスの中心まわりで動かす。ClipKeyframeRenderer.swift)
@@ -827,7 +833,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
             placed = ClipKeyframeRenderer.apply(keyValue,
                                                 to: placed,
                                                 source: image,
-                                                blurBackground: !reframed && scene.scaling == .fitBlur,
+                                                blurBackground: !reframed && pane.isFull && scene.scaling == .fitBlur,
                                                 canvasSize: size)
         }
 
@@ -1034,6 +1040,20 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         let transformed = image.transformed(by: combined)
         let e = transformed.extent
         return transformed.transformed(by: CGAffineTransform(translationX: -e.origin.x, y: -e.origin.y))
+    }
+
+    /// 画面の一部(pane。左上原点の正規化)に埋めて置く。full なら place(_:canvasSize:scaling:) と同じ
+    static func place(_ image: CIImage, canvasSize: CGSize, scaling: ScalingMode, pane: NormalizedRect) -> CIImage {
+        guard !pane.isFull else { return place(image, canvasSize: canvasSize, scaling: scaling) }
+        let rect = CGRect(x: CGFloat(pane.x) * canvasSize.width,
+                          y: CGFloat(1 - pane.y - pane.height) * canvasSize.height,
+                          width: CGFloat(pane.width) * canvasSize.width,
+                          height: CGFloat(pane.height) * canvasSize.height)
+            .intersection(CGRect(origin: .zero, size: canvasSize))
+        guard !rect.isNull, rect.width >= 1, rect.height >= 1 else { return CIImage.empty() }
+        return place(image, canvasSize: rect.size, scaling: .fill)
+            .transformed(by: CGAffineTransform(translationX: rect.minX, y: rect.minY))
+            .cropped(to: rect)
     }
 
     /// キャンバスへの配置(fit: 黒帯 / fitBlur: ぼかし背景 / fill: 中央クロップ)
