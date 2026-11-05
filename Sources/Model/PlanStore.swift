@@ -176,8 +176,8 @@ enum PlanExportBlock: Identifiable, Equatable {
 final class PlanStore {
     static let shared = PlanStore()
 
-    static let standardProductID = "com.yuyaogawa6960.videomania.standard.monthly"
-    static let proProductID = "com.yuyaogawa6960.videomania.pro.monthly"
+    static let standardProductID = "com.yuyaogawa6960.videomania.plan.standard.monthly"
+    static let proProductID = "com.yuyaogawa6960.videomania.plan.pro.monthly"
     static let productIDs = [standardProductID, proProductID]
 
     /// 前回わかったプラン(起動直後、StoreKit に聞き終わる前の表示・広告の判断に使う)

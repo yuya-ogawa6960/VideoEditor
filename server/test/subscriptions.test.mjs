@@ -13,8 +13,8 @@ import { certificate, privateKey, makeJWS } from "./helpers.mjs";
 import { syncSubscriptions, handleNotification, subscriptionState } from "../src/subscriptions.js";
 
 const BUNDLE_ID = "com.yuyaogawa6960.videomania";
-const STANDARD = "com.yuyaogawa6960.videomania.standard.monthly";
-const PRO = "com.yuyaogawa6960.videomania.pro.monthly";
+const STANDARD = "com.yuyaogawa6960.videomania.plan.standard.monthly";
+const PRO = "com.yuyaogawa6960.videomania.plan.pro.monthly";
 const ROOT = certificate("root.pem");
 const SIGNED = Date.UTC(2026, 5, 1); // fixtures の 3 枚とも有効な日時
 const NOW = SIGNED + 1000;
