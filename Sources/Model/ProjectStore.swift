@@ -1932,6 +1932,10 @@ private struct StoredOverlay: Codable {
     var backgroundRemoval: StoredBackgroundRemoval?
     /// 動く画像(GIF)か(後から追加したので省略可能。無ければファイルから判定する)
     var isAnimatedImage: Bool?
+    /// 枠の中で映す範囲・顔の追いかけ(後から追加したので省略可能)
+    var contentCenter: StoredPoint?
+    var contentZoom: Double?
+    var contentReframe: StoredReframe?
 
     init(_ o: OverlayClip) {
         id = o.id
@@ -1969,6 +1973,9 @@ private struct StoredOverlay: Codable {
         transitionOutDuration = o.transitionOut.duration
         backgroundRemoval = StoredBackgroundRemoval.make(o.backgroundRemoval)
         isAnimatedImage = o.isAnimatedImage
+        contentCenter = o.contentCenter == .center ? nil : StoredPoint(o.contentCenter)
+        contentZoom = o.contentZoom > 1.001 ? o.contentZoom : nil
+        contentReframe = o.reframe.samples.isEmpty ? nil : StoredReframe(o.reframe)
     }
 
     /// 素材ファイルが消えていれば nil
@@ -2001,6 +2008,11 @@ private struct StoredOverlay: Codable {
                                          duration: transitionOutDuration ?? 0.5)
         o.backgroundRemoval = backgroundRemoval?.value ?? BackgroundRemoval()
         o.isAnimatedImage = isImage && (isAnimatedImage ?? AnimatedImageCache.isAnimated(url: url))
+        if let c = contentCenter?.value, c.x.isFinite, c.y.isFinite {
+            o.contentCenter = NormalizedPoint(x: min(max(c.x, 0), 1), y: min(max(c.y, 0), 1))
+        }
+        if let z = contentZoom, z.isFinite { o.contentZoom = min(max(z, 1), 4) }
+        o.reframe = contentReframe?.value ?? ReframeTrack()
         return o
     }
 }

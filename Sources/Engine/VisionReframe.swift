@@ -261,10 +261,18 @@ enum VisionReframe {
     /// 人物も顔も一度も見つからないときは VisionAnalysisError.noSubjectDetected。
     static func analyze(clip: Clip, step: Double = 0.25, progress: ((Double) -> Void)?) async throws -> ReframeTrack {
         guard !clip.isStill else { throw VisionAnalysisError.stillImage }
-        let start = clip.startTime
-        let end = clip.endTime
+        let samples = try await analyzeSamples(url: clip.url, start: clip.startTime, end: clip.endTime,
+                                               step: step, progress: progress)
+        var track = clip.reframe
+        track.enabled = true
+        track.samples = samples
+        return track
+    }
+
+    /// url の [start, end](元素材上の秒)を解析した注目点の軌跡(V2 の顔の追いかけでも使う)
+    static func analyzeSamples(url: URL, start: Double, end: Double, step: Double = 0.25,
+                               progress: ((Double) -> Void)?) async throws -> [ReframeSample] {
         guard end - start > 0.05 else { throw VisionAnalysisError.invalidRange }
-        let url = clip.url
         let span = end - start
         let fps = 1.0 / max(0.05, step)
         let state = State()
@@ -303,11 +311,7 @@ enum VisionReframe {
             samples.append(ReframeSample(time: only.time + max(step, 0.1), center: only.center, confidence: only.confidence))
         }
         progress?(1)
-
-        var track = clip.reframe
-        track.enabled = true
-        track.samples = samples
-        return track
+        return samples
     }
 
     // MARK: 検出

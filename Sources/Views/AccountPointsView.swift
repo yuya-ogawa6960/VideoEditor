@@ -97,7 +97,7 @@ struct AccountPointsView: View {
             } else if plans.isPaid {
                 Text("毎月 \(PlanTerms.terms(for: plans.tier).monthlyPoints.formatted())pt が付きます(サインインが必要です)。使い切れなかった分は翌月に繰り越しません。")
             } else {
-                Text("有料プランでは、高い画質・長い動画で書き出せ、王冠の付いた機能が使え、広告が出ず、毎月ポイントが付きます。")
+                Text("有料プランでは、高い画質・長い動画で書き出せ、王冠の付いた機能が使え、全画面広告が出ず(Pro は広告がいっさい出ません)、毎月ポイントが付きます。")
             }
         }
     }

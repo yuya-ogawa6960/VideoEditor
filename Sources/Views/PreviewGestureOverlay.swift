@@ -150,6 +150,14 @@ struct PreviewGestureOverlay: View {
     /// マスクの四隅の●をドラッグし始めたときの中心と幅・高さ(短辺比)
     @State private var maskHandleStart: (center: NormalizedPoint, width: Double, height: Double)? = nil
     @State private var maskKnobActive = false
+    /// ダブルタップで「枠の中の映す範囲を動かす」モードにしているオーバーレイ
+    @State private var contentModeID: UUID? = nil
+    /// 映す範囲を動かし始めたときの値と、そこからのドラッグ・ピンチ
+    @State private var contentStart: (center: NormalizedPoint, zoom: Double)? = nil
+    @State private var contentDrag: CGSize = .zero
+    @State private var contentMag: CGFloat = 1
+    @State private var contentDragging = false
+    @State private var contentPinching = false
     /// テキスト/オーバーレイの枠のドラッグが続いている間 true(キャンセル時も自動で false に戻る)
     @GestureState private var gestureLive = false
     /// プレビュー全体のピンチ・回転が続いている間 true(同上)
@@ -177,7 +185,13 @@ struct PreviewGestureOverlay: View {
 
     /// 選択中のテキスト/オーバーレイをプレビューのどこでもピンチ・回転できる状態か
     private var hasPinchTarget: Bool {
-        rectSelection == nil && maskTarget == nil && (selection?.textID != nil || selection?.overlayID != nil)
+        rectSelection == nil && maskTarget == nil && !isContentMode
+            && (selection?.textID != nil || selection?.overlayID != nil)
+    }
+
+    /// 選択中のオーバーレイの映す範囲を動かしている(ダブルタップ)
+    private var isContentMode: Bool {
+        contentModeID != nil && contentModeID == selection?.overlayID
     }
 
     /// モザイクの四隅の●・回転のつまみをドラッグ中(この間はプレビュー全体のピンチ・回転を受けない。
@@ -226,7 +240,11 @@ struct PreviewGestureOverlay: View {
                     if let id = selection?.textID, let binding = project.textClipBinding(id: id) {
                         textFrame(binding, size: size)
                     } else if let id = selection?.overlayID, let binding = project.overlayBinding(id: id) {
-                        overlayFrame(binding, size: size)
+                        if contentModeID == id {
+                            overlayContentFrame(binding, size: size)
+                        } else {
+                            overlayFrame(binding, size: size)
+                        }
                     }
                     if showsCoachMark {
                         coachMark
@@ -248,6 +266,11 @@ struct PreviewGestureOverlay: View {
         }
         .onDisappear {
             finishInteractionIfNeeded()
+        }
+        .onChange(of: selection) { _, _ in
+            // ほかの部品を選んだら、映す範囲を動かすモードは終わる
+            contentModeID = nil
+            contentStart = nil
         }
     }
 
@@ -969,6 +992,8 @@ struct PreviewGestureOverlay: View {
             state = true
         })
         .gesture(TapGesture().onEnded { }, including: onSelect != nil ? .gesture : .none)
+        // ダブルタップで、枠の中の映す範囲を動かすモードにする
+        .simultaneousGesture(TapGesture(count: 2).onEnded { enterContentMode(binding) })
         // 枠と代わりの絵もオーバーレイと同じ向きに回す(描画と同じく時計回りが正)
         .rotationEffect(.degrees(placed.rotation))
         .position(x: rect.midX, y: rect.midY)
@@ -978,6 +1003,195 @@ struct PreviewGestureOverlay: View {
             if Task.isCancelled { return }
             proxyImage = image
         }
+    }
+
+    // MARK: - 枠の中の映す範囲(ダブルタップ → ドラッグで位置・ピンチで大きさ)
+
+    private func enterContentMode(_ binding: Binding<OverlayClip>) {
+        var overlay = binding.wrappedValue
+        guard !(overlay.isImage && overlay.parallax.enabled) else { return }
+        if overlay.fit != .fill || overlay.kenBurns.enabled {
+            history.record(project)
+            overlay.fit = .fill
+            overlay.kenBurns.enabled = false
+            binding.wrappedValue = overlay
+        }
+        UISelectionFeedbackGenerator().selectionChanged()
+        contentStart = nil
+        contentModeID = overlay.id
+    }
+
+    /// 「埋める」で枠に置いたときの元の絵の大きさ(プレビューの座標)
+    private static func contentDisplaySize(_ overlay: OverlayClip, frame: CGSize, zoom: Double) -> CGSize {
+        let src = overlay.displaySize
+        guard src.width > 0, src.height > 0 else { return frame }
+        let s = max(frame.width / src.width, frame.height / src.height) * CGFloat(min(max(zoom, 1), 4))
+        return CGSize(width: src.width * s, height: src.height * s)
+    }
+
+    /// 枠に隙間ができない範囲に中心を収める(描画の OverlayRenderer と同じ)
+    private static func clampedContentCenter(_ c: NormalizedPoint, overlay: OverlayClip, frame: CGSize, zoom: Double) -> NormalizedPoint {
+        let disp = contentDisplaySize(overlay, frame: frame, zoom: zoom)
+        let hw = min(Double(frame.width / max(disp.width, 1)) / 2, 0.5)
+        let hh = min(Double(frame.height / max(disp.height, 1)) / 2, 0.5)
+        return NormalizedPoint(x: min(max(c.x, hw), 1 - hw), y: min(max(c.y, hh), 1 - hh))
+    }
+
+    /// いま見せる映す範囲(動かしている途中ならその値)
+    private func contentValue(_ overlay: OverlayClip, frame: CGSize) -> (center: NormalizedPoint, zoom: Double) {
+        guard let start = contentStart else {
+            let zoom = min(max(overlay.contentZoom, 1), 4)
+            return (Self.clampedContentCenter(overlay.contentCenter, overlay: overlay, frame: frame, zoom: zoom), zoom)
+        }
+        let zoom = min(max(start.zoom * Double(contentMag), 1), 4)
+        let disp = Self.contentDisplaySize(overlay, frame: frame, zoom: zoom)
+        let moved = NormalizedPoint(x: start.center.x - Double(contentDrag.width / max(disp.width, 1)),
+                                    y: start.center.y - Double(contentDrag.height / max(disp.height, 1)))
+        return (Self.clampedContentCenter(moved, overlay: overlay, frame: frame, zoom: zoom), zoom)
+    }
+
+    private func overlayContentFrame(_ binding: Binding<OverlayClip>, size: CGSize) -> some View {
+        let overlay = binding.wrappedValue
+        let placed = Self.placedOverlayRect(overlay, at: frameTime(for: overlay.keyframes), in: size)
+        let rect = placed.rect
+        let frame = CGSize(width: max(rect.width, 28), height: max(rect.height, 28))
+        let value = contentValue(overlay, frame: frame)
+        let disp = Self.contentDisplaySize(overlay, frame: frame, zoom: value.zoom)
+        return ZStack {
+            // 動かしている間は、元の絵の代わりの絵で映す範囲を見せる(合成は離してから作り直す)
+            if contentStart != nil, let image = proxyImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .frame(width: disp.width, height: disp.height)
+                    .offset(x: CGFloat(0.5 - value.center.x) * disp.width,
+                            y: CGFloat(0.5 - value.center.y) * disp.height)
+                    .frame(width: frame.width, height: frame.height)
+                    .clipped()
+                    .allowsHitTesting(false)
+            }
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(Color.yellow, lineWidth: 2)
+                .shadow(color: Color.black.opacity(0.5), radius: 1)
+        }
+        .background(Color.white.opacity(0.001))
+        .overlay(alignment: .topLeading) {
+            Image(systemName: "crop")
+                .font(.system(size: Self.badgeIconSize, weight: .bold))
+                .foregroundStyle(.black)
+                .padding(5)
+                .background(Color.yellow, in: Circle())
+                .offset(x: -12, y: -12)
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .bottom) {
+            Text(overlay.reframe.isActive
+                 ? String(localized: "顔を追いかけ中。2本指で大きさ・ドラッグで追いかけをやめて位置を決める")
+                 : String(localized: "ドラッグで映す位置・2本指で大きさ。ダブルタップで終わる"))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.7), in: Capsule())
+                .padding(6)
+                .allowsHitTesting(false)
+        }
+        .frame(width: frame.width, height: frame.height)
+        .contentShape(Rectangle())
+        .gesture(contentGesture(binding, frame: frame))
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            UISelectionFeedbackGenerator().selectionChanged()
+            contentModeID = nil
+            contentStart = nil
+        })
+        .rotationEffect(.degrees(placed.rotation))
+        .position(x: rect.midX, y: rect.midY)
+        .onChange(of: overlay.fit) { _, fit in
+            // 「収める」に戻したら、映す範囲は動かせないので終わる
+            if fit != .fill {
+                contentModeID = nil
+                contentStart = nil
+            }
+        }
+        .task(id: overlay.url) {
+            proxyImage = nil
+            let image = await PreviewProxyThumbnails.shared.image(for: overlay)
+            if Task.isCancelled { return }
+            proxyImage = image
+        }
+    }
+
+    private func contentGesture(_ binding: Binding<OverlayClip>, frame: CGSize) -> some Gesture {
+        let drag = DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                beginContent(binding, frame: frame, isDrag: true)
+                contentDragging = true
+                contentDrag = value.translation
+            }
+            .onEnded { value in
+                contentDrag = value.translation
+                contentDragging = false
+                finishContent(binding, frame: frame)
+            }
+        let pinch = MagnifyGesture()
+            .onChanged { value in
+                beginContent(binding, frame: frame, isDrag: false)
+                contentPinching = true
+                contentMag = value.magnification
+            }
+            .onEnded { value in
+                contentMag = value.magnification
+                contentPinching = false
+                finishContent(binding, frame: frame)
+            }
+        return drag.simultaneously(with: pinch)
+    }
+
+    /// 顔を追いかけているときの、再生位置で枠の真ん中に来る点
+    private func trackedCenter(_ overlay: OverlayClip) -> NormalizedPoint {
+        let time = player?.currentTime ?? overlay.start
+        return overlay.reframe.center(at: overlay.sourceStart + max(0, time - overlay.start) * overlay.speed)
+    }
+
+    private func beginContent(_ binding: Binding<OverlayClip>, frame: CGSize, isDrag: Bool) {
+        var overlay = binding.wrappedValue
+        // 顔を追いかけているときにドラッグしたら、追いかけをやめて、いまの位置から動かす
+        // (ピンチの途中でも、ピンチの倍率はそのまま続ける)
+        if isDrag, overlay.reframe.isActive {
+            if contentStart == nil { history.record(project) }
+            let tracked = trackedCenter(overlay)
+            let zoom = contentStart?.zoom ?? overlay.contentZoom
+            overlay.contentCenter = tracked
+            overlay.reframe.enabled = false
+            binding.wrappedValue = overlay
+            contentStart = (Self.clampedContentCenter(tracked, overlay: overlay, frame: frame, zoom: zoom), zoom)
+            contentDrag = .zero
+            return
+        }
+        guard contentStart == nil else { return }
+        history.record(project)
+        var start = contentValue(overlay, frame: frame)
+        if overlay.reframe.isActive {
+            start.center = Self.clampedContentCenter(trackedCenter(overlay), overlay: overlay, frame: frame, zoom: start.zoom)
+        }
+        contentStart = start
+        contentDrag = .zero
+        contentMag = 1
+    }
+
+    /// ドラッグもピンチも離したら書き込む(追いかけ中は大きさだけ)
+    private func finishContent(_ binding: Binding<OverlayClip>, frame: CGSize) {
+        guard !contentDragging, !contentPinching, contentStart != nil else { return }
+        var overlay = binding.wrappedValue
+        let value = contentValue(overlay, frame: frame)
+        if !overlay.reframe.isActive {
+            overlay.contentCenter = value.center
+        }
+        overlay.contentZoom = value.zoom
+        binding.wrappedValue = overlay
+        contentDrag = .zero
+        contentMag = 1
+        contentStart = nil
     }
 
     // MARK: - モザイクのハンドル(四隅で大きさ、上のつまみで回転)

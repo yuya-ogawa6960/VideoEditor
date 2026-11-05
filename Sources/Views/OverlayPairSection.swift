@@ -15,6 +15,8 @@ struct OverlayPairSection: View {
     @State private var isSyncing = false
     @State private var note: String?
     @State private var syncTask: Task<Void, Never>?
+    /// 顔を探している途中
+    @State private var isFindingFace = false
 
     private static let topHalf = NormalizedRect(x: 0, y: 0, width: 1, height: 0.5)
     private static let bottomHalf = NormalizedRect(x: 0, y: 0.5, width: 1, height: 0.5)
@@ -70,8 +72,193 @@ struct OverlayPairSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            framingControls
         }
         .onDisappear { syncTask?.cancel() }
+    }
+
+    // MARK: - V2 の映す範囲(顔を真ん中に・追いかける・大きさ)
+
+    private var framingControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("V2 の映す範囲")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
+            HStack(spacing: 8) {
+                Button {
+                    findFace(track: false)
+                } label: {
+                    Label("顔を真ん中に", systemImage: "person.crop.square")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                if overlay.reframe.isActive {
+                    Button {
+                        stopTracking()
+                    } label: {
+                        Label("追いかけをやめる", systemImage: "stop.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button {
+                        findFace(track: true)
+                    } label: {
+                        Label("顔を追いかける", systemImage: "person.fill.viewfinder")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .disabled(isFindingFace || isSyncing)
+            if isFindingFace {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("顔を探しています…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 8) {
+                Text("大きさ")
+                    .font(.caption)
+                Slider(value: zoomBinding, in: 1...4) { editing in
+                    if editing { history?.record(project) }
+                }
+                Text(verbatim: String(format: "%.1fx", overlay.contentZoom))
+                    .font(.caption.monospacedDigit())
+                    .frame(width: 36, alignment: .trailing)
+            }
+            HStack {
+                Text("プレビューで V2 をダブルタップすると、ドラッグで映す位置、2本指で大きさを変えられます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                EditorChip(title: String(localized: "映す範囲を戻す"), isSelected: false) {
+                    resetFraming()
+                }
+                .disabled(!hasFraming)
+                .opacity(hasFraming ? 1 : 0.4)
+            }
+        }
+    }
+
+    private var hasFraming: Bool {
+        overlay.reframe.isActive || overlay.contentZoom > 1.001 || overlay.contentCenter != .center
+    }
+
+    private var zoomBinding: Binding<Double> {
+        Binding(get: { overlay.contentZoom },
+                set: { value in
+                    var updated = overlay
+                    updated.contentZoom = min(max(value, 1), 4)
+                    updated.fit = .fill
+                    updated.kenBurns.enabled = false
+                    overlay = updated
+                })
+    }
+
+    private func resetFraming() {
+        history?.record(project)
+        var updated = overlay
+        updated.contentCenter = .center
+        updated.contentZoom = 1
+        updated.reframe.enabled = false
+        overlay = updated
+        note = nil
+    }
+
+    private func stopTracking() {
+        history?.record(project)
+        var updated = overlay
+        updated.reframe.enabled = false
+        // 追いかけていた位置のまん中あたりで止める
+        if let center = Self.medianCenter(updated.reframe.samples, from: updated.sourceStart, to: updated.sourceEnd) {
+            updated.contentCenter = center
+        }
+        overlay = updated
+        note = nil
+    }
+
+    /// 顔(見つからなければ上半身)を探して、真ん中に置く(track = false)か、追いかける(track = true)。
+    /// 同じ範囲を調べたことがあれば、その結果を使う
+    private func findFace(track: Bool) {
+        guard !overlay.isImage else { return }
+        let samples = overlay.reframe.samples
+        if let first = samples.first, let last = samples.last,
+           first.time <= overlay.sourceStart + 0.5, last.time >= overlay.sourceEnd - 0.5 {
+            applyFace(track: track, samples: samples, overlayID: overlay.id)
+            return
+        }
+        isFindingFace = true
+        note = nil
+        let url = overlay.url
+        let start = overlay.sourceStart
+        let end = overlay.sourceEnd
+        let overlayID = overlay.id
+        syncTask?.cancel()
+        syncTask = Task { @MainActor in
+            defer { isFindingFace = false }
+            do {
+                let found = try await VisionReframe.analyzeSamples(url: url, start: start, end: end,
+                                                                   step: 0.25, progress: nil)
+                guard !Task.isCancelled else { return }
+                applyFace(track: track, samples: Self.smoothed(found), overlayID: overlayID)
+            } catch is CancellationError {
+            } catch {
+                note = String(localized: "顔を見つけられませんでした: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func applyFace(track: Bool, samples: [ReframeSample], overlayID: UUID) {
+        guard let oi = project.overlays.firstIndex(where: { $0.id == overlayID }) else { return }
+        history?.record(project)
+        var updated = project.overlays[oi]
+        updated.fit = .fill
+        updated.kenBurns.enabled = false
+        updated.reframe.samples = samples
+        updated.reframe.enabled = track && samples.count >= 2
+        if !track, let center = Self.medianCenter(samples, from: updated.sourceStart, to: updated.sourceEnd) {
+            updated.contentCenter = center
+        }
+        // 素材と枠の縦横比が近いと動かす余地が無いので、少し寄せる
+        if updated.contentZoom < 1.2 {
+            updated.contentZoom = 1.3
+        }
+        project.overlays[oi] = updated
+        note = track
+            ? String(localized: "顔を追いかけて、枠の真ん中に映します。「大きさ」で寄り方を変えられます。")
+            : String(localized: "顔が枠の真ん中に来るようにしました。")
+    }
+
+    /// 範囲の中の注目点の中央値
+    private static func medianCenter(_ samples: [ReframeSample], from: Double, to: Double) -> NormalizedPoint? {
+        let inRange = samples.filter { $0.time >= from - 0.01 && $0.time <= to + 0.01 }
+        let use = inRange.isEmpty ? samples : inRange
+        guard !use.isEmpty else { return nil }
+        let xs = use.map { $0.center.x }.sorted()
+        let ys = use.map { $0.center.y }.sorted()
+        return NormalizedPoint(x: xs[xs.count / 2], y: ys[ys.count / 2])
+    }
+
+    /// 前後から指数平滑して、細かい揺れを抑える(追いかけがカクカクしないように)
+    private static func smoothed(_ samples: [ReframeSample]) -> [ReframeSample] {
+        guard samples.count > 2 else { return samples }
+        let alpha = 0.3
+        var out = samples
+        for i in 1..<out.count {
+            out[i].center.x = out[i - 1].center.x + (out[i].center.x - out[i - 1].center.x) * alpha
+            out[i].center.y = out[i - 1].center.y + (out[i].center.y - out[i - 1].center.y) * alpha
+        }
+        for i in stride(from: out.count - 2, through: 0, by: -1) {
+            out[i].center.x = out[i + 1].center.x + (out[i].center.x - out[i + 1].center.x) * alpha
+            out[i].center.y = out[i + 1].center.y + (out[i].center.y - out[i + 1].center.y) * alpha
+        }
+        return out
     }
 
     // MARK: - V1 のクリップ

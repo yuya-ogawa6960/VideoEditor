@@ -81,6 +81,10 @@ struct VideoCompositorOverlay {
     let backgroundRemoval: BackgroundRemoval
     /// 動く画像(GIF)の写真オーバーレイ(AnimatedImageCache のコマを繰り返す)
     let isAnimatedImage: Bool
+    /// 枠の中で映す範囲(OverlayClip.contentCenter / contentZoom / reframe)
+    let contentCenter: NormalizedPoint
+    let contentZoom: Double
+    let reframe: ReframeTrack
 
     init(overlay: OverlayClip, trackID: CMPersistentTrackID?, preferredTransform: CGAffineTransform? = nil) {
         self.id = overlay.id
@@ -112,9 +116,25 @@ struct VideoCompositorOverlay {
         self.parallax = overlay.parallax
         self.backgroundRemoval = overlay.backgroundRemoval
         self.isAnimatedImage = overlay.isImage && overlay.isAnimatedImage
+        self.contentCenter = overlay.contentCenter
+        self.contentZoom = min(max(overlay.contentZoom.isFinite ? overlay.contentZoom : 1, 1), 4)
+        self.reframe = overlay.reframe
     }
 
     var end: Double { start + duration }
+
+    /// 枠の中央に置く元の絵の点(左上原点)。「埋める」で Ken Burns・3D ズームが無く、
+    /// 顔を追いかけているか、映す範囲を動かしているときだけ。それ以外は nil(中央に置く)
+    func contentFocus(at time: Double) -> NormalizedPoint? {
+        guard fit == .fill, !kenBurns.enabled, !(isImage && parallax.enabled) else { return nil }
+        if reframe.isActive, !isImage {
+            return reframe.center(at: sourceStart + max(0, time - start) * speed)
+        }
+        if contentZoom > 1.001 || abs(contentCenter.x - 0.5) > 0.0005 || abs(contentCenter.y - 0.5) > 0.0005 {
+            return contentCenter
+        }
+        return nil
+    }
 
     /// time がイン・アウトのトランジションの最中なら、その種類と進み具合(0...1)と、イン側かを返す。
     /// 長さはオーバーレイの半分まで

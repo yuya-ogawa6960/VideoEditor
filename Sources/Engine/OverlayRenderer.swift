@@ -139,17 +139,27 @@ enum OverlayRenderer {
         let e = image.extent
         guard e.width > 0, e.height > 0, !e.isInfinite else { return nil }
         let scale: CGFloat
+        // 枠の中で映す範囲(顔の追いかけ・ダブルタップで動かした位置と拡大)
+        let focus = overlay.contentFocus(at: time)
         switch overlay.fit {
         case .fill:
             scale = max(frameRect.width / e.width, frameRect.height / e.height)
+                * (focus != nil ? CGFloat(overlay.contentZoom) : 1)
         case .fit:
             scale = min(frameRect.width / e.width, frameRect.height / e.height)
         }
         guard scale.isFinite, scale > 0 else { return nil }
         var placed = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let pe = placed.extent
-        let dx = frameRect.midX - pe.midX
-        let dy = frameRect.midY - pe.midY
+        var dx = frameRect.midX - pe.midX
+        var dy = frameRect.midY - pe.midY
+        if let focus {
+            // focus を枠の中央へ。枠に隙間ができないところで止める
+            let fx = pe.minX + CGFloat(min(max(focus.x, 0), 1)) * pe.width
+            let fy = pe.minY + CGFloat(1 - min(max(focus.y, 0), 1)) * pe.height
+            dx = min(max(frameRect.midX - fx, frameRect.maxX - pe.maxX), frameRect.minX - pe.minX)
+            dy = min(max(frameRect.midY - fy, frameRect.maxY - pe.maxY), frameRect.minY - pe.minY)
+        }
         placed = placed
             .transformed(by: CGAffineTransform(translationX: dx, y: dy))
             .cropped(to: frameRect)

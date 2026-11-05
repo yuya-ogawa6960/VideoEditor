@@ -185,6 +185,13 @@ struct OverlayClip: Identifiable, Equatable {
     var backgroundRemoval = BackgroundRemoval()
     /// 動く画像(GIF / APNG)の写真オーバーレイ。コマを繰り返して描く(AnimatedImageCache)
     var isAnimatedImage: Bool = false
+    /// 枠の中で映す範囲(fit == .fill のとき。Ken Burns・3D ズームが無いとき)。
+    /// contentCenter: 枠の中央に来る元の絵の点(左上原点の 0...1)/ contentZoom: 1...4 倍
+    /// プレビューで V2 をダブルタップ → ドラッグ・ピンチ(PreviewGestureOverlay)や OverlayPairSection で変える
+    var contentCenter: NormalizedPoint = .center
+    var contentZoom: Double = 1
+    /// 顔・人物の追いかけ(サンプルは元素材上の秒)。有効なら contentCenter の代わりにこの点を枠の中央に置く
+    var reframe = ReframeTrack()
 
     init(id: UUID = UUID(),
          url: URL,
@@ -313,6 +320,9 @@ struct OverlayClip: Identifiable, Equatable {
             && lhs.transitionOut == rhs.transitionOut
             && lhs.backgroundRemoval == rhs.backgroundRemoval
             && lhs.isAnimatedImage == rhs.isAnimatedImage
+            && lhs.contentCenter == rhs.contentCenter
+            && lhs.contentZoom == rhs.contentZoom
+            && lhs.reframe == rhs.reframe
     }
 }
 

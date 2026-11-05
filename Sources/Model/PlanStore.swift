@@ -7,7 +7,7 @@ import CryptoKit
 // アプリ内課金のプラン(Starter 無料 / Standard / Pro。自動更新サブスクリプション)。
 //
 // - 使えるかどうかは StoreKit 2 の「いま有効な購入」(Transaction.currentEntitlements)で決める。
-//   サインインしていなくても、オフラインでも、買ったプランの機能(画質・長さ・広告なし・有料の機能)は使える
+//   サインインしていなくても、オフラインでも、買ったプランの機能(画質・長さ・広告の減り方・有料の機能)は使える
 // - サインインしていれば、有効な購入の記録(JWS)をサーバー(/v1/subscription/sync)に送り、毎月のポイントを受け取る
 // - プランの条件(PlanTerms)は、プラン設定のページ(tiers/current の plans)とそろえる
 // - 商品 ID は App Store Connect のサブスクリプションと、server/src/subscriptions.js の PRODUCTS と同じにする
@@ -42,16 +42,18 @@ struct PlanTerms {
     let maxResolution: ResolutionCap
     /// 書き出せる長さ(分)。nil は無制限
     let maxMinutes: Int?
-    /// 広告を出すか
+    /// バナー・ネイティブ広告・広告を見てポイントを出すか(Pro だけ出さない)
     let showsAds: Bool
+    /// 全画面広告を出すか(無料だけ)
+    let showsFullScreenAds: Bool
     /// 毎月のポイント(サーバーが付ける。表示用)
     let monthlyPoints: Int
 
     static func terms(for tier: PlanTier) -> PlanTerms {
         switch tier {
-        case .free: return PlanTerms(maxResolution: .hd720, maxMinutes: 5, showsAds: true, monthlyPoints: 0)
-        case .standard: return PlanTerms(maxResolution: .fhd1080, maxMinutes: 10, showsAds: false, monthlyPoints: 1500)
-        case .pro: return PlanTerms(maxResolution: .uhd4k, maxMinutes: nil, showsAds: false, monthlyPoints: 5000)
+        case .free: return PlanTerms(maxResolution: .hd720, maxMinutes: 5, showsAds: true, showsFullScreenAds: true, monthlyPoints: 0)
+        case .standard: return PlanTerms(maxResolution: .fhd1080, maxMinutes: 10, showsAds: true, showsFullScreenAds: false, monthlyPoints: 1500)
+        case .pro: return PlanTerms(maxResolution: .uhd4k, maxMinutes: nil, showsAds: false, showsFullScreenAds: false, monthlyPoints: 5000)
         }
     }
 
@@ -208,8 +210,10 @@ final class PlanStore {
     /// 画質・長さは effectiveTier、広告は実際に買ったプランで決める(合言葉では広告を消さない)
     var terms: PlanTerms {
         let unlocked = PlanTerms.terms(for: effectiveTier)
+        let purchased = PlanTerms.terms(for: tier)
         return PlanTerms(maxResolution: unlocked.maxResolution, maxMinutes: unlocked.maxMinutes,
-                         showsAds: PlanTerms.terms(for: tier).showsAds, monthlyPoints: unlocked.monthlyPoints)
+                         showsAds: purchased.showsAds, showsFullScreenAds: purchased.showsFullScreenAds,
+                         monthlyPoints: unlocked.monthlyPoints)
     }
     /// 実際に購入しているか(合言葉は含めない。購入の管理・表示用)
     var isPaid: Bool { tier != .free }

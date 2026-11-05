@@ -9492,6 +9492,29 @@
         }
       }
     },
+    "Standard は全画面広告なし/Pro は広告がいっさい出ない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard: no full-screen ads / Pro: no ads at all"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard: sin anuncios a pantalla completa / Pro: sin ningún anuncio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard: sem anúncios em tela cheia / Pro: nenhum anúncio"
+          }
+        }
+      }
+    },
     "Starter(無料)": {
       "extractionState": "manual",
       "localizations": {
@@ -9925,6 +9948,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Compara o áudio de V1 e V2 e move V2 para alinhar o mesmo momento. Depois, arraste ou use pinça na pré-visualização para ajustar cada lado."
+          }
+        }
+      }
+    },
+    "V2 の映す範囲": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "V2 framing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encuadre de V2"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enquadramento do V2"
           }
         }
       }
@@ -32299,6 +32345,29 @@
         }
       }
     },
+    "ドラッグで映す位置・2本指で大きさ。ダブルタップで終わる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to reposition, pinch to zoom. Double-tap to finish"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra para mover, pellizca para hacer zoom. Toca dos veces para terminar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para mover, pince para dar zoom. Toque duas vezes para terminar"
+          }
+        }
+      }
+    },
     "ドラッグで移動・2本指で拡大/回転": {
       "extractionState": "manual",
       "localizations": {
@@ -36297,6 +36366,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Prévia"
+          }
+        }
+      }
+    },
+    "プレビューで V2 をダブルタップすると、ドラッグで映す位置、2本指で大きさを変えられます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap V2 in the preview, then drag to choose what shows and pinch to zoom."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca dos veces V2 en la vista previa y arrastra para elegir qué se ve; pellizca para hacer zoom."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque duas vezes no V2 na prévia e arraste para escolher o que aparece; pince para dar zoom."
           }
         }
       }
@@ -58787,6 +58879,29 @@
         }
       }
     },
+    "広告が減る・出ない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fewer or no ads"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menos anuncios o ninguno"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menos anúncios ou nenhum"
+          }
+        }
+      }
+    },
     "広告の同意: ": {
       "extractionState": "manual",
       "localizations": {
@@ -62740,6 +62855,29 @@
         }
       }
     },
+    "映す範囲を戻す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset framing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer encuadre"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redefinir enquadramento"
+          }
+        }
+      }
+    },
     "映像が届かなかったので、何も録れませんでした": {
       "extractionState": "manual",
       "localizations": {
@@ -65932,6 +66070,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "Os planos pagos exportam em 4K, não mostram anúncios e dão pontos todo mês."
+          }
+        }
+      }
+    },
+    "有料プランでは、高い画質・長い動画で書き出せ、王冠の付いた機能が使え、全画面広告が出ず(Pro は広告がいっさい出ません)、毎月ポイントが付きます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paid plans export in higher quality and longer, unlock features marked with a crown, remove full-screen ads (Pro removes all ads) and add monthly points."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los planes de pago exportan con más calidad y duración, desbloquean las funciones con corona, quitan los anuncios a pantalla completa (Pro quita todos) y añaden puntos cada mes."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os planos pagos exportam com mais qualidade e duração, liberam os recursos com coroa, removem anúncios em tela cheia (o Pro remove todos) e adicionam pontos todo mês."
           }
         }
       }
@@ -81246,6 +81407,29 @@
         }
       }
     },
+    "追いかけをやめる": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop tracking"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dejar de seguir"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar de seguir"
+          }
+        }
+      }
+    },
     "追加": {
       "extractionState": "manual",
       "localizations": {
@@ -87950,6 +88134,29 @@
         }
       }
     },
+    "顔が枠の真ん中に来るようにしました。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The face is now centered in the frame."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cara ahora está centrada en el marco."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O rosto agora está centralizado no quadro."
+          }
+        }
+      }
+    },
     "顔に自動モザイク": {
       "extractionState": "manual",
       "localizations": {
@@ -88042,6 +88249,29 @@
         }
       }
     },
+    "顔を探しています…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking for the face…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando la cara…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procurando o rosto…"
+          }
+        }
+      }
+    },
     "顔を探せませんでした(%@)": {
       "extractionState": "manual",
       "localizations": {
@@ -88061,6 +88291,121 @@
           "stringUnit": {
             "state": "translated",
             "value": "Não foi possível procurar rostos (%@)"
+          }
+        }
+      }
+    },
+    "顔を真ん中に": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Center the face"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centrar la cara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centralizar o rosto"
+          }
+        }
+      }
+    },
+    "顔を見つけられませんでした: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't find a face: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró ninguna cara: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum rosto encontrado: %@"
+          }
+        }
+      }
+    },
+    "顔を追いかけて、枠の真ん中に映します。「大きさ」で寄り方を変えられます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracking the face and keeping it centered in the frame. Use Size to zoom in or out."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se sigue la cara y se mantiene centrada en el marco. Usa Tamaño para acercar o alejar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O rosto é seguido e mantido no centro do quadro. Use Tamanho para aproximar ou afastar."
+          }
+        }
+      }
+    },
+    "顔を追いかける": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Track the face"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir la cara"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguir o rosto"
+          }
+        }
+      }
+    },
+    "顔を追いかけ中。2本指で大きさ・ドラッグで追いかけをやめて位置を決める": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracking the face. Pinch to zoom; drag to stop tracking and set the position"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siguiendo la cara. Pellizca para hacer zoom; arrastra para dejar de seguir y fijar la posición"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguindo o rosto. Pince para dar zoom; arraste para parar de seguir e definir a posição"
           }
         }
       }

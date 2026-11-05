@@ -138,7 +138,7 @@ private struct PlanMarketingHeader: View {
                 row("sparkles.tv",
                     String(localized: "きれいに、長く書き出せる"),
                     String(localized: "Standard 1080p・10 分まで/Pro 4K・長さの制限なし(無料は 720p・5 分まで)"))
-                row("nosign", String(localized: "広告が出ない"), String(localized: "書き出し・AI 処理の待ち時間も"))
+                row("nosign", String(localized: "広告が減る・出ない"), String(localized: "Standard は全画面広告なし/Pro は広告がいっさい出ない"))
                 row("star.circle.fill",
                     String(localized: "毎月ポイントが付く"),
                     String(localized: "Standard \(PlanTerms.terms(for: .standard).monthlyPoints.formatted())pt・Pro \(PlanTerms.terms(for: .pro).monthlyPoints.formatted())pt(翌月に繰り越しません)"))
