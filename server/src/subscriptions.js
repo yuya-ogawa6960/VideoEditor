@@ -15,8 +15,8 @@ import { verifyAppleJWS } from "./appTransaction.js";
 
 /** 商品 ID → プランと毎月のポイント(App Store Connect の商品 ID と同じにする) */
 export const PRODUCTS = {
-  "com.yuyaogawa6960.videomania.plan.standard.monthly": { plan: "standard", monthlyPoints: 1500 },
-  "com.yuyaogawa6960.videomania.plan.pro.monthly": { plan: "pro", monthlyPoints: 5000 },
+  "com.yuyaogawa6960.videomania.standard.month": { plan: "standard", monthlyPoints: 1500 },
+  "com.yuyaogawa6960.videomania.pro.month": { plan: "pro", monthlyPoints: 5000 },
 };
 const PLAN_RANK = { free: 0, standard: 1, pro: 2 };
 const MAX_TRANSACTIONS = 10;
