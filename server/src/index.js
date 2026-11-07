@@ -63,6 +63,8 @@ const CONTACT_KINDS = {
   ad_report: "不適切な広告の報告",
   data_deletion: "データの削除依頼",
 };
+/** AdMob のパブリッシャー ID(GADApplicationIdentifier の ~ より前)。f08c47fec0942fa0 は Google の認証局 ID */
+const APP_ADS_TXT = "google.com, pub-5816286661245536, DIRECT, f08c47fec0942fa0\n";
 const APPLE_TOKEN_URL = "https://appleid.apple.com/auth/token";
 const APPLE_REVOKE_URL = "https://appleid.apple.com/auth/revoke";
 
@@ -74,6 +76,10 @@ export default {
       if (request.method === "GET" && path === "/") return json({ ok: true, service: "videomania-api" });
       if (request.method === "GET" && path === "/privacy") return html(PRIVACY_HTML);
       if (request.method === "GET" && path === "/terms") return html(TERMS_HTML);
+      // AdMob の app-ads.txt(App Store のマーケティング URL をこのドメインにして、アプリの確認に使う)
+      if (request.method === "GET" && path === "/app-ads.txt") {
+        return new Response(APP_ADS_TXT, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
+      }
       if (request.method === "POST" && path === "/v1/events") return await ingestEvents(request, env);
       if (request.method === "GET" && path === "/stats") return await stats(url, env);
       if (request.method === "GET" && path === "/support") return html(SUPPORT_HTML);
