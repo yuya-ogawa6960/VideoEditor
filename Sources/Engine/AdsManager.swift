@@ -154,6 +154,7 @@ final class AdsManager: NSObject {
             // 取り消されたときは、ここでやめる(次に前面に来たとき appDidBecomeActive からやり直す)
             guard !Task.isCancelled else { return }
             _ = await ATTrackingManager.requestTrackingAuthorization()
+            MetaAds.syncTrackingPermission()
         }
         // 年齢制限 4+ に合わせて、広告は全年齢向け(G)だけにする
         MobileAds.shared.requestConfiguration.maxAdContentRating = .general
@@ -203,6 +204,7 @@ final class AdsManager: NSObject {
             isRequestingTracking = true
             Task {
                 _ = await ATTrackingManager.requestTrackingAuthorization()
+                MetaAds.syncTrackingPermission()
                 self.isRequestingTracking = false
             }
         }

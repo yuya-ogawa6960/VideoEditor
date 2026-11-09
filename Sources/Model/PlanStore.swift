@@ -275,6 +275,7 @@ final class PlanStore {
                   let plan = Self.tier(forProductID: transaction.productID) else { continue }
             if let expiration = transaction.expirationDate, expiration < Date() { continue }
             signed.append(result.jwsRepresentation)
+            MetaAds.logFirstPurchase(transaction)
             if plan > best || (plan == best && expiry == nil) {
                 best = plan
                 expiry = transaction.expirationDate

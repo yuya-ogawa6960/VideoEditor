@@ -388,6 +388,8 @@ struct EditorStickerPanel: View {
 
 struct EditorTextStylePanel: View {
     @Binding var text: TextClip
+    /// 端に寄せるときの基準(書き出しと同じ縦横比)
+    var canvasSize: CGSize = CGSize(width: 720, height: 1280)
     /// スタイルのコピー・貼り付け・すべてに適用・マイスタイル(TextStyleClipboardRow.swift)。nil なら出さない
     var project: EditorProject? = nil
     var history: EditorHistory? = nil
@@ -408,6 +410,9 @@ struct EditorTextStylePanel: View {
     }
 
     @State private var tab: Tab = .text
+    /// 端に寄せている位置(文字や大きさが変わっても端に揃え続ける。指で動かしたら終わる)
+    @State private var edgeAnchor: TextEdgeAnchor? = nil
+    @State private var edgeCenter: NormalizedPoint? = nil
     /// 文字の入力中(「完了」でキーボードを閉じる)
     @FocusState private var textFocused: Bool
 
@@ -480,6 +485,10 @@ struct EditorTextStylePanel: View {
             }
         }
         .padding(.top, 6)
+        .onChange(of: text.text) { _, _ in fitToEdge() }
+        .onChange(of: text.style) { _, _ in fitToEdge() }
+        .onChange(of: text.scale) { _, _ in fitToEdge() }
+        .onChange(of: text.widthRatio) { _, _ in fitToEdge() }
         .onAppear {
             // 追加したばかり(文字が初期の「テキスト」のまま)のときだけ、すぐ打てるように入力欄を選ぶ。
             // 既存のテキストを開いたときは、キーボードで画面を隠さない
@@ -553,14 +562,42 @@ struct EditorTextStylePanel: View {
                     HStack(spacing: 6) {
                         ForEach(TextTemplatePreview.order) { template in
                             EditorVisualTile(title: template.displayName, isSelected: text.template == template) {
-                                text.template = template
-                                text.style = TextStyle.preset(template)
+                                applyTemplate(template)
                             } preview: {
                                 TextTemplatePreview(template: template)
                             }
                         }
                     }
                     .padding(.vertical, 2)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                EditorSectionTitle(title: String(localized: "端のタイトル"))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(TextTemplatePreview.edgeOrder) { template in
+                            EditorVisualTile(title: template.displayName, isSelected: text.template == template) {
+                                applyTemplate(template)
+                            } preview: {
+                                TextTemplatePreview(template: template)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            if text.keyframes.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    EditorSectionTitle(title: String(localized: "端に置く"))
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                        ForEach(TextEdgeAnchor.allCases) { anchor in
+                            EditorChip(title: anchor.title, isSelected: edgeAnchor == anchor) {
+                                placeOnEdge(anchor)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -593,10 +630,103 @@ struct EditorTextStylePanel: View {
 
     /// 色: 文字色(よく使う色のチップ + 自由な色)
     private var colorTab: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            EditorSectionTitle(title: String(localized: "文字色"))
-            DrawingColorChips(colorHex: $text.style.colorHex)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                EditorSectionTitle(title: String(localized: "文字色"))
+                DrawingColorChips(colorHex: $text.style.colorHex)
+            }
+            Toggle("【】で囲んだ文字の色を変える", isOn: accentEnabled)
+                .font(.subheadline)
+                .tint(.accentColor)
+            if text.style.accentColorHex != nil {
+                DrawingColorChips(colorHex: accentColor)
+                Text("例: 外から【スマホで指示】")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private var accentEnabled: Binding<Bool> {
+        Binding<Bool>(
+            get: { text.style.accentColorHex != nil },
+            set: { text.style.accentColorHex = $0 ? "#FF8A00" : nil }
+        )
+    }
+
+    private var accentColor: Binding<String> {
+        Binding<String>(
+            get: { text.style.accentColorHex ?? "#FF8A00" },
+            set: { text.style.accentColorHex = $0 }
+        )
+    }
+
+    /// デザインを選ぶ。端のタイトルは端に、締めの帯は下に傾けて置く
+    private func applyTemplate(_ template: TextTemplate) {
+        let wasBand = text.template == .closingBand
+        text.template = template
+        text.style = TextStyle.preset(template)
+        if wasBand && template != .closingBand { text.rotation = 0 }
+        if template == .chapterLabel { applyChapterText() }
+        if template == .closingBand, text.keyframes.isEmpty {
+            edgeAnchor = nil
+            edgeCenter = nil
+            text.rotation = -4
+            text.center = NormalizedPoint(x: 0.5, y: 0.78)
+            return
+        }
+        if template.isEdgeTitle, edgeAnchor == nil {
+            placeOnEdge(.topLeft)
+        } else if let edgeAnchor {
+            placeOnEdge(edgeAnchor)
+        }
+    }
+
+    /// 章ラベル: 章の区切りから「● 01 / 03 POINT」と章の名前を入れ、表示時間を章の長さに合わせる
+    private func applyChapterText() {
+        let isReplaceable = text.text == String(localized: "テキスト") || text.text.hasPrefix("●")
+        guard isReplaceable else { return }
+        let chapters = (project?.markers ?? []).filter { $0.kind == .chapter }.sorted { $0.time < $1.time }
+        guard !chapters.isEmpty, let project else {
+            text.text = "● POINT"
+            return
+        }
+        let index = chapters.lastIndex { $0.time <= text.start + 0.01 } ?? 0
+        let label = String(format: "● %02d / %02d  POINT", index + 1, chapters.count)
+        text.text = chapters[index].name.isEmpty ? label : label + "\n" + chapters[index].name
+        let end = index + 1 < chapters.count ? chapters[index + 1].time : project.totalDuration
+        if end - chapters[index].time >= 0.5 {
+            text.start = chapters[index].time
+            text.duration = end - chapters[index].time
+        }
+    }
+
+    private func placeOnEdge(_ anchor: TextEdgeAnchor) {
+        guard text.keyframes.isEmpty else { return }
+        text.rotation = 0
+        if text.style.vertical != anchor.usesVerticalText { text.style.vertical = anchor.usesVerticalText }
+        if text.style.alignment != anchor.alignment { text.style.alignment = anchor.alignment }
+        edgeAnchor = anchor
+        moveToEdge(anchor)
+    }
+
+    /// 文字や大きさが変わったら端に揃え直す。指で動かしたあとは揃えない
+    private func fitToEdge() {
+        guard let edgeAnchor else { return }
+        guard text.keyframes.isEmpty, text.center == edgeCenter else {
+            self.edgeAnchor = nil
+            edgeCenter = nil
+            return
+        }
+        moveToEdge(edgeAnchor)
+    }
+
+    private func moveToEdge(_ anchor: TextEdgeAnchor) {
+        guard let image = TextRenderer.image(for: text, canvasSize: canvasSize) else { return }
+        let size = CGSize(width: image.extent.width * CGFloat(text.scale), height: image.extent.height * CGFloat(text.scale))
+        let center = anchor.center(for: size, canvas: canvasSize)
+        edgeCenter = center
+        if text.center != center { text.center = center }
     }
 
     /// 縁・影・背景: それぞれのスイッチと、オンのときだけ出る細かい調整
@@ -2245,8 +2375,12 @@ struct TextTemplatePreview: View {
 
     /// ショートでよく使うものを前に
     static let order: [TextTemplate] = [
-        .bigImpact, .headline, .caption, .neon, .handwritten, .plain, .subtitleBox, .newsBar, .quote, .minimalSerif
+        .bigImpact, .headline, .keyword, .caption, .frostedCard, .closingBand, .slideHeading,
+        .neon, .handwritten, .plain, .subtitleBox, .newsBar, .quote, .minimalSerif
     ]
+
+    /// 端のタイトル
+    static let edgeOrder: [TextTemplate] = TextTemplate.allCases.filter(\.isEdgeTitle)
 
     var body: some View {
         let style = TextStyle.preset(template)

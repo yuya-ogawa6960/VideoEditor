@@ -59,6 +59,25 @@ struct SubtitleSegmenter {
     static let japaneseClauseStartFillers: Set<String> = ["なんか", "なんて言うか", "なんていうか"]
     /// 日本語: 単独かつ直後に間(> 0.3 秒 or 読点)があるときだけ削除(「その、」)
     static let japanesePauseFillers: Set<String> = ["その", "この", "まあその"]
+    /// 日本語: 音を伸ばした言いよどみの元の形(「うーんとー」→ うんと、「あれーのー」→ あれの、「えーー」→ え)。
+    /// backchannelKey にして「ー」を除いた形がこれで、しかも「ー」で伸ばしているときだけ言いよどみとみなす
+    static let japaneseStretchedFillerStems: Set<String> = [
+        "え", "えと", "えっと", "ええと", "あの", "あのね", "あれの", "あれ", "うん", "うんと", "んと", "ん",
+        "その", "そのね", "まあ", "ま", "なんか", "あ",
+    ]
+
+    /// 音を伸ばしただけの言いよどみか(「うーんとー」「あれーのー」「えーー」)。「ー、」のように伸ばす音だけのものも含む
+    static func isStretchedFiller(_ text: String) -> Bool {
+        isStretchedFillerKey(backchannelKey(text))
+    }
+
+    private static func isStretchedFillerKey(_ key: String) -> Bool {
+        guard !key.isEmpty, key.contains("ー") else { return false }
+        if key.allSatisfy({ $0 == "ー" }) { return true }
+        // 「あれー」だけは驚きの声のこともあるので、ほかの言いよどみと並んだとき(字幕全体の判定)に任せる
+        let stem = key.replacingOccurrences(of: "ー", with: "")
+        return japaneseStretchedFillerStems.contains(stem)
+    }
 
     /// 日本語: 相づち・感動詞。単独の発話(節の先頭かつ直後に間 or 句読点)のトークンなら削除。
     /// 「うんうん」「はいはい」のような繰り返しも削除。カタカナ・半角・長音(ー ～ 〜)・小書き母音の表記ゆれは
@@ -276,6 +295,8 @@ struct SubtitleSegmenter {
         }
 
         var kept: [TimedToken] = []
+        /// 直前に捨てたトークンの位置(「え」+「ー、」のように伸ばす音だけが残るのを一緒に捨てる)
+        var lastDroppedIndex = -2
         var i = 0
         while i < tokens.count {
             let token = tokens[i]
@@ -316,6 +337,20 @@ struct SubtitleSegmenter {
                     drop = true
                 } else if japanesePauseFillers.contains(core), pauseAfter {
                     drop = true
+                } else if core.allSatisfy({ "ー〜～".contains($0) }) {
+                    // 伸ばす音だけ(「ー、」)。言いよどみの続きか、節の先頭に残ったものだけ捨てる
+                    // (単語の途中で区切られた長音「コンピュータ」+「ー」は前につなぐ)
+                    if lastDroppedIndex == i - 1 || clauseStart {
+                        drop = true
+                    } else if !kept.isEmpty {
+                        kept[kept.count - 1].text += token.text
+                        kept[kept.count - 1].end = max(kept[kept.count - 1].end, token.end)
+                        i += 1
+                        continue
+                    }
+                } else if isStretchedFiller(token.text), backchannelKey(token.text).replacingOccurrences(of: "ー", with: "") != "あれ" {
+                    // 音を伸ばした言いよどみ(「うーんとー」「えーー」「あのー」の表記ゆれ)
+                    drop = true
                 } else {
                     let key = backchannelKey(token.text)
                     if clauseStart, pauseAfter, isComposed(of: japaneseBackchannelKeys, key) {
@@ -354,6 +389,7 @@ struct SubtitleSegmenter {
             }
 
             if drop {
+                lastDroppedIndex = i + consumed - 1
                 i += consumed
                 continue
             }
@@ -514,6 +550,7 @@ struct SubtitleSegmenter {
         case .japanese:
             return pieces.allSatisfy { piece in
                 japaneseLatinInterjectionKeys.contains(piece) || isComposed(of: japaneseCueBackchannelKeys, piece)
+                    || isStretchedFillerKey(piece)
             }
         case .english:
             return pieces.allSatisfy { englishFillers.contains($0) }

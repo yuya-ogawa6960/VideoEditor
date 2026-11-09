@@ -988,6 +988,8 @@ struct StoredTextStyle: Codable {
     var lineSpacing: Double
     var vertical: Bool
     var curveRadius: Double
+    /// 【】の部分の色(後から追加したので省略可能)
+    var accentColorHex: String?
 
     init(_ t: TextStyle) {
         fontName = t.fontName
@@ -1007,6 +1009,7 @@ struct StoredTextStyle: Codable {
         lineSpacing = t.lineSpacing
         vertical = t.vertical
         curveRadius = t.curveRadius
+        accentColorHex = t.accentColorHex
     }
 
     var value: TextStyle {
@@ -1028,6 +1031,7 @@ struct StoredTextStyle: Codable {
         t.lineSpacing = lineSpacing
         t.vertical = vertical
         t.curveRadius = curveRadius
+        t.accentColorHex = accentColorHex
         return t
     }
 }

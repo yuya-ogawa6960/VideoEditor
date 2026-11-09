@@ -98,8 +98,241 @@ extension TextStyle {
             s.shadow.opacity = 0.6
             s.shadow.offsetY = 0.008
             s.letterSpacing = -0.02
+        case .keyword:
+            s.sizeRatio = 0.085
+            s.letterSpacing = 0.16
+            s.shadow.opacity = 0.7
+            s.shadow.radius = 0.012
+            s.accentColorHex = "#FF8A00"
+        case .frostedCard:
+            s.sizeRatio = 0.05
+            s.colorHex = "#FFFFFF"
+            s.backgroundColorHex = "#FFFFFF"
+            s.backgroundOpacity = 0.24
+            s.backgroundCornerRadius = 0.45
+            s.backgroundPadding = 0.8
+            s.shadow.enabled = false
+            s.lineSpacing = 1.3
+            s.accentColorHex = "#FF8A00"
+        case .closingBand:
+            s.sizeRatio = 0.065
+            s.colorHex = "#111111"
+            s.backgroundColorHex = "#FFFFFF"
+            s.backgroundOpacity = 1
+            s.backgroundCornerRadius = 0.05
+            s.backgroundPadding = 0.5
+            s.shadow.enabled = false
+            s.letterSpacing = 0.04
+            s.accentColorHex = "#FF8A00"
+        case .slideHeading:
+            s.sizeRatio = 0.075
+            s.colorHex = "#23201A"
+            s.letterSpacing = 0.05
+            s.shadow.enabled = false
+            s.accentColorHex = "#FF8A00"
+        case .chapterLabel:
+            s.sizeRatio = 0.034
+            s.letterSpacing = 0.1
+            s.lineSpacing = 1.3
+            s.alignment = .left
+            s.shadow.opacity = 0.65
+            s.accentColorHex = "#FF8A00"
+        case .edgeMinimal:
+            s.bold = false
+            s.sizeRatio = 0.034
+            s.letterSpacing = 0.18
+            s.shadow.opacity = 0.55
+            s.accentColorHex = "#FF8A00"
+        case .edgeBlackTag:
+            s.sizeRatio = 0.036
+            s.colorHex = "#FFFFFF"
+            s.backgroundColorHex = "#000000"
+            s.backgroundOpacity = 0.82
+            s.backgroundCornerRadius = 0.08
+            s.backgroundPadding = 0.45
+            s.shadow.enabled = false
+            s.accentColorHex = "#FF8A00"
+        case .edgeWhiteTag:
+            s.sizeRatio = 0.036
+            s.colorHex = "#111111"
+            s.backgroundColorHex = "#FFFFFF"
+            s.backgroundOpacity = 0.95
+            s.backgroundCornerRadius = 0.08
+            s.backgroundPadding = 0.45
+            s.shadow.enabled = false
+            s.accentColorHex = "#E5482D"
+        case .edgeOrange:
+            s.sizeRatio = 0.038
+            s.colorHex = "#FFFFFF"
+            s.backgroundColorHex = "#FF7A00"
+            s.backgroundOpacity = 0.96
+            s.backgroundCornerRadius = 0.5
+            s.backgroundPadding = 0.5
+            s.shadow.enabled = false
+            s.accentColorHex = "#FFE600"
+        case .edgeMarker:
+            s.sizeRatio = 0.04
+            s.colorHex = "#111111"
+            s.backgroundColorHex = "#FFE600"
+            s.backgroundOpacity = 1
+            s.backgroundCornerRadius = 0
+            s.backgroundPadding = 0.3
+            s.shadow.enabled = false
+            s.accentColorHex = "#D8232A"
+        case .edgeMincho:
+            s.fontName = "HiraMinProN-W6"
+            s.bold = false
+            s.sizeRatio = 0.04
+            s.letterSpacing = 0.14
+            s.shadow.opacity = 0.6
+            s.accentColorHex = "#FF8A00"
+        case .edgeMagazine:
+            s.fontName = "Georgia-Bold"
+            s.bold = false
+            s.sizeRatio = 0.06
+            s.letterSpacing = 0.02
+            s.shadow.opacity = 0.45
+            s.accentColorHex = "#FF8A00"
+        case .edgePop:
+            s.fontName = "HiraMaruProN-W4"
+            s.bold = false
+            s.sizeRatio = 0.05
+            s.strokeColorHex = "#FF4F8B"
+            s.strokeWidth = 0.14
+            s.shadow.enabled = false
+            s.accentColorHex = "#FFE600"
+        case .edgeNeonPink:
+            s.sizeRatio = 0.044
+            s.colorHex = "#FFD3EC"
+            s.strokeColorHex = "#FF2FA8"
+            s.strokeWidth = 0.03
+            s.shadow = TextShadow(enabled: true, colorHex: "#FF2FA8", opacity: 0.95, radius: 0.018, offsetX: 0, offsetY: 0)
+            s.letterSpacing = 0.08
+            s.accentColorHex = "#7CF7FF"
+        case .edgeRetro:
+            s.sizeRatio = 0.038
+            s.colorHex = "#5A3A22"
+            s.backgroundColorHex = "#F3E3C3"
+            s.backgroundOpacity = 0.96
+            s.backgroundCornerRadius = 0.2
+            s.backgroundPadding = 0.5
+            s.shadow.enabled = false
+            s.fontName = "HiraMinProN-W6"
+            s.bold = false
+            s.accentColorHex = "#C2452D"
+        case .edgeCinema:
+            s.fontName = "HiraMinProN-W3"
+            s.bold = false
+            s.sizeRatio = 0.03
+            s.letterSpacing = 0.42
+            s.shadow.opacity = 0.5
+            s.accentColorHex = "#E8C675"
+        case .edgeGlass:
+            s.sizeRatio = 0.036
+            s.colorHex = "#FFFFFF"
+            s.backgroundColorHex = "#FFFFFF"
+            s.backgroundOpacity = 0.22
+            s.backgroundCornerRadius = 0.6
+            s.backgroundPadding = 0.6
+            s.shadow.enabled = false
+            s.accentColorHex = "#FF8A00"
+        case .edgeNewsBlue:
+            s.sizeRatio = 0.038
+            s.colorHex = "#FFFFFF"
+            s.backgroundColorHex = "#0B3C8C"
+            s.backgroundOpacity = 0.95
+            s.backgroundCornerRadius = 0.03
+            s.backgroundPadding = 0.45
+            s.shadow.enabled = false
+            s.accentColorHex = "#FFD400"
+        case .edgePastel:
+            s.sizeRatio = 0.038
+            s.colorHex = "#6B4A5E"
+            s.backgroundColorHex = "#FFD9E6"
+            s.backgroundOpacity = 0.95
+            s.backgroundCornerRadius = 0.7
+            s.backgroundPadding = 0.55
+            s.shadow.enabled = false
+            s.fontName = "HiraMaruProN-W4"
+            s.bold = false
+            s.accentColorHex = "#E0559A"
+        case .edgeTech:
+            s.sizeRatio = 0.032
+            s.colorHex = "#39FF88"
+            s.backgroundColorHex = "#06140C"
+            s.backgroundOpacity = 0.82
+            s.backgroundCornerRadius = 0.05
+            s.backgroundPadding = 0.45
+            s.shadow.enabled = false
+            s.fontName = "Menlo-Bold"
+            s.bold = false
+            s.letterSpacing = 0.05
+            s.accentColorHex = "#FFFFFF"
+        case .edgeLuxury:
+            s.fontName = "HiraMinProN-W3"
+            s.bold = false
+            s.sizeRatio = 0.036
+            s.colorHex = "#E8C675"
+            s.letterSpacing = 0.24
+            s.shadow.opacity = 0.6
+            s.accentColorHex = "#FFFFFF"
+        case .edgeSport:
+            s.fontName = "AvenirNext-HeavyItalic"
+            s.bold = false
+            s.sizeRatio = 0.052
+            s.strokeColorHex = "#D8232A"
+            s.strokeWidth = 0.1
+            s.shadow.enabled = false
+            s.accentColorHex = "#FFE600"
         }
         return s
+    }
+}
+
+// MARK: - 方眼紙の背景
+
+enum GridPaperBackground {
+    /// クリーム色の方眼紙の PNG を一時フォルダに作る(短辺 1080)
+    static func makeFile(canvasSize: CGSize) -> URL? {
+        guard canvasSize.width > 0, canvasSize.height > 0 else { return nil }
+        let k = 1080 / min(canvasSize.width, canvasSize.height)
+        let size = CGSize(width: (canvasSize.width * k).rounded(), height: (canvasSize.height * k).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            UIColor(red: 0.975, green: 0.955, blue: 0.895, alpha: 1).setFill()
+            cg.fill(CGRect(origin: .zero, size: size))
+            let cell: CGFloat = 60
+            func lines(every step: Int, width: CGFloat, color: UIColor) {
+                cg.setStrokeColor(color.cgColor)
+                cg.setLineWidth(width)
+                var x: CGFloat = 0
+                while x <= size.width {
+                    cg.move(to: CGPoint(x: x, y: 0))
+                    cg.addLine(to: CGPoint(x: x, y: size.height))
+                    x += cell * CGFloat(step)
+                }
+                var y: CGFloat = 0
+                while y <= size.height {
+                    cg.move(to: CGPoint(x: 0, y: y))
+                    cg.addLine(to: CGPoint(x: size.width, y: y))
+                    y += cell * CGFloat(step)
+                }
+                cg.strokePath()
+            }
+            lines(every: 1, width: 1.5, color: UIColor(red: 0.82, green: 0.80, blue: 0.72, alpha: 1))
+            lines(every: 5, width: 3, color: UIColor(red: 0.72, green: 0.70, blue: 0.62, alpha: 1))
+        }
+        guard let data = image.pngData() else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("GridPaper-\(UUID().uuidString).png")
+        do {
+            try data.write(to: url)
+            return url
+        } catch {
+            return nil
+        }
     }
 }
 
@@ -300,6 +533,24 @@ enum TextRenderer {
         let maxWidth: CGFloat
         let shortSide: CGFloat
         let isSticker: Bool
+        /// 強調する文字の位置(text の文字番号)
+        var accentIndices: Set<Int> = []
+    }
+
+    /// 【】を取り除いた文字列と、囲まれていた文字の位置(タイプライターの途中で閉じていなくても動く)
+    private static func parseAccent(_ text: String) -> (plain: String, indices: Set<Int>) {
+        var plain = ""
+        var indices = Set<Int>()
+        var inside = false
+        var count = 0
+        for ch in text {
+            if ch == "【" { inside = true; continue }
+            if ch == "】" { inside = false; continue }
+            if inside && !ch.isNewline { indices.insert(count) }
+            plain.append(ch)
+            count += 1
+        }
+        return (plain, indices)
     }
 
     private static func cacheKey(text: String, style: TextStyle, canvasSize: CGSize, widthRatio: Double, isSticker: Bool) -> NSString {
@@ -313,7 +564,7 @@ enum TextRenderer {
             "\(shadow.enabled)\(shadow.colorHex)\(shadow.opacity)\(shadow.radius)\(shadow.offsetX)\(shadow.offsetY)",
             s.backgroundColorHex ?? "", "\(s.backgroundOpacity)\(s.backgroundPadding)\(s.backgroundCornerRadius)",
             s.alignment.rawValue, "\(s.letterSpacing)\(s.lineSpacing)\(s.vertical)\(s.curveRadius)",
-            "\(widthRatio)", "\(isSticker)",
+            "\(widthRatio)", "\(isSticker)", s.accentColorHex ?? "",
             "\(Int(canvasSize.width))x\(Int(canvasSize.height))"
         ]
         return parts.joined(separator: "\u{1F}") as NSString
@@ -420,7 +671,14 @@ enum TextRenderer {
                         backgroundCorner: backgroundCorner)
     }
 
-    private static func render(_ spec: Spec) -> CIImage? {
+    private static func render(_ original: Spec) -> CIImage? {
+        var spec = original
+        if !spec.isSticker, spec.style.accentColorHex != nil {
+            let parsed = parseAccent(spec.text)
+            guard !parsed.plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            spec = Spec(text: parsed.plain, style: spec.style, fontSize: spec.fontSize, maxWidth: spec.maxWidth,
+                        shortSide: spec.shortSide, isSticker: spec.isSticker, accentIndices: parsed.indices)
+        }
         let prepared = prepare(spec)
         if spec.style.vertical && !spec.isSticker {
             return renderVertical(spec, prepared)
@@ -468,7 +726,13 @@ enum TextRenderer {
 
     // 横書き(通常)
     private static func renderStraight(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
-        let fillString = NSAttributedString(string: spec.text, attributes: prepared.fillAttributes)
+        let fillString = NSMutableAttributedString(string: spec.text, attributes: prepared.fillAttributes)
+        if !spec.accentIndices.isEmpty, let accent = spec.style.accentColorHex.flatMap({ UIColor(hex: $0) }) {
+            for (offset, index) in spec.text.indices.enumerated() where spec.accentIndices.contains(offset) {
+                let range = NSRange(index..<spec.text.index(after: index), in: spec.text)
+                fillString.addAttribute(.foregroundColor, value: accent, range: range)
+            }
+        }
         let strokeString = prepared.strokeAttributes.map { NSAttributedString(string: spec.text, attributes: $0) }
         let measured = measure(fillString, maxWidth: spec.maxWidth)
         let textSize = CGSize(width: min(spec.maxWidth, measured.width), height: measured.height)
@@ -482,8 +746,17 @@ enum TextRenderer {
 
     // 縦書き: 改行ごとに列、右から左へ。1 文字ずつ積む
     private static func renderVertical(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
-        let columns = spec.text.components(separatedBy: "\n").map { Array($0) }.filter { !$0.isEmpty }
+        var splitColumns: [[(ch: Character, accent: Bool)]] = [[]]
+        for (offset, ch) in spec.text.enumerated() {
+            if ch.isNewline {
+                splitColumns.append([])
+            } else {
+                splitColumns[splitColumns.count - 1].append((ch, spec.accentIndices.contains(offset)))
+            }
+        }
+        let columns = splitColumns.filter { !$0.isEmpty }
         guard !columns.isEmpty else { return nil }
+        let accentColor = spec.style.accentColorHex.flatMap { UIColor(hex: $0) }
         let fontSize = spec.fontSize
         let pitchY = fontSize * CGFloat(GeometryMath.clamp(spec.style.lineSpacing, 0.8, 3)) + prepared.kern
         let pitchX = fontSize * 1.2
@@ -502,9 +775,11 @@ enum TextRenderer {
         return makeImage(textSize: textSize, prepared: prepared) { _, rect in
             for (columnIndex, column) in columns.enumerated() {
                 let x = rect.minX + CGFloat(columns.count - 1 - columnIndex) * pitchX
-                for (charIndex, ch) in column.enumerated() {
-                    let s = String(ch)
-                    let fillString = NSAttributedString(string: s, attributes: fill)
+                for (charIndex, item) in column.enumerated() {
+                    let s = String(item.ch)
+                    var charFill = fill
+                    if item.accent, let accentColor { charFill[.foregroundColor] = accentColor }
+                    let fillString = NSAttributedString(string: s, attributes: charFill)
                     let size = fillString.size()
                     let cell = CGRect(x: x, y: rect.minY + CGFloat(charIndex) * pitchY, width: pitchX, height: pitchY)
                     let origin = CGPoint(x: cell.midX - size.width / 2, y: cell.midY - size.height / 2)

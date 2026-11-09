@@ -6,6 +6,18 @@ import AVFoundation
 import Combine
 import UniformTypeIdentifiers
 
+/// 写真ライブラリで、動画と写真のどちらを選ぶか(混ぜずに片方だけを見せる)
+enum MediaPickKind {
+    case videos, photos
+    var filter: PHPickerFilter { self == .videos ? .videos : .images }
+}
+
+/// 動画か写真かを先に聞くとき、どこに足すかを覚えておく
+struct MediaKindQuestion {
+    let overlay: Bool
+    let appendAtEnd: Bool
+}
+
 /// メイン画面(CapCut 風:上部バー/プレビュー/再生操作/タイムライン/下部ツールバー)
 struct ContentView: View {
     /// 編集するプロジェクト(ProjectLibrary の ID)。保存先はこの ID のフォルダ
@@ -138,6 +150,10 @@ struct ContentView: View {
     @State private var termReplacement: CaptionTermReplacement?
     /// 1.5: タイムラインの「+」から開く PhotosPicker
     @State private var showMediaPicker = false
+    /// 「追加」の写真ライブラリで見せるもの(動画だけ / 写真だけ)
+    @State private var mediaPickerFilter: PHPickerFilter = .videos
+    /// 動画か写真かを聞いている途中(タイムラインの「+」などから)
+    @State private var mediaKindQuestion: MediaKindQuestion? = nil
     /// 「カメラで撮る」(CameraRecorderView。撮った動画は「ファイル」からの追加と同じ道で取り込む)
     @State private var showCameraRecorder = false
     #if OSMO_LIVE
@@ -169,6 +185,8 @@ struct ContentView: View {
     @State private var incomingCheckAttempts = 0
     /// タイムラインの「+」から開くオーバーレイの PhotosPicker
     @State private var showOverlayPicker = false
+    /// オーバーレイの写真ライブラリで見せるもの(動画だけ / 写真だけ)
+    @State private var overlayPickerFilter: PHPickerFilter = .videos
     /// マルチカメラを V1 のカットに書き出している最中
     @State private var isFlatteningMulticam = false
     /// ステッカーパネルの「GIF を読み込む」(写真ライブラリ / 「ファイル」。どちらもオーバーレイとして入る)
@@ -264,9 +282,13 @@ struct ContentView: View {
                       selection: $pickerItems,
                       maxSelectionCount: nil,
                       selectionBehavior: .ordered,
-                      matching: .any(of: [.videos, .images]),
+                      matching: mediaPickerFilter,
                       preferredItemEncoding: .current,
                       photoLibrary: .shared())
+        // 動画と写真を混ぜずに選べるよう、先にどちらかを聞く
+        .confirmationDialog("何を追加しますか?", isPresented: mediaKindDialogShown,
+                            titleVisibility: .visible, presenting: mediaKindQuestion,
+                            actions: mediaKindActions)
         .onChange(of: pickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             let items = newItems
@@ -719,9 +741,9 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Button {
                 EditorHaptics.tap()
-                requestMediaAdd(appendAtEnd: false)
+                requestMediaAdd(appendAtEnd: false, kind: .videos)
             } label: {
-                Label("動画・写真を追加", systemImage: "plus.circle.fill")
+                Label("動画を追加", systemImage: "plus.circle.fill")
                     .font(.title2.bold())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 32)
@@ -733,6 +755,9 @@ struct ContentView: View {
 
             // 写真ライブラリ以外の取り込み元は小さく並べる
             HStack(spacing: 20) {
+                emptyStateSourceButton(String(localized: "写真"), systemImage: "photo") {
+                    requestMediaAdd(appendAtEnd: false, kind: .photos)
+                }
                 emptyStateSourceButton(String(localized: "ファイル"), systemImage: "folder") {
                     requestFileAdd(appendAtEnd: false)
                 }
@@ -1123,7 +1148,7 @@ struct ContentView: View {
                       selection: $overlayPickerItems,
                       maxSelectionCount: nil,
                       selectionBehavior: .ordered,
-                      matching: .any(of: [.videos, .images]),
+                      matching: overlayPickerFilter,
                       preferredItemEncoding: .current,
                       photoLibrary: .shared())
         // ステッカーパネルの「GIF を読み込む」→「写真から選ぶ」(画像だけ。GIF 以外の写真も写真オーバーレイになる)
@@ -1302,18 +1327,60 @@ struct ContentView: View {
         activeSheet = .subtitles
     }
 
-    /// タイムラインの「+」から。写真ライブラリ(動画と写真)をすぐ開く
-    private func requestOverlayAdd() {
+    /// オーバーレイを写真ライブラリから足す。kind が nil なら、動画か写真かを先に聞く
+    private func requestOverlayAdd(_ kind: MediaPickKind? = nil) {
         guard !isImporting else { return }
+        guard let kind else {
+            mediaKindQuestion = MediaKindQuestion(overlay: true, appendAtEnd: false)
+            return
+        }
+        overlayPickerFilter = kind.filter
         showOverlayPicker = true
     }
 
-    /// 「動画・写真を追加」(下のツールバー・空の画面・タイムラインの「+」)。写真ライブラリをすぐ開く。
+    /// 動画・写真を写真ライブラリから足す(下のツールバー・空の画面・タイムラインの「+」)。
+    /// kind が nil なら、動画か写真かを先に聞く(選んだほうだけを写真ライブラリに出す)。
     /// appendAtEnd: タイムライン末尾の「+」からのときは末尾に足す(それ以外は再生位置のクリップの後ろ)
-    private func requestMediaAdd(appendAtEnd: Bool) {
+    private func requestMediaAdd(appendAtEnd: Bool, kind: MediaPickKind? = nil) {
         guard !isImporting else { return }
+        guard let kind else {
+            mediaKindQuestion = MediaKindQuestion(overlay: false, appendAtEnd: appendAtEnd)
+            return
+        }
         importAppendsAtEnd = appendAtEnd
+        mediaPickerFilter = kind.filter
         showMediaPicker = true
+    }
+
+    private var mediaKindDialogShown: Binding<Bool> {
+        Binding(get: { mediaKindQuestion != nil },
+                set: { if !$0 { mediaKindQuestion = nil } })
+    }
+
+    @ViewBuilder
+    private func mediaKindActions(_ question: MediaKindQuestion) -> some View {
+        Button("動画を選ぶ") { answerMediaKind(question, .videos) }
+        Button("写真を選ぶ") { answerMediaKind(question, .photos) }
+        Button("キャンセル", role: .cancel) {}
+    }
+
+    /// 解説スライド用の方眼紙を、写真と同じように再生位置の後ろへ足す
+    private func addGridPaperBackground() {
+        guard !isImporting, let url = GridPaperBackground.makeFile(canvasSize: player.renderSize) else { return }
+        importAppendsAtEnd = false
+        Task { await importLocalFiles([url], securityScoped: false, deleteSourcesAfter: true) }
+    }
+
+    /// 「動画を選ぶ / 写真を選ぶ」の答え。確認が閉じきってから写真ライブラリを開く
+    private func answerMediaKind(_ question: MediaKindQuestion, _ kind: MediaPickKind) {
+        mediaKindQuestion = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            if question.overlay {
+                requestOverlayAdd(kind)
+            } else {
+                requestMediaAdd(appendAtEnd: question.appendAtEnd, kind: kind)
+            }
+        }
     }
 
     /// 「ファイル」アプリ(Google ドライブ・iCloud Drive など)から追加する
@@ -1781,7 +1848,7 @@ struct ContentView: View {
         // ---- 第3弾: テキスト ----
         case .textStyle(let textID):
             if let text = project.textClipBinding(id: textID) {
-                EditorTextStylePanel(text: text, project: project, history: history)
+                EditorTextStylePanel(text: text, canvasSize: player.renderSize, project: project, history: history)
             } else {
                 EditorMissingPanelContent()
             }
@@ -2258,6 +2325,16 @@ struct ContentView: View {
         var items: [EditorToolItem] = []
         // タップで写真ライブラリを開く。ファイル・Google フォトは長押しのメニュー
         var sourceMenu: [EditorToolMenuEntry] = []
+        // 動画と写真は分けて選ぶ(写真ライブラリには選んだほうだけが出る)
+        sourceMenu.append(EditorToolMenuEntry(String(localized: "動画を選ぶ"), systemImage: "video") {
+            requestMediaAdd(appendAtEnd: false, kind: .videos)
+        })
+        sourceMenu.append(EditorToolMenuEntry(String(localized: "写真を選ぶ"), systemImage: "photo") {
+            requestMediaAdd(appendAtEnd: false, kind: .photos)
+        })
+        sourceMenu.append(EditorToolMenuEntry(String(localized: "方眼紙の背景"), systemImage: "squareshape.split.3x3") {
+            addGridPaperBackground()
+        })
         sourceMenu.append(EditorToolMenuEntry(String(localized: "ファイル"), systemImage: "folder") {
             requestFileAdd(appendAtEnd: false)
         })
@@ -2280,12 +2357,12 @@ struct ContentView: View {
             })
         }
         // 並び(その他/設定 の前に 8 つまで): 追加 / 分割 / テキスト / オーディオ / エフェクト / オーバーレイ / AI / 全体
-        // タップでメニュー(写真から選ぶ / ファイル / カメラで撮る / カラーの画面 / Google フォト)。長押しは分かりにくいため
+        // タップでメニュー(動画を選ぶ / 写真を選ぶ / ファイル / カメラで撮る / カラーの画面 / Google フォト)。長押しは分かりにくいため
         items.append(EditorToolItem(String(localized: "追加"), systemImage: "plus.rectangle.on.rectangle",
                                     enabled: !isImporting,
                                     disabledReason: Self.importingReason) {
             requestMediaAdd(appendAtEnd: false)
-        }.withTapMenu(sourceMenu, tapTitle: String(localized: "写真から選ぶ")))
+        }.withTapMenu(sourceMenu))
         // 何も選んでいなければ再生位置のクリップを切る(切ったあとは左側を選んだまま)
         items.append(EditorToolItem(String(localized: "分割"), systemImage: "scissors", id: "root-split",
                                     enabled: !project.clips.isEmpty,
@@ -2301,10 +2378,20 @@ struct ContentView: View {
         // 映像エフェクトはエフェクト群の先頭に入れた(root 直置きはやめた)
         items.append(EditorToolItem.group(String(localized: "エフェクト"), systemImage: "sparkles", id: "group-effects",
                                           items: effectGroupItems))
-        // 写真ライブラリ(動画と写真)をすぐ開く
-        items.append(EditorToolItem.addOverlay(String(localized: "オーバーレイ"), systemImage: "photo.on.rectangle",
-                                               enabled: !isImporting,
-                                               disabledReason: Self.importingReason))
+        // タップで「動画を選ぶ / 写真を選ぶ」(写真ライブラリには選んだほうだけが出る)
+        let overlayMenu = [
+            EditorToolMenuEntry(String(localized: "動画を選ぶ"), systemImage: "video") {
+                requestOverlayAdd(.videos)
+            },
+            EditorToolMenuEntry(String(localized: "写真を選ぶ"), systemImage: "photo") {
+                requestOverlayAdd(.photos)
+            },
+        ]
+        items.append(EditorToolItem(String(localized: "オーバーレイ"), systemImage: "photo.on.rectangle",
+                                    enabled: !isImporting,
+                                    disabledReason: Self.importingReason) {
+            requestOverlayAdd()
+        }.withTapMenu(overlayMenu))
         items.append(EditorToolItem.group("AI", systemImage: "wand.and.stars", id: "group-ai",
                                           items: autoGroupItems))
         items.append(EditorToolItem.group(String(localized: "全体"), systemImage: "rectangle.3.group", id: "group-whole",

@@ -37,6 +37,8 @@ jobs:
       ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
       # TikTok に直接投稿(Share Kit)のクライアントキー。空でも作れる(ボタンが出ないだけ)
       TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+      META_APP_ID: ${{ secrets.META_APP_ID }}
+      META_CLIENT_TOKEN: ${{ secrets.META_CLIENT_TOKEN }}
       # App Store Connect はビルド番号が増え続ける必要があるため、AltStore 用の番号と重ならないよう 1000 から始める
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
@@ -131,6 +133,13 @@ jobs:
           sed -i '' -e '/# >>> tiktok-url-scheme/,/# <<< tiktok-url-scheme/d' project.yml
           echo "TikTok URL scheme left out (add the TIKTOK_CLIENT_KEY secret to enable posting to TikTok)"
 
+      # Meta のキーが無いときは Info.plist に入れない(SDK を動かさない)
+      - name: Leave out Meta settings (until META_APP_ID is set)
+        if: steps.check.outputs.ready == 'true' && (env.META_APP_ID == '' || env.META_CLIENT_TOKEN == '')
+        run: |
+          sed -i '' -e '/# >>> meta-sdk/,/# <<< meta-sdk/d' project.yml
+          echo "Meta settings left out (add META_APP_ID and META_CLIENT_TOKEN to enable Instagram ad measurement)"
+
       - name: Generate Xcode project
         if: steps.check.outputs.ready == 'true'
         run: |
@@ -171,6 +180,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             TIKTOK_CLIENT_KEY="$TIKTOK_CLIENT_KEY" \
+            META_APP_ID="$META_APP_ID" \
+            META_CLIENT_TOKEN="$META_CLIENT_TOKEN" \
             CURRENT_PROJECT_VERSION="$BUILD_NO"
 
       # クラッシュの記録(MetricKit)はバイナリ名とオフセットだけなので、場所を読むための dSYM を 90 日残す

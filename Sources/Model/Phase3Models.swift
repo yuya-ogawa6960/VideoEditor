@@ -381,11 +381,20 @@ struct TextStyle: Equatable {
     var vertical: Bool = false
     /// 0 = 直線。正で弧(画面の短辺に対する半径比率)
     var curveRadius: Double = 0
+    /// nil 以外なら、【】で囲んだ部分をこの色にする(【】は表示しない)
+    var accentColorHex: String? = nil
 }
 
 enum TextTemplate: String, CaseIterable, Identifiable {
     case plain, headline, newsBar, caption, quote, handwritten, neon, minimalSerif, subtitleBox, bigImpact
+    // 解説動画向け
+    case keyword, frostedCard, closingBand, slideHeading
+    // 端のタイトル
+    case chapterLabel, edgeMinimal, edgeBlackTag, edgeWhiteTag, edgeOrange, edgeMarker, edgeMincho, edgeMagazine
+    case edgePop, edgeNeonPink, edgeRetro, edgeCinema, edgeGlass, edgeNewsBlue, edgePastel, edgeTech, edgeLuxury, edgeSport
     var id: String { rawValue }
+    /// 端に置くためのデザイン
+    var isEdgeTitle: Bool { self == .chapterLabel || rawValue.hasPrefix("edge") }
     var displayName: String {
         switch self {
         case .plain: return String(localized: "シンプル")
@@ -398,7 +407,76 @@ enum TextTemplate: String, CaseIterable, Identifiable {
         case .minimalSerif: return String(localized: "明朝・上品")
         case .subtitleBox: return String(localized: "黒帯テロップ")
         case .bigImpact: return String(localized: "インパクト")
+        case .keyword: return String(localized: "キーワード")
+        case .frostedCard: return String(localized: "すりガラス")
+        case .closingBand: return String(localized: "締めの帯")
+        case .slideHeading: return String(localized: "スライド見出し")
+        case .chapterLabel: return String(localized: "章ラベル")
+        case .edgeMinimal: return String(localized: "細字")
+        case .edgeBlackTag: return String(localized: "黒タグ")
+        case .edgeWhiteTag: return String(localized: "白タグ")
+        case .edgeOrange: return String(localized: "オレンジ")
+        case .edgeMarker: return String(localized: "マーカー")
+        case .edgeMincho: return String(localized: "明朝")
+        case .edgeMagazine: return String(localized: "雑誌")
+        case .edgePop: return String(localized: "ポップ")
+        case .edgeNeonPink: return String(localized: "ピンクネオン")
+        case .edgeRetro: return String(localized: "レトロ")
+        case .edgeCinema: return String(localized: "映画")
+        case .edgeGlass: return String(localized: "ガラス")
+        case .edgeNewsBlue: return String(localized: "報道")
+        case .edgePastel: return String(localized: "パステル")
+        case .edgeTech: return String(localized: "テック")
+        case .edgeLuxury: return String(localized: "高級")
+        case .edgeSport: return String(localized: "スポーツ")
         }
+    }
+}
+
+/// 文字を画面の端に寄せる位置
+enum TextEdgeAnchor: String, CaseIterable, Identifiable {
+    case topLeft, top, topRight, left, right, bottomLeft, bottom, bottomRight
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .topLeft: return String(localized: "左上")
+        case .top: return String(localized: "上")
+        case .topRight: return String(localized: "右上")
+        case .left: return String(localized: "左")
+        case .right: return String(localized: "右")
+        case .bottomLeft: return String(localized: "左下")
+        case .bottom: return String(localized: "下")
+        case .bottomRight: return String(localized: "右下")
+        }
+    }
+    /// 左右の真ん中は縦書きにする
+    var usesVerticalText: Bool { self == .left || self == .right }
+    var alignment: TextAlignment2 {
+        switch self {
+        case .topLeft, .bottomLeft, .left: return .left
+        case .topRight, .bottomRight, .right: return .right
+        case .top, .bottom: return .center
+        }
+    }
+
+    /// 大きさ size のものを、端から少し離して置いたときの中心(左上原点の 0...1)
+    func center(for size: CGSize, canvas: CGSize) -> NormalizedPoint {
+        let margin = min(canvas.width, canvas.height) * 0.04
+        let minX = (margin + size.width / 2) / canvas.width
+        let minY = (margin + size.height / 2) / canvas.height
+        let x: CGFloat
+        switch self {
+        case .topLeft, .left, .bottomLeft: x = minX
+        case .topRight, .right, .bottomRight: x = 1 - minX
+        case .top, .bottom: x = 0.5
+        }
+        let y: CGFloat
+        switch self {
+        case .topLeft, .top, .topRight: y = minY
+        case .bottomLeft, .bottom, .bottomRight: y = 1 - minY
+        case .left, .right: y = 0.5
+        }
+        return NormalizedPoint(x: Double(x), y: Double(y))
     }
 }
 

@@ -46,6 +46,13 @@ struct VideoEditorApp: App {
 
 /// UIKit のアプリデリゲート(SwiftUI の App から @UIApplicationDelegateAdaptor で使う)
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Instagram 広告の効果測定(Meta のキーが入ったビルドだけ)
+        MetaAds.start(application, launchOptions: launchOptions)
+        return true
+    }
+
     /// 画面の向き(ふだんはたて固定。全画面プレビューのときだけ横。iPhone Duo を開いたときは固定しない)
     func application(_ application: UIApplication,
                      supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {

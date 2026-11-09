@@ -13,7 +13,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     # アプリと共有用の拡張機能で同じ番号にする(App Store の決まり)。上げるときはここだけ
-    MARKETING_VERSION: "1.12.101"
+    MARKETING_VERSION: "1.12.102"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: ""
@@ -41,6 +41,10 @@ packages:
   TikTokOpenSDK:
     url: https://github.com/tiktok/tiktok-opensdk-ios
     from: 2.5.0
+  # Instagram 広告の効果測定(Sources/Engine/MetaAds.swift)
+  MetaSDK:
+    url: https://github.com/facebook/facebook-ios-sdk
+    from: 18.0.0
 
 targets:
   VideoEditor:
@@ -62,6 +66,8 @@ targets:
         product: GoogleMobileAds
       - package: UserMessagingPlatform
         product: GoogleUserMessagingPlatform
+      - package: MetaSDK
+        product: FacebookCore
       - package: TikTokOpenSDK
         product: TikTokOpenSDKCore
       - package: TikTokOpenSDK
@@ -98,6 +104,13 @@ targets:
           - tiktoksharesdk
           - snssdk1180
           - snssdk1233
+        # >>> meta-sdk(META_APP_ID が空のとき、CI はこの印のあいだを消す。MetaAds は何もしない)
+        FacebookAppID: "$(META_APP_ID)"
+        FacebookClientToken: "$(META_CLIENT_TOKEN)"
+        FacebookDisplayName: Video Mania
+        # 自動で送らせない(送るのは MetaAds.swift の 2 つだけ)
+        FacebookAutoLogAppEventsEnabled: false
+        # <<< meta-sdk
         # >>> tiktok-url-scheme(TIKTOK_CLIENT_KEY が空のとき、CI はこの印のあいだを消す。空の URL スキームを入れないように)
         CFBundleURLTypes:
           - CFBundleURLName: tiktok
