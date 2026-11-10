@@ -77,6 +77,8 @@ struct EditorToolItem: Identifiable {
     private(set) var tapTitle: String?
     /// いまのプランでは使えない有料の機能(王冠を付け、タップでプランの画面を出す。gatedByPlan)
     private(set) var lockedPlan: PlanTier?
+    /// すでに付けた効果を直す・外すので、試用のポイントを使わずにそのまま開く(PlanFeature.allowsTrial の機能だけ。freeToAdjust)
+    private(set) var opensWithoutTrial = false
 
     init(_ title: String, systemImage: String, id: String? = nil, destructive: Bool = false,
          enabled: Bool = true, disabledReason: String? = nil, action: @escaping () -> Void) {
@@ -189,6 +191,14 @@ struct EditorToolItem: Identifiable {
         return copy
     }
 
+    /// すでに付けた効果(背景を消す・画質補正)を直す・外すときは、無料プランでも試用のポイントを使わずに開く
+    /// (同じクリップを直すたびに 50pt かからないように)
+    func freeToAdjust(_ free: Bool) -> EditorToolItem {
+        var copy = self
+        copy.opensWithoutTrial = free
+        return copy
+    }
+
     var isGroup: Bool {
         if case .group = kind { return true }
         return false
@@ -208,6 +218,8 @@ struct EditorToolItem: Identifiable {
                 return copy
             }
             guard let feature = PlanFeature.toolbarItems[item.id], !plans.allows(feature) else { return item }
+            // すでに付けた効果を直す・外すときは、そのまま開く(試用の機能だけ)
+            if item.opensWithoutTrial, feature.allowsTrial { return item }
             // 1 回で終わる機能は、無料プランでもポイントで 1 回使える(確認を出してから元の動作。使えない状態ならその理由)
             let tap: () -> Void
             if feature.allowsTrial, item.isEnabled, case .action(let original) = item.kind {

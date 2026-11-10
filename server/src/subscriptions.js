@@ -9,6 +9,8 @@
 //   無料でもらったポイント(登録・毎日・広告)は消さない。使うときはプランの分から先に減らす(index.js の reserve)
 // - App Store のサーバー通知(POST /v1/appstore/notifications。App Store Connect に URL を登録する)で、
 //   アプリを開いていなくても更新・返金・取り消しを反映する
+// - 解約して期限が切れたら、プランで付けたポイントの残りを消す(EXPIRED の通知、または期限から PLAN_POINTS_GRACE_MS 過ぎたとき)
+// - TestFlight・App Review の購入(Sandbox)は更新が早回しなので、毎月のポイントは同じアカウントに実時間で 30 日に 1 回だけ付ける
 // =====================================================================
 
 import { verifyAppleJWS } from "./appTransaction.js";
@@ -20,6 +22,11 @@ export const PRODUCTS = {
 };
 const PLAN_RANK = { free: 0, standard: 1, pro: 2 };
 const MAX_TRANSACTIONS = 10;
+const DAY_MS = 86400 * 1000;
+/** 期限が過ぎてもプランのポイントを残す日数(請求の猶予期間中に消さないため。期限切れの通知が来ればその場で消す) */
+const PLAN_POINTS_GRACE_MS = 28 * DAY_MS;
+/** Sandbox(TestFlight・App Review)の購入で毎月のポイントを付ける間隔(実時間) */
+const SANDBOX_GRANT_INTERVAL_MS = 30 * DAY_MS;
 
 function nowISO() {
   return new Date().toISOString();
@@ -42,6 +49,7 @@ export async function ensureSubscriptionTables(env) {
     env.DB.prepare(
       "CREATE TABLE IF NOT EXISTS subscription_grants (transaction_id TEXT PRIMARY KEY, amount INTEGER NOT NULL, created_at TEXT NOT NULL)"
     ),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS sandbox_grants (user_id TEXT PRIMARY KEY, granted_at INTEGER NOT NULL)"),
   ]);
 }
 
@@ -98,6 +106,7 @@ export async function applyTransaction(env, userID, tx, now = Date.now()) {
   if (existing && userID && existing.user_id !== userID) return { ok: false, reason: "owned_by_other", granted: 0 };
   const owner = existing ? existing.user_id : userID;
   if (!owner) return { ok: false, reason: "unknown_owner", granted: 0 };
+  const sandbox = tx.environment === "Sandbox";
 
   await env.DB.prepare(
     `INSERT INTO subscriptions (original_transaction_id, user_id, product_id, plan, expires_at, environment, revoked, updated_at)
@@ -110,20 +119,48 @@ export async function applyTransaction(env, userID, tx, now = Date.now()) {
   if (tx.revoked) {
     // 返金・取り消し: プランで付けたポイントの残りを消す(使った分は戻さない)
     await clearPlanPoints(env, owner, "subscription_revoked");
-    return { ok: true, granted: 0 };
+    return { ok: true, granted: 0, owner };
   }
-  if (tx.expires <= now) return { ok: true, granted: 0 };
+  if (tx.expires <= now) return { ok: true, granted: 0, owner };
+
+  // Sandbox(TestFlight の早回しの更新)は、同じアカウントに実時間で SANDBOX_GRANT_INTERVAL_MS に 1 回だけ付ける
+  // (本番のサーバーと同じポイントで本物の AI を使えるため。App Review が毎月のポイントを確かめられるよう、0 にはしない)
+  if (sandbox) {
+    const last = await env.DB.prepare("SELECT granted_at FROM sandbox_grants WHERE user_id = ?").bind(owner).first();
+    if (last && now - Number(last.granted_at) < SANDBOX_GRANT_INTERVAL_MS) return { ok: true, granted: 0, owner };
+  }
 
   // この期間(transactionId)の毎月のポイントは 1 回だけ。前の期間の残りは繰り越さない
   const inserted = await env.DB.prepare(
     "INSERT OR IGNORE INTO subscription_grants (transaction_id, amount, created_at) VALUES (?, ?, ?)"
   ).bind(tx.transactionID, tx.monthlyPoints, nowISO()).run();
-  if (!inserted.meta || inserted.meta.changes === 0) return { ok: true, granted: 0 };
+  if (!inserted.meta || inserted.meta.changes === 0) return { ok: true, granted: 0, owner };
   await clearPlanPoints(env, owner, "subscription_reset");
   await env.DB.prepare("UPDATE users SET points = points + ?, sub_points = ? WHERE id = ?")
     .bind(tx.monthlyPoints, tx.monthlyPoints, owner).run();
   await ledger(env, owner, tx.monthlyPoints, "subscription:" + tx.plan);
-  return { ok: true, granted: tx.monthlyPoints };
+  if (sandbox) {
+    await env.DB.prepare(
+      "INSERT INTO sandbox_grants (user_id, granted_at) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET granted_at = excluded.granted_at"
+    ).bind(owner, now).run();
+  }
+  return { ok: true, granted: tx.monthlyPoints, owner };
+}
+
+/**
+ * 有効なプラン(期限から graceMs 以内のものを含む)が無いのに、プランで付けたポイントが残っていれば消す。
+ * ポイントを使う前(index.js の reserve)と /v1/me で呼ぶ。消したら true
+ */
+export async function expirePlanPoints(env, userID, now = Date.now(), graceMs = PLAN_POINTS_GRACE_MS) {
+  await ensureSubscriptionTables(env);
+  const row = await env.DB.prepare("SELECT sub_points FROM users WHERE id = ?").bind(userID).first();
+  if (!row || !(row.sub_points > 0)) return false;
+  const active = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM subscriptions WHERE user_id = ? AND revoked = 0 AND expires_at > ?"
+  ).bind(userID, now - graceMs).first();
+  if (active && active.n > 0) return false;
+  await clearPlanPoints(env, userID, "subscription_expired");
+  return true;
 }
 
 async function clearPlanPoints(env, userID, reason) {
@@ -170,6 +207,10 @@ export async function handleNotification(body, env, options = {}) {
   if (!tx) return { ok: true, applied: false };
   if (payload.notificationType === "REFUND" || payload.notificationType === "REVOKE") tx.revoked = true;
   const result = await applyTransaction(env, null, tx, options.nowMs);
+  // 解約して期限が切れた: プランで付けたポイントの残りを消す(ほかに有効なプランがあれば残す)
+  if (result.ok && result.owner && payload.notificationType === "EXPIRED") {
+    await expirePlanPoints(env, result.owner, options.nowMs ?? Date.now(), 0);
+  }
   return { ok: true, applied: result.ok };
 }
 

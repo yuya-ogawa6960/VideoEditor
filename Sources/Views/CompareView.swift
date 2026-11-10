@@ -309,6 +309,9 @@ struct CompareView: View {
     /// 「この位置で編集画面に戻る」で、再生位置を合わせたあとに呼ぶ(書き出し画面から開いたときに書き出し画面も閉じる。ExportView.swift)。
     /// nil ならこの画面だけ閉じる
     var onReturnToEditor: (() -> Void)? = nil
+    /// 開いているプロジェクト(ProjectLibrary の ID)。このプロジェクトの書き出しを先に並べて最初に選ぶ
+    /// (ほかのプロジェクトの書き出しを勝手に「前回」にしない)。nil ならプロジェクトで分けない
+    var projectID: UUID? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -330,6 +333,20 @@ struct CompareView: View {
     private var currentRecord: ExportRecord? {
         guard let id = selectedRecordID else { return nil }
         return exporter.history.first(where: { $0.id == id })
+    }
+
+    /// 見比べられる書き出し(動画だけ。音声だけの書き出しは映像が出ないので外す)。
+    /// このプロジェクトのものを先に、ほかのプロジェクトのものをあとに並べる(それぞれ新しい順)
+    private var videoRecords: [ExportRecord] {
+        let videos = exporter.history.filter { $0.isVideo }
+        guard let projectID else { return videos }
+        return videos.filter { $0.projectID == projectID } + videos.filter { $0.projectID != projectID }
+    }
+
+    /// このプロジェクトの書き出しがあるか(プロジェクトが分からないときは true)
+    private var hasRecordForThisProject: Bool {
+        guard let projectID else { return true }
+        return videoRecords.contains { $0.projectID == projectID }
     }
 
     var body: some View {
@@ -374,11 +391,12 @@ struct CompareView: View {
     private func setup() async {
         player.pause()
         if selectedRecordID == nil {
-            let history = exporter.history
-            if let initialRecordID, history.contains(where: { $0.id == initialRecordID }) {
+            let records = videoRecords
+            if let initialRecordID, records.contains(where: { $0.id == initialRecordID }) {
                 selectedRecordID = initialRecordID
             } else {
-                selectedRecordID = history.first?.id
+                // このプロジェクトのいちばん新しい書き出し。無ければ選ばない(ほかのプロジェクトのものは自分で選ぶ)
+                selectedRecordID = records.first(where: { projectID == nil || $0.projectID == projectID })?.id
             }
         }
         sync.start()
@@ -551,13 +569,21 @@ struct CompareView: View {
 
     private var recordSection: some View {
         Section {
-            if exporter.history.isEmpty {
+            if videoRecords.isEmpty {
                 Text("書き出した動画がまだありません。先に書き出すと、いまの編集と見比べられます。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
+                if !hasRecordForThisProject {
+                    Text("このプロジェクトはまだ書き出していません。ほかのプロジェクトの書き出しと見比べるときは、下から選んでください。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
                 Picker("見比べる動画", selection: $selectedRecordID) {
-                    ForEach(exporter.history) { record in
+                    if selectedRecordID == nil {
+                        Text("選んでください").tag(nil as UUID?)
+                    }
+                    ForEach(videoRecords) { record in
                         Text(recordLabel(record))
                             .tag(record.id as UUID?)
                     }
@@ -581,8 +607,21 @@ struct CompareView: View {
         }
     }
 
+    /// ピッカーの 1 行。ほかのプロジェクトの書き出しには、そのプロジェクトの名前を付けて分ける
     private func recordLabel(_ record: ExportRecord) -> String {
-        "\(record.date.formatted(date: .numeric, time: .shortened)) \(record.canvasDescription)"
+        let base = "\(record.date.formatted(date: .numeric, time: .shortened)) \(record.canvasDescription)"
+        guard let projectID, record.projectID != projectID else { return base }
+        return "\(otherProjectName(record))・\(base)"
+    }
+
+    /// ほかのプロジェクトの名前(一覧から消えた・以前の履歴で分からないときは「ほかのプロジェクト」)
+    private func otherProjectName(_ record: ExportRecord) -> String {
+        if let id = record.projectID,
+           let name = ProjectLibrary.shared.projects.first(where: { $0.id == id })?.name,
+           !name.isEmpty {
+            return name
+        }
+        return String(localized: "ほかのプロジェクト")
     }
 
     // MARK: 表示

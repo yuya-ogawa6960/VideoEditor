@@ -642,7 +642,7 @@ struct HSLBand: Equatable {
 
 struct HSLAdjustment: Equatable {
     static let bandNames = [String(localized: "赤"), String(localized: "オレンジ"), String(localized: "黄"), String(localized: "緑"), String(localized: "水色"), String(localized: "青"), String(localized: "紫"), String(localized: "マゼンタ")]
-    /// 8 帯: 0°,45°,...,315° を中心
+    /// 8 帯: 0°, 30°, 60°, 120°, 180°, 225°, 270°, 315° を中心(FilterLUT.hslBandCenters)
     var bands: [HSLBand] = Array(repeating: HSLBand(), count: 8)
     var isIdentity: Bool { bands.allSatisfy { $0.isIdentity } }
 }
@@ -674,6 +674,8 @@ struct FormatBlock: Identifiable, Equatable {
     /// 使う素材(アプリ内の動画/画像)。nil なら背景色のみ
     var mediaURL: URL? = nil
     var transitionOut: ClipTransition = ClipTransition(type: .fadeBlack, duration: 0.6)
+    /// 動画の素材の使う範囲・速度・音量(FormatKitStore.swift)
+    var mediaInfo: FormatMediaInfo? = nil
 }
 
 // MARK: - サムネ(カバー画像)作成
@@ -695,6 +697,10 @@ enum MemoPaper: String, CaseIterable, Identifiable {
 struct CoverSettings: Equatable {
     /// 出力タイムライン上の秒(この時刻のコマを背景にする)。imageURL があればそちらを使う
     var frameTime: Double = 0
+    /// コマを選んだときのクリップと、その元素材上の秒。あとで前にクリップを足したり詰めたりしても同じ場面を使う
+    /// (CoverRenderer.resolvedFrameTime)。クリップが消えた・その秒が切り取られたときは frameTime を使う
+    var frameClipID: UUID? = nil
+    var frameSourceTime: Double? = nil
     var imageURL: URL? = nil
     var title: String = ""
     /// メモ風カードに書く本文(改行で箇条書き)

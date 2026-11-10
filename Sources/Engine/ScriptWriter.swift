@@ -136,6 +136,39 @@ enum ScriptWriter {
         SubtitlePolisher.displayName(of: resolveExplicitEngine(settings: settings))
     }
 
+    // MARK: - 出力する言語
+
+    /// 台本・構成案を書く言語(アプリの表示言語)。日本語以外は英語の指示文に「<言語>で書く」を入れる
+    /// (前は指示文が日本語に決め打ちで、英語・スペイン語・ポルトガル語で使っても日本語の台本が返っていた)
+    enum OutputLanguage {
+        case japanese, english, spanish, portuguese
+
+        /// 指示文に入れる言語名(英語)
+        var englishName: String {
+            switch self {
+            case .japanese: return "Japanese"
+            case .english: return "English"
+            case .spanish: return "Latin American Spanish"
+            case .portuguese: return "Brazilian Portuguese"
+            }
+        }
+    }
+
+    static var outputLanguage: OutputLanguage {
+        let code = (Bundle.main.preferredLocalizations.first ?? "ja").lowercased()
+        if code.hasPrefix("ja") { return .japanese }
+        if code.hasPrefix("es") { return .spanish }
+        if code.hasPrefix("pt") { return .portuguese }
+        return .english
+    }
+
+    /// AI に返してもらう短い理由などの言語の指定(日本語の表示では空。PacingAnalyzer の採点の理由など)
+    static var replyLanguageNote: String {
+        let language = outputLanguage
+        guard language != .japanese else { return "" }
+        return "\n理由は \(language.englishName) で書いてください(Write the reason in \(language.englishName))。"
+    }
+
     // MARK: - 台本
 
     static func write(topic: String, durationSeconds: Double, tone: ScriptTone, subtitles: [SubtitleCue],
@@ -150,9 +183,11 @@ enum ScriptWriter {
         let lineCount = max(3, min(40, Int((duration / 6).rounded())))
         let contextLimit = (engine == .onDevice) ? 1200 : 6000
 
-        let instructions = writeInstructions(tone: tone)
+        let language = outputLanguage
+        let instructions = language == .japanese ? writeInstructions(tone: tone)
+                                                 : writeInstructionsForeign(tone: tone, language: language)
         let prompt = writePrompt(topic: trimmedTopic, duration: duration, lineCount: lineCount,
-                                 subtitles: subtitles, markers: markers, limit: contextLimit)
+                                 subtitles: subtitles, markers: markers, limit: contextLimit, language: language)
         let raw = try await generate(engine: engine, instructions: instructions, prompt: prompt,
                                      apiKey: settings.cloudCredential, temperature: 0.7)
         try Task.checkCancellation()
@@ -167,6 +202,29 @@ enum ScriptWriter {
         case .energetic: return "元気でテンポよく、短い文を重ねる"
         case .formal: return "丁寧でフォーマル(です・ます調、敬語)"
         }
+    }
+
+    /// 日本語以外の表示で使う指示文(英語で書き、出力はアプリの表示言語)。1 行の長さは語数で示す
+    private static func writeInstructionsForeign(tone: ScriptTone, language: OutputLanguage) -> String {
+        let toneText: String
+        switch tone {
+        case .calm: toneText = "calm and unhurried, speaking gently to the viewer"
+        case .friendly: toneText = "friendly and conversational, but not too casual"
+        case .energetic: toneText = "energetic and upbeat, with short sentences"
+        case .formal: toneText = "polite and formal"
+        }
+        return """
+        You write narration scripts for videos. The script is read aloud to the viewer.
+        Write every line in \(language.englishName), even if the theme or the reference subtitles are in another language.
+        Rules:
+        - Tone: \(toneText)
+        - Each line takes about 4 to 7 seconds to read aloud (about 8 to 18 words). One idea per line
+        - Give each line the time (in seconds) when reading starts. Times go from 0 to the video length, in ascending order
+        - If reference conversation (subtitles) or chapters are given, follow their content and timing. You may fill in missing details, but do not invent proper nouns or numbers
+        - Do not use symbols, emoji, or bullet characters
+        - Do not write discriminatory, sexual, or violent content, or defamation of real people. If asked to, return {"lines":[]}
+        - Output only a JSON object. Format: {"lines":[{"time":seconds (number),"text":"narration"}, ...]}
+        """
     }
 
     private static func writeInstructions(tone: ScriptTone) -> String {
@@ -184,7 +242,12 @@ enum ScriptWriter {
     }
 
     private static func writePrompt(topic: String, duration: Double, lineCount: Int,
-                                    subtitles: [SubtitleCue], markers: [TimelineMarker], limit: Int) -> String {
+                                    subtitles: [SubtitleCue], markers: [TimelineMarker], limit: Int,
+                                    language: OutputLanguage = .japanese) -> String {
+        if language != .japanese {
+            return writePromptForeign(topic: topic, duration: duration, lineCount: lineCount,
+                                      subtitles: subtitles, markers: markers, limit: limit, language: language)
+        }
         var lines: [String] = []
         lines.append("テーマ: \(topic)")
         lines.append("動画の長さ: \(Int(duration.rounded())) 秒")
@@ -206,6 +269,34 @@ enum ScriptWriter {
         }
         lines.append("")
         lines.append("この動画のナレーション台本を JSON で出力してください。")
+        return lines.joined(separator: "\n")
+    }
+
+    /// 日本語以外の表示のときの依頼文(writePrompt と同じ中身を英語で)
+    private static func writePromptForeign(topic: String, duration: Double, lineCount: Int,
+                                           subtitles: [SubtitleCue], markers: [TimelineMarker], limit: Int,
+                                           language: OutputLanguage) -> String {
+        var lines: [String] = []
+        lines.append("Theme: \(topic)")
+        lines.append("Video length: \(Int(duration.rounded())) seconds")
+        lines.append("Number of lines: about \(lineCount)")
+        let chapters = markers.filter { $0.kind == .chapter }.sorted { $0.time < $1.time }
+        if !chapters.isEmpty {
+            lines.append("")
+            lines.append("Chapters:")
+            for marker in chapters.prefix(20) {
+                let name = marker.name.isEmpty ? "Chapter" : marker.name
+                lines.append("[\(timestamp(marker.time))] \(name)")
+            }
+        }
+        let context = subtitleContext(subtitles, limit: limit)
+        if !context.isEmpty {
+            lines.append("")
+            lines.append("Reference: conversation in the video (subtitles)")
+            lines.append(context)
+        }
+        lines.append("")
+        lines.append("Write the narration script for this video in \(language.englishName), as JSON.")
         return lines.joined(separator: "\n")
     }
 
@@ -259,14 +350,30 @@ enum ScriptWriter {
         guard engine != .none else { throw ScriptWriterError.noEngine }
 
         let limit = (engine == .onDevice) ? 2500 : 12000
-        let instructions = """
-        あなたは動画編集者です。字幕(「[m:ss] 本文」の行)から、動画のチャプター(章)を 3〜8 個提案します。
-        - 各チャプターは、話題が切り替わる字幕の開始時刻(秒)と、12 文字以内の日本語タイトル
-        - 最初のチャプターは動画の冒頭(最初の字幕)から始める
-        - 差別・性的・暴力的な内容、実在の人物への中傷は書かない。頼まれたら {"chapters":[]} を返す
-        - 出力は JSON オブジェクトのみ。形式: {"chapters":[{"time":秒(数値),"title":"タイトル"}, ...]}
-        """
-        var prompt = "次の字幕からチャプターを提案してください。\n\n"
+        let language = outputLanguage
+        let instructions: String
+        var prompt: String
+        if language == .japanese {
+            instructions = """
+            あなたは動画編集者です。字幕(「[m:ss] 本文」の行)から、動画のチャプター(章)を 3〜8 個提案します。
+            - 各チャプターは、話題が切り替わる字幕の開始時刻(秒)と、12 文字以内の日本語タイトル
+            - 最初のチャプターは動画の冒頭(最初の字幕)から始める
+            - 差別・性的・暴力的な内容、実在の人物への中傷は書かない。頼まれたら {"chapters":[]} を返す
+            - 出力は JSON オブジェクトのみ。形式: {"chapters":[{"time":秒(数値),"title":"タイトル"}, ...]}
+            """
+            prompt = "次の字幕からチャプターを提案してください。\n\n"
+        } else {
+            // 日本語以外の表示: タイトルは字幕と同じ言語(分からなければ表示の言語)で付ける
+            instructions = """
+            You are a video editor. From subtitles (lines of "[seconds] text"), suggest 3 to 8 chapters for the video.
+            - Each chapter has the start time (in seconds) of the subtitle where the topic changes, and a short title of at most 5 words
+            - Write the titles in the same language as the subtitles. If that is unclear, write them in \(language.englishName)
+            - The first chapter starts at the beginning of the video (the first subtitle)
+            - Do not write discriminatory, sexual, or violent content, or defamation of real people. If asked to, return {"chapters":[]}
+            - Output only a JSON object. Format: {"chapters":[{"time":seconds (number),"title":"title"}, ...]}
+            """
+            prompt = "Suggest chapters from the following subtitles.\n\n"
+        }
         var body = joinedContextWithSeconds(cues)
         if body.count > limit {
             body = subtitleContextWithSeconds(cues, limit: limit)
@@ -285,7 +392,8 @@ enum ScriptWriter {
         for chapter in chapters.sorted(by: { $0.time < $1.time }) {
             let snapped = nearest(to: chapter.time, in: starts)
             if let last = markers.last, snapped - last.time < 5 { continue }
-            let title = chapter.title.isEmpty ? "チャプター" : chapter.title
+            // AI がタイトルを空で返したときの名前(表示の言語で、何番目かを付ける)
+            let title = chapter.title.isEmpty ? String(localized: "チャプター \(markers.count + 1)") : chapter.title
             markers.append(TimelineMarker(time: snapped, name: title, kind: .chapter))
         }
         return markers

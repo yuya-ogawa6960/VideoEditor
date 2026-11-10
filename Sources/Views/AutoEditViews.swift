@@ -53,7 +53,12 @@ struct AutoEditSheetView: View {
     @State private var analysis = EditorAnalysisRunner()
     @State private var errorText: String?
     @State private var showBuildConfirm = false
+    /// 「BGMを選ぶ」のシート(用意された曲とファイル。AutoEditBGMPickerSheet)を開いているか
     @State private var isBGMImporterPresented = false
+    /// シートでファイルから選んだ曲(シートを閉じてから取り込む)
+    @State private var pickedBGMFile: Result<[URL], Error>?
+    /// シートを開いたときの BGM(用意された曲に変えたかを閉じたときに見る)
+    @State private var bgmURLBeforePicker: URL?
     /// オーダー(やりたいことを文章で)と、読み取った内容
     @State private var orderText = ""
     @State private var orderSummary: [String] = []
@@ -117,10 +122,19 @@ struct AutoEditSheetView: View {
             }
             // 作成中はスワイプで閉じられないようにする(閉じたあとに結果がプロジェクトに入らないように)
             .interactiveDismissDisabled(analysis.isRunning)
-            .fileImporter(isPresented: $isBGMImporterPresented,
-                          allowedContentTypes: autoEditAudioTypes,
-                          allowsMultipleSelection: false) { result in
-                handleBGMImport(result)
+            // 「BGMを選ぶ」: 用意された曲(BGMLibrarySection)と、ファイルから選ぶ(前はファイルアプリしか開かなかった)
+            .sheet(isPresented: $isBGMImporterPresented, onDismiss: finishBGMPicker) {
+                AutoEditBGMPickerSheet(project: project) { result in
+                    pickedBGMFile = result
+                }
+            }
+            .onChange(of: isBGMImporterPresented) { _, presented in
+                if presented {
+                    // 用意された曲の「使う」はプロジェクトの BGM を直接変えるので、開く前の状態を記録しておく
+                    // (何も変えずに閉じたら finishBGMPicker で記録を取り除く)
+                    history.record(project)
+                    bgmURLBeforePicker = project.audio.bgmURL
+                }
             }
             .confirmationDialog("いまのプロジェクトを作り直しますか?",
                                 isPresented: $showBuildConfirm,
@@ -140,16 +154,18 @@ struct AutoEditSheetView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
-            if settings.titleText.isEmpty, let first = project.clips.first {
-                settings.titleText = first.name
-            }
+            // タイトルが空ならスタイルの既定のタイトル(「ある日の記録」など)を使う。
+            // クリップ名は写真アプリの元のファイル名(IMG_1234 など)なので、初期値には入れない
             if project.audio.bgmURL == nil {
                 settings.useBGMBeats = false
             }
         }
-        // 閉じたら途中の作成を止める(閉じたあとにプロジェクトを置き換えないように)
+        // 閉じたら途中の作成を止める(閉じたあとにプロジェクトを置き換えないように)。
+        // 全画面広告がシートの上に出たときにも呼ばれるので、そのときは止めない(広告のあと黙って何も起きないように)
         .onDisappear {
-            analysis.cancel()
+            if !AdsManager.shared.isShowing {
+                analysis.cancel()
+            }
         }
     }
 
@@ -356,7 +372,8 @@ struct AutoEditSheetView: View {
     private var bgmSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             AutoEditStepHeader(number: 3, title: String(localized: "音楽"))
-            if let name = project.audio.bgmName, project.audio.bgmURL != nil {
+            if let storedName = project.audio.bgmName, project.audio.bgmURL != nil {
+                let name = BGMTrack.displayName(forStoredName: storedName)
                 HStack(spacing: 12) {
                     Image(systemName: "music.note")
                         .font(.title3)
@@ -617,6 +634,17 @@ struct AutoEditSheetView: View {
 
     // MARK: 処理
 
+    /// 「BGMを選ぶ」のシートを閉じたあと: ファイルで選んだ曲を取り込む。用意された曲に変えたらビート合わせをオンにする
+    private func finishBGMPicker() {
+        history.discardLastIfUnchanged(project)
+        if let picked = pickedBGMFile {
+            pickedBGMFile = nil
+            handleBGMImport(picked)
+        } else if let url = project.audio.bgmURL, url != bgmURLBeforePicker {
+            settings.useBGMBeats = true
+        }
+    }
+
     private func handleBGMImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
@@ -632,6 +660,7 @@ struct AutoEditSheetView: View {
                 history.record(project)
                 project.audio.bgmURL = localURL
                 project.audio.bgmName = url.deletingPathExtension().lastPathComponent
+                project.audio.bgmSourceStart = 0
                 settings.useBGMBeats = true
             } catch {
                 errorText = String(localized: "端末の空き容量を確かめて、もう一度曲を選んでください(Apple Music の曲は使えません)。\n\n詳細: ") + error.localizedDescription
@@ -703,6 +732,52 @@ struct AutoEditSheetView: View {
 }
 
 // MARK: - おまかせ編集の部品
+
+/// おまかせ編集・スライドショーの「BGMを選ぶ」: 用意された曲(BGMLibrarySection。「使う」で project の BGM になる)と、
+/// ファイルアプリから選ぶ。ファイルで選んだ結果は onFilePicked で返し、シートが閉じてから呼んだ側で取り込む
+private struct AutoEditBGMPickerSheet: View {
+    @Bindable var project: EditorProject
+    let onFilePicked: (Result<[URL], Error>) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var isImporterPresented = false
+    /// 「用意された曲」の試聴(シートを閉じたときに止める。BGMLibrarySection は再生を持たない)
+    @State private var bgmPreview = BGMPreviewPlayer()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Button {
+                        isImporterPresented = true
+                    } label: {
+                        Label("ファイルから選ぶ", systemImage: "folder")
+                    }
+                } footer: {
+                    Text("Apple Music の曲は使えません")
+                }
+                BGMLibrarySection(project: project, player: bgmPreview)
+            }
+            // 曲の一覧の読み込みと試聴の停止は、行ごとではなく画面全体で(BGMLibrarySection.swift)
+            .task { await BGMTrackStore.shared.loadCatalog() }
+            .onDisappear { bgmPreview.stop() }
+            .navigationTitle("BGMを選ぶ")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完了") { dismiss() }
+                }
+            }
+            .fileImporter(isPresented: $isImporterPresented,
+                          allowedContentTypes: autoEditAudioTypes,
+                          allowsMultipleSelection: false) { result in
+                onFilePicked(result)
+                dismiss()
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+}
 
 /// 手順の見出し(番号の丸 + 一言)
 private struct AutoEditStepHeader: View {
@@ -889,6 +964,10 @@ struct EditorAutoEditTemplatePanel: View {
     @State private var pending: AutoEditor.Template?
     @State private var errorText: String?
     @State private var message: String?
+    /// 最初にテンプレを適用する前の状態と、最後に適用した結果。パネルを開いたまま続けて別のテンプレを選んだときは、
+    /// 前の結果に重ねず最初の状態から作り直す(重ねると素材が前のテンプレの範囲だけになり、タイトルも重なっていた)
+    @State private var templateBase: ProjectSnapshot?
+    @State private var lastTemplateResult: ProjectSnapshot?
 
     private var confirmIsPresented: Binding<Bool> {
         Binding<Bool>(
@@ -974,14 +1053,23 @@ struct EditorAutoEditTemplatePanel: View {
         errorText = nil
         message = nil
         player.pause()
-        let snapshot = project.snapshot()
+        // 適用する直前の状態(止めたとき・失敗したときはここへ戻す)
+        let before = project.snapshot()
+        // 直前に適用したテンプレの結果のままなら、そのテンプレをかける前の状態から作り直す。
+        // 手で直したあと(結果と違うとき)は、いまの状態を元にする
+        let snapshot: ProjectSnapshot
+        if let base = templateBase, let last = lastTemplateResult, last == before {
+            snapshot = base
+        } else {
+            snapshot = before
+            templateBase = before
+        }
         var settings = template.settings
         if project.audio.bgmURL == nil {
             settings.useBGMBeats = false
         }
-        if settings.addTitleCard, settings.titleText.isEmpty, let first = project.clips.first {
-            settings.titleText = first.name
-        }
+        // タイトルが空ならスタイルの既定のタイトル(「ある日の記録」など)を使う
+        // (前はクリップ名 = 写真アプリの元のファイル名(IMG_1234 など)が入っていた)
         let chosenSettings = settings
         let name = template.name
         let finish = template.finish
@@ -1006,7 +1094,7 @@ struct EditorAutoEditTemplatePanel: View {
                         report(0.7 + (cleanup.isEnabled ? 0.2 : 0.3) * fraction)
                     }
                 } catch {
-                    project.restore(snapshot)
+                    project.restore(before)
                     throw error
                 }
             }
@@ -1021,7 +1109,7 @@ struct EditorAutoEditTemplatePanel: View {
                         report(base + (1 - base) * fraction)
                     }
                     if Task.isCancelled {
-                        project.restore(snapshot)
+                        project.restore(before)
                         return
                     }
                     if !plan.isEmpty {
@@ -1029,7 +1117,7 @@ struct EditorAutoEditTemplatePanel: View {
                         cleanupNote = plan.summaryText
                     }
                 } catch is CancellationError {
-                    project.restore(snapshot)
+                    project.restore(before)
                     throw CancellationError()
                 } catch {
                     cleanupNote = nil
@@ -1044,6 +1132,7 @@ struct EditorAutoEditTemplatePanel: View {
             if let cleanupNote {
                 message = (message ?? "") + "\n" + cleanupNote
             }
+            lastTemplateResult = project.snapshot()
             onApplied()
         } onError: { error in
             errorText = String(localized: "もう一度「適用」を押してください。続くときは別のテンプレートをお試しください。\n\n詳細: ") + error.localizedDescription
@@ -1082,7 +1171,12 @@ struct SlideshowSheetView: View {
     /// この画面で選んだ BGM(プロジェクトに BGM がないとき)
     @State private var pickedBGM: URL?
     @State private var pickedBGMName: String?
+    /// 「BGMを選ぶ」のシート(用意された曲とファイル。AutoEditBGMPickerSheet)を開いているか
     @State private var isBGMImporterPresented = false
+    /// シートでファイルから選んだ曲(シートを閉じてから取り込む)
+    @State private var pickedBGMFile: Result<[URL], Error>?
+    /// 用意された曲を受け取る仮のプロジェクト(スライドショーを作るまで、いまのプロジェクトの BGM は変えない)
+    @State private var bgmScratch = EditorProject()
     @State private var mode: Mode = .replace
     @State private var analysis = EditorAnalysisRunner()
     @State private var errorText: String?
@@ -1125,10 +1219,18 @@ struct SlideshowSheetView: View {
             }
             // 作成中はスワイプで閉じられないようにする(閉じたあとに結果がプロジェクトに入らないように)
             .interactiveDismissDisabled(analysis.isRunning)
-            .fileImporter(isPresented: $isBGMImporterPresented,
-                          allowedContentTypes: autoEditAudioTypes,
-                          allowsMultipleSelection: false) { result in
-                handleBGMImport(result)
+            // 「BGMを選ぶ」: 用意された曲(BGMLibrarySection)と、ファイルから選ぶ(前はファイルアプリしか開かなかった)
+            .sheet(isPresented: $isBGMImporterPresented, onDismiss: finishBGMPicker) {
+                AutoEditBGMPickerSheet(project: bgmScratch) { result in
+                    pickedBGMFile = result
+                }
+            }
+            .onChange(of: isBGMImporterPresented) { _, presented in
+                if presented {
+                    // 用意された曲の「使用中」の印を、いまこの画面で選んでいる曲に合わせる
+                    bgmScratch.audio.bgmURL = pickedBGM
+                    bgmScratch.audio.bgmName = pickedBGMName
+                }
             }
             .alert("お知らせ", isPresented: errorIsPresented) {
                 Button("OK", role: .cancel) {}
@@ -1144,9 +1246,12 @@ struct SlideshowSheetView: View {
             }
             await loadThumbnails()
         }
-        // 閉じたら途中の作成を止める(閉じたあとにプロジェクトを置き換えないように)
+        // 閉じたら途中の作成を止める(閉じたあとにプロジェクトを置き換えないように)。
+        // 全画面広告がシートの上に出たときにも呼ばれるので、そのときは止めない(広告のあと黙って何も起きないように)
         .onDisappear {
-            analysis.cancel()
+            if !AdsManager.shared.isShowing {
+                analysis.cancel()
+            }
         }
     }
 
@@ -1235,7 +1340,8 @@ struct SlideshowSheetView: View {
 
     private var bgmSection: some View {
         Section {
-            if let name = project.audio.bgmName, project.audio.bgmURL != nil {
+            if let storedName = project.audio.bgmName, project.audio.bgmURL != nil {
+                let name = BGMTrack.displayName(forStoredName: storedName)
                 Toggle(isOn: $useProjectBGM) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("プロジェクトの BGM を使う")
@@ -1334,6 +1440,26 @@ struct SlideshowSheetView: View {
         }
     }
 
+    /// 「BGMを選ぶ」のシートを閉じたあと: ファイルで選んだ曲を取り込む。用意された曲を「使う」にしたら、その曲にする
+    private func finishBGMPicker() {
+        if let picked = pickedBGMFile {
+            pickedBGMFile = nil
+            handleBGMImport(picked)
+        } else if let url = bgmScratch.audio.bgmURL, url != pickedBGM {
+            pickedBGM = url
+            pickedBGMName = bgmScratch.audio.bgmName
+        }
+    }
+
+    /// 末尾に追加するときに、スタイルの色味(プロジェクト全体の DocumentaryStyle.look)の代わりに、足した写真へ付けるフィルター
+    private static func appendedLookFilter(_ style: DocumentaryStyle) -> (preset: FilterPreset, intensity: Double)? {
+        switch style.look {
+        case .documentary: return (.cinematic, min(1, max(0, style.lookIntensity)))
+        case .cinematicWarm: return (.warmFilm, min(1, max(0, style.lookIntensity)))
+        default: return nil
+        }
+    }
+
     @MainActor
     private func loadThumbnails() async {
         for url in images.prefix(40) {
@@ -1384,10 +1510,37 @@ struct SlideshowSheetView: View {
                 player.seek(to: 0)
             } else {
                 let durationBefore = project.layoutDuration
-                project.clips.append(contentsOf: result.clips)
+                let firstNewIndex = project.clips.count
+                var added = result.clips
+                // 色味: プロジェクト全体の色味(DocumentaryStyle)はいまの動画にもかかるので変えず、
+                // いまの動画に色味が無いときだけ、足した写真に近い色のフィルターを付ける(前は黙って無視していた)
+                if chosenSettings.applyLook, project.documentary.look == LookPreset.none,
+                   let look = Self.appendedLookFilter(result.documentary) {
+                    for i in added.indices where added[i].filter.preset == .none {
+                        added[i].filter.preset = look.preset
+                        added[i].filter.intensity = look.intensity
+                    }
+                }
+                project.clips.append(contentsOf: added)
                 project.extendChapterLabelsAfterAppend(previousDuration: durationBefore)
+                // 「最初にタイトルを入れる」のタイトルは、足した写真の頭に入れる(前は捨てていた)
+                if !result.titleCards.isEmpty {
+                    let starts = project.clipStartTimes()
+                    let offset = firstNewIndex < starts.count ? starts[firstNewIndex] : durationBefore
+                    for card in result.titleCards {
+                        var moved = card
+                        moved.start += offset
+                        project.titleCards.append(moved)
+                    }
+                    project.titleCards.sort { $0.start < $1.start }
+                }
+                // BGM は曲と音量・フェードアウトだけ入れる(元の動画の音量やフェードインの設定はそのまま)
                 if project.audio.bgmURL == nil, result.audio.bgmURL != nil {
-                    project.audio = result.audio
+                    project.audio.bgmURL = result.audio.bgmURL
+                    project.audio.bgmName = result.audio.bgmName
+                    project.audio.bgmSourceStart = 0
+                    project.audio.bgmVolume = result.audio.bgmVolume
+                    project.audio.bgmFadeOut = result.audio.bgmFadeOut
                 }
             }
             dismiss()

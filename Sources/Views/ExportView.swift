@@ -76,6 +76,48 @@ fileprivate func exportDurationString(_ seconds: Double) -> String {
     return String(format: "%d:%02d", m, s)
 }
 
+/// 秒の入力を読む。小数点が「,」の地域(ブラジル・スペインなど)や全角の数字・記号でも読めるように、
+/// 半角にして「,」を「.」にそろえてから読む
+fileprivate func exportParseSeconds(_ text: String) -> Double? {
+    var s = text.trimmingCharacters(in: .whitespaces)
+    s = s.applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? s
+    s = s.replacingOccurrences(of: ",", with: ".")
+    return Double(s)
+}
+
+/// 秒を、端末の地域の書き方(小数点が「,」の地域など)で小数 1 桁にする。桁区切りは付けない(読み直せるように)
+fileprivate func exportSecondsText(_ seconds: Double) -> String {
+    seconds.formatted(.number.precision(.fractionLength(1)).grouping(.never))
+}
+
+/// 詳細設定で解像度を自分で選んだプロジェクト(プランが変わっても、解像度を選び直さない)。
+/// UserDefaults にプロジェクトの ID で残す。画質のタイルを押したら外す
+fileprivate enum ExportManualResolution {
+    private static let key = "export.manualResolutionProjects"
+    /// 残しておく数の上限(古いものから捨てる)
+    private static let limit = 200
+
+    static func isManual(_ id: UUID?) -> Bool {
+        guard let id else { return false }
+        return (UserDefaults.standard.stringArray(forKey: key) ?? []).contains(id.uuidString)
+    }
+
+    static func set(_ id: UUID?, manual: Bool) {
+        guard let id else { return }
+        var list = UserDefaults.standard.stringArray(forKey: key) ?? []
+        let had = list.contains(id.uuidString)
+        guard had != manual else { return }
+        list.removeAll { $0 == id.uuidString }
+        if manual {
+            list.append(id.uuidString)
+            if list.count > limit {
+                list.removeFirst(list.count - limit)
+            }
+        }
+        UserDefaults.standard.set(list, forKey: key)
+    }
+}
+
 /// GIF 書き出しの範囲の決め方
 fileprivate enum ExportGIFRange: String, CaseIterable, Identifiable {
     case whole, marker, custom
@@ -97,6 +139,9 @@ struct ExportView: View {
     @Bindable var project: EditorProject
     /// 編集画面のプレーヤー(「比較を開く」で使う。省略時は比較画面用に内部で用意する)
     var player: PlayerController? = nil
+    /// 開いているプロジェクト(ProjectLibrary の ID)。書き出し履歴のプロジェクト分けと、
+    /// 前の結果がこのプロジェクトのものかの確認、手で選んだ解像度の記録に使う
+    var projectID: UUID? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -120,6 +165,10 @@ struct ExportView: View {
     @State private var historyToDelete: [ExportRecord] = []
     /// 「書き出した動画を整理」(ExportFilesView)を開いているか
     @State private var showExportFiles: Bool = false
+    /// Exports フォルダの書き出し済みの動画の合計(空き容量が足りないときに「整理」を勧めるのに使う)
+    @State private var exportedBytes: Int64 = 0
+    /// 書き出し中のカードの「キャンセル」の確認
+    @State private var confirmCancelExport = false
 
     // GIF
     @State private var showGIFPanel: Bool = false
@@ -140,6 +189,10 @@ struct ExportView: View {
     @State private var packChapters = true
     @State private var packFiles: [URL] = []
     @State private var packMessage: String?
+    /// サムネ・キャプションファイルなどを作れなかったときの理由(作れたものはそのまま残す)
+    @State private var packError: String?
+    /// SNS パックの動画の書き出しが終わるのを待っている(終わったら動画を「ファイルを送る」に足す)
+    @State private var packAwaitingVideos = false
     /// プランで書き出せない理由(4K・長さ)。出ているあいだは確認を出す
     @State private var planBlock: PlanExportBlock?
     /// planBlock が SNS パックから出たか(「1080p で書き出す」でパックを作り直す)
@@ -188,6 +241,18 @@ struct ExportView: View {
         .sheet(isPresented: $showPlans) {
             PlanPaywallView()
         }
+        // 書き出し中のカードの「キャンセル」は、編集画面のバナーの ■ と同じく確認してから止める
+        .confirmationDialog("書き出しを止めますか?", isPresented: $confirmCancelExport, titleVisibility: .visible) {
+            Button("止める", role: .destructive) {
+                exporter.cancel()
+            }
+            Button("続ける", role: .cancel) {}
+        }
+        .onChange(of: exporter.isRunning) { _, running in
+            if !running, packAwaitingVideos {
+                finishPackVideos()
+            }
+        }
     }
 
     private var planBlockTitle: String {
@@ -226,14 +291,21 @@ struct ExportView: View {
             Color.black.opacity(0.55)
                 .ignoresSafeArea()
             WorkingCardWithAd { inlineAd in
+                // 案内は、ロック中も続ける処理(iOS 26 の継続処理)が本当に動いているかで決める(BackgroundWorkNote)。
+                // 編集に戻りたいときは「閉じて編集に戻る」(書き出しは続き、編集画面の上に進み具合が出る)。
+                // 「キャンセル」は確認してから止める(閉じるつもりで押して長い書き出しを失わないように)
                 AIWorkingCard(title: String(localized: "書き出しています"),
                               fraction: progress,
                               detail: detail.isEmpty ? nil : detail,
                               note: BackgroundWorkNote.export,
-                              noteIcon: BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle",
+                              noteIcon: BackgroundWorkNote.exportIcon,
                               inlineAd: inlineAd,
                               showsScanning: false,
-                              onCancel: { exporter.cancel() })
+                              secondaryAction: WorkingCardAction(title: String(localized: "閉じて編集に戻る"),
+                                                                 systemImage: "chevron.down",
+                                                                 footnote: String(localized: "書き出しは続きます。進み具合は編集画面の上に出ます。"),
+                                                                 action: { dismiss() }),
+                              onCancel: { confirmCancelExport = true })
             }
         }
     }
@@ -257,13 +329,11 @@ struct ExportView: View {
             .scrollContentBackground(.hidden)
             .background(exportFormBackground)
             .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 0) {
-                    bottomBar
-                    // 書き出しボタンの下にバナー広告(届く前から同じ高さで場所を取るので、ボタンは動かない。届かなければ閉じる。BannerAdView.swift)
-                    BannerAdSlot()
-                }
-                // 広告の横・下(ホームバーの所)に、後ろの表がすけて見えないように塗る
-                .background(Color.black.ignoresSafeArea(edges: .bottom))
+                // 書き出し画面にはバナー広告を出さない(いちばん押される「書き出す」ボタンのすぐ下になり、
+                // 押し間違えのクリックで AdMob の制限を受けるおそれがあるため)
+                bottomBar
+                    // ボタンの下(ホームバーの所)に、後ろの表がすけて見えないように塗る
+                    .background(Color.black.ignoresSafeArea(edges: .bottom))
             }
             .navigationTitle("書き出し")
             .navigationBarTitleDisplayMode(.inline)
@@ -272,7 +342,7 @@ struct ExportView: View {
                     Button("閉じる") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showExportFiles) {
+            .sheet(isPresented: $showExportFiles, onDismiss: { recomputeEstimate() }) {
                 // 書き出し済みの動画の整理(消すと履歴からも消える)
                 NavigationStack {
                     ExportFilesView()
@@ -292,10 +362,18 @@ struct ExportView: View {
                                 // 「この位置で編集画面に戻る」は比較と書き出しの両方を閉じる
                                 compareTarget = nil
                                 dismiss()
-                            })
+                            },
+                            projectID: projectID)
             }
             .onAppear {
+                clearStaleResultIfNeeded()
                 applyRecommendedPresetIfNeeded()
+                reapplyPresetForCurrentPlan()
+                recomputeEstimate()
+            }
+            .onChange(of: plans.terms.maxResolution) {
+                // プランが変わったら(この画面からプランを買ったときなど)、下げていた画質を新しいプランの上限で選び直す
+                reapplyPresetForCurrentPlan()
                 recomputeEstimate()
             }
             .onDisappear {
@@ -361,6 +439,41 @@ struct ExportView: View {
         project.canvas = ExportViewPreset.sns.apply(to: canvas, cap: cap)
     }
 
+    /// プランの上限で下げた画質(SNS 向け・軽量)のままなら、いまのプランの上限で選び直す
+    /// (無料のときに開いて 720p に下げたあとで有料プランにしたとき。下げたままだと有料でも 720p で書き出されていた)。
+    /// 上げるときだけ(プランが下がったときは書き出すときの確認に任せる)。詳細設定で解像度を選んだプロジェクトは変えない
+    private func reapplyPresetForCurrentPlan() {
+        guard !exporter.isRunning, !ExportManualResolution.isManual(projectID) else { return }
+        let canvas = project.canvas
+        let cap = plans.terms.maxResolution
+        guard !ExportViewPreset.allCases.contains(where: { $0.matches(canvas, cap: cap) }) else { return }
+        for preset in [ExportViewPreset.sns, ExportViewPreset.light] {
+            let lowered = ResolutionCap.allCases.contains { lower in
+                lower.maxShortSide < cap.maxShortSide && preset.matches(canvas, cap: lower)
+            }
+            if lowered {
+                project.canvas = preset.apply(to: canvas, cap: cap)
+                return
+            }
+        }
+    }
+
+    /// 前の書き出しの結果が、別のプロジェクトのものか、書き出したあとに編集したものなら片付ける
+    /// (大きな「共有」「TikTok に投稿」で古い動画を送らないように。前の書き出しは下の履歴から共有できる)
+    private func clearStaleResultIfNeeded() {
+        guard !exporter.isRunning else { return }
+        switch exporter.state {
+        case .finished, .failed, .cancelled:
+            break
+        default:
+            return
+        }
+        if let source = exporter.resultSource, source.projectID == projectID, source.snapshot == project.snapshot() {
+            return
+        }
+        exporter.clearResult()
+    }
+
     private var presetSection: some View {
         Section {
             HStack(spacing: 10) {
@@ -391,6 +504,7 @@ struct ExportView: View {
                 return
             }
             project.canvas = preset.apply(to: project.canvas, cap: cap)
+            ExportManualResolution.set(projectID, manual: false)
         } label: {
             VStack(spacing: 8) {
                 Image(systemName: preset.systemImage)
@@ -408,6 +522,10 @@ struct ExportView: View {
                 Text(preset.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(selected ? Color.white : Color.primary)
+                // 実際に書き出す解像度(プランの上限で下がっていることが分かるように)
+                Text(locked ? preset.resolution.displayName : preset.resolution.capped(at: cap).displayName)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, minHeight: 76)
             .background(selected ? BrandStyle.surfaceStrong : BrandStyle.surface,
@@ -443,8 +561,8 @@ struct ExportView: View {
 
     private var summarySection: some View {
         Section {
-            // 書き終わったあとは、上の完成した動画を見せるので出さない
-            if exporter.isRunning || exporter.state != .finished {
+            // 書き終わったあとは、上の完成した動画を見せるので出さない(整理で消したあとは出す)
+            if !isFinishedWithOutput {
                 VStack(spacing: 10) {
                     ExportPosterView(project: project, aspect: outputAspect)
                     Text(summaryLine)
@@ -458,6 +576,20 @@ struct ExportView: View {
                 .disabled(exporter.isRunning)
         }
         .listRowBackground(exportRowBackground)
+    }
+
+    /// 空き容量が足りないときに出す「書き出した動画を整理(合計)」。アプリの中の書き出し済みの動画を消すいちばん早い方法
+    /// (写真アプリに保存したものは残る)
+    private var cleanUpExportsButton: some View {
+        Button {
+            showExportFiles = true
+        } label: {
+            Label(String(localized: "書き出した動画を整理(\(StorageEstimator.formatBytes(exportedBytes)))"),
+                  systemImage: "folder.badge.minus")
+        }
+        .font(.subheadline)
+        .buttonStyle(.borderless)
+        .frame(minHeight: 44)
     }
 
     private func shortfallText(_ estimate: StorageEstimate) -> String {
@@ -502,7 +634,7 @@ struct ExportView: View {
     /// 比率と収め方は編集画面で決めるので、ここでは解像度と画質だけ
     private var customSection: some View {
         Section {
-            Picker("解像度", selection: $project.canvas.resolution) {
+            Picker("解像度", selection: resolutionBinding) {
                 ForEach(ResolutionCap.allCases) { r in
                     if plans.terms.allows(r) {
                         Text(r.displayName).tag(r)
@@ -521,6 +653,17 @@ struct ExportView: View {
         }
         .listRowBackground(exportRowBackground)
         .disabled(exporter.isRunning)
+    }
+
+    /// 詳細設定の解像度。自分で選んだら覚えておき、プランが変わっても選び直さない(reapplyPresetForCurrentPlan)
+    private var resolutionBinding: Binding<ResolutionCap> {
+        Binding<ResolutionCap>(
+            get: { project.canvas.resolution },
+            set: { newValue in
+                project.canvas.resolution = newValue
+                ExportManualResolution.set(projectID, manual: true)
+            }
+        )
     }
 
     /// 画質・解像度・コーデックから自動で決まる映像ビットレート(Mbps)。
@@ -713,14 +856,26 @@ struct ExportView: View {
             if exporter.isRunning {
                 runningLine
             } else if isFinishedWithOutput, let url = exporter.lastOutputURL {
-                // 書き出しが終わったら、下のボタンは「共有」1 つにする(同じ形のボタンが上下に 2 つ並ばないように)
-                ShareLink(item: url) {
-                    Label("共有", systemImage: "square.and.arrow.up")
-                        .font(.headline)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                // 書き出しが終わったら、下のボタンは「共有」1 つにする(同じ形のボタンが上下に 2 つ並ばないように)。
+                // 縦横同時で 2 本できたときは 2 本とも送る
+                let outputs = exporter.lastRunOutputURLs
+                if outputs.count > 1 {
+                    ShareLink(items: outputs) {
+                        Label("共有", systemImage: "square.and.arrow.up")
+                            .font(.headline)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(BrandProminentButtonStyle())
+                } else {
+                    ShareLink(item: url) {
+                        Label("共有", systemImage: "square.and.arrow.up")
+                            .font(.headline)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(BrandProminentButtonStyle())
                 }
-                .buttonStyle(BrandProminentButtonStyle())
                 if lastOutputIsVideo, TikTokShare.isAvailable {
                     // TikTok に直接送る(写真に保存した動画を渡す。まだなら先に保存する)
                     Button {
@@ -775,6 +930,10 @@ struct ExportView: View {
                         .font(.caption)
                         .foregroundStyle(Color.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // 空き容量が足りないときは、アプリの中の書き出し済みの動画の整理を勧める
+                if let estimate, !estimate.canExport, !project.isEmpty, exportedBytes > 0 {
+                    cleanUpExportsButton
                 }
             }
         }
@@ -833,6 +992,9 @@ struct ExportView: View {
     private var resultSection: some View {
         if !exporter.isRunning {
             switch exporter.state {
+            case .finished where exporter.lastOutputURL == nil:
+                // 書き出したファイルを整理で消したあと(「できました」とだけ残さない)
+                EmptyView()
             case .finished, .failed, .cancelled:
                 Section {
                     resultView
@@ -869,13 +1031,20 @@ struct ExportView: View {
                         .font(.headline)
                         .foregroundStyle(Color.green)
                 }
+                if exporter.lastRunOutputURLs.count > 1 {
+                    Text("\(exporter.lastRunOutputURLs.count) 本の動画ができました。下の「共有」でまとめて送れます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
                 if !exporter.savedToPhotos && lastOutputIsVideo {
                     photoSaveFallback
                 }
-                // 共有ボタンは画面の下(bottomBar)。感想と広告はここ。広告は届いてから場所を取る(届かなければ何も出さない)
+                // 共有ボタンは画面の下(bottomBar)。感想と広告はここ。
+                // 広告は最初から高さ 72 の枠を取る(あとから差し込まれて下の行がずれ、押し間違えにならないように)
                 ExportFeedbackCard()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                NativeAdCard(reservesSpace: false)
+                NativeAdCard(reservesSpace: true)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
@@ -888,6 +1057,10 @@ struct ExportView: View {
                 Text(String(localized: "詳細: ") + message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // 空き容量が足りなかったときは、書き出し済みの動画の整理を勧める
+                if exporter.failureKind == .disk, exportedBytes > 0 {
+                    cleanUpExportsButton
+                }
             }
             .padding(.vertical, 4)
         case .cancelled:
@@ -955,6 +1128,7 @@ struct ExportView: View {
 
     private func recomputeEstimate() {
         estimate = StorageEstimator.estimate(for: project.snapshot())
+        exportedBytes = ExportFileStore.totalSize(of: ExportFileStore.listFiles())
     }
 
     private func startExport() {
@@ -964,12 +1138,16 @@ struct ExportView: View {
         guard !blockedByPlan() else { return }
         let snapshot = project.snapshot()
         let wantsPhotos = saveToPhotos
-        exporter.start(snapshot: snapshot, saveToPhotos: wantsPhotos)
+        exporter.start(snapshot: snapshot, saveToPhotos: wantsPhotos,
+                       source: ExportSource(projectID: projectID, snapshot: snapshot))
         // 書き出しは広告の間も続く。初回は通知・写真の許可の確認(ExportManager が開始時に聞く)が出ることがあるので、
         // 出るかもしれないときは全画面広告を出さない(システムの確認の上に重ねない)
         Task { @MainActor in
             let mayPrompt = await ExportManager.permissionPromptMayAppear(saveToPhotos: wantsPhotos)
             guard !mayPrompt, exporter.isRunning else { return }
+            // iOS 26 でロック中も続ける処理を受け付けてもらえなかったときは出さない
+            // (広告からアプリの外に出ると、約 30 秒で書き出しが止まるため)
+            guard !BackgroundWorkNote.canContinueInBackground || BackgroundWorkNote.continues(.export) else { return }
             AdsManager.shared.showInterstitial(.exportStart)
         }
     }
@@ -1005,7 +1183,7 @@ struct ExportView: View {
             var assetID = exporter.photoAssetIdentifier(for: url)
             if assetID == nil {
                 do {
-                    try await exporter.saveLastOutputToPhotos()
+                    try await exporter.saveLastOutputToPhotos(onlyLast: true)
                 } catch {
                     isPostingToTikTok = false
                     showAlert(title: String(localized: "TikTok に送れませんでした"),
@@ -1076,8 +1254,8 @@ struct ExportView: View {
             let end = (i + 1 < markers.count) ? min(max(0, markers[i + 1].time), total) : total
             return end - start > 0.1 ? (start, end) : nil
         case .custom:
-            guard let s = Double(gifStartText.trimmingCharacters(in: .whitespaces)),
-                  let e = Double(gifEndText.trimmingCharacters(in: .whitespaces)) else { return nil }
+            guard let s = exportParseSeconds(gifStartText),
+                  let e = exportParseSeconds(gifEndText) else { return nil }
             let start = min(max(0, s), total)
             let end = min(max(0, e), total)
             return end - start > 0.1 ? (start, end) : nil
@@ -1091,7 +1269,20 @@ struct ExportView: View {
         if length > 15 {
             text += String(localized: " ・ 長いとファイルが大きくなります")
         }
+        // コマ数の上限を超えるときは、範囲の最後まで入るようにコマの間隔を広げる(GIFExporter と同じ上限)
+        let limit = gifFrameLimit
+        if length > 0, length * Double(gifFPS) > Double(limit) {
+            let effective = Double(limit) / length
+            text += String(localized: " ・ 長いのでコマを間引きます(約 \(String(format: "%.1f", effective)) コマ/秒)")
+        }
         return text
+    }
+
+    /// 選んだ横幅で作れる GIF の最大のコマ数(GIFExporter.frameLimit。縦長・大きい横幅ほど少ない)
+    private var gifFrameLimit: Int {
+        let width = CGFloat(gifMaxWidth)
+        let aspect = max(outputAspect, 0.1)
+        return GIFExporter.frameLimit(for: CGSize(width: width, height: (width / aspect).rounded()))
     }
 
     /// キャプションファイル・チャプター一覧は、中身があるときだけ数える
@@ -1123,6 +1314,11 @@ struct ExportView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if let packError {
+                Text(packError)
+                    .font(.caption)
+                    .foregroundStyle(Color.orange)
+            }
             if !packFiles.isEmpty {
                 ShareLink(items: packFiles) {
                     Label("ファイルを送る", systemImage: "square.and.arrow.up")
@@ -1139,19 +1335,27 @@ struct ExportView: View {
         planBlockFromPack = true
         if packLandscape || packPortrait, blockedByPlan() { return }
         let snapshot = project.snapshot()
+        let source = ExportSource(projectID: projectID, snapshot: snapshot)
         let wantCover = packCover
         let wantSRT = packSRT && !snapshot.subtitles.isEmpty
         let wantChapters = packChapters && hasChapters
         let landscape = packLandscape
         let portrait = packPortrait
         let save = saveToPhotos
-        // サムネは選んだ向きごとに作る。動画を選んでいなければ、いまの作品の向きで 1 枚
-        var coverSizes: [(name: String, size: CGSize)] = []
-        if portrait { coverSizes.append((name: "thumbnail_vertical.jpg", size: CGSize(width: 1080, height: 1920))) }
-        if landscape { coverSizes.append((name: "thumbnail.jpg", size: CGSize(width: 1280, height: 720))) }
+        // サムネは選んだ向きごとに、その向きの動画と同じ形(縦は作品が 9:16 でなければぼかし背景)のコマから作る
+        // (作品と違う向きでも、まん中を切り抜いて引き伸ばさない)。動画を選んでいなければ、いまの作品の向きで 1 枚
+        var coverSizes: [(name: String, size: CGSize, snapshot: ProjectSnapshot)] = []
+        if portrait {
+            coverSizes.append((name: "thumbnail_vertical.jpg", size: CGSize(width: 1080, height: 1920),
+                               snapshot: Self.packSnapshot(snapshot, portrait: true)))
+        }
+        if landscape {
+            coverSizes.append((name: "thumbnail.jpg", size: CGSize(width: 1280, height: 720),
+                               snapshot: Self.packSnapshot(snapshot, portrait: false)))
+        }
         if coverSizes.isEmpty {
             let size = outputAspect < 1 ? CGSize(width: 1080, height: 1920) : CGSize(width: 1280, height: 720)
-            coverSizes.append((name: "thumbnail.jpg", size: size))
+            coverSizes.append((name: "thumbnail.jpg", size: size, snapshot: snapshot))
         }
         let covers = coverSizes
         // 縦と横の両方を作るときは 2 本分の空きが要る
@@ -1163,9 +1367,14 @@ struct ExportView: View {
             return
         }
         packFiles = []
+        packError = nil
+        packAwaitingVideos = false
         packMessage = String(localized: "作成中…")
         Task { @MainActor in
             var files: [URL] = []
+            // 1 つ作れなくても、ほかのファイルは作る(理由は上書きせずにまとめて出す)
+            var errors: [String] = []
+            var directory: URL?
             do {
                 let formatter = DateFormatter()
                 formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -1173,58 +1382,129 @@ struct ExportView: View {
                 let dir = try ExportManager.exportsDirectory()
                     .appendingPathComponent("Pack_\(formatter.string(from: Date()))", isDirectory: true)
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                directory = dir
+            } catch {
+                errors.append(error.localizedDescription)
+            }
+            if let dir = directory {
                 if wantCover {
                     for cover in covers {
-                        let image = try await CoverRenderer.render(snapshot: snapshot, cover: snapshot.cover,
-                                                                   size: cover.size)
-                        if let data = image.jpegData(compressionQuality: 0.9) {
-                            let url = dir.appendingPathComponent(cover.name)
-                            try data.write(to: url, options: .atomic)
-                            files.append(url)
+                        do {
+                            let image = try await CoverRenderer.render(snapshot: cover.snapshot, cover: cover.snapshot.cover,
+                                                                       size: cover.size)
+                            if let data = image.jpegData(compressionQuality: 0.9) {
+                                let url = dir.appendingPathComponent(cover.name)
+                                try data.write(to: url, options: .atomic)
+                                files.append(url)
+                            }
+                        } catch {
+                            errors.append(error.localizedDescription)
                         }
                     }
                 }
                 if wantSRT {
-                    let text = SRTCodec.encode(snapshot.subtitles, useTranslation: false, bilingual: false)
-                    let url = dir.appendingPathComponent("subtitles.srt")
-                    try text.write(to: url, atomically: true, encoding: .utf8)
-                    files.append(url)
+                    do {
+                        let text = SRTCodec.encode(snapshot.subtitles, useTranslation: false, bilingual: false)
+                        let url = dir.appendingPathComponent("subtitles.srt")
+                        try text.write(to: url, atomically: true, encoding: .utf8)
+                        files.append(url)
+                    } catch {
+                        errors.append(error.localizedDescription)
+                    }
                 }
                 if wantChapters {
-                    let url = dir.appendingPathComponent("chapters.txt")
-                    try project.chapterListText().write(to: url, atomically: true, encoding: .utf8)
-                    files.append(url)
+                    do {
+                        let url = dir.appendingPathComponent("chapters.txt")
+                        try project.chapterListText().write(to: url, atomically: true, encoding: .utf8)
+                        files.append(url)
+                    } catch {
+                        errors.append(error.localizedDescription)
+                    }
                 }
-            } catch {
-                packMessage = String(localized: "ファイルを作れませんでした: \(error.localizedDescription)")
+            }
+            if !errors.isEmpty {
+                packError = String(localized: "ファイルを作れませんでした: \(errors.joined(separator: " / "))")
             }
             packFiles = files
             if landscape && portrait {
-                exporter.startDual(snapshot: snapshot, saveToPhotos: save)
+                exporter.startDual(snapshot: snapshot, saveToPhotos: save, source: source)
             } else if landscape {
-                var adjusted = snapshot
-                adjusted.canvas.aspect = .landscape16x9
-                exporter.start(snapshot: adjusted, saveToPhotos: save)
+                exporter.start(snapshot: Self.packSnapshot(snapshot, portrait: false), saveToPhotos: save, source: source)
             } else if portrait {
-                var adjusted = snapshot
-                adjusted.canvas.aspect = .portrait9x16
-                adjusted.canvas.scaling = .fitBlur
-                exporter.start(snapshot: adjusted, saveToPhotos: save)
+                exporter.start(snapshot: Self.packSnapshot(snapshot, portrait: true), saveToPhotos: save, source: source)
             }
-            if !files.isEmpty {
-                packMessage = (landscape || portrait)
-                    ? String(localized: "\(files.count) 個のファイルができました。動画は書き出し中です。")
-                    : String(localized: "\(files.count) 個のファイルができました。")
-            } else if landscape || portrait {
-                packMessage = nil
+            if landscape || portrait {
+                if exporter.isRunning {
+                    // 書き出しが終わったら、できた動画を「ファイルを送る」に足して結果を出す(finishPackVideos)
+                    packAwaitingVideos = true
+                    packMessage = files.isEmpty
+                        ? nil
+                        : String(localized: "\(files.count) 個のファイルができました。動画は書き出し中です。")
+                } else {
+                    // 動画の書き出しを始められなかった(空き容量が足りないなど)
+                    finishPackVideos()
+                }
+            } else {
+                packMessage = files.isEmpty ? nil : String(localized: "\(files.count) 個のファイルができました。")
             }
         }
+    }
+
+    /// SNS パックの動画の書き出しが終わったら(完了・失敗・中止)、できた動画を「ファイルを送る」に足して結果を出す
+    private func finishPackVideos() {
+        guard !exporter.isRunning else { return }
+        packAwaitingVideos = false
+        switch exporter.state {
+        case .finished:
+            for url in exporter.lastRunOutputURLs where !packFiles.contains(url) {
+                packFiles.append(url)
+            }
+            packMessage = String(localized: "\(packFiles.count) 個のファイルができました。")
+        case .failed:
+            packMessage = packFiles.isEmpty
+                ? String(localized: "動画を書き出せませんでした。理由は前の画面に出ています。")
+                : String(localized: "\(packFiles.count) 個のファイルはできましたが、動画は書き出せませんでした。理由は前の画面に出ています。")
+        case .cancelled:
+            packMessage = packFiles.isEmpty
+                ? String(localized: "動画の書き出しを止めました。")
+                : String(localized: "\(packFiles.count) 個のファイルはできましたが、動画の書き出しは止めました。")
+        default:
+            packMessage = nil
+        }
+    }
+
+    /// SNS パック(縦横同時)の縦 9:16・横 16:9 の形。縦は、作品が 9:16 でなければぼかし背景で全体を見せる
+    /// (9:16 の作品は収め方をそのままにして、編集画面と同じ画にする。ExportManager.startDualOnMain と同じ)
+    private static func packSnapshot(_ snapshot: ProjectSnapshot, portrait: Bool) -> ProjectSnapshot {
+        var adjusted = snapshot
+        if portrait {
+            if snapshot.canvas.aspect != .portrait9x16 {
+                adjusted.canvas.scaling = .fitBlur
+            }
+            adjusted.canvas.aspect = .portrait9x16
+        } else {
+            adjusted.canvas.aspect = .landscape16x9
+        }
+        // モザイクは画面に対する位置で持っているので、向きを変えた 1 本では映像に合わせて置き直す(顔から外れないように)
+        adjusted.textClips = MosaicRemap.remapped(snapshot.textClips, from: snapshot, to: adjusted)
+        return adjusted
+    }
+
+    /// 音声だけを書き出す。プランの長さの上限は動画と同じにかける(画質の上限は関係ないので、いちばん低い画質で確かめる)
+    private func startAudioOnlyExport() {
+        planBlockFromPack = false
+        if let block = plans.exportBlock(resolution: .hd720, duration: timelineDuration) {
+            planBlock = block
+            return
+        }
+        let snapshot = project.snapshot()
+        exporter.startAudioOnly(snapshot: snapshot, source: ExportSource(projectID: projectID, snapshot: snapshot))
     }
 
     private var extrasSection: some View {
         Section {
             Button {
-                exporter.startAudioOnly(snapshot: project.snapshot())
+                startAudioOnlyExport()
             } label: {
                 Label("音声だけ書き出す", systemImage: "waveform")
             }
@@ -1278,7 +1558,7 @@ struct ExportView: View {
                 gifMarkerID = gifMarkers.first?.id
             }
             if gifRangeMode == .custom, gifEndText.isEmpty {
-                gifEndText = String(format: "%.1f", min(timelineDuration, 5))
+                gifEndText = exportSecondsText(min(timelineDuration, 5))
             }
         }
 
@@ -1310,7 +1590,7 @@ struct ExportView: View {
             HStack {
                 Text("終了(秒)")
                 Spacer()
-                TextField(String(format: "%.1f", timelineDuration), text: $gifEndText)
+                TextField(exportSecondsText(timelineDuration), text: $gifEndText)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 110)

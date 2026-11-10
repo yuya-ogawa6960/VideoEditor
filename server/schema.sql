@@ -6,8 +6,40 @@ CREATE TABLE IF NOT EXISTS users (
   last_daily TEXT,                -- 毎日ボーナスを最後に受け取った日(日本時間 YYYY-MM-DD)
   apple_refresh_token TEXT,       -- Apple のトークン(アカウント削除時に失効させる)。既存の DB には index.js が ALTER TABLE で足す
   speech_carry INTEGER NOT NULL DEFAULT 0, -- まだポイントにしていない読み上げの文字数(10 文字で 1pt の端数)。既存の DB には index.js が ALTER TABLE で足す
-  sub_points INTEGER NOT NULL DEFAULT 0    -- points のうち、プランで付けた今月の分の残り(月が替わると消す)。既存の DB には subscriptions.js が ALTER TABLE で足す
+  sub_points INTEGER NOT NULL DEFAULT 0,   -- points のうち、プランで付けた今月の分の残り(月が替わると消す)。既存の DB には subscriptions.js が ALTER TABLE で足す
+  transcribe_carry INTEGER NOT NULL DEFAULT 0 -- まだポイントにしていない文字起こしの秒数(6 秒で 1pt の端数)。既存の DB には index.js が ALTER TABLE で足す
 );
+
+-- はじめてのボーナスを付けた Apple の利用者(sub_hash は SESSION_SECRET で作った HMAC。元に戻せない)。
+-- アカウントを削除しても残し、作り直したときにボーナスをもう一度付けない。削除した日の毎日ボーナス・広告の回数も引き継ぐ
+CREATE TABLE IF NOT EXISTS signup_grants (
+  sub_hash TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  last_daily TEXT,                -- 削除したときの毎日ボーナスの日(日本時間 YYYY-MM-DD)
+  ad_day TEXT,                    -- 削除した日(日本時間)
+  ad_count INTEGER NOT NULL DEFAULT 0 -- 削除した日に広告でもらった回数
+);
+
+-- 無料プランの試用(50pt)。結果が出なかった・キャンセルしたときにアプリが返す(state: reserved / refunded)
+CREATE TABLE IF NOT EXISTS feature_trials (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  feature TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  from_plan INTEGER NOT NULL DEFAULT 0, -- そのうちプランの分から引いた量(返すときはプランの分に戻す)
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS feature_trials_user ON feature_trials (user_id);
+
+-- リワード広告で Google に渡す ID(アカウントの ID の HMAC)→ 利用者
+CREATE TABLE IF NOT EXISTS reward_ids (
+  reward_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS reward_ids_user ON reward_ids (user_id);
 
 CREATE TABLE IF NOT EXISTS ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,6 +70,12 @@ CREATE TABLE IF NOT EXISTS subscription_grants (
   transaction_id TEXT PRIMARY KEY,
   amount INTEGER NOT NULL,
   created_at TEXT NOT NULL
+);
+
+-- Sandbox(TestFlight・App Review)の購入で最後に毎月のポイントを付けた時刻(ミリ秒)。実時間で 30 日に 1 回だけ付ける
+CREATE TABLE IF NOT EXISTS sandbox_grants (
+  user_id TEXT PRIMARY KEY,
+  granted_at INTEGER NOT NULL
 );
 
 -- リワード広告でもらったポイント(transaction_id で二重付与を防ぐ。day は日本時間 YYYY-MM-DD)

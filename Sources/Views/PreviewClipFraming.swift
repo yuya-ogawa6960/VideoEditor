@@ -122,6 +122,21 @@ enum ClipFramingMath {
                       width: size.width, height: size.height)
     }
 
+    /// クリップのキーフレーム(再生位置の値)で、映像をキャンバスの中心まわりに動かす変換
+    /// (プレビューの座標。ClipKeyframeRenderer と同じ 大きさ → 回転 → 位置 の順)
+    static func keyframeTransform(_ value: KeyframeInterpolator.Value, canvas: CGRect) -> CGAffineTransform {
+        guard !ClipKeyframeRenderer.isStill(value) else { return .identity }
+        let scale = CGFloat(value.scale.isFinite ? min(max(value.scale, 0.01), 20) : 1)
+        let angle = CGFloat((value.rotation.isFinite ? value.rotation : 0) * Double.pi / 180)
+        let dx = CGFloat(value.center.x - 0.5) * canvas.width
+        let dy = CGFloat(value.center.y - 0.5) * canvas.height
+        var t = CGAffineTransform(translationX: -canvas.midX, y: -canvas.midY)
+        t = t.concatenating(CGAffineTransform(scaleX: scale, y: scale))
+        t = t.concatenating(CGAffineTransform(rotationAngle: angle))
+        t = t.concatenating(CGAffineTransform(translationX: canvas.midX + dx, y: canvas.midY + dy))
+        return t
+    }
+
     /// 元の絵ぜんたいの表示位置(window が canvas に「黒帯」なら収まる・「拡大」なら埋まるように置いたとき)
     static func sourceRect(window: NormalizedRect, source: CGSize, canvas: CGRect, scaling: ScalingMode) -> CGRect {
         let winW = CGFloat(window.width) * source.width
@@ -151,6 +166,11 @@ final class ClipFramingSession {
     var lastTranslation: CGSize?
     var magnify: CGFloat = 1
     var lastWrite: CFAbsoluteTime = 0
+    /// 再生位置のクリップのキーフレームの拡大と回転(絵はこの倍率・向きで動くので、指の動きを戻すのに使う)
+    var keyScale: CGFloat = 1
+    var keyRotation: Double = 0
+    /// この操作で履歴を記録したか(映す位置が初めて変わったときに記録する)
+    var historyRecorded = false
 }
 
 extension View {
@@ -229,6 +249,12 @@ struct ClipFramingModifier: ViewModifier {
                                                   canvas: ClipFramingMath.canvasRect(in: size, canvasAspect: canvasAspect))
             let rect = ClipFramingMath.sourceRect(window: window, source: source, canvas: canvas, scaling: scaling)
             let turns = ((clip.geometry.rotationQuarterTurns % 4) + 4) % 4
+            // クリップのキーフレームで拡大・移動・回転していれば、元の絵も同じだけ動かす(合成と同じ。前はずれた位置に出ていた)
+            let keyValue = clip.keyframes.isEmpty
+                ? ClipKeyframeTrack.identity
+                : clip.keyframeValue(atSourceTime: project.sourceTime(timelineTime: player.currentTime, inClip: clip.id) ?? clip.startTime)
+            let keyTransform = ClipFramingMath.keyframeTransform(keyValue,
+                                                                 canvas: ClipFramingMath.canvasRect(in: size, canvasAspect: canvasAspect))
             // 映っている部分(ここには元の絵を重ねない。黒帯は作品の外でも中でも薄く出す)
             let shown = CGRect(x: rect.minX + CGFloat(window.x) * rect.width,
                                y: rect.minY + CGFloat(window.y) * rect.height,
@@ -253,6 +279,7 @@ struct ClipFramingModifier: ViewModifier {
                             }
                             .fill(style: FillStyle(eoFill: true))
                         }
+                        .transformEffect(keyTransform)
                 }
                 // 書き出される範囲の縁
                 Rectangle()
@@ -353,8 +380,16 @@ struct ClipFramingModifier: ViewModifier {
                         let full = ClipFramingMath.sourceRect(window: current, source: session.source,
                                                               canvas: canvas, scaling: session.scaling)
                         if full.width > 0, full.height > 0 {
-                            session.shift.dx -= (translation.width - last.width) / full.width
-                            session.shift.dy -= (translation.height - last.height) / full.height
+                            // クリップのキーフレームで拡大・回転していると、絵はその倍率・向きで動くので、
+                            // 指の動きを向きと倍率で戻してから比率にする(前は指より速く・斜めに動いていた)
+                            let ddx = translation.width - last.width
+                            let ddy = translation.height - last.height
+                            let r = CGFloat(session.keyRotation * Double.pi / 180)
+                            let k = max(session.keyScale, 0.01)
+                            let lx = (ddx * cos(r) + ddy * sin(r)) / k
+                            let ly = (-ddx * sin(r) + ddy * cos(r)) / k
+                            session.shift.dx -= lx / full.width
+                            session.shift.dy -= ly / full.height
                         }
                     }
                     session.lastTranslation = translation
@@ -375,7 +410,8 @@ struct ClipFramingModifier: ViewModifier {
             let starts = project.clipStartTimes()
             if i < starts.count { player.seek(to: starts[i] + 0.05) }
         }
-        history.record(project)
+        // 履歴は映す位置が初めて変わる直前に記録する(apply)。触れただけ・黒帯で動かなかったときは記録せず、「やり直す」も消さない
+        session.historyRecorded = false
         session.isActive = true
         session.clipID = clipID
         session.source = ClipFramingMath.sourceSize(of: clip)
@@ -388,6 +424,11 @@ struct ClipFramingModifier: ViewModifier {
         session.lastTranslation = nil
         session.magnify = 1
         session.lastWrite = 0
+        // 再生位置のキーフレームの拡大・回転(キーが無ければ 1 倍・0°)
+        let keyTime = project.sourceTime(timelineTime: player.currentTime, inClip: clipID) ?? clip.startTime
+        let keyValue = clip.keyframes.isEmpty ? ClipKeyframeTrack.identity : clip.keyframeValue(atSourceTime: keyTime)
+        session.keyScale = CGFloat(keyValue.scale.isFinite ? min(max(keyValue.scale, 0.01), 20) : 1)
+        session.keyRotation = keyValue.rotation.isFinite ? keyValue.rotation : 0
         coachShown = true
         player.beginInteraction(cancelPendingRebuild: true)
         withAnimation(.easeOut(duration: 0.15)) { isAdjusting = true }
@@ -405,6 +446,10 @@ struct ClipFramingModifier: ViewModifier {
         session.shift = CGVector(dx: window.midX - session.startWindow.midX, dy: window.midY - session.startWindow.midY)
         let geometry = ClipFramingMath.geometry(for: window, base: session.baseGeometry)
         if project.clips[i].geometry != geometry {
+            if !session.historyRecorded {
+                history.record(project)
+                session.historyRecorded = true
+            }
             project.clips[i].geometry = geometry
             player.setLiveGeometry(geometry, for: clipID)
         }

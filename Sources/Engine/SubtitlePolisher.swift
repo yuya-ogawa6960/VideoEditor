@@ -181,7 +181,8 @@ enum SubtitlePolisher {
         case .onDevice:
             return isOnDeviceAvailable ? .onDevice : .none
         case .cloud:
-            return settings.isCloudConfigured ? .cloud : .none
+            // 送る前の同意(CloudAIGateway.ensureConsent)がまだなら送らない(「仕上げに使うAI」の画面で同意を聞く)
+            return settings.isCloudConfigured && UserDefaults.standard.bool(forKey: CloudAIGateway.consentKey) ? .cloud : .none
         case .auto:
             // 自動ではクラウドに頼らない(利用料をかけるのは「クラウド」を選んだときだけ)
             return isOnDeviceAvailable ? .onDevice : .none
@@ -813,6 +814,16 @@ enum SubtitlePolisher {
                         .map { SubtitleWord(text: $0.text, start: $0.start, end: $0.end) }
                 } else {
                     newCue.words = rescaleWords(inRange, newText: piece, start: cursor, end: pieceEnd, language: language)
+                }
+            }
+            // 取り除いた言いよどみ(言いよどみカットの候補)は、それ以降で終わる最初の字幕に持たせる(SubtitleSegmenter と同じ)
+            if let removed = cue.removedFillers {
+                let isLast = i == pieces.count - 1
+                let fillers = removed.words.filter { word in
+                    (isLast || word.end <= pieceEnd) && (i == 0 || word.end > cursor)
+                }
+                if !fillers.isEmpty {
+                    newCue.removedFillers = RemovedSubtitleFillers(words: fillers, cueStart: cursor, cueEnd: pieceEnd)
                 }
             }
             result.append(newCue)

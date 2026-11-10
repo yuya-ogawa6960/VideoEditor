@@ -4,6 +4,8 @@
 //   - ほかのアカウントに結びついた購入・偽の署名・知らない商品・家族共有 → 使えない
 //   - 更新(新しい transactionId)→ 前の月のプランの残りを消してから付け直す(無料のポイントは残る)
 //   - 返金(サーバー通知の REFUND)→ プランが外れ、プランの残りが消える
+//   - 期限切れ(サーバー通知の EXPIRED)→ プランの残りが消える
+//   - Sandbox(TestFlight)の購入 → 毎月のポイントは同じアカウントに実時間で 30 日に 1 回だけ
 //   実行: cd server && node --test test/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -134,6 +136,43 @@ test("返金の通知でプランが外れ、プランの残りが消える", as
   assert.equal(result.applied, true);
   assert.equal((await subscriptionState(env, "apple:a", NOW)).plan, "free");
   assert.equal(points(env, "apple:a"), 30);
+});
+
+test("期限切れの通知でプランの残りが消え、無料のポイントは残る", async () => {
+  const env = setup();
+  await syncSubscriptions({ transactions: [transaction()] }, "apple:a", env, options);
+  assert.equal(points(env, "apple:a"), 1530);
+  const signedPayload = makeJWS({
+    x5c: [certificate("leaf.pem"), certificate("inter.pem"), ROOT],
+    key: privateKey("leaf.key"),
+    payload: { notificationType: "EXPIRED", signedDate: SIGNED, data: { bundleId: BUNDLE_ID, environment: "Production",
+      signedTransactionInfo: transaction({ expiresDate: NOW - 1000 }) } },
+  });
+  // DB には前の期限(NOW + 30 日)が残るので、期限が過ぎた時刻の通知として扱う
+  const later = { ...options, nowMs: NOW + 31 * DAY };
+  env.DB.raw.prepare("UPDATE subscriptions SET expires_at = ?").run(NOW - 1000);
+  const result = await handleNotification({ signedPayload }, env, later);
+  assert.equal(result.applied, true);
+  assert.equal(points(env, "apple:a"), 30);
+});
+
+test("Sandbox の購入の毎月のポイントは、早回しの更新でも 30 日に 1 回だけ", async () => {
+  const env = setup();
+  const first = await syncSubscriptions({ transactions: [transaction({ environment: "Sandbox" })] }, "apple:a", env, options);
+  assert.equal(first.granted, 1500);
+  // 5 分後の更新(TestFlight の早回し)では付けない
+  const renewed = await syncSubscriptions({ transactions: [transaction({ environment: "Sandbox", transactionId: "1001", expiresDate: NOW + 60 * DAY })] }, "apple:a", env, options);
+  assert.equal(renewed.granted, 0);
+  assert.equal(points(env, "apple:a"), 1530);
+  // 30 日たてばまた付く
+  env.DB.raw.prepare("UPDATE sandbox_grants SET granted_at = ?").run(NOW - 31 * DAY);
+  const month = await syncSubscriptions({ transactions: [transaction({ environment: "Sandbox", transactionId: "1002", expiresDate: NOW + 90 * DAY })] }, "apple:a", env, options);
+  assert.equal(month.granted, 1500);
+  // 本番の購入は今までどおり更新ごとに付く
+  const env2 = setup();
+  await syncSubscriptions({ transactions: [transaction()] }, "apple:a", env2, options);
+  const prod = await syncSubscriptions({ transactions: [transaction({ transactionId: "1001", expiresDate: NOW + 60 * DAY })] }, "apple:a", env2, options);
+  assert.equal(prod.granted, 1500);
 });
 
 test("偽の通知は受け付けない", async () => {

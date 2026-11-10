@@ -53,29 +53,32 @@ extension EditorProject {
 
     /// 出力タイムラインの [from, to) を取り除く。区間の中の部品は消し、
     /// またがる部品は切り詰め、後ろの部品は前に詰める。
-    func removeTimelineRange(from: Double, to: Double) {
+    /// keepingSubtitlesAndMarkers: 字幕とマーカーは呼ぶ側で動かす(removeOutputRanges。字幕は 0.1 秒まで残し、マーカーは消さずに寄せる)
+    func removeTimelineRange(from: Double, to: Double, keepingSubtitlesAndMarkers: Bool = false) {
         let ripple = RippleMap(from: from, to: to)
         guard ripple.gap > 0.001 else { return }
         let minimumLength = 0.2
 
         // 字幕
-        subtitles = subtitles.compactMap { cue in
-            let start = ripple.map(cue.start)
-            let end = ripple.map(cue.end)
-            guard end - start >= minimumLength else { return nil }
-            var result = cue
-            result.start = start
-            result.end = end
-            result.words = cue.words.compactMap { word in
-                let ws = ripple.map(word.start)
-                let we = ripple.map(word.end)
-                guard we > ws else { return nil }
-                var w = word
-                w.start = ws
-                w.end = we
-                return w
+        if !keepingSubtitlesAndMarkers {
+            subtitles = subtitles.compactMap { cue in
+                let start = ripple.map(cue.start)
+                let end = ripple.map(cue.end)
+                guard end - start >= minimumLength else { return nil }
+                var result = cue
+                result.start = start
+                result.end = end
+                result.words = cue.words.compactMap { word in
+                    let ws = ripple.map(word.start)
+                    let we = ripple.map(word.end)
+                    guard we > ws else { return nil }
+                    var w = word
+                    w.start = ws
+                    w.end = we
+                    return w
+                }
+                return result
             }
-            return result
         }
 
         // 章タイトル
@@ -142,11 +145,13 @@ extension EditorProject {
         }
 
         // マーカー(区間の中にあったものは消す)
-        markers = markers.compactMap { marker in
-            guard !ripple.isInside(marker.time) else { return nil }
-            var result = marker
-            result.time = ripple.map(marker.time)
-            return result
+        if !keepingSubtitlesAndMarkers {
+            markers = markers.compactMap { marker in
+                guard !ripple.isInside(marker.time) else { return nil }
+                var result = marker
+                result.time = ripple.map(marker.time)
+                return result
+            }
         }
 
         // 重ね合わせ(Bロール・ワイプ・写真)
@@ -167,32 +172,129 @@ extension EditorProject {
             return result
         }
 
-        // ナレーション
-        narration = narration.compactMap { item in
+        // ナレーション。リンク解除した音声(track あり)は映像の音そのものなので、区間をまたぐときは
+        // 映像と同じ所で 2 つに分けて区間の中を飛ばす(縮めるだけだと、区間の中の声が鳴り続けて後ろの口の動きとずれ、
+        // J・L カットの両方のはみ出しが残ったときは、後ろのはみ出しの代わりに消したクリップの冒頭の声が鳴っていた)
+        var movedNarration: [NarrationClip] = []
+        var didSplitNarration = false
+        for item in narration {
+            if item.track != nil, item.start < from, item.end > to {
+                var head = item
+                head.duration = from - item.start
+                head.fadeIn = min(item.fadeIn, head.duration)
+                head.fadeOut = 0
+                var tail = item
+                tail.id = UUID()
+                tail.start = from
+                tail.sourceStart = item.sourceStart + (to - item.start)
+                tail.duration = item.end - to
+                tail.fadeIn = 0
+                tail.fadeOut = min(item.fadeOut, tail.duration)
+                // 映像の切れ端(0.05 秒より長いものは残る)と同じだけ残す
+                if head.duration > 0.05 { movedNarration.append(head) }
+                if tail.duration > 0.05 { movedNarration.append(tail) }
+                didSplitNarration = true
+                continue
+            }
             let start = ripple.map(item.start)
             let end = ripple.map(item.start + item.duration)
-            guard end - start >= minimumLength else { return nil }
+            guard end - start >= minimumLength else { continue }
             var result = item
             if ripple.isInside(item.start) {
                 result.sourceStart = item.sourceStart + (to - item.start)
             }
             result.start = start
             result.duration = end - start
-            return result
+            movedNarration.append(result)
         }
+        narration = movedNarration
+        if didSplitNarration { sortNarration() }
+    }
+
+    /// クリップを削除したときに一緒に消える(または切られる)、リンク解除した音声の数。
+    /// 削除のお知らせに「分けた音声も消えた」ことを書くのに使う(削除する前に呼ぶ)
+    func detachedAudioCount(overlappingClip id: UUID) -> Int {
+        guard let range = outputRange(ofClip: id) else { return 0 }
+        return narration.filter { item in
+            item.track != nil && min(item.end, range.end) - max(item.start, range.start) >= 0.2
+        }.count
+    }
+
+    // MARK: - ナレーション・効果音が鳴っている所(無音カット・話の整理で詰めない)
+
+    /// ナレーション・効果音・リンク解除した音声が鳴っている所(出力タイムラインの秒。前後に pad を足してまとめたもの)。
+    /// 音量 0 のものは数えない
+    static func narrationBusyRanges(_ items: [NarrationClip], pad: Double = 0.1) -> [(start: Double, end: Double)] {
+        let raw = items.filter { $0.duration > 0.01 && $0.volume > 0.001 }
+            .map { (start: max(0, $0.start - pad), end: $0.end + pad) }
+            .sorted { $0.start < $1.start }
+        var merged: [(start: Double, end: Double)] = []
+        for r in raw {
+            if let last = merged.last, r.start <= last.end {
+                merged[merged.count - 1].end = max(last.end, r.end)
+            } else {
+                merged.append(r)
+            }
+        }
+        return merged
+    }
+
+    /// ranges(出力タイムラインの秒)から busy の所を除いた残り。minimumLength より短い切れ端は捨てる
+    static func subtracting(_ busy: [(start: Double, end: Double)], from ranges: [(start: Double, end: Double)],
+                            minimumLength: Double) -> [(start: Double, end: Double)] {
+        guard !busy.isEmpty else { return ranges }
+        var result: [(start: Double, end: Double)] = []
+        for range in ranges {
+            var pieces: [(start: Double, end: Double)] = [range]
+            for b in busy where b.end > range.start && b.start < range.end {
+                var next: [(start: Double, end: Double)] = []
+                for p in pieces {
+                    if b.end <= p.start || b.start >= p.end {
+                        next.append(p)
+                        continue
+                    }
+                    if b.start > p.start { next.append((start: p.start, end: b.start)) }
+                    if b.end < p.end { next.append((start: b.end, end: p.end)) }
+                }
+                pieces = next
+            }
+            result.append(contentsOf: pieces.filter { $0.end - $0.start >= minimumLength })
+        }
+        return result
+    }
+
+    /// 無音カット用: このクリップ(出力タイムラインの placementStart から)の上でナレーション・効果音などが鳴っている所を、
+    /// 元素材の秒の範囲で返す(「残す範囲」に足すと、その所は詰めない。詰めるとナレーションの終わりが切れ、話の間の効果音が消えていた)
+    func narrationSourceRanges(in clip: Clip, placementStart: Double) -> [(start: Double, end: Double)] {
+        let clipEnd = placementStart + clip.outputDuration
+        var result: [(start: Double, end: Double)] = []
+        for busy in Self.narrationBusyRanges(narration) where busy.end > placementStart && busy.start < clipEnd {
+            let a = clip.sourceTime(atOutputOffset: max(0, busy.start - placementStart))
+            let b = clip.sourceTime(atOutputOffset: min(clipEnd, busy.end) - placementStart)
+            if b > a { result.append((start: a, end: b)) }
+        }
+        return result
     }
 
     /// 出力タイムラインの time に length 秒を差し込んだ(クリップを途中に追加した)とき、
     /// time 以降に始まる部品を同じだけ後ろへずらす(元の動画と同じ場所に付いたままにする)。
-    /// time をまたいでいる部品(前から続いている BGM など)は途切れさせないよう、そのままにする
-    func insertTimelineGap(at time: Double, length: Double) {
+    /// time をまたいでいる部品(前から続いている BGM など)は途切れさせないよう、そのままにする。
+    /// overlapStart: 差し込んだ所の後ろのクリップの頭(トランジションで前のクリップと重なっているとき)。
+    /// 重なりの中から始まり前のクリップの終わり(time)より後ろまで続く部品は、後ろのクリップのものとして一緒にずらす
+    /// (クリップを複製したとき、後ろのクリップの冒頭の字幕などが複製したクリップの上に残っていた)
+    func insertTimelineGap(at time: Double, length: Double, overlapStart: Double? = nil) {
         guard length > 0.001 else { return }
         let edge = time - 0.001
         // クリップはもう入っているので、差し込む前の長さは length を引いて求める
         extendChapterLabels(forInsertionAt: time, length: length, oldVideoEnd: layoutDuration - length)
+        func follows(_ start: Double, _ end: Double) -> Bool {
+            if start >= edge { return true }
+            guard let overlapStart else { return false }
+            return start >= overlapStart - 0.0005 && end > time + 0.0005
+        }
 
         subtitles = subtitles.map { cue in
-            guard cue.start >= edge else { return cue }
+            guard follows(cue.start, cue.end) else { return cue }
             var result = cue
             result.start += length
             result.end += length
@@ -205,32 +307,33 @@ extension EditorProject {
             return result
         }
         titleCards = titleCards.map { item in
-            guard item.start >= edge else { return item }
+            guard follows(item.start, item.start + item.duration) else { return item }
             var result = item
             result.start += length
             return result
         }
         lowerThirds = lowerThirds.map { item in
-            guard item.start >= edge else { return item }
+            guard follows(item.start, item.start + item.duration) else { return item }
             var result = item
             result.start += length
             return result
         }
         // キーフレームは部品の先頭からの秒なので、start だけずらせばよい
         textClips = textClips.map { item in
-            guard item.start >= edge || chapterLabelFollowsMarker(item, threshold: edge) else { return item }
+            guard follows(item.start, item.start + item.duration)
+                    || chapterLabelFollowsMarker(item, threshold: edge) else { return item }
             var result = item
             result.start += length
             return result
         }
         drawings = drawings.map { item in
-            guard item.start >= edge else { return item }
+            guard follows(item.start, item.start + item.duration) else { return item }
             var result = item
             result.start += length
             return result
         }
         videoEffects = videoEffects.map { item in
-            guard item.start >= edge else { return item }
+            guard follows(item.start, item.start + item.duration) else { return item }
             var result = item
             result.start += length
             return result
@@ -242,13 +345,13 @@ extension EditorProject {
             return result
         }
         overlays = overlays.map { item in
-            guard item.start >= edge else { return item }
+            guard follows(item.start, item.start + item.duration) else { return item }
             var result = item
             result.start += length
             return result
         }
         narration = narration.map { item in
-            guard item.start >= edge else { return item }
+            guard follows(item.start, item.start + item.duration) else { return item }
             var result = item
             result.start += length
             return result
@@ -399,6 +502,8 @@ private struct TimelineRemap {
         let removedHead: Double
         /// 両端が別のクリップに付いていて、並べ替えで前後が入れ替わった(先頭に付いて行き、長さはそのまま)
         let swapped: Bool
+        /// 頭がトランジションの重なりの中にあり、後ろのクリップに付けた(キーフレーム・単語も後ろのクリップで写す)
+        var preferLater = false
     }
 
     /// これより短くなった部品は消す(removeTimelineRange と同じ)
@@ -430,13 +535,23 @@ private struct TimelineRemap {
     }
 
     /// 時刻 t を持っていたクリップ。重なり(トランジション)の中は前のクリップ。
+    /// ただし preferLater(後ろのクリップの頭から始まる部品)のときは、重なりの中でも後ろのクリップ。
     /// 部品の終わり(isEnd)がクリップの切れ目にぴったりなら前のクリップに付ける
-    private func oldOwner(of t: Double, isEnd: Bool) -> ClipLayoutSnapshot.Entry? {
-        before.first(where: { isEnd ? t <= $0.end : t < $0.end }) ?? before.last
+    private func oldOwner(of t: Double, isEnd: Bool, preferLater: Bool = false) -> ClipLayoutSnapshot.Entry? {
+        if preferLater, !isEnd, let later = before.last(where: { $0.start <= t + 0.0005 }) { return later }
+        return before.first(where: { isEnd ? t <= $0.end : t < $0.end }) ?? before.last
     }
 
-    func map(_ t: Double, isEnd: Bool = false) -> Mapped {
-        guard let owner = oldOwner(of: t, isEnd: isEnd), let i = afterIndex[owner.id] else {
+    /// 部品 [start, end] が、トランジションの重なりの中から始まる後ろのクリップのものか(終わりが前のクリップの終わりより後ろ)。
+    /// 前のクリップに付けると、並べ替え・前のクリップのトリム・トランジションの長さの変更のあと、
+    /// 頭だけ前のクリップの上に残って別のクリップの上に出たり、引き伸ばされたりしていた
+    func startsWithLaterClip(_ start: Double, _ end: Double) -> Bool {
+        guard let i = before.firstIndex(where: { start < $0.end }), i + 1 < before.count else { return false }
+        return before[i + 1].start <= start + 0.0005 && end > before[i].end + 0.0005
+    }
+
+    func map(_ t: Double, isEnd: Bool = false, preferLater: Bool = false) -> Mapped {
+        guard let owner = oldOwner(of: t, isEnd: isEnd, preferLater: preferLater), let i = afterIndex[owner.id] else {
             // 持ち主のクリップが消えた(または元から無い)ときは絶対時刻のまま
             return Mapped(t)
         }
@@ -488,17 +603,19 @@ private struct TimelineRemap {
 
     /// 部品の範囲を動かす。短くなりすぎたら nil
     func span(_ start: Double, _ end: Double) -> Span? {
-        let s = map(start)
+        let later = startsWithLaterClip(start, end)
+        let s = map(start, preferLater: later)
         let e = map(end, isEnd: true)
         let removedHead = s.removedHead
         if e.clamped < s.clamped - 0.0005 {
             // 両端が別のクリップに付いていて、並べ替えで前後が入れ替わった: 先頭に付いて行き、長さはそのまま
             let length = (end - start) - removedHead
             guard length >= Self.minimumLength else { return nil }
-            return Span(start: s.clamped, end: s.clamped + length, removedHead: removedHead, swapped: true)
+            return Span(start: s.clamped, end: s.clamped + length, removedHead: removedHead, swapped: true,
+                        preferLater: later)
         }
         guard e.clamped - s.clamped >= Self.minimumLength else { return nil }
-        return Span(start: s.clamped, end: e.clamped, removedHead: removedHead, swapped: false)
+        return Span(start: s.clamped, end: e.clamped, removedHead: removedHead, swapped: false, preferLater: later)
     }
 
     /// 部品の先頭からの相対秒で持つキーフレームを、動かした後の相対秒にする。
@@ -510,7 +627,7 @@ private struct TimelineRemap {
         // 切った後の先頭の、変える前のタイムライン上の時刻
         let head = itemStart + span.removedHead
         for i in result.indices {
-            result[i].time = max(0, map(head + result[i].time).clamped - span.start)
+            result[i].time = max(0, map(head + result[i].time, preferLater: span.preferLater).clamped - span.start)
         }
         result.sort { $0.time < $1.time }
         return result
@@ -548,10 +665,22 @@ extension EditorProject {
     }
 
     /// 配置が変わったぶん、字幕・テキスト(モザイク含む)・手書き・オーバーレイ・ナレーション・マーカー・章タイトル・テロップを
-    /// 同じ元素材の位置に付いたまま動かす。切られた区間に入った端はクリップの端に寄せ、短くなりすぎた部品は消す
-    func rippleTimelineItems(from snapshot: ClipLayoutSnapshot) {
+    /// 同じ元素材の位置に付いたまま動かす。切られた区間に入った端はクリップの端に寄せ、短くなりすぎた部品は消す。
+    /// keepingAudioLength: 速度の変更のとき true。ナレーション・効果音は速さが変わらないので、長さはそのままで開始位置だけ動かす
+    /// (縮めると話の後半が切れ、0.2 秒より短くなると消えていた)
+    func rippleTimelineItems(from snapshot: ClipLayoutSnapshot, keepingAudioLength: Bool = false) {
         let remap = TimelineRemap(before: snapshot, after: captureClipLayout())
         guard !remap.isIdentity else { return }
+
+        // 被写体フラッシュ(クリップの出力上の先頭からの秒で持つ)も、頭のトリミング・速度の変更で同じ素材のコマに付いたまま動かす
+        // (Models.swift の Clip.keepSubjectFlashSource。変わったクリップだけ書き戻す)
+        for entry in snapshot.entries {
+            guard let i = clips.firstIndex(where: { $0.id == entry.id }) else { continue }
+            var updated = clips[i]
+            if updated.keepSubjectFlashSource(from: entry.clip) {
+                clips[i] = updated
+            }
+        }
 
         subtitles = subtitles.compactMap { cue in
             guard let span = remap.span(cue.start, cue.end) else { return nil }
@@ -560,7 +689,7 @@ extension EditorProject {
             result.end = span.end
             // 字幕の範囲から出た単語(並べ替えで散ったもの)は消す(単語が無ければ標準の描画になる)
             result.words = cue.words.compactMap { word in
-                let ws = remap.map(word.start).clamped
+                let ws = remap.map(word.start, preferLater: span.preferLater).clamped
                 let we = remap.map(word.end, isEnd: true).clamped
                 guard we > ws, ws >= span.start - 0.0005, we <= span.end + 0.0005 else { return nil }
                 var w = word
@@ -626,6 +755,11 @@ extension EditorProject {
             return result
         }
         narration = narration.compactMap { item in
+            if keepingAudioLength {
+                var result = item
+                result.start = remap.map(item.start).clamped
+                return result
+            }
             guard let span = remap.span(item.start, item.end) else { return nil }
             var result = item
             result.start = span.start

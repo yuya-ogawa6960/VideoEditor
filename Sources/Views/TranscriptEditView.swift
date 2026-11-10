@@ -168,6 +168,14 @@ struct TranscriptEditView: View {
                 }
                 .disabled(fillerCount == 0)
                 Spacer()
+                // 元に戻すはいつも出す(お知らせの中だけだと 6 秒で消え、1 回押すとボタンごと消えて、2 回目より前の削除を戻せなかった)
+                if !undoStack.isEmpty {
+                    Button {
+                        undoLast()
+                    } label: {
+                        Label(String(localized: "元に戻す(\(undoStack.count))"), systemImage: "arrow.uturn.backward")
+                    }
+                }
                 if player.isPlaying {
                     Button {
                         player.pause()
@@ -301,7 +309,9 @@ struct TranscriptEditView: View {
         // 先に字幕の文・単語を消してから、時間を詰める(removeOutputRanges が時刻をずらす)
         project.subtitles = TranscriptEditor.applyDeletion(to: project.subtitles, deleting: items)
         let removed = project.removeOutputRanges(ranges)
-        lines = TranscriptEditor.linesAfterDeletion(lines, deleted: selected, ranges: ranges)
+        // 単語の番号と時刻を今の字幕に付け直す(続けて同じ行の単語を消しても、字幕から別の単語が消えないように)
+        lines = TranscriptEditor.resynced(TranscriptEditor.linesAfterDeletion(lines, deleted: selected, ranges: ranges),
+                                          with: project.subtitles)
         deletedCount += ranges.count
         deletedSeconds += removed
         selected = []
@@ -373,7 +383,7 @@ private struct TranscriptLineRow: View {
             .accessibilityLabel("行を選ぶ")
 
             if line.hasWordTimings {
-                // 日本語の単語どうしは詰めて並べる(1 文字ずつ隙間が空いて読みにくかった)。英数字どうしの間だけ空ける
+                // 日本語の単語どうしは詰めて並べる(1 文字ずつ隙間が空いて読みにくかった)。それ以外の言葉の間は空ける
                 TranscriptFlowLayout(spacingX: 0, spacingY: 6) {
                     ForEach(Array(line.items.enumerated()), id: \.element.id) { index, item in
                         let next: TranscriptEditor.Item? = index + 1 < line.items.count ? line.items[index + 1] : nil
@@ -385,20 +395,29 @@ private struct TranscriptLineRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else if let item = line.items.first {
-                Text(item.text)
-                    .font(.body)
-                    .strikethrough(item.isDeleted, color: .secondary)
-                    .underline(item.isSuspicious && !item.isDeleted, pattern: .dot, color: .orange)
-                    .foregroundStyle(item.isDeleted ? Color.secondary.opacity(0.6)
-                                     : (selected.contains(item.id) ? Color.white : Color.primary))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(selected.contains(item.id) ? Color.accentColor.opacity(0.85) : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 6))
-                    .contentShape(Rectangle())
-                    .onTapGesture { onTapItem(item) }
-                    .onLongPressGesture(minimumDuration: 0.4) { onPlay(item) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.text)
+                        .font(.body)
+                        .strikethrough(item.isDeleted, color: .secondary)
+                        .underline(item.isSuspicious && !item.isDeleted, pattern: .dot, color: .orange)
+                        .foregroundStyle(item.isDeleted ? Color.secondary.opacity(0.6)
+                                         : (selected.contains(item.id) ? Color.white : Color.primary))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(selected.contains(item.id) ? Color.accentColor.opacity(0.85) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                        .onTapGesture { onTapItem(item) }
+                        .onLongPressGesture(minimumDuration: 0.4) { onPlay(item) }
+                    // 単語の時刻が推定の行は、単語ごとに切るとずれるので行ごとにだけ消せる
+                    if line.wordsEstimated && !item.isDeleted {
+                        Text("単語の時刻が推定のため、この行は行ごとに消します")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                    }
+                }
             }
         }
     }
@@ -409,14 +428,14 @@ private struct TranscriptLineRow: View {
 private struct TranscriptWordChip: View {
     let item: TranscriptEditor.Item
     let isSelected: Bool
-    /// 後ろに空白を入れる(英数字の単語どうし)
+    /// 後ろに空白を入れる(かな・漢字どうし以外)
     var trailingSpace: Bool = false
 
-    /// 英数字で終わる単語と英数字で始まる単語の間だけ空白を入れる
+    /// 単語の間の空白。詰めるのはかな・漢字どうしのときだけ(英語などは句読点やアクセント付きの文字のあとでも空ける。
+    /// 前は英数字どうしのときだけで "Hello,world" "issoébom" と詰まっていた)
     static func needsSpace(after text: String, before next: String?) -> Bool {
         guard let last = text.last, let first = next?.first else { return false }
-        func isLatin(_ c: Character) -> Bool { c.isASCII && (c.isLetter || c.isNumber) }
-        return isLatin(last) && isLatin(first)
+        return TranscriptEditor.needsSpace(between: last, and: first)
     }
 
     var body: some View {

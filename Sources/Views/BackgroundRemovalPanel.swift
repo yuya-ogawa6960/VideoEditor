@@ -26,8 +26,23 @@ struct EditorBackgroundRemovalControls: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 ForEach(BackgroundRemovalMode.allCases) { mode in
+                    // クロマキーは Standard の機能(背景を消すの試用では使えない)。すでにクロマキーなら直す・外すことはできる
+                    let locked = mode == .chroma && settings.mode != .chroma && !PlanStore.shared.allows(.chromaKey)
                     EditorChip(title: mode.displayName, isSelected: settings.mode == mode) {
-                        settings.mode = mode
+                        if locked {
+                            PlanPaywall.present(for: .chromaKey)
+                        } else {
+                            settings.mode = mode
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if locked {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(BrandStyle.coral)
+                                .offset(x: 3, y: -3)
+                                .accessibilityLabel(Text(verbatim: "Standard"))
+                        }
                     }
                 }
                 Spacer(minLength: 0)
@@ -194,13 +209,13 @@ struct EditorBackgroundRemovalControls: View {
     private var fillControls: some View {
         VStack(alignment: .leading, spacing: 6) {
             EditorSectionTitle(title: String(localized: "消した部分"))
-            HStack(spacing: 8) {
+            // 長い訳(es など)でも画面からはみ出さないよう折り返す(EditorChipFlow は TextPanels.swift)
+            EditorChipFlow {
                 ForEach(BackgroundRemovalFill.allCases) { fill in
                     EditorChip(title: fill.displayName, isSelected: settings.fill == fill) {
                         settings.fill = fill
                     }
                 }
-                Spacer(minLength: 0)
                 if settings.fill == .color {
                     ColorPicker("", selection: fillColorBinding, supportsOpacity: false)
                         .labelsHidden()

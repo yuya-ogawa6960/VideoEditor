@@ -18,7 +18,8 @@ import CoreVideo
 // 静止画・読めないクリップ: 黒のダミー映像(Caches に 1 回だけ生成)をトラックに入れて長さを確保し、
 //   コンポジタは画像(静止画)または黒を描く。
 // 逆再生: reversedURL を素材として使う(範囲は duration − endTime ... duration − startTime)。
-// 音声エフェクト: AudioEffectsRenderer.cachedProcessedURL(for:effects:) が返す処理済みファイルを使う。
+// 音声エフェクト: AudioEffectsRenderer.cachedProcessedURL(for:effects:) が返す処理済みファイルを使う
+//   (無ければ書き出しは作るのを待ち、プレビューは裏で作ってから作り直す)。
 // 第4弾: 各層にマスク / 自動リフレーム / 手ぶれ補正 / 画質補正 / 3D ズームの設定をプレーン値で渡す。
 //   速度区間に素材上の開始秒(sourceStart)を持たせ、コンポジタが出力時刻 → 元素材上の秒を求める。
 // =====================================================================
@@ -65,7 +66,12 @@ enum CompositionBuilder {
     /// オーバーレイ動画 / オーバーレイ音声 / ナレーションそれぞれのトラック数の上限
     private static let overlayVideoTrackLimit = 4
     private static let overlayAudioTrackLimit = 4
-    private static let narrationTrackLimit = 4
+    /// ナレーション・効果音・読み上げ・分けた音声は同じ瞬間に重なりやすいので多めにする
+    /// (前は 4 本で、5 本目が丸ごと黙って鳴らなかった。音声トラックは軽く、使う分だけ作る)
+    private static let narrationTrackLimit = 12
+
+    /// プレビュー用の合成でも、音声効果の処理済みファイルや声の区間ができるのを待つ(音声だけの書き出し)
+    @TaskLocal static var waitsForAudioMaterials: Bool = false
 
     /// クリップ音声の最大音量(originalVolume × gain × クリップ音量 の上限)
     private static let maxClipVolume: Float = 4
@@ -90,7 +96,13 @@ enum CompositionBuilder {
         if let r = snapshot.canvas.aspect.ratio {
             ratio = r
         } else if let first = snapshot.clips.first {
-            let size = first.displaySize
+            var size = first.displaySize
+            // 「位置・クロップ」で 90° / 270° 回したクリップは縦横が入れ替わる(ClipFramingMath.sourceSize と同じ)。
+            // 前は横長の枠のまま、縦の映像が小さく黒帯付きで書き出されていた
+            let turns = ((first.geometry.rotationQuarterTurns % 4) + 4) % 4
+            if turns % 2 == 1 {
+                size = CGSize(width: size.height, height: size.width)
+            }
             if size.width > 0, size.height > 0 {
                 ratio = size.width / size.height
             }
@@ -169,7 +181,9 @@ enum CompositionBuilder {
         let transition: VideoCompositorTransition?
     }
 
-    static func build(_ snapshot: ProjectSnapshot, purpose: RenderPurpose) async throws -> BuiltComposition {
+    /// duckingCaptions: BGM を下げる区間に使う字幕(書き出しで字幕を焼き込まないときに渡す。nil なら snapshot の字幕)
+    static func build(_ snapshot: ProjectSnapshot, purpose: RenderPurpose,
+                      duckingCaptions: [SubtitleCue]? = nil) async throws -> BuiltComposition {
         guard !snapshot.clips.isEmpty else { throw CompositionBuilderError.noClips }
 
         let size = renderSize(for: snapshot, purpose: purpose)
@@ -354,7 +368,7 @@ enum CompositionBuilder {
             if !clip.isMuted && clip.hasAudio {
                 var audioAsset = asset
                 if !clip.audio.effects.isIdentity,
-                   let processed = AudioEffectsRenderer.cachedProcessedURL(for: sourceURL, effects: clip.audio.effects) {
+                   let processed = await processedAudioURL(for: sourceURL, effects: clip.audio.effects, purpose: purpose) {
                     audioAsset = AVURLAsset(url: processed)
                 }
                 let audioTracks = (try? await audioAsset.loadTracks(withMediaType: .audio)) ?? []
@@ -548,12 +562,17 @@ enum CompositionBuilder {
         guard pictureCount > 0 else { throw CompositionBuilderError.noVideo }
 
         // トランジションで前後と重なる側のイン / アウトの動き(ふわっと・スライドなど)は描かない。
-        // 重なりの間に「ふわっと」が黒へ溶けて、トランジションの途中で一度暗くなっていた
+        // 重なりの間に「ふわっと」が黒へ溶けて、トランジションの途中で一度暗くなっていた。
+        // ただし静止画のズームイン / ズームアウトは、クリップ全体のゆっくりしたズーム(Ken Burns。VideoCompositor.stillZoom)で
+        // イン / アウトの動きとしては描かない(VideoCompositor が外す)ので残す。前はスライドショーの 2 枚目以降が止まった写真になっていた
         for i in layers.indices where i < layout.count {
-            if i > 0, layout[i - 1].end - layout[i].start > 0.001 {
+            let isStill = layers[i]?.stillImageURL != nil
+            if i > 0, layout[i - 1].end - layout[i].start > 0.001,
+               let type = layers[i]?.animation.inType, !(isStill && (type == .zoomIn || type == .zoomOut)) {
                 layers[i]?.animation.inType = .none
             }
-            if i + 1 < layout.count, layout[i].end - layout[i + 1].start > 0.001 {
+            if i + 1 < layout.count, layout[i].end - layout[i + 1].start > 0.001,
+               let type = layers[i]?.animation.outType, !(isStill && (type == .zoomIn || type == .zoomOut)) {
                 layers[i]?.animation.outType = .none
             }
         }
@@ -617,6 +636,7 @@ enum CompositionBuilder {
         let narrationRanges = await insertNarration(snapshot.narration,
                                                     into: composition,
                                                     totalSeconds: totalSeconds,
+                                                    purpose: purpose,
                                                     lanes: &narrationLanes)
 
         // --- ドキュメンタリー風の仕上げ(全命令で共通のプレーンデータ)
@@ -640,6 +660,10 @@ enum CompositionBuilder {
                                            words: cue.words, originalText: cue.text)
         }
 
+        // 「ビート揺れ」「ズームパルス」を BGM の拍に合わせる(拍が分からないうちは 120 BPM のまま。BeatDetector.swift)
+        let beatGrid = await BGMBeatGrid.grid(for: snapshot.audio.bgmURL,
+                                              needed: snapshot.videoEffects.contains { $0.type.followsBGMBeat },
+                                              waits: purpose == .export)
         let scene = VideoCompositorScene(
             renderSize: size,
             scaling: snapshot.canvas.scaling,
@@ -660,7 +684,11 @@ enum CompositionBuilder {
             totalDuration: totalSeconds,
             videoEffects: snapshot.videoEffects
                 .filter { $0.duration > 0 && $0.end > 0 && $0.start < totalSeconds }
-                .sorted { $0.start < $1.start })
+                .sorted { $0.start < $1.start }
+                .map { BGMBeatGrid.applying(beatGrid, bgmOffset: snapshot.audio.bgmSourceStart, to: $0) })
+
+        // 「簡易高画質化」は書き出しの大きさで拡大かどうかを決める(プレビューは短辺 720 なので、書き出しだけ別のフィルタになっていた)
+        scene.sharpenReferenceSize = renderSize(for: snapshot, purpose: .export)
 
         var instructions: [VideoCompositorInstruction] = specs.map {
             VideoCompositorInstruction(timeRange: $0.range, layers: $0.layers, transition: $0.transition, scene: scene)
@@ -683,7 +711,7 @@ enum CompositionBuilder {
             }
         }
 
-        // --- BGM(ループして全体長に合わせる)
+        // --- BGM(曲の開始位置から置き、動画が曲より長ければくり返す。くり返しのつなぎ目は短く重ねてクロスフェードする)
         if let bgmURL = snapshot.audio.bgmURL {
             let bgmAsset = AVURLAsset(url: bgmURL)
             if let bgmSource = (try? await bgmAsset.loadTracks(withMediaType: .audio))?.first,
@@ -691,28 +719,54 @@ enum CompositionBuilder {
                 let bgmStart = bgmRange.start.convertScale(timescale, method: .roundTowardPositiveInfinity)
                 let bgmEnd = bgmRange.end.convertScale(timescale, method: .roundTowardZero)
                 let bgmLength = bgmEnd - bgmStart
-                if bgmLength.seconds > 0.1,
-                   let bgmTrack = composition.addMutableTrack(withMediaType: .audio,
-                                                              preferredTrackID: kCMPersistentTrackID_Invalid) {
+                if bgmLength.seconds > 0.1 {
+                    // 曲のどこから使うか(最後の 1 秒より後ろからは始めない)
+                    let offsetSeconds = min(max(0, snapshot.audio.bgmSourceStart), max(0, bgmLength.seconds - 1))
+                    let offset = compositionTime(offsetSeconds, method: .roundTowardZero)
+                    // つなぎ目で重ねる長さ(曲が短いときは曲の 1/4 まで)。重ねるのでトラックを 2 本交互に使う
+                    let crossfade = compositionTime(min(1.5, bgmLength.seconds / 4), method: .roundTowardZero)
+                    var bgmTracks: [AVMutableCompositionTrack] = []
+                    var pieces: [(trackIndex: Int, start: CMTime, end: CMTime)] = []
                     var t = CMTime.zero
-                    var ok = true
-                    while t < totalDuration && ok {
+                    var sourceStart = bgmStart + offset
+                    while t < totalDuration {
+                        let available = bgmEnd - sourceStart
                         let remaining = totalDuration - t
-                        let chunk = remaining < bgmLength ? remaining : bgmLength
-                        do {
-                            try bgmTrack.insertTimeRange(CMTimeRange(start: bgmStart, duration: chunk),
-                                                         of: bgmSource, at: t)
-                            t = t + chunk
-                        } catch {
-                            ok = false
+                        let chunk = remaining < available ? remaining : available
+                        guard chunk > .zero else { break }
+                        let trackIndex = pieces.count % 2
+                        if bgmTracks.count <= trackIndex {
+                            guard let track = composition.addMutableTrack(withMediaType: .audio,
+                                                                          preferredTrackID: kCMPersistentTrackID_Invalid) else { break }
+                            bgmTracks.append(track)
                         }
+                        let track = bgmTracks[trackIndex]
+                        compositionPad(track, to: t)
+                        do {
+                            try track.insertTimeRange(CMTimeRange(start: sourceStart, duration: chunk),
+                                                      of: bgmSource, at: t)
+                        } catch {
+                            break
+                        }
+                        pieces.append((trackIndex: trackIndex, start: t, end: t + chunk))
+                        let next = t + chunk
+                        // 次のくり返しは、つなぎ目の分だけ前から重ねて始める(前は終わりの和音のすぐあとに頭から鳴った)
+                        if next < totalDuration, next - crossfade > t {
+                            t = next - crossfade
+                        } else {
+                            t = next
+                        }
+                        sourceStart = bgmStart
                     }
-                    if t > .zero {
+                    if !pieces.isEmpty {
                         let volume = snapshot.audio.bgmVolume
-                        let params = AVMutableAudioMixInputParameters(track: bgmTrack)
-                        // 字幕(=話している区間)とナレーションの間だけ BGM を下げる
-                        var speechRanges: [(start: Double, end: Double)] = snapshot.subtitles.map { (start: $0.start, end: $0.end) }
+                        // 話している区間で BGM を下げる: キャプション・ナレーション(効果音は除く)と、クリップの声の区間
+                        var speechRanges: [(start: Double, end: Double)] = (duckingCaptions ?? snapshot.subtitles)
+                            .map { (start: $0.start, end: $0.end) }
                         speechRanges.append(contentsOf: narrationRanges)
+                        if snapshot.documentary.autoDucking {
+                            speechRanges.append(contentsOf: await clipVoiceRanges(snapshot, layout: layout, purpose: purpose))
+                        }
                         let duckIntervals: [(start: Double, end: Double)] = snapshot.documentary.autoDucking
                             ? compositionDuckIntervals(speechRanges, total: totalSeconds)
                             : []
@@ -721,34 +775,58 @@ enum CompositionBuilder {
                         let bgmFadeOut = snapshot.audio.bgmFadeOut
                             ? min(max(0, snapshot.audio.bgmFadeOutSeconds), totalSeconds / 2)
                             : 0
-                        if !duckIntervals.isEmpty {
+                        // 重なっている所(前の部品の終わり〜次の部品の頭)
+                        var overlaps: [(start: Double, end: Double)] = []
+                        for i in 0..<max(0, pieces.count - 1) where pieces[i + 1].start < pieces[i].end {
+                            overlaps.append((start: pieces[i + 1].start.seconds, end: pieces[i].end.seconds))
+                        }
+                        var edgePoints: [Double] = []
+                        for overlap in overlaps {
+                            edgePoints.append(overlap.start)
+                            edgePoints.append(overlap.end)
+                        }
+                        for (trackIndex, track) in bgmTracks.enumerated() {
+                            let mine = pieces.filter { $0.trackIndex == trackIndex }
+                                .map { (start: $0.start.seconds, end: $0.end.seconds) }
+                            guard !mine.isEmpty else {
+                                composition.removeTrack(track)
+                                continue
+                            }
+                            // このトラックの部品の中だけ鳴らし、重なる所では頭をフェードイン・終わりをフェードアウトする
+                            let loopGain: (Double) -> Float = { time in
+                                guard let piece = mine.first(where: { time >= $0.start - 0.0005 && time <= $0.end + 0.0005 }) else { return 0 }
+                                var gain = 1.0
+                                for overlap in overlaps where time >= overlap.start && time <= overlap.end {
+                                    let length = max(overlap.end - overlap.start, 0.001)
+                                    if abs(overlap.start - piece.start) < 0.002 {
+                                        gain = min(gain, (time - overlap.start) / length)
+                                    } else if abs(overlap.end - piece.end) < 0.002 {
+                                        gain = min(gain, (overlap.end - time) / length)
+                                    }
+                                }
+                                return Float(min(max(gain, 0), 1))
+                            }
+                            var points = edgePoints
+                            for piece in mine {
+                                points.append(piece.start)
+                                points.append(piece.end)
+                            }
+                            let params = AVMutableAudioMixInputParameters(track: track)
                             compositionApplyBGMEnvelope(params,
                                                         volume: volume,
                                                         duckLevel: snapshot.documentary.duckingLevel,
                                                         intervals: duckIntervals,
                                                         total: totalSeconds,
                                                         fadeIn: bgmFadeIn,
-                                                        fadeOut: bgmFadeOut)
-                        } else {
-                            if bgmFadeIn > 0.01 {
-                                let fadeLength = CMTime(seconds: bgmFadeIn, preferredTimescale: timescale)
-                                params.setVolumeRamp(fromStartVolume: 0, toEndVolume: volume,
-                                                     timeRange: CMTimeRange(start: .zero, duration: fadeLength))
-                            } else {
-                                params.setVolume(volume, at: .zero)
-                            }
-                            if bgmFadeOut > 0.01 {
-                                let fadeLength = CMTime(seconds: bgmFadeOut, preferredTimescale: timescale)
-                                let fadeStart = totalDuration - fadeLength
-                                if fadeLength > .zero && fadeStart >= .zero {
-                                    params.setVolumeRamp(fromStartVolume: volume, toEndVolume: 0,
-                                                         timeRange: CMTimeRange(start: fadeStart, duration: fadeLength))
-                                }
-                            }
+                                                        fadeOut: bgmFadeOut,
+                                                        gain: loopGain,
+                                                        extraPoints: points)
+                            audioParameters.append(params)
                         }
-                        audioParameters.append(params)
                     } else {
-                        composition.removeTrack(bgmTrack)
+                        for track in bgmTracks {
+                            composition.removeTrack(track)
+                        }
                     }
                 }
             }
@@ -802,7 +880,8 @@ enum CompositionBuilder {
     }
 
     /// トリミング範囲 [sourceStart, sourceEnd) を出力 [outStart, outStart + outDuration) に割り当てる。
-    /// 速度カーブが有効なら speedCurve.segments() の区間ごと、無効なら 1 区間(clip.speed)。
+    /// 速度カーブが有効なら speedCurve.playbackSegments() の区間ごと(カーブの点を境目にし、区間の速さは調和平均。
+    /// Clip.outputOffset / sourceTime も同じ区間を使うので、マーカー・字幕の位置と再生が一致する)、無効なら 1 区間(clip.speed)。
     /// 各区間の出力長は、合計がちょうど outDuration になるよう比例配分する(UI の配置と一致させる)
     private static func speedPlan(clip: Clip,
                                   sourceStart: Double,
@@ -815,7 +894,7 @@ enum CompositionBuilder {
 
         let raw: [(from: Double, to: Double, speed: Double)]
         if clip.speedCurve.enabled {
-            raw = clip.speedCurve.segments(count: speedCurveSegmentCount).map {
+            raw = clip.speedCurve.playbackSegments(trimmed: trimmed).map {
                 (from: $0.fromPosition, to: $0.toPosition, speed: max($0.speed, 0.05))
             }
         } else {
@@ -1202,6 +1281,7 @@ enum CompositionBuilder {
     private static func insertNarration(_ clips: [NarrationClip],
                                         into composition: AVMutableComposition,
                                         totalSeconds: Double,
+                                        purpose: RenderPurpose,
                                         lanes: inout [AudioLane]) async -> [(start: Double, end: Double)] {
         guard !clips.isEmpty, totalSeconds > 0 else { return [] }
         var ranges: [(start: Double, end: Double)] = []
@@ -1221,7 +1301,7 @@ enum CompositionBuilder {
 
             var url = clip.url
             if !clip.effects.isIdentity,
-               let processed = AudioEffectsRenderer.cachedProcessedURL(for: clip.url, effects: clip.effects) {
+               let processed = await processedAudioURL(for: clip.url, effects: clip.effects, purpose: purpose) {
                 url = processed
             }
             let asset = AVURLAsset(url: url)
@@ -1257,12 +1337,57 @@ enum CompositionBuilder {
                             volume: volume.isFinite ? min(max(volume, 0), maxClipVolume) : 1,
                             fadeIn: max(0, clip.fadeIn),
                             fadeOut: max(0, clip.fadeOut))
-            // 映像から分けた音声は元のクリップの音と同じ扱い(BGM を下げない)
-            if clip.track == nil {
+            // 映像から分けた音声は元のクリップの音と同じ扱い(BGM を下げない)。
+            // 効果音も話し声ではないので数えない(前は効果音のたびに BGM が沈んでいた)
+            let isSoundEffect = clip.soundRecipeID != nil || SoundEffectLibrary.isGenerated(clip.url)
+            if clip.track == nil && !isSoundEffect {
                 ranges.append((start: at.seconds, end: (at + aDuration).seconds))
             }
         }
         return ranges
+    }
+
+    // MARK: - 音声効果・声の区間(無ければ作る)
+
+    /// 音声効果の処理済みファイル。無ければ、書き出しは作り終えるのを待ち、プレビューは元の音のまま作って裏で作る
+    /// (できたら .compositionMaterialsDidChange でプレビューを作り直す)
+    private static func processedAudioURL(for url: URL, effects: AudioEffects, purpose: RenderPurpose) async -> URL? {
+        if let cached = AudioEffectsRenderer.cachedProcessedURL(for: url, effects: effects) { return cached }
+        if purpose == .export || waitsForAudioMaterials {
+            return try? await AudioEffectsRenderer.processedURL(for: url, effects: effects)
+        }
+        AudioEffectsRenderer.prepareInBackground(url, effects: effects)
+        return nil
+    }
+
+    /// クリップの音の中で声が続いている区間(出力タイムライン秒)。音から見つけた声の区間(HighlightAnalyzer)を使うので、
+    /// キャプションが無い所でも話している間は BGM を下げる。まだ解析していないクリップは、書き出しは待って解析し、
+    /// プレビューは裏で解析する(できたら作り直す)
+    private static func clipVoiceRanges(_ snapshot: ProjectSnapshot, layout: [ClipPlacement],
+                                        purpose: RenderPurpose) async -> [(start: Double, end: Double)] {
+        guard snapshot.audio.originalVolume > 0.01 else { return [] }
+        if purpose == .export || waitsForAudioMaterials {
+            await DuckingVoicePrep.prepare(snapshot)
+        } else {
+            DuckingVoicePrep.prepareInBackground(snapshot)
+        }
+        var result: [(start: Double, end: Double)] = []
+        for (index, clip) in snapshot.clips.enumerated() where index < layout.count {
+            guard !clip.isMuted, clip.hasAudio, !clip.isStill, clip.audio.volume > 0.01, clip.trimmedDuration > 0 else { continue }
+            let placement = layout[index]
+            let reversed = clip.isReversed && clip.reversedURL != nil
+            for run in HighlightAnalyzer.voiceRuns(for: clip.id) {
+                let lo = max(run.lowerBound, clip.startTime)
+                let hi = min(run.upperBound, clip.endTime)
+                guard hi > lo else { continue }
+                // 逆再生は元素材の鏡像の位置に映る
+                let a = clip.outputOffset(atSourceTime: reversed ? clip.startTime + clip.endTime - hi : lo)
+                let b = clip.outputOffset(atSourceTime: reversed ? clip.startTime + clip.endTime - lo : hi)
+                guard b > a else { continue }
+                result.append((start: placement.start + a, end: placement.start + b))
+            }
+        }
+        return result
     }
 
     // MARK: - トラックのプール
@@ -1411,7 +1536,9 @@ enum CompositionBuilder {
                                                     intervals: [(start: Double, end: Double)],
                                                     total: Double,
                                                     fadeIn: Double,
-                                                    fadeOut: Double) {
+                                                    fadeOut: Double,
+                                                    gain: @escaping (Double) -> Float = { _ in 1 },
+                                                    extraPoints: [Double] = []) {
         let ramp = 0.3
         let ducked = volume * min(max(duckLevel, 0), 1)
         let fadeInLength = fadeIn > 0.01 ? min(fadeIn, total / 2) : 0
@@ -1435,7 +1562,8 @@ enum CompositionBuilder {
         }
         // フェードイン・フェードアウトも掛けた最終音量
         func finalVolume(_ t: Double) -> Float {
-            var v = duckedVolume(t)
+            // くり返しのつなぎ目のクロスフェード(gain)も掛ける
+            var v = duckedVolume(t) * gain(t)
             if fadeInLength > 0 && t < fadeInLength {
                 v *= Float(max(0, t / fadeInLength))
             }
@@ -1454,6 +1582,7 @@ enum CompositionBuilder {
         }
         if fadeInLength > 0 { candidates.append(fadeInLength) }
         if fadeLength > 0 { candidates.append(fadeStart) }
+        candidates.append(contentsOf: extraPoints)
         let clampedTimes = candidates.map { min(max($0, 0), total) }.sorted()
         var points: [Double] = []
         for t in clampedTimes {

@@ -94,25 +94,25 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ナレーションを録音するためにマイクを使用します。"
+            "value": "ナレーションの録音と、カメラで撮る動画の音声の録音にマイクを使用します。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The microphone is used to record narration."
+            "value": "The microphone is used to record narration and the sound of videos you shoot with the camera."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El micrófono se usa para grabar narraciones."
+            "value": "El micrófono se usa para grabar narraciones y el audio de los videos que grabas con la cámara."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O microfone é usado para gravar narrações."
+            "value": "O microfone é usado para gravar narrações e o áudio dos vídeos que você grava com a câmera."
           }
         }
       }

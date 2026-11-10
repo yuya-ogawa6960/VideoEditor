@@ -341,10 +341,11 @@ enum GridPaperBackground {
 
 enum TextRenderer {
 
-    /// NSCache 自体がスレッドセーフ
+    /// NSCache 自体がスレッドセーフ。拡大したテキストは大きな解像度で描くので、枚数に加えて合計の大きさでも上限を付ける
     private static let cache: NSCache<NSString, CIImage> = {
         let c = NSCache<NSString, CIImage>()
         c.countLimit = 120
+        c.totalCostLimit = 160 * 1024 * 1024
         return c
     }()
 
@@ -443,54 +444,122 @@ enum TextRenderer {
             if v >= total { visibleUnits = nil }
         }
 
+        // ピンチや「大きさ」で拡大したテキスト・ステッカーは、その大きさに近い解像度で描いてから縮めて置く
+        // (等倍で描いた画像を引き伸ばすと、書き出しで縁がぼやけるため)。倍率は 0.25 刻み・最大 4 倍
+        // 4K などもともと大きいキャンバスでは、描く短辺が 4320px を超えない倍率までにする(メモリを使いすぎないように)
+        var resolution = min(renderResolution(forScale: scale), max(1, CGFloat(4320 / max(shortSide, 1))))
+        var stickerBase: CGSize? = nil
+        if let kind = clip.vectorSticker {
+            // 動くステッカーの絵は 4096px で頭打ちになるので、その手前までにする
+            let base = VectorStickerRenderer.pixelSize(sizeRatio: clip.style.sizeRatio, kind: kind, canvasSize: canvasSize)
+            resolution = min(resolution, max(1, 4096 / max(base.width, base.height, 1)))
+            stickerBase = base
+        }
+        let renderCanvas = CGSize(width: canvasSize.width * resolution, height: canvasSize.height * resolution)
+
         let baseImage: CIImage?
         if clip.vectorSticker != nil {
             // 動くステッカー: クリップ内の時刻のコマ(VectorStickerRenderer.swift)
-            baseImage = VectorStickerRenderer.image(for: clip, localTime: local, canvasSize: canvasSize)
+            baseImage = VectorStickerRenderer.image(for: clip, localTime: local, canvasSize: renderCanvas)
         } else {
-            baseImage = Self.image(for: clip, canvasSize: canvasSize, visibleUnits: visibleUnits, unitIsWord: unitIsWord)
+            baseImage = Self.image(for: clip, canvasSize: renderCanvas, visibleUnits: visibleUnits, unitIsWord: unitIsWord)
         }
         guard var textImage = baseImage else {
             return nil
         }
-        // 端に置いたテキストのタイプライターは、書き始めの位置(行頭と 1 行目)を全文のときと揃える
-        if visibleUnits != nil, clip.edgeAnchor != nil, clip.keyframes.isEmpty,
-           let full = Self.image(for: clip, canvasSize: canvasSize) {
-            let s = CGFloat(max(0.01, scale * scaleMul))
+        // 描いた画像が等倍の何倍か(動くステッカーは丸めの差も含めて実際の大きさで求める)
+        var drawScale = resolution
+        if let base = stickerBase, base.height >= 1, textImage.extent.height >= 1 {
+            drawScale = textImage.extent.height / base.height
+        }
+        // 帯(背景の板)のあるテキストのタイプライター・単語ごとは、途中までの文字で描き直す(板も文字といっしょに伸びる)。
+        // 書き始めの位置(上端と、行ぞろえの側。縦書きは右の列)を全文のときと揃える(端に置いていないテキストも)。
+        // 帯のないテキストは全文の組版のまま、まだ出ていない文字を透明にして描くので、位置も改行もずれない(image(for:))
+        if visibleUnits != nil, Self.typesWithGrowingPlate(clip),
+           let full = Self.image(for: clip, canvasSize: renderCanvas) {
+            let s = CGFloat(max(0.01, scale * scaleMul)) / drawScale
             let dx = (full.extent.width - textImage.extent.width) / 2 * s
             let dy = (full.extent.height - textImage.extent.height) / 2 * s
+            var shift = CGPoint(x: 0, y: dy)
             if clip.style.vertical {
                 // 縦書きは右の列から増える
-                offset.x += dx
+                shift.x = dx
             } else if clip.style.alignment == .left {
-                offset.x -= dx
+                shift.x = -dx
             } else if clip.style.alignment == .right {
-                offset.x += dx
+                shift.x = dx
             }
-            offset.y += dy
+            // テキストを回しているときは、ずらす向きも同じだけ回す(GeometryMath.transformed と同じ向き)
+            if abs(rotation) > 0.001 {
+                shift = shift.applying(CGAffineTransform(rotationAngle: CGFloat(-rotation * Double.pi / 180)))
+            }
+            offset.x += shift.x
+            offset.y += shift.y
         }
         if blur > 0.3 {
-            textImage = GeometryMath.blurred(textImage, sigma: blur)
+            textImage = GeometryMath.blurred(textImage, sigma: blur * Double(drawScale))
         }
         let anchor = GeometryMath.point(topLeft: center, in: canvasSize)
         let placed = GeometryMath.transformed(textImage,
-                                              scale: CGFloat(max(0.01, scale * scaleMul)),
+                                              scale: CGFloat(max(0.01, scale * scaleMul)) / drawScale,
                                               rotationDegrees: rotation,
                                               center: CGPoint(x: anchor.x + offset.x, y: anchor.y + offset.y))
         return GeometryMath.withAlpha(placed, opacity * alphaMul).cropped(to: canvas)
+    }
+
+    /// 拡大して置くテキスト・ステッカーを描く解像度の倍率(1 ... 4、0.25 刻み。等倍以下は 1)
+    static func renderResolution(forScale scale: Double) -> CGFloat {
+        guard scale.isFinite, scale > 1.001 else { return 1 }
+        return CGFloat(min(4, (scale * 4).rounded(.up) / 4))
+    }
+
+    /// タイプライター・単語ごとで、途中までの文字だけで描き直すテキストか(帯=背景の板があり、曲げていないもの)。
+    /// それ以外は全文の組版のまま、まだ出ていない文字を透明にして描く(文字の位置も改行も全文のときのまま)
+    static func typesWithGrowingPlate(_ clip: TextClip) -> Bool {
+        !clip.isSticker && clip.style.backgroundColorHex != nil && clip.style.backgroundOpacity > 0.001
+            && clip.style.curveRadius <= 0.001
+    }
+
+    /// 先頭から count 個目の単語の終わりまでの文字数(空白・改行の区切りは数えたまま残す。単語ごとのアニメーション用)
+    static func characterCount(throughWords count: Int, in text: String) -> Int {
+        guard count > 0 else { return 0 }
+        var words = 0
+        var inWord = false
+        var offset = 0
+        for ch in text {
+            if ch.isWhitespace || ch.isNewline {
+                if inWord {
+                    inWord = false
+                    if words >= count { return offset }
+                }
+            } else if !inWord {
+                inWord = true
+                words += 1
+            }
+            offset += 1
+        }
+        return offset
     }
 
     /// TextClip の文字画像(原点 (0,0)、配置・拡大・回転は未適用)。
     /// visibleUnits: タイプライター用に先頭から表示する文字数(unitIsWord なら単語数)。nil = 全部
     static func image(for clip: TextClip, canvasSize: CGSize, visibleUnits: Int? = nil, unitIsWord: Bool = false) -> CIImage? {
         var text = clip.text
+        /// 帯のないテキスト: 全文の組版のまま、先頭からこの文字数だけを描く(残りは透明)
+        var visibleCharacters: Int? = nil
         if let v = visibleUnits {
-            if unitIsWord {
-                text = wordUnits(text).prefix(max(0, v)).joined(separator: " ")
-            } else if clip.style.accentColorHex != nil, !clip.isSticker {
-                text = visiblePrefix(of: text, units: max(0, v))
+            let shown = max(0, v)
+            if typesWithGrowingPlate(clip) {
+                // 帯のあるテキスト: 途中までの文字で描き直す。単語ごとも改行・空白は元のまま残す
+                if unitIsWord {
+                    text = String(text.prefix(characterCount(throughWords: shown, in: text)))
+                } else if clip.style.accentColorHex != nil, !clip.isSticker {
+                    text = visiblePrefix(of: text, units: shown)
+                } else {
+                    text = String(text.prefix(shown))
+                }
             } else {
-                text = String(text.prefix(max(0, v)))
+                visibleCharacters = unitIsWord ? characterCount(throughWords: shown, in: visibleText(of: clip)) : shown
             }
         }
         if clip.isSticker {
@@ -502,22 +571,34 @@ enum TextRenderer {
             style.backgroundColorHex = nil
             style.shadow.enabled = false
             style.alignment = .center
-            return Self.image(text: text, style: style, canvasSize: canvasSize, widthRatio: 1, isSticker: true)
+            return Self.image(text: text, style: style, canvasSize: canvasSize, widthRatio: 1, isSticker: true,
+                              visibleCharacters: visibleCharacters)
         }
-        return Self.image(text: text, style: clip.style, canvasSize: canvasSize, widthRatio: clip.widthRatio)
+        return Self.image(text: text, style: clip.style, canvasSize: canvasSize, widthRatio: clip.widthRatio,
+                          visibleCharacters: visibleCharacters)
     }
 
-    /// 任意の文字列を TextStyle で描く(原点 (0,0))。widthRatio は折り返し幅(キャンバス幅に対する比率)
-    static func image(text: String, style: TextStyle, canvasSize: CGSize, widthRatio: Double, isSticker: Bool = false) -> CIImage? {
+    /// 任意の文字列を TextStyle で描く(原点 (0,0))。widthRatio は折り返し幅(キャンバス幅に対する比率)。
+    /// visibleCharacters: 先頭から描く文字数(【】の印を除いた文字で数える。残りは透明にして、組版は全文のまま)。nil = 全部
+    static func image(text: String, style: TextStyle, canvasSize: CGSize, widthRatio: Double, isSticker: Bool = false,
+                      visibleCharacters: Int? = nil) -> CIImage? {
         let trimmed = text.trimmingCharacters(in: .newlines)
         guard !trimmed.trimmingCharacters(in: .whitespaces).isEmpty,
               canvasSize.width >= 2, canvasSize.height >= 2 else { return nil }
-        let key = cacheKey(text: trimmed, style: style, canvasSize: canvasSize, widthRatio: widthRatio, isSticker: isSticker)
+        // 先頭の改行は描かないので、描く文字数からも除く
+        let leadingNewlines = text.prefix(while: { $0.isNewline }).count
+        let shown: Int? = visibleCharacters.map { max(0, $0 - leadingNewlines) }
+        if let shown, shown <= 0 { return nil }
+        let key = cacheKey(text: trimmed, style: style, canvasSize: canvasSize, widthRatio: widthRatio, isSticker: isSticker,
+                           visibleCharacters: shown)
         if let cached = cache.object(forKey: key) { return cached }
 
-        let spec = makeSpec(text: trimmed, style: style, canvasSize: canvasSize, widthRatio: widthRatio, isSticker: isSticker)
+        var spec = makeSpec(text: trimmed, style: style, canvasSize: canvasSize, widthRatio: widthRatio, isSticker: isSticker)
+        spec.visibleCount = shown
         guard let rendered = render(spec) else { return nil }
-        cache.setObject(rendered, forKey: key)
+        let extent = rendered.extent
+        let cost = (extent.width.isFinite && extent.height.isFinite) ? Int(extent.width * extent.height * 4) : 0
+        cache.setObject(rendered, forKey: key, cost: cost)
         return rendered
     }
 
@@ -565,30 +646,47 @@ enum TextRenderer {
         } else {
             base = UIFont.systemFont(ofSize: size, weight: style.bold ? .bold : .regular)
         }
-        var traits: UIFontDescriptor.SymbolicTraits = []
-        if style.bold && style.fontName != nil { traits.insert(.traitBold) }
-        if style.italic { traits.insert(.traitItalic) }
-        if !traits.isEmpty,
-           let descriptor = base.fontDescriptor.withSymbolicTraits(base.fontDescriptor.symbolicTraits.union(traits)) {
+        // 太字と斜体は別々に当てる(「太字+斜体」の書体がない書体で、太字の指定まで外れないように)
+        if style.bold && style.fontName != nil,
+           let descriptor = base.fontDescriptor.withSymbolicTraits(base.fontDescriptor.symbolicTraits.union(.traitBold)) {
             base = UIFont(descriptor: descriptor, size: size)
         }
-        // 日本語の字形を持たない欧文書体には、雰囲気の近い日本語書体を足す
-        if let name = style.fontName, let cascade = japaneseCascade(for: name, size: size) {
+        if style.italic, !base.fontDescriptor.symbolicTraits.contains(.traitItalic) {
+            var italicFont: UIFont? = nil
+            if let descriptor = base.fontDescriptor.withSymbolicTraits(base.fontDescriptor.symbolicTraits.union(.traitItalic)) {
+                let candidate = UIFont(descriptor: descriptor, size: size)
+                // 同じ書体の斜体が本当にあるときだけ使う(別の書体に置き換わらないように)
+                if candidate.fontDescriptor.symbolicTraits.contains(.traitItalic), candidate.familyName == base.familyName {
+                    italicFont = candidate
+                }
+            }
+            // 斜体の書体がない(ヒラギノ・同梱フォントなど)ときは、文字を斜めに変形して傾ける
+            base = italicFont ?? UIFont(descriptor: base.fontDescriptor.withMatrix(obliqueMatrix), size: size)
+        }
+        // 日本語の字形を持たない欧文書体には、雰囲気の近い日本語書体を足す(斜体なら日本語も傾ける)
+        if let cascade = japaneseCascade(for: style, size: size) {
             base = UIFont(descriptor: base.fontDescriptor.addingAttributes([.cascadeList: [cascade]]), size: size)
         }
         return base
     }
 
-    private static func japaneseCascade(for fontName: String, size: CGFloat) -> UIFontDescriptor? {
-        switch fontName {
+    /// 斜体の書体がない文字を傾ける量(AvenirNext-HeavyItalic の日本語と同じ)
+    private static let obliqueMatrix = CGAffineTransform(a: 1, b: 0, c: 0.2, d: 1, tx: 0, ty: 0)
+
+    private static func japaneseCascade(for style: TextStyle, size: CGFloat) -> UIFontDescriptor? {
+        switch style.fontName ?? "" {
         case "Georgia-Bold":
-            return UIFontDescriptor(name: "HiraMinProN-W6", size: size)
+            let mincho = UIFontDescriptor(name: "HiraMinProN-W6", size: size)
+            return style.italic ? mincho.withMatrix(obliqueMatrix) : mincho
         case "AvenirNext-HeavyItalic":
             // 斜体の書体に合わせて、日本語も少し傾ける
-            return UIFontDescriptor(name: "HiraginoSans-W6", size: size)
-                .withMatrix(CGAffineTransform(a: 1, b: 0, c: 0.2, d: 1, tx: 0, ty: 0))
+            return UIFontDescriptor(name: "HiraginoSans-W6", size: size).withMatrix(obliqueMatrix)
         default:
-            return nil
+            // 日本語は代わりの書体で描かれ、その書体には斜体がない。斜体のときは傾けた日本語の書体を明示する
+            // (システムフォントのときも。日本語の字形を持つ書体では使われない)
+            guard style.italic else { return nil }
+            return UIFontDescriptor(name: style.bold ? "HiraginoSans-W6" : "HiraginoSans-W3", size: size)
+                .withMatrix(obliqueMatrix)
         }
     }
 
@@ -608,6 +706,8 @@ enum TextRenderer {
         let isSticker: Bool
         /// 強調する文字の位置(text の文字番号)
         var accentIndices: Set<Int> = []
+        /// 先頭から描く文字数(タイプライターの途中。残りは透明にして組版は全文のまま)。nil = 全部
+        var visibleCount: Int? = nil
     }
 
     /// 【】を取り除いた文字列と、囲まれていた文字の位置(タイプライターの途中で閉じていなくても動く)
@@ -658,10 +758,19 @@ enum TextRenderer {
         let parsed = parseAccent(spec.text)
         guard !parsed.plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return Spec(text: parsed.plain, style: spec.style, fontSize: spec.fontSize, maxWidth: spec.maxWidth,
-                    shortSide: spec.shortSide, isSticker: spec.isSticker, accentIndices: parsed.indices)
+                    shortSide: spec.shortSide, isSticker: spec.isSticker, accentIndices: parsed.indices,
+                    visibleCount: spec.visibleCount)
     }
 
-    private static func cacheKey(text: String, style: TextStyle, canvasSize: CGSize, widthRatio: Double, isSticker: Bool) -> NSString {
+    /// まだ出ていない文字の範囲(タイプライターの途中。全部出ているなら nil)
+    private static func hiddenRange(_ spec: Spec) -> NSRange? {
+        guard let shown = spec.visibleCount, shown < spec.text.count else { return nil }
+        let start = spec.text.index(spec.text.startIndex, offsetBy: max(0, shown))
+        return NSRange(start..<spec.text.endIndex, in: spec.text)
+    }
+
+    private static func cacheKey(text: String, style: TextStyle, canvasSize: CGSize, widthRatio: Double, isSticker: Bool,
+                                 visibleCharacters: Int? = nil) -> NSString {
         let s = style
         let shadow = s.shadow
         let parts: [String] = [
@@ -673,7 +782,8 @@ enum TextRenderer {
             s.backgroundColorHex ?? "", "\(s.backgroundOpacity)\(s.backgroundPadding)\(s.backgroundCornerRadius)",
             s.alignment.rawValue, "\(s.letterSpacing)\(s.lineSpacing)\(s.vertical)\(s.curveRadius)",
             "\(widthRatio)", "\(isSticker)", s.accentColorHex ?? "",
-            "\(Int(canvasSize.width))x\(Int(canvasSize.height))"
+            "\(Int(canvasSize.width))x\(Int(canvasSize.height))",
+            visibleCharacters.map { "v\($0)" } ?? ""
         ]
         return parts.joined(separator: "\u{1F}") as NSString
     }
@@ -771,11 +881,14 @@ enum TextRenderer {
             backgroundCorner = CGFloat(GeometryMath.clamp(style.backgroundCornerRadius, 0, 2)) * fontSize
         }
 
+        // 斜体(傾けた文字)は行末の字の上側が右へはみ出すので、そのぶん余白を足す(画像の端で切れないように)
+        let italicExtent: CGFloat = (style.italic && !spec.isSticker) ? ceil(fontSize * 0.25) : 0
+
         return Prepared(font: uiFont,
                         fillAttributes: fill,
                         strokeAttributes: stroke,
                         kern: kern,
-                        margin: strokeOutside + shadowExtent + 2,
+                        margin: strokeOutside + shadowExtent + italicExtent + 2,
                         strokeOutside: strokeOutside,
                         backgroundColor: backgroundColor,
                         backgroundPadding: backgroundPadding,
@@ -864,6 +977,11 @@ enum TextRenderer {
                 fillString.addAttribute(.foregroundColor, value: accent, range: range)
             }
         }
+        // タイプライターの途中: まだ出ていない文字を透明にする(大きさ・改行の位置は全文のまま)
+        if let hidden = hiddenRange(spec) {
+            fillString.addAttribute(.foregroundColor, value: UIColor.clear, range: hidden)
+            fillString.removeAttribute(.shadow, range: hidden)
+        }
         let measured = measure(fillString, maxWidth: spec.maxWidth)
         guard measured.width >= 1, measured.height >= 1 else { return nil }
         let trailingKern = spec.isSticker ? 0 : max(0, prepared.kern)
@@ -876,7 +994,17 @@ enum TextRenderer {
 
     private static func renderStraight(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
         guard let layout = straightLayout(spec, prepared) else { return nil }
-        let strokeString = prepared.strokeAttributes.map { NSAttributedString(string: spec.text, attributes: $0) }
+        let hidden = hiddenRange(spec)
+        let strokeString: NSAttributedString? = prepared.strokeAttributes.map { attributes -> NSAttributedString in
+            let s = NSMutableAttributedString(string: spec.text, attributes: attributes)
+            if let hidden {
+                // まだ出ていない文字は縁取りも描かない
+                s.addAttribute(.foregroundColor, value: UIColor.clear, range: hidden)
+                s.addAttribute(.strokeColor, value: UIColor.clear, range: hidden)
+                s.removeAttribute(.shadow, range: hidden)
+            }
+            return s
+        }
         return makeImage(textSize: layout.textSize, prepared: prepared) { _, rect in
             let options: NSStringDrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
             // 大きさから除いた行末の字間と 1 行目の上の行間のぶん、描く範囲を広げる
@@ -888,7 +1016,7 @@ enum TextRenderer {
     }
 
     // 縦書き: 改行ごとに列、右から左へ。1 文字ずつ積む
-    private typealias VerticalColumn = [(ch: Character, accent: Bool)]
+    private typealias VerticalColumn = [(ch: Character, accent: Bool, index: Int)]
 
     private static func verticalColumns(_ spec: Spec) -> [VerticalColumn] {
         var splitColumns: [VerticalColumn] = [[]]
@@ -896,7 +1024,7 @@ enum TextRenderer {
             if ch.isNewline {
                 splitColumns.append([])
             } else {
-                splitColumns[splitColumns.count - 1].append((ch, spec.accentIndices.contains(offset)))
+                splitColumns[splitColumns.count - 1].append((ch, spec.accentIndices.contains(offset), offset))
             }
         }
         return splitColumns.filter { !$0.isEmpty }
@@ -941,11 +1069,14 @@ enum TextRenderer {
         var stroke = prepared.strokeAttributes
         stroke?[.kern] = nil
         stroke?[.paragraphStyle] = nil
+        let visibleCount = spec.visibleCount
 
         return makeImage(textSize: textSize, prepared: prepared) { context, rect in
             for (columnIndex, column) in columns.enumerated() {
                 let x = rect.minX + CGFloat(columns.count - 1 - columnIndex) * pitchX
                 for (charIndex, item) in column.enumerated() {
+                    // タイプライターの途中: まだ出ていない文字は描かない(列の位置は全文のまま)
+                    if let visibleCount, item.index >= visibleCount { continue }
                     let s = String(item.ch)
                     var charFill = fill
                     if item.accent, let accentColor { charFill[.foregroundColor] = accentColor }
@@ -1049,6 +1180,7 @@ enum TextRenderer {
         let half = layout.half
         let stroke = layout.stroke
         let fontSize = spec.fontSize
+        let visibleCount = spec.visibleCount
 
         return makeImage(textSize: layout.textSize, prepared: prepared) { context, rect in
             let center = CGPoint(x: rect.midX, y: rect.minY + fontSize * 0.7 + radius)
@@ -1056,6 +1188,8 @@ enum TextRenderer {
             for i in 0..<chars.count {
                 let mid = cursor + advances[i] / 2
                 cursor += advances[i]
+                // タイプライターの途中: まだ出ていない文字は描かない(弧の位置は全文のまま)
+                if let visibleCount, i >= visibleCount { continue }
                 let angle = -half + mid / radius
                 let position = CGPoint(x: center.x + radius * sin(angle), y: center.y - radius * cos(angle))
                 let size = sizes[i]

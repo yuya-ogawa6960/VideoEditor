@@ -18,11 +18,15 @@ struct TranslationRequest: Equatable {
     let id: UUID
     let source: TranscriptionLanguage
     let targetIsEnglish: Bool
+    /// このキャプションだけ訳す(訳文の無いものだけ・「＋訳」で訳が付かなかったものなど)。nil なら全部。
+    /// 手で直した訳文を、もう一度「翻訳」を押したときに上書きしないため
+    let cueIDs: Set<UUID>?
 
-    init(source: TranscriptionLanguage, targetIsEnglish: Bool = true) {
+    init(source: TranscriptionLanguage, targetIsEnglish: Bool = true, cueIDs: Set<UUID>? = nil) {
         self.id = UUID()
         self.source = source
         self.targetIsEnglish = targetIsEnglish
+        self.cueIDs = cueIDs
     }
 }
 
@@ -269,7 +273,9 @@ private struct SubtitleTranslationModifier: ViewModifier {
         let pending: TranslationRequest? = await MainActor.run { request }
         guard let pending else { return }
 
-        let cues: [SubtitleCue] = await MainActor.run { project.subtitles }
+        let allCues: [SubtitleCue] = await MainActor.run { project.subtitles }
+        // 対象を絞ったときは、そのキャプションだけ(ほかの訳文には触らない)
+        let cues: [SubtitleCue] = pending.cueIDs.map { ids in allCues.filter { ids.contains($0.id) } } ?? allCues
         let groups = SubtitleTranslationGrouping.makeGroups(cues)
 
         // clientIdentifier = グループ番号

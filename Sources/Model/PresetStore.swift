@@ -4,7 +4,10 @@ import Observation
 // =====================================================================
 // 書き出しプリセット(ユーザー保存)。Documents/presets.json に保存する。
 // 組み込みプリセット(builtIns)はファイルには保存しない。書き出し画面のチップには出さない(画質は書き出し画面のタイルで選ぶ)。
-// プリセットは画質まわりだけを変え、比率と収め方(aspect / scaling)は上書きしない(比率は編集画面と新規作成で決める)。
+// プリセットは書き出しの設定(解像度・画質・fps・コーデック・ビットレート・音質・形式)だけを変える。
+// 比率と収め方(aspect / scaling)、キャプションを映像に入れるか、HDR は上書きしない(比率は編集画面と新規作成で決める)。
+// 以前のプリセットに入っているキャプションのスタイル・ドキュメンタリー風の設定は使わない
+// (画質を選ぶつもりで押すと、ほかのプロジェクトの字幕の見た目や色味まで黙って変わっていたため)。
 // 保存形式は ProjectStore.swift の StoredCanvas / StoredSubtitleStyle / StoredDocumentary を使う。
 // 呼び出しはメインスレッドから(@Observable の更新のため)。書き込みは裏で行う。
 // =====================================================================
@@ -136,27 +139,24 @@ final class PresetStore {
         write()
     }
 
-    /// プリセットの内容をプロジェクトに反映する(比率と収め方はプロジェクトのまま。字幕スタイル・演出は含まれているときだけ)
+    /// プリセットの書き出しの設定だけをプロジェクトに反映する
+    /// (比率・収め方・キャプションを映像に入れるか・HDR はプロジェクトのまま。字幕のスタイルや演出も変えない)
     func apply(_ preset: ExportPreset, to project: EditorProject) {
         project.canvas = Self.keepingLayout(preset.canvas, of: project.canvas)
-        if let style = preset.subtitleStyle {
-            project.subtitleStyle = style
-        }
-        if let documentary = preset.documentary {
-            project.documentary = documentary
-        }
     }
 
-    /// 出力設定がこのプリセットと一致しているか(選択表示用。比率と収め方は比べない)
+    /// 出力設定がこのプリセットと一致しているか(選択表示用。比率と収め方などプリセットで変えないものは比べない)
     func matches(_ preset: ExportPreset, canvas: CanvasSettings) -> Bool {
         Self.keepingLayout(preset.canvas, of: canvas) == canvas
     }
 
-    /// preset の設定に、current の比率と収め方を残したもの
+    /// preset の設定に、current の比率・収め方・キャプションを映像に入れるか・HDR を残したもの
     static func keepingLayout(_ preset: CanvasSettings, of current: CanvasSettings) -> CanvasSettings {
         var c = preset
         c.aspect = current.aspect
         c.scaling = current.scaling
+        c.burnInSubtitles = current.burnInSubtitles
+        c.preserveHDR = current.preserveHDR
         return c
     }
 

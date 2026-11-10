@@ -145,6 +145,10 @@ struct VideoEffectClip: Identifiable, Equatable {
     var duration: Double = 3
     /// 強さ(0 ... 1)
     var intensity: Double = 0.6
+    /// 「ビート揺れ」「ズームパルス」の 1 拍の秒と、拍の頭になる出力タイムライン上の秒。
+    /// 合成のときに BGM の拍から入れる(BGMBeatGrid。保存しない)。0 なら 120 BPM でエフェクトの先頭から
+    var beatPeriod: Double = 0
+    var beatOrigin: Double = 0
 
     var end: Double { start + duration }
 

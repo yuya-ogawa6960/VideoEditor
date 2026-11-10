@@ -61,22 +61,24 @@ enum ClipFXTimeline {
         return start...(start + clip.outputDuration)
     }
 
-    /// 元素材上の時刻 → クリップ先頭からの出力秒(速度・速度カーブを考慮)
+    /// 元素材上の時刻 → クリップ先頭からの出力秒(速度・速度カーブを考慮)。
+    /// 実際の再生(CompositionBuilder.speedPlan)と同じ区間で変換する Clip.outputOffset を使う
+    /// (前は 256 区間の端数を捨てた別の計算で、速度カーブのクリップではマーカーが拍から最大 0.5 秒ずれていた)
     static func outputOffset(sourceTime: Double, clip: Clip) -> Double {
-        let trimmed = clip.trimmedDuration
-        let local = min(max(sourceTime - clip.startTime, 0), trimmed)
-        if clip.speedCurve.enabled, trimmed > 0 {
-            let n = 256
-            let step = trimmed / Double(n)
-            let count = min(n, Int((local / trimmed) * Double(n)))
-            var total = 0.0
-            for i in 0..<count {
-                let p = (Double(i) + 0.5) / Double(n)
-                total += step / clip.speedCurve.speed(at: p)
-            }
-            return total
-        }
-        return local / max(clip.speed, 0.01)
+        clip.outputOffset(atSourceTime: sourceTime)
+    }
+
+    /// 画面に出る元の動画の秒 → クリップ先頭からの出力秒。逆再生のクリップは鏡に映した位置(終わりのコマが先頭に出る)
+    static func outputOffset(shownSourceTime shown: Double, clip: Clip) -> Double {
+        let reversed = clip.isReversed && clip.reversedURL != nil
+        return clip.outputOffset(atSourceTime: reversed ? clip.startTime + clip.endTime - shown : shown)
+    }
+
+    /// クリップ先頭からの出力秒 → 画面に出ている元の動画の秒(outputOffset(shownSourceTime:) の逆)
+    static func shownSourceTime(outputOffset offset: Double, clip: Clip) -> Double {
+        let source = clip.sourceTime(atOutputOffset: offset)
+        let reversed = clip.isReversed && clip.reversedURL != nil
+        return reversed ? clip.startTime + clip.endTime - source : source
     }
 }
 
@@ -480,12 +482,14 @@ struct EditorSpeedCurvePanel: View {
         (String(localized: "終わりだけ速く"), SpeedCurve.flashOut)
     ]
 
+    /// グラフを動かしている間の控え(EditorPanels.swift の SpeedTrialBase)
+    @State private var trial: SpeedTrialBase? = nil
+
     /// カーブを変えるとクリップの長さが変わるので、キャプション・テキストなどを同じ素材の位置に付けたまま動かす
-    /// (EditorProject.captureClipLayout / rippleTimelineItems。TimelineRipple.swift)
+    /// (EditorProject.captureClipLayout / rippleTimelineItems。TimelineRipple.swift)。
+    /// 毎回このパネルで最初に変える直前の状態から計算し直す(点を一瞬上げて戻しても、短い字幕などが消えたままにならない)
     private func setCurve(_ curve: SpeedCurve) {
-        let layout = project.captureClipLayout()
-        clip.speedCurve = curve
-        project.rippleTimelineItems(from: layout)
+        trial = SpeedTrialBase.apply(trial, project: project, clipID: clip.id) { $0.speedCurve = curve }
     }
 
     private var enabledBinding: Binding<Bool> {
@@ -495,10 +499,15 @@ struct EditorSpeedCurvePanel: View {
                 var curve = clip.speedCurve
                 curve.enabled = newValue
                 if newValue, curve.points.count < 3 {
-                    // 等速(2点)から始めるときは、ドラッグできるよう 5 点に増やす
+                    // 等速(2点)から始めるときは、ドラッグできるよう 5 点に増やす。
+                    // 「速度」パネルで一定の速さ(2x など)にしていたら、その速さから始める(前は 1x から始まり、長さが急に変わっていた)
                     var probe = curve
                     probe.enabled = true
-                    curve.points = [0, 0.25, 0.5, 0.75, 1].map { SpeedPoint(position: $0, speed: probe.speed(at: $0)) }
+                    let flat = curve.points.allSatisfy { abs($0.speed - 1) < 0.0001 }
+                    let startSpeed = min(max(clip.speed, 0.1), 10)
+                    curve.points = [0, 0.25, 0.5, 0.75, 1].map {
+                        SpeedPoint(position: $0, speed: flat ? startSpeed : probe.speed(at: $0))
+                    }
                 }
                 setCurve(curve)
             }
@@ -713,6 +722,8 @@ struct EditorAudioEffectsPanel: View {
     @State private var isProcessing = false
     @State private var errorText: String?
     @State private var debounceTask: Task<Void, Never>?
+    /// 最後に頼んだ反映の番号(古い反映が終わっても「処理中…」を消さない)
+    @State private var commitGeneration = 0
     /// 開いたときの restoreCount。閉じるときに変わっていたら、戻した状態を下書きで上書きしない
     @State private var restoreCountAtOpen = 0
 
@@ -730,26 +741,46 @@ struct EditorAudioEffectsPanel: View {
                             range: 0...1,
                             display: clipFXPercent(draft.noiseReduction))
 
-            VStack(alignment: .leading, spacing: 6) {
-                EditorSectionTitle(title: String(localized: "声の変化"))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(VoicePreset.allCases) { preset in
-                            EditorChip(title: preset.displayName, isSelected: draft.voicePreset == preset) {
-                                draft.voicePreset = preset
+            // 声の変化・低音/中音/高音・ピッチは Standard の機能(音声効果)。無料プランで「スピーチを強調」から開いたときは、
+            // 無料のスピーチを強調だけを出し、ほかは王冠を付けてプランの画面へ
+            if PlanStore.shared.allows(.audioEffects) {
+                VStack(alignment: .leading, spacing: 6) {
+                    EditorSectionTitle(title: String(localized: "声の変化"))
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(VoicePreset.allCases) { preset in
+                                EditorChip(title: preset.displayName, isSelected: draft.voicePreset == preset) {
+                                    draft.voicePreset = preset
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            EditorSliderRow(title: String(localized: "低音"), value: $draft.eqLow, range: -12...12, display: db(draft.eqLow))
-            EditorSliderRow(title: String(localized: "中音"), value: $draft.eqMid, range: -12...12, display: db(draft.eqMid))
-            EditorSliderRow(title: String(localized: "高音"), value: $draft.eqHigh, range: -12...12, display: db(draft.eqHigh))
-            EditorSliderRow(title: String(localized: "ピッチ"),
-                            value: $draft.pitchSemitones,
-                            range: -12...12,
-                            display: String(format: "%+.1f", draft.pitchSemitones))
+                EditorSliderRow(title: String(localized: "低音"), value: $draft.eqLow, range: -12...12, display: db(draft.eqLow))
+                EditorSliderRow(title: String(localized: "中音"), value: $draft.eqMid, range: -12...12, display: db(draft.eqMid))
+                EditorSliderRow(title: String(localized: "高音"), value: $draft.eqHigh, range: -12...12, display: db(draft.eqHigh))
+                EditorSliderRow(title: String(localized: "ピッチ"),
+                                value: $draft.pitchSemitones,
+                                range: -12...12,
+                                display: String(format: "%+.1f", draft.pitchSemitones))
+            } else {
+                Button {
+                    PlanPaywall.present(for: .audioEffects)
+                } label: {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "crown.fill")
+                            .foregroundStyle(BrandStyle.coral)
+                        Text("声の変化・低音/中音/高音・ピッチは Standard で使えます")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
 
             HStack {
                 if isProcessing {
@@ -817,9 +848,15 @@ struct EditorAudioEffectsPanel: View {
         }
         isProcessing = true
         errorText = nil
-        defer { isProcessing = false }
+        // 「処理中…」を消すのは最後に頼んだ処理だけ(前は古い処理が終わった時点で消え、終わったと勘違いしやすかった)
+        commitGeneration += 1
+        let generation = commitGeneration
+        defer {
+            if generation == commitGeneration { isProcessing = false }
+        }
         do {
-            _ = try await AudioEffectsRenderer.processedURL(for: url, effects: newValue)
+            // 前の値の処理は止める(AudioEffectsRenderer)
+            _ = try await AudioEffectsRenderer.processedURL(for: url, effects: newValue, supersedesPrevious: true)
             // 待っている間に ✕ で閉じられた / 次の変更が入ったら、この結果は書かない
             guard !Task.isCancelled else { return }
             effects = newValue
@@ -846,11 +883,30 @@ struct EditorBeatDetectPanel: View {
     @State private var message: String?
     @State private var errorText: String?
     @State private var task: Task<Void, Never>?
+    /// BGM の拍を使う(BGM があるときの既定)。オフならこのクリップの音を解析する
+    @State private var useBGM = true
 
     private var clip: Clip? { project.clips.first(where: { $0.id == clipID }) }
 
+    /// BGM の拍を使うか(BGM が無ければクリップの音)
+    private var usesBGM: Bool { useBGM && project.audio.bgmURL != nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+
+            // 解析する音: BGM の拍か、このクリップの音(前はクリップの音だけで、話している動画では話し声で分割されていた)
+            if project.audio.bgmURL != nil {
+                HStack(spacing: 8) {
+                    EditorChip(title: String(localized: "BGM の拍"), isSelected: usesBGM) {
+                        useBGM = true
+                    }
+                    EditorChip(title: String(localized: "クリップの音"), isSelected: !usesBGM) {
+                        useBGM = false
+                    }
+                    Spacer()
+                }
+                .disabled(isRunning)
+            }
 
             EditorSliderRow(title: String(localized: "感度"),
                             value: $sensitivity,
@@ -869,7 +925,7 @@ struct EditorBeatDetectPanel: View {
                 EditorPillButton(title: isRunning ? String(localized: "探しています…") : String(localized: "ビートを探す"), systemImage: "metronome", prominent: true) {
                     detect()
                 }
-                .disabled(isRunning || clip == nil || !(clip?.hasAudio ?? false))
+                .disabled(isRunning || clip == nil || !(usesBGM || (clip?.hasAudio ?? false)))
                 .opacity(isRunning ? 0.6 : 1)
 
                 if isRunning {
@@ -890,7 +946,7 @@ struct EditorBeatDetectPanel: View {
                 Spacer()
             }
 
-            if let clip, !clip.hasAudio {
+            if let clip, !clip.hasAudio, !usesBGM {
                 Text("このクリップには音声がありません")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -935,7 +991,7 @@ struct EditorBeatDetectPanel: View {
         guard beats.isEmpty, let clip, let range = ClipFXTimeline.range(of: clipID, in: project) else { return }
         let found = project.markers
             .filter { $0.kind == .beat && $0.time >= range.lowerBound - 0.01 && $0.time <= range.upperBound + 0.01 }
-            .map { clip.sourceTime(atOutputOffset: $0.time - range.lowerBound) }
+            .map { ClipFXTimeline.shownSourceTime(outputOffset: $0.time - range.lowerBound, clip: clip) }
         guard !found.isEmpty else { return }
         beats = found.sorted()
         bpm = BeatDetector.estimateBPM(onsets: beats)
@@ -951,15 +1007,30 @@ struct EditorBeatDetectPanel: View {
         let start = clip.startTime
         let end = clip.endTime
         let sens = sensitivity
+        let bgmURL = usesBGM ? project.audio.bgmURL : nil
+        let bgmOffset = project.audio.bgmSourceStart
+        let clipRange = ClipFXTimeline.range(of: clipID, in: project)
         task = Task { @MainActor in
             do {
-                let found = try await BeatDetector.detectBeats(url: url, start: start, end: end, sensitivity: sens)
+                let found: [Double]
+                let tempoSource: [Double]
+                if let bgmURL, let clipRange {
+                    // BGM の拍(出力タイムライン上の秒)のうち、このクリップに重なるものを、画面に出ている元の動画の秒にする
+                    let timeline = try await BeatDetector.detectBGMBeats(url: bgmURL, covering: clipRange.upperBound + 1,
+                                                                         sourceStart: bgmOffset, sensitivity: sens)
+                    let inClip = timeline.filter { $0 >= clipRange.lowerBound && $0 <= clipRange.upperBound }
+                    found = inClip.map { ClipFXTimeline.shownSourceTime(outputOffset: $0 - clipRange.lowerBound, clip: clip) }
+                    tempoSource = timeline
+                } else {
+                    found = try await BeatDetector.detectBeats(url: url, start: start, end: end, sensitivity: sens)
+                    tempoSource = found
+                }
                 if Task.isCancelled {
                     isRunning = false
                     return
                 }
                 beats = found.sorted()
-                bpm = BeatDetector.estimateBPM(onsets: beats)
+                bpm = BeatDetector.estimateBPM(onsets: tempoSource)
                 addMarkers(sourceBeats: beats)
                 var text = String(localized: "\(beats.count) 個のビートを見つけてマーカーを付けました。")
                 if let bpm, bpm.isFinite, bpm > 0 {
@@ -985,7 +1056,8 @@ struct EditorBeatDetectPanel: View {
             $0.kind == .beat && $0.time >= range.lowerBound - 0.01 && $0.time <= range.upperBound + 0.01
         }
         for beat in sourceBeats {
-            let t = range.lowerBound + ClipFXTimeline.outputOffset(sourceTime: beat, clip: clip)
+            // 逆再生のクリップでは、元の動画の秒を鏡に映した位置で鳴る
+            let t = range.lowerBound + ClipFXTimeline.outputOffset(shownSourceTime: beat, clip: clip)
             if t <= range.upperBound + 0.01 {
                 project.markers.append(TimelineMarker(time: t, name: "", kind: .beat))
             }
@@ -1052,8 +1124,9 @@ struct EditorHSLPanel: View {
         )
     }
 
+    /// 帯の丸の色(帯の中心の色相。FilterLUT.hslBandCenters)
     private func bandColor(_ index: Int) -> Color {
-        Color(hue: Double(index) / 8.0, saturation: 0.85, brightness: 0.95)
+        Color(hue: FilterLUT.hslBandCenter(index, count: 8) / 360.0, saturation: 0.85, brightness: 0.95)
     }
 
     private func isBandIdentity(_ index: Int) -> Bool {
@@ -1242,6 +1315,8 @@ struct EditorColorMatchPanel: View {
     @State private var selectedReference: UUID?
     @State private var isWorking = false
     @State private var errorText: String?
+    /// 直前のカラーマッチで、お手本とほとんど同じ色だった(ほぼ何も変えなかった)
+    @State private var nearlySame = false
 
     private var candidates: [Clip] {
         project.clips.filter { $0.id != clip.id }
@@ -1317,7 +1392,7 @@ struct EditorColorMatchPanel: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 } else if selectedReference != nil {
-                    Text("カラー補正に反映しました")
+                    Text(nearlySame ? String(localized: "すでに近い色です") : String(localized: "カラー補正に反映しました"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1340,12 +1415,17 @@ struct EditorColorMatchPanel: View {
     private func match(to reference: Clip) {
         isWorking = true
         errorText = nil
+        nearlySame = false
         let source = clip
         // ✕ / 元に戻す で開いたときの状態に戻されたら(restoreCount が変わる)、戻したクリップに結果を書かない
         let restoreCountAtStart = project.restoreCount
         Task { @MainActor in
-            let referenceImage = await thumbnail(for: reference)
-            let sourceImage = await thumbnail(for: source)
+            // どちらも今のトリミング範囲の中ほどのコマで比べる。お手本は付けた色(プリセット・LUT・補正・HSL)を掛けた見えている色、
+            // こちらは書き換える 4 つ(明るさ・コントラスト・彩度・色温度)を初期値にした色。
+            // 前は読み込んだときの元素材 0.1 秒・色補正前のコマ(Clip.thumbnail)どうしで比べていた
+            let referenceImage = await ClipColorSample.image(for: reference, settings: reference.filter)
+            let sourceImage = await ClipColorSample.image(for: source,
+                                                          settings: ClipColorSample.withoutMatchedAdjustments(source.filter))
             guard project.restoreCount == restoreCountAtStart else {
                 isWorking = false
                 return
@@ -1356,6 +1436,8 @@ struct EditorColorMatchPanel: View {
                 return
             }
             let suggested = FilterEngine.suggestedAdjustments(toMatch: referenceImage, from: sourceImage)
+            nearlySame = abs(suggested.brightness) < 0.02 && abs(suggested.contrast - 1) < 0.02
+                && abs(suggested.saturation - 1) < 0.02 && abs(suggested.temperature) < 0.02
             // 明るさ・コントラスト・彩度・色温度だけ書く(露出・ハイライト・シャープなど、ほかの「カラー補正」はそのまま)
             var adjustments = clip.filter.adjustments
             adjustments.brightness = suggested.brightness
@@ -1367,13 +1449,32 @@ struct EditorColorMatchPanel: View {
             isWorking = false
         }
     }
+}
 
-    private func thumbnail(for target: Clip) async -> UIImage? {
-        if let image = target.thumbnail { return image }
-        if let still = target.stillImageURL {
-            return MediaStore.makeImageClipThumbnail(url: still, maxPixel: 320)
+/// カラーマッチ・自動補正で色を測るコマ。クリップの今のトリミング範囲の中ほどから取り直す
+/// (Clip.thumbnail は読み込んだときの元素材 0.1 秒のコマのままで、分割・無音カット・トリミングでは変わらない)。
+/// settings を渡すと、その色の設定を掛けた絵にする(見えている色で比べるため)
+enum ClipColorSample {
+    static func image(for clip: Clip, settings: FilterSettings? = nil) async -> UIImage? {
+        var image: UIImage? = nil
+        if let still = clip.stillImageURL {
+            image = MediaStore.makeImageClipThumbnail(url: still, maxPixel: 320)
+        } else {
+            image = await MediaStore.thumbnail(for: clip.url, at: (clip.startTime + clip.endTime) / 2, maxPixel: 320)
         }
-        return await MediaStore.thumbnail(for: target.url, at: target.startTime, maxPixel: 320)
+        guard let base = image ?? clip.thumbnail else { return nil }
+        guard let settings, !settings.isIdentity else { return base }
+        return FilterEngine.preview(base, settings: settings) ?? base
+    }
+
+    /// カラーマッチが書く 4 つ(明るさ・コントラスト・彩度・色温度)を初期値にした設定
+    static func withoutMatchedAdjustments(_ settings: FilterSettings) -> FilterSettings {
+        var result = settings
+        result.adjustments.brightness = 0
+        result.adjustments.contrast = 1
+        result.adjustments.saturation = 1
+        result.adjustments.temperature = 0
+        return result
     }
 }
 

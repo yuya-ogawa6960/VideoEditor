@@ -111,7 +111,10 @@ enum BackgroundRemovalRenderer {
             // どちらも元の映像の輪郭に沿って広げる(ただ引き伸ばすと境界がぼやけ、背景がにじむ)
             guard let made = SegmentationMasks.mask(for: image, in: rect, kind: kind,
                                                     maxInputSide: accurate ? 1920 : 1024,
-                                                    edgeAware: true) else { return nil }
+                                                    edgeAware: true) else {
+                return missingMask(rect: rect, settingsKey: settingsKey, key: key, softness: settings.edgeSoftness,
+                                   stream: stream.map { "\($0)|\(accurate ? 1 : 0)" }, time: time)
+            }
             // プレビューと書き出しが同時に走っても前のコマを取り合わないよう、流れを分ける
             let smoothed = temporallySmoothed(made, rect: rect, settingsKey: settingsKey,
                                               stream: stream.map { "\($0)|\(accurate ? 1 : 0)" }, time: time)
@@ -119,6 +122,26 @@ enum BackgroundRemovalRenderer {
             raw = smoothed
         }
         return refinedMask(raw, softness: settings.edgeSoftness, rect: rect)
+    }
+
+    /// 被写体が見つからないコマ(ブレた・画面の外へ出た・小さい・暗い)の切り抜き。動画のコマで元の絵をそのまま返すと、
+    /// そのコマだけ背景がパッと出ていた(オーバーレイなら四角い元の映像、V1 なら「ぼかし」「単色」の埋めも消える)。
+    /// 同じ流れの近いコマ(0.5 秒以内)の切り抜きがあればそれを使い、無ければ全部消した扱い(真っ黒)にする。
+    /// 写真(stream が無い)は今までどおり nil(元の絵のまま)
+    private static func missingMask(rect: CGRect, settingsKey: String, key: NSString, softness: Double,
+                                    stream: String?, time: Double?) -> CIImage? {
+        guard let stream, let time, time.isFinite else { return nil }
+        previousLock.lock()
+        let previous = previousMasks[stream]
+        previousLock.unlock()
+        let fallback: CIImage
+        if let previous, previous.size == rect.size, previous.settingsKey == settingsKey, abs(time - previous.time) <= 0.5 {
+            fallback = previous.mask
+        } else {
+            fallback = CIImage(color: CIColor.black).cropped(to: rect)
+        }
+        maskCache.setObject(fallback, forKey: key)
+        return refinedMask(fallback, softness: softness, rect: rect)
     }
 
     /// 続けて再生・書き出ししているときは前のコマの切り抜きと混ぜる(人物の境界が毎コマ揺れるのを抑える)。

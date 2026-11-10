@@ -12,11 +12,15 @@
 // - 問い合わせ(/support のフォーム → POST /v1/contact)は D1 の contacts に入れ、/stats で読む
 // - Apple でサインインの authorizationCode は refresh_token に換えて保存し、アカウント削除時に失効させる
 //   (APPLE_TEAM_ID・APPLE_SIWA_KEY_ID・APPLE_SIWA_KEY_P8 がそろっているときだけ)
+// - はじめてのボーナスは Apple の利用者ごとに 1 回だけ。アカウントを削除しても、元に戻せない値(HMAC)を signup_grants に残す
+// - クラウド文字起こしは秒で数え、6 秒に満たない端数は次に持ち越す(transcribe_carry。短いピースを何回送っても合計の長さどおり)
+// - 無料プランの試用(50pt)は trialID を返し、結果が出なかった・キャンセルしたときはアプリが /v1/points/feature/refund で返す
+// - セッションは /v1/me のたびに残りを確かめ、7 日を切ったら新しいトークンを返す(使っている間は切れない)
 // =====================================================================
 
 import { verifyAppTransaction, isSandbox } from "./appTransaction.js";
 import { isBGMPath, serveBGM } from "./bgm.js";
-import { ensureSubscriptionTables, forgetSubscriptions, handleNotification, subscriptionState, syncSubscriptions } from "./subscriptions.js";
+import { ensureSubscriptionTables, expirePlanPoints, forgetSubscriptions, handleNotification, subscriptionState, syncSubscriptions } from "./subscriptions.js";
 
 const POINTS = {
   signup: 100,            // はじめてのサインイン
@@ -46,9 +50,21 @@ const MAX_SPEECH_CHARS = 4000;
 
 const OPENAI = "https://api.openai.com";
 const ALLOWED_TRANSCRIBE_MODELS = ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-4o-transcribe-diarize"];
+// 文字起こしは何秒で 1pt か(1 分 POINTS.transcribePerMinute pt。端数の秒は users.transcribe_carry に持ち越す)
+const TRANSCRIBE_SECONDS_PER_POINT = Math.max(1, Math.round(60 / POINTS.transcribePerMinute));
+// 文字起こしの prompt(文体の例)の長さの上限
+const MAX_TRANSCRIBE_PROMPT_CHARS = 500;
 const CHAT_MODEL = "gpt-4o-mini";
 const MAX_CHAT_TOKENS = 4000;
+// チャットで OpenAI に渡す本文の上限(サーバーで作り直す。messages の件数と、文の合計の文字数)
+const MAX_CHAT_MESSAGES = 40;
+const MAX_CHAT_CHARS = 60000;
+const CHAT_ROLES = ["system", "user", "assistant"];
 const SESSION_DAYS = 30;
+// セッションの残りがこれより短くなったら、/v1/me で新しいトークンを返す
+const SESSION_RENEW_DAYS = 7;
+// 無料プランの試用(50pt)を返せる時間。アプリは結果が出なかった・キャンセルした・失敗したときに返す
+const FEATURE_TRIAL_REFUND_MS = 6 * 3600 * 1000;
 const MODERATION_MODEL = "omni-moderation-latest";
 const MODERATION_MAX_CHARS = 20000;
 // 使い方の統計(events)を残す日数。cron(wrangler.toml の [triggers])で古い行を消す
@@ -103,6 +119,7 @@ export default {
       if (request.method === "DELETE" && path === "/v1/me") return await deleteAccount(user, env);
       if (request.method === "POST" && path === "/v1/points/daily") return await daily(user, env);
       if (request.method === "POST" && path === "/v1/points/feature") return await featureTrial(request, user, env);
+      if (request.method === "POST" && path === "/v1/points/feature/refund") return await featureTrialRefund(request, user, env);
       if (request.method === "POST" && path === "/v1/audio/transcriptions") return await transcribe(request, user, env);
       if (request.method === "POST" && path === "/v1/chat/completions") return await chat(request, user, env);
       if (request.method === "POST" && path === "/v1/audio/speech") return await speech(request, user, env);
@@ -212,7 +229,50 @@ async function authenticate(request, env) {
   }
   if (!payload.sub || !payload.exp || payload.exp < Date.now() / 1000) return null;
   const row = await env.DB.prepare("SELECT id, points, last_daily FROM users WHERE id = ?").bind(payload.sub).first();
-  return row || null;
+  // sessionExp: このトークンの期限(秒)。/v1/me で残りが短ければ新しいトークンを返すのに使う
+  return row ? { ...row, sessionExp: payload.exp } : null;
+}
+
+/** SESSION_SECRET で作る HMAC-SHA256(16 進)。元の値に戻せないので、削除したアカウントの印やリワード広告の ID に使う */
+async function hmacHex(message, env) {
+  const key = await hmacKey(String(env.SESSION_SECRET || "videomania"));
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+let extraTablesEnsured = false;
+
+/** 後から足した表と列(schema.sql にもある。古い DB で schema.sql より先に動いたときのため。isolate ごとに 1 回) */
+async function ensureExtraTables(env) {
+  if (extraTablesEnsured) return;
+  extraTablesEnsured = true;
+  try {
+    await env.DB.prepare("ALTER TABLE users ADD COLUMN transcribe_carry INTEGER NOT NULL DEFAULT 0").run();
+  } catch (_) {}
+  await env.DB.batch([
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS signup_grants (sub_hash TEXT PRIMARY KEY, created_at TEXT NOT NULL, last_daily TEXT, ad_day TEXT, ad_count INTEGER NOT NULL DEFAULT 0)"
+    ),
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS feature_trials (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, feature TEXT NOT NULL, amount INTEGER NOT NULL, from_plan INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, created_at TEXT NOT NULL)"
+    ),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS feature_trials_user ON feature_trials (user_id)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS reward_ids (reward_id TEXT PRIMARY KEY, user_id TEXT NOT NULL)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS reward_ids_user ON reward_ids (user_id)"),
+  ]);
+}
+
+/** はじめてのボーナスを付けたかの印(Apple の利用者 ID の HMAC。アカウントを削除しても残す) */
+async function signupHash(userID, env) {
+  return hmacHex("signup|" + userID, env);
+}
+
+/** リワード広告で Google に渡す ID(アカウントの ID そのものは渡さない)。SSV で reward_ids から利用者を引く */
+async function rewardIDFor(userID, env) {
+  await ensureExtraTables(env);
+  const id = (await hmacHex("reward|" + userID, env)).slice(0, 32);
+  await env.DB.prepare("INSERT OR IGNORE INTO reward_ids (reward_id, user_id) VALUES (?, ?)").bind(id, userID).run();
+  return id;
 }
 
 // ---------------------------------------------------------------------
@@ -266,18 +326,37 @@ async function signInWithApple(request, env) {
   const userID = "apple:" + claims.sub;
   let user = await env.DB.prepare("SELECT id, points, last_daily FROM users WHERE id = ?").bind(userID).first();
   let isNew = false;
+  let signupBonus = 0;
   if (!user) {
     isNew = true;
-    await env.DB.batch([
-      env.DB.prepare("INSERT INTO users (id, points, created_at) VALUES (?, ?, ?)").bind(userID, POINTS.signup, nowISO()),
-      env.DB.prepare("INSERT INTO ledger (user_id, delta, reason, created_at) VALUES (?, ?, ?, ?)").bind(
-        userID,
-        POINTS.signup,
-        "signup",
-        nowISO()
-      ),
-    ]);
-    user = { id: userID, points: POINTS.signup, last_daily: null };
+    // アカウントを削除して作り直した人には、はじめてのボーナスをもう一度は付けない。
+    // 削除した日と同じ日なら、毎日ボーナスと広告の回数も引き継ぐ(同じ日にもう一度受け取れないように)
+    await ensureExtraTables(env);
+    const hash = await signupHash(userID, env);
+    const previous = await env.DB.prepare("SELECT last_daily, ad_day, ad_count FROM signup_grants WHERE sub_hash = ?").bind(hash).first();
+    signupBonus = previous ? 0 : POINTS.signup;
+    const lastDaily = previous && previous.last_daily ? previous.last_daily : null;
+    const statements = [
+      env.DB.prepare("INSERT INTO users (id, points, created_at, last_daily) VALUES (?, ?, ?, ?)").bind(userID, signupBonus, nowISO(), lastDaily),
+    ];
+    if (signupBonus > 0) {
+      statements.push(
+        env.DB.prepare("INSERT INTO ledger (user_id, delta, reason, created_at) VALUES (?, ?, ?, ?)").bind(userID, signupBonus, "signup", nowISO()),
+        env.DB.prepare("INSERT OR IGNORE INTO signup_grants (sub_hash, created_at) VALUES (?, ?)").bind(hash, nowISO())
+      );
+    }
+    await env.DB.batch(statements);
+    if (previous && previous.ad_day === todayJST() && previous.ad_count > 0) {
+      const carried = [];
+      for (let i = 0; i < Math.min(previous.ad_count, POINTS.adRewardDailyLimit); i++) {
+        carried.push(
+          env.DB.prepare("INSERT OR IGNORE INTO ad_rewards (transaction_id, user_id, amount, day, source, created_at) VALUES (?, ?, 0, ?, 'carry', ?)")
+            .bind("carry:" + crypto.randomUUID(), userID, todayJST(), nowISO())
+        );
+      }
+      await env.DB.batch(carried);
+    }
+    user = { id: userID, points: signupBonus, last_daily: lastDaily };
   }
   // authorizationCode(5 分・1 回限り)はその場で refresh_token に換えて保存する(アカウント削除時の失効用)。
   // 鍵が無い・失敗したときはサインインだけ続ける
@@ -291,7 +370,7 @@ async function signInWithApple(request, env) {
     } catch (_) {}
   }
   const token = await issueSession(userID, env);
-  return json({ token, points: user.points, isNew, dailyAvailable: user.last_daily !== todayJST() });
+  return json({ token, points: user.points, isNew, signupBonus, dailyAvailable: user.last_daily !== todayJST() });
 }
 
 // ---------------------------------------------------------------------
@@ -368,9 +447,19 @@ async function appleRevoke(refreshToken, env) {
 // ---------------------------------------------------------------------
 
 async function me(user, env) {
+  // 期限が切れたプランのポイントの残りを消してから残高を返す(src/subscriptions.js)
+  await expirePlanPoints(env, user.id);
+  const extra = {};
+  // 使っている間はセッションが切れないように、残りが短ければ新しいトークンを返す(アプリが差し替える)
+  if (user.sessionExp && user.sessionExp - Date.now() / 1000 < SESSION_RENEW_DAYS * 86400) {
+    extra.token = await issueSession(user.id, env);
+  }
   return json({
     id: user.id,
-    points: user.points,
+    // リワード広告のサーバー側検証で Google に渡す ID(アカウントの ID は渡さない)
+    rewardID: await rewardIDFor(user.id, env),
+    ...extra,
+    points: await balance(env, user.id),
     dailyAvailable: user.last_daily !== todayJST(),
     prices: POINTS,
     // Google の声(日本語)が使えるか。アプリはこれが false のとき Google の声の選択肢を出さない
@@ -459,6 +548,8 @@ const ALLOWED_EVENT_NAMES = new Set([
   "crash", "hang", "camera",
   // マルチカメラ: 音声同期の結果(high/medium/fail/cancel/skipped・時計のずれの補正・経由)と、合成に入れられなかったアングルの数
   "multicam_sync", "multicam_angle_dropped",
+  // TikTok への投稿(始めた・終わった)と、カメラで撮って「使う」を押した回
+  "tiktok_share_start", "tiktok_share_done", "camera_record_use",
 ]);
 
 async function ingestEvents(request, env) {
@@ -730,9 +821,18 @@ async function deleteAccount(user, env) {
     } catch (_) {}
   }
   await forgetSubscriptions(env, user.id);
+  // 作り直したときにはじめてのボーナスをもう一度付けないよう、元に戻せない印(HMAC)と、その日の毎日ボーナス・広告の回数だけを残す
+  await ensureExtraTables(env);
+  const ads = await adState(env, user.id);
+  await env.DB.prepare(
+    `INSERT INTO signup_grants (sub_hash, created_at, last_daily, ad_day, ad_count) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(sub_hash) DO UPDATE SET last_daily = excluded.last_daily, ad_day = excluded.ad_day, ad_count = excluded.ad_count`
+  ).bind(await signupHash(user.id, env), nowISO(), user.last_daily || null, todayJST(), ads.adRewardsToday).run();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM ad_rewards WHERE user_id = ?").bind(user.id),
     env.DB.prepare("DELETE FROM ledger WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM feature_trials WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM reward_ids WHERE user_id = ?").bind(user.id),
     env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id),
   ]);
   return json({ deleted: true });
@@ -750,14 +850,14 @@ const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <h2>1. 動画・写真</h2>
 <p>編集する動画・写真・プロジェクトは、お使いの iPhone の中だけで処理・保存されます。開発者のサーバーに送られることはありません。</p>
 <h2>2. クラウド AI を使う場合</h2>
-<p>「クラウド AI」を選んだときだけ、文字起こしのための音声、キャプションの整え・翻訳・台本作成のための文章、読み上げのための文章が OpenAI, L.L.C. に送られます(読み上げで Google の声を選んだときは、その文章が Google LLC に送られます)(ポイントを使う場合は開発者のサーバーを経由し、内容は保存しません)。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
+<p>「クラウド AI」を選んだときだけ、文字起こしのための音声、キャプションの整え・翻訳・台本作成・編集チェックのための文章、読み上げのための文章が、米国の OpenAI, L.L.C. に送られます。読み上げで Google の声を選んだときは、その文章を Google LLC にも送ります(この場合も、不適切な内容と読み方の確認のため、文章は OpenAI に送られます)。ポイントを使う場合は開発者のサーバーを経由しますが、開発者のサーバーには内容を保存しません。OpenAI は、送られた内容を不正利用の確認のため最大 30 日保管することがありますが、AI の学習には使いません。端末内 AI(Apple 音声認識・Apple Intelligence・Whisper)を選んだ場合は送信されません。</p>
 <h2>3. アカウントとポイント</h2>
-<p>Apple でサインインすると、Apple が発行する利用者ごとの識別子と、ポイントの残高・増減の記録を開発者のサーバー(Cloudflare)に保存します。氏名やメールアドレスは受け取りません。削除は、プロジェクト一覧の左上の星 → アカウントとポイント → アカウントを削除 から、いつでもできます(ポイントと記録はその場で消えます)。</p>
+<p>Apple でサインインすると、Apple が発行する利用者ごとの識別子と、ポイントの残高・増減の記録を開発者のサーバー(Cloudflare)に保存します。氏名やメールアドレスは受け取りません。削除は、プロジェクト一覧の左上の星 → アカウントとポイント → アカウントを削除 から、いつでもできます(ポイントと記録はその場で消えます)。ただし、はじめてのボーナスを二度付けないために、Apple の識別子から作った元に戻せない値(ハッシュ)と、削除した日の毎日ボーナス・広告の回数だけは残します。有料プランはアカウントを削除しても解約されません(解約は iPhone の 設定 → Apple アカウント → サブスクリプション から)。</p>
 <p>有料プランを購入してサインインしている場合は、毎月のポイントを付けるために、Apple が発行する購入の番号・商品・期限を開発者のサーバーに保存します。支払いの情報(カード番号など)は Apple が扱い、開発者は受け取りません。</p>
 <h2>4. 使い方の統計</h2>
-<p>どの機能がどれだけ使われているか、操作のどこで迷っているか(キャンセルや元に戻した回数など)、動作の重さ・異常終了の回数(Apple の MetricKit のまとめ)、書き出し後の任意の感想を、端末ごとのランダムな ID(アプリを削除すると変わります)と、機種・OS・言語・アプリのバージョンを付けて開発者のサーバーに送り、改善に役立てます。動画・文章・検索した言葉・氏名・アカウントは送りません。このデータは 90 日で削除します。オフにするには 設定 → プライバシーと広告 → 使い方の統計を送信(匿名) を切ってください。削除の依頼は<a href="/support#contact">問い合わせフォーム</a>からできます。</p>
+<p>どの機能がどれだけ使われているか、操作のどこで迷っているか(キャンセルや元に戻した回数など)、動作の重さ・異常終了の回数(Apple の MetricKit のまとめ)、異常終了・固まりが起きたときの記録(アプリの中のどの処理だったかを示す情報と、理由の短い文)、書き出し後の任意の感想を、端末ごとのランダムな ID(アプリを削除すると変わります)と、機種・OS・言語・アプリのバージョンを付けて開発者のサーバーに送り、改善に役立てます。動画・文章・検索した言葉・氏名・アカウントは送りません。このデータは 90 日で削除します。オフにするには 設定 → プライバシーと広告 → 使い方の統計を送信(匿名) を切ってください。送った分の削除を依頼するときは、同じ画面に出る「端末 ID」を書いて<a href="/support#contact">問い合わせフォーム</a>から送ってください(ID が無いと、どの記録かを特定できません)。</p>
 <h2>5. 広告</h2>
-<p>アプリは Google AdMob の広告を表示します。AdMob は広告の配信・測定のために、端末の広告識別子(許可した場合)やおおよその位置などを利用することがあります。詳しくは <a href="https://policies.google.com/technologies/ads?hl=ja">Google のポリシー</a>をご覧ください。トラッキングは iPhone の設定でいつでも許可を取り消せます。</p>
+<p>アプリは Google AdMob の広告を表示します。AdMob は広告の配信・測定のために、端末の広告識別子(許可した場合)やおおよその位置などを利用することがあります。詳しくは <a href="https://policies.google.com/technologies/ads?hl=ja">Google のポリシー</a>をご覧ください。トラッキングは iPhone の設定でいつでも許可を取り消せます。広告を見てポイントを受け取るときは、受け取りを確かめるため、アカウントと直接は結びつかないランダムな ID を Google に渡します。</p>
 <p>Instagram などの広告の効果を測るため、Meta の SDK を使い、アプリがインストールされたこと(初めて開いたときに 1 回)、アプリを開いたこと、前回の利用時間と前回からの間隔、初めての購入(金額・通貨)を Meta に送ります。あわせて、SDK が端末ごとに作るランダムな ID と、端末の情報(機種・OS のバージョン・言語・タイムゾーン・通信事業者・画面サイズなど)も送られます。これらは、トラッキングを許可しなくても送られることがあります。トラッキングを許可した場合は、端末の広告識別子も送られます。Meta はこれらの情報を、広告の効果測定や配信に使うことがあります。編集中の動画や文字は送りません。詳しくは <a href="https://www.facebook.com/privacy/policy/">Meta のプライバシーポリシー</a>をご覧ください。</p>
 <h2>6. Google フォトからの取り込み</h2>
 <p>「Google フォト」から追加する機能では、Google でログインし、Google フォト Picker API を使います。アプリが受け取るのは、あなたが Google フォトの選択画面で選んだ写真・動画(とそのファイル名・種類などの情報)だけです。ライブラリ全体やアルバム、ほかの写真・動画を見ることはありません。</p>
@@ -770,7 +870,7 @@ const PRIVACY_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <p><a href="/support#contact">問い合わせフォーム</a>からご連絡ください。データの削除依頼も同じフォームで受け付けます。</p>
 <hr>
 <h1>Privacy Policy (English)</h1>
-<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts and speech) are sent to OpenAI (or to Google when you choose a Google voice); with points, requests pass through our server without being stored. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time: tap the star at the top left of the project list &rarr; Account &amp; Points &rarr; Delete account (your points and records are removed immediately). If you buy a paid plan while signed in, we also store the Apple-issued purchase number, product and expiry date on our server so we can add your monthly points; payment details such as card numbers are handled by Apple and we never receive them. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. Anonymous usage statistics (which features are used and where people get stuck, such as cancels and undos), app performance and crash information from Apple's MetricKit, and any optional feedback you give after an export are sent to our server to improve the app and deleted after 90 days. They come with your device model, OS version, language and app version and a random per-install ID that is not linked to your account. You can turn this off in Settings &rarr; Privacy &amp; Ads &rarr; Send usage statistics (anonymous), and request deletion through the <a href="/support#contact">contact form</a>. Except as described in this policy or as required by law, we do not share personal data with third parties. To measure Instagram and other ad campaigns, we use the Meta SDK to send Meta a notice that the app was installed (once, the first time you open it), the fact that the app was opened, the length of your previous session and the time between sessions, and a first purchase (amount and currency). Along with these, the SDK sends a random ID it creates for your device and device information (model, OS version, language, time zone, carrier, screen size and similar); this may happen even if you do not allow tracking. If you allow tracking, your advertising identifier is also sent. Meta may use this information to measure and deliver ads. Your videos and text are not sent. For details, see <a href="https://www.facebook.com/privacy/policy/">Meta's Privacy Policy</a>.</p>
+<p>Your videos, photos and projects are processed and stored only on your iPhone. When you choose Cloud AI, audio (for transcription) and text (for caption cleanup, translation, scripts, edit checks and speech) are sent to OpenAI in the United States. When you choose a Google voice, the text is also sent to Google, and it is still sent to OpenAI to check for inappropriate content and readings. With points, requests pass through our server, which does not store them. OpenAI may keep what is sent for up to 30 days to check for abuse, and does not use it to train its models. If you sign in with Apple, we store an Apple-issued user identifier and your points history on our server (Cloudflare); we never receive your name or email. You can delete your account in the app at any time: tap the star at the top left of the project list &rarr; Account &amp; Points &rarr; Delete account (your points and records are removed immediately). So that the sign-up bonus is given only once, we keep a one-way hash made from your Apple identifier and the daily bonus and ad counts for the day you deleted it. Deleting your account does not cancel a paid plan; cancel it in Settings &rarr; Apple Account &rarr; Subscriptions. If you buy a paid plan while signed in, we also store the Apple-issued purchase number, product and expiry date on our server so we can add your monthly points; payment details such as card numbers are handled by Apple and we never receive them. The app shows Google AdMob ads, which may use your advertising identifier (if you allow tracking) and approximate location. When you watch an ad to earn points, we give Google a random ID that is not directly linked to your account so the reward can be confirmed. Anonymous usage statistics (which features are used and where people get stuck, such as cancels and undos), app performance and crash information from Apple's MetricKit, a short record of crashes and freezes (which part of the app it happened in and a short reason), and any optional feedback you give after an export are sent to our server to improve the app and deleted after 90 days. They come with your device model, OS version, language and app version and a random per-install ID that is not linked to your account. You can turn this off in Settings &rarr; Privacy &amp; Ads &rarr; Send usage statistics (anonymous). To request deletion, send the Device ID shown on that screen through the <a href="/support#contact">contact form</a> (without it we cannot tell which records are yours). Except as described in this policy or as required by law, we do not share personal data with third parties. To measure Instagram and other ad campaigns, we use the Meta SDK to send Meta a notice that the app was installed (once, the first time you open it), the fact that the app was opened, the length of your previous session and the time between sessions, and a first purchase (amount and currency). Along with these, the SDK sends a random ID it creates for your device and device information (model, OS version, language, time zone, carrier, screen size and similar); this may happen even if you do not allow tracking. If you allow tracking, your advertising identifier is also sent. Meta may use this information to measure and deliver ads. Your videos and text are not sent. For details, see <a href="https://www.facebook.com/privacy/policy/">Meta's Privacy Policy</a>.</p>
 <h2>Google Photos</h2>
 <p>When you add media from Google Photos, you sign in with Google and the app uses the Google Photos Picker API. The app only receives the photos and videos you select in the Google Photos picker (and their file name and type); it cannot see the rest of your library or your albums. The selected items are downloaded directly from Google to your iPhone and used only for editing there. They are never sent to our server or to any third party, and are not used for advertising or AI training (the only exception: if you yourself choose a Cloud AI feature such as cloud transcription for an imported video, only its audio is sent as described above). Your Google sign-in tokens are stored only on your iPhone (in the Keychain) and are never sent to our server. You can disconnect with "Log out" in the app, and revoke access at any time in your Google Account under Security &rarr; Third-party apps &amp; services (<a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>).</p>
 <p>Video Mania's use and transfer to any other app of information received from Google APIs will adhere to <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
@@ -783,7 +883,7 @@ const TERMS_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 <p>最終更新日: 2026年11月10日</p>
 <h2>1. 有料プラン(自動更新サブスクリプション)</h2>
 <p>Standard(月額 490 円・税込)と Pro(月額 1,490 円・税込)は、App Store の自動更新サブスクリプションです。お支払いは Apple ID に請求され、期間が終わる 24 時間前までに解約しない限り、同じ料金で 1 か月ごとに自動で更新されます。解約は iPhone の 設定 → Apple アカウント → サブスクリプション から、いつでもできます。解約しても、その期間の終わりまでは有料プランを使えます。値段は国・地域によって異なり、アプリの購入画面に表示される金額が優先されます。</p>
-<p>書き出せる画質と長さは、Starter(無料)が 720p・5 分まで、Standard が 1080p・10 分まで、Pro が 4K・制限なしです。有料プランでは、このほかに広告の非表示(Standard は全画面広告なし、Pro はすべての広告なし)、有料の機能(背景を消す・LUT・言いよどみカット など。Pro はマルチカメラも)、毎月のポイント(Standard 1,500pt・Pro 5,000pt)が使えます。有料の機能のうち一部(言いよどみカット・編集チェック・終了画面・背景を消す・画質補正)は、Starter(無料)でも 1 回 50 ポイントで使えます。毎月のポイントは、サインインしたアカウントに付き、使い切れなかった分は翌月に繰り越しません。1 つの購入で毎月のポイントを受け取れるのは 1 つのアカウントだけです。</p>
+<p>書き出せる画質と長さは、Starter(無料)が 720p・5 分まで、Standard が 1080p・10 分まで、Pro が 4K・制限なしです。有料プランでは、このほかに広告の非表示(Standard は全画面広告なし、Pro はすべての広告なし)、有料の機能(背景を消す・LUT・言いよどみカット など。Pro はマルチカメラも)、毎月のポイント(Standard 1,500pt・Pro 5,000pt)が使えます。有料の機能のうち一部(言いよどみカット・編集チェック・終了画面・背景を消す・画質補正)は、Starter(無料)でも 1 回 50 ポイントで使えます(結果を使わなかったとき(見つからない・キャンセル・失敗)はポイントを戻します)。毎月のポイントは、サインインしたアカウントに付き、使い切れなかった分は翌月に繰り越しません。1 つの購入で毎月のポイントを受け取れるのは 1 つのアカウントだけです。</p>
 <h2>2. ポイント</h2>
 <p>ポイントはクラウド AI(文字起こし・字幕の整え・翻訳・台本・読み上げ)に使うためのもので、現金や他のサービスと交換できず、払い戻しもできません。アカウントを削除するとポイントは消えます。不正な方法で得たポイントは取り消すことがあります。</p>
 <h2>3. 返金</h2>
@@ -815,7 +915,7 @@ const TERMS_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><
 <style>table{border-collapse:collapse;margin:8px 0 20px;font-size:14px}th,td{border:1px solid #8884;padding:6px 10px;text-align:left;vertical-align:top}th{background:#8882;white-space:nowrap}</style>
 <hr>
 <h1>Terms of Use (English)</h1>
-<p>Standard and Pro are auto-renewable monthly subscriptions sold through the App Store. Payment is charged to your Apple ID and renews automatically each month at the same price unless you cancel at least 24 hours before the end of the current period. Manage or cancel in Settings &rarr; Apple Account &rarr; Subscriptions; you keep the plan until the period ends. Export limits are 720p / 5 minutes on Starter (free), 1080p / 10 minutes on Standard, and 4K / no limit on Pro. Paid plans also reduce ads (Standard removes full-screen ads; Pro removes all ads), unlock paid features (background removal, LUTs, filler-word cut and more; multicam on Pro), and add monthly points (Standard 1,500 / Pro 5,000). Some paid features can be used on Starter for 50 points per use. Monthly points go to one signed-in account and do not carry over. Points have no cash value and are not refundable. Refunds are handled by Apple under its policies. The Apple <a href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/">Standard EULA</a> also applies. These terms are governed by the laws of Japan.</p>
+<p>Standard and Pro are auto-renewable monthly subscriptions sold through the App Store. Payment is charged to your Apple ID and renews automatically each month at the same price unless you cancel at least 24 hours before the end of the current period. Manage or cancel in Settings &rarr; Apple Account &rarr; Subscriptions; you keep the plan until the period ends. Export limits are 720p / 5 minutes on Starter (free), 1080p / 10 minutes on Standard, and 4K / no limit on Pro. Paid plans also reduce ads (Standard removes full-screen ads; Pro removes all ads), unlock paid features (background removal, LUTs, filler-word cut and more; multicam on Pro), and add monthly points (Standard 1,500 / Pro 5,000). Some paid features can be used on Starter for 50 points per use (the points are returned if you don't use the result, for example when nothing is found or you cancel). Monthly points go to one signed-in account and do not carry over. Points have no cash value and are not refundable. Refunds are handled by Apple under its policies. The Apple <a href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/">Standard EULA</a> also applies. These terms are governed by the laws of Japan.</p>
 </body></html>`;
 
 const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>Video Mania サポート</title>${PAGE_STYLE}</head><body>
@@ -825,8 +925,8 @@ const SUPPORT_HTML = `<!doctype html><html lang="ja"><head><meta charset="utf-8"
 <p><b>キャプションが作れない</b><br>「設定」→「Video Mania」で「音声認識」を許可してください。BGM だけの動画ではキャプションは作られません。</p>
 <p><b>ポイントについて</b><br>はじめてのサインインで 100 ポイント、毎日 10 ポイント、広告を見て 1 日 3 回まで 10 ポイントずつもらえます。有料プラン(Standard・Pro)では毎月ポイントが付きます(翌月に繰り越しません)。</p>
 <p><b>有料プランの解約</b><br>iPhone の 設定 → Apple アカウント → サブスクリプション から解約できます。期間の終わりまでは有料プランを使えます。</p>
-<p><b>アカウントの削除</b><br>プロジェクト一覧の左上の星 → アカウントとポイント → アカウントを削除。ポイントと記録はその場で消えます。</p>
-<p><b>使い方の統計を止める</b><br>設定 → プライバシーと広告 → 使い方の統計を送信(匿名) を切ってください。送った分は 90 日で消えます。削除を急ぐときは下のフォームから。</p>
+<p><b>アカウントの削除</b><br>プロジェクト一覧の左上の星 → アカウントとポイント → アカウントを削除。ポイントと記録はその場で消えます。有料プランは解約されないので、先に iPhone の 設定 → Apple アカウント → サブスクリプション から解約してください。</p>
+<p><b>使い方の統計を止める</b><br>設定 → プライバシーと広告 → 使い方の統計を送信(匿名) を切ってください。送った分は 90 日で消えます。削除を急ぐときは、同じ画面に出る「端末 ID」を書いて、下のフォームから送ってください。</p>
 <h2 id="contact">お問い合わせ / Contact</h2>
 <p>質問・不具合・不適切な AI 生成や広告の報告・データの削除依頼は、このフォームから送ってください。<br>Questions, bug reports, reports of inappropriate AI output or ads, and data deletion requests: use this form.</p>
 <form method="post" action="/v1/contact">
@@ -857,8 +957,14 @@ async function admobSSV(url, env) {
   const verified = await verifyAdMobSignature(message, signature, keyID).catch(() => false);
   if (!verified) return error(403, "署名が正しくありません", "bad_signature");
 
-  const userID = params.get("user_id") || "";
+  let userID = params.get("user_id") || "";
   const transactionID = params.get("transaction_id") || "";
+  // 新しいアプリはリワード広告用の ID(rewardIDFor)を渡す。古いアプリ("apple:…")はそのまま
+  if (userID && !userID.startsWith("apple:")) {
+    await ensureExtraTables(env);
+    const row = await env.DB.prepare("SELECT user_id FROM reward_ids WHERE reward_id = ?").bind(userID).first();
+    userID = row ? row.user_id : "";
+  }
   if (!userID || !transactionID) return json({ ok: true, granted: false });
   const granted = await grantAdReward(env, userID, "ssv:" + transactionID, "ssv");
   return json({ ok: true, granted });
@@ -916,14 +1022,42 @@ async function daily(user, env) {
   return json({ points: row.points, added: POINTS.daily });
 }
 
-/** 有料プランの機能を 1 回だけポイントで使う(無料プラン向け)。使える機能と値段はサーバーで決める */
+/** 有料プランの機能を 1 回だけポイントで使う(無料プラン向け)。使える機能と値段はサーバーで決める。
+ *  返す trialID で、結果が出なかった・キャンセルした・失敗したときに FEATURE_TRIAL_REFUND_MS 以内なら 1 回だけ返せる
+ *  (機能は端末の中で動くので、返すかどうかはアプリの申告による。AI の費用はかからない) */
 async function featureTrial(request, user, env) {
   const body = await request.json().catch(() => ({}));
   const feature = String((body && body.feature) || "");
   if (!FEATURE_TRIALS.has(feature)) return error(400, "この機能はポイントで使えません。", "unknown_feature");
   const cost = POINTS.featureTrial;
-  if (!(await reserve(env, user.id, cost, "feature:" + feature))) return insufficient(cost, await balance(env, user.id));
-  return json({ points: await balance(env, user.id), spent: cost });
+  const taken = await reserve(env, user.id, cost, "feature:" + feature);
+  if (!taken) return insufficient(cost, await balance(env, user.id));
+  await ensureExtraTables(env);
+  const trialID = crypto.randomUUID();
+  await env.DB.prepare(
+    "INSERT INTO feature_trials (id, user_id, feature, amount, from_plan, state, created_at) VALUES (?, ?, ?, ?, ?, 'reserved', ?)"
+  ).bind(trialID, user.id, feature, cost, taken.fromPlan, nowISO()).run();
+  return json({ points: await balance(env, user.id), spent: cost, trialID });
+}
+
+/** 試用のポイントを返す(本文 { trialID })。同じ試用は 1 回だけ。プランの分から引いた分はプランの分に戻す */
+async function featureTrialRefund(request, user, env) {
+  const body = await request.json().catch(() => ({}));
+  const trialID = String((body && body.trialID) || "");
+  if (!trialID) return error(400, "形式が正しくありません", "bad_request");
+  await ensureExtraTables(env);
+  const row = await env.DB.prepare("SELECT amount, from_plan, state, created_at FROM feature_trials WHERE id = ? AND user_id = ?")
+    .bind(trialID, user.id).first();
+  if (!row) return error(404, "見つかりません", "not_found");
+  if (row.state !== "reserved") return json({ points: await balance(env, user.id), refunded: 0 });
+  const created = Date.parse(row.created_at);
+  if (!Number.isFinite(created) || Date.now() - created > FEATURE_TRIAL_REFUND_MS) {
+    return error(409, "ポイントを戻せる時間を過ぎました", "refund_expired");
+  }
+  const marked = await env.DB.prepare("UPDATE feature_trials SET state = 'refunded' WHERE id = ? AND state = 'reserved'").bind(trialID).run();
+  if (!marked.meta || marked.meta.changes === 0) return json({ points: await balance(env, user.id), refunded: 0 });
+  await refund(env, user.id, row.amount, "feature:refund", row.from_plan);
+  return json({ points: await balance(env, user.id), refunded: row.amount });
 }
 
 async function addLedger(env, userID, delta, reason) {
@@ -932,24 +1066,44 @@ async function addLedger(env, userID, delta, reason) {
     .run();
 }
 
-/** 足りていれば amount を引いて true(同時に使われても残高がマイナスにならない)。
- *  プランで付けたポイント(sub_points。月が替わると消える)から先に使う */
+/** 足りていれば amount を引いて { fromPlan }(そのうちプランの分から引いた量)、足りなければ false
+ *  (同時に使われても残高がマイナスにならない)。プランで付けたポイント(sub_points。月が替わると消える)から先に使う。
+ *  期限が切れたプランの残りは、引く前に消す(src/subscriptions.js の expirePlanPoints) */
 async function reserve(env, userID, amount, reason) {
   await ensureSubscriptionTables(env);
-  const result = await env.DB.prepare(
-    "UPDATE users SET points = points - ?, sub_points = MAX(sub_points - ?, 0) WHERE id = ? AND points >= ?"
-  )
-    .bind(amount, amount, userID, amount)
-    .run();
-  if (!result.meta || result.meta.changes === 0) return false;
-  await addLedger(env, userID, -amount, reason);
-  return true;
+  await expirePlanPoints(env, userID);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const row = await env.DB.prepare("SELECT points, sub_points FROM users WHERE id = ?").bind(userID).first();
+    if (!row || row.points < amount) return false;
+    const sub = Math.max(0, row.sub_points || 0);
+    // プランの分がほかの送信で変わっていたら読み直す(最後の 1 回は変わっていても引く)
+    const last = attempt === 4;
+    const result = await env.DB.prepare(
+      "UPDATE users SET points = points - ?, sub_points = MAX(sub_points - ?, 0) WHERE id = ? AND points >= ?" + (last ? "" : " AND sub_points = ?")
+    )
+      .bind(...(last ? [amount, amount, userID, amount] : [amount, amount, userID, amount, row.sub_points || 0]))
+      .run();
+    if (result.meta && result.meta.changes > 0) {
+      await addLedger(env, userID, -amount, reason);
+      return { fromPlan: Math.min(sub, amount) };
+    }
+  }
+  return false;
 }
 
-async function refund(env, userID, amount, reason) {
+/** amount を戻す。planPart はそのうちプランの分(sub_points)に戻す量(引いたときにプランの分から引いた分)。
+ *  プランの分を消えないポイントに変えないため */
+async function refund(env, userID, amount, reason, planPart = 0) {
   if (amount <= 0) return;
-  await env.DB.prepare("UPDATE users SET points = points + ? WHERE id = ?").bind(amount, userID).run();
+  const toPlan = Math.max(0, Math.min(amount, Number(planPart) || 0));
+  await env.DB.prepare("UPDATE users SET points = points + ?, sub_points = sub_points + ? WHERE id = ?").bind(amount, toPlan, userID).run();
   await addLedger(env, userID, amount, reason);
+}
+
+/** reserved 引いたうち back だけ戻すとき、プランの分に戻す量(無料の分から先に戻す) */
+function planShare(taken, reserved, back) {
+  const fromPlan = taken && Number.isFinite(taken.fromPlan) ? taken.fromPlan : 0;
+  return Math.max(0, Math.min(fromPlan, back - (reserved - fromPlan)));
 }
 
 /** 追加で引く(残高が足りない分は 0 で止める) */
@@ -986,8 +1140,117 @@ async function reserveSpeech(env, userID, chars, reason) {
   const total = before + Math.max(0, chars);
   const cost = Math.floor(total / per);
   const carry = total % per;
-  if (cost > 0 && !(await reserve(env, userID, cost, reason))) return { ok: false, cost, carry: before };
-  return { ok: true, cost, carry };
+  if (cost <= 0) return { ok: true, cost, carry, fromPlan: 0 };
+  const taken = await reserve(env, userID, cost, reason);
+  if (!taken) return { ok: false, cost, carry: before, fromPlan: 0 };
+  return { ok: true, cost, carry, fromPlan: taken.fromPlan };
+}
+
+let transcribeCarryColumnEnsured = false;
+
+/** 既存の DB に transcribe_carry(まだポイントにしていない文字起こしの秒数)の列を足す(あれば失敗するので無視。isolate ごとに 1 回) */
+async function ensureTranscribeCarryColumn(env) {
+  if (transcribeCarryColumnEnsured) return;
+  transcribeCarryColumnEnsured = true;
+  try {
+    await env.DB.prepare("ALTER TABLE users ADD COLUMN transcribe_carry INTEGER NOT NULL DEFAULT 0").run();
+  } catch (_) {}
+}
+
+/**
+ * 文字起こしの秒数を、前回までの端数(transcribe_carry)に足し、TRANSCRIBE_SECONDS_PER_POINT 秒ごとに 1pt にして返す。
+ * 余りの秒は次に持ち越す。1 回の文字起こしが何ピースに分かれても、合計の長さどおりのポイントになる。
+ * 同時に送られたピースが同じ端数を使わないよう、読んだ値のままのときだけ引く(合わなければ読み直す)
+ */
+async function settleTranscribeSeconds(env, userID, seconds) {
+  await ensureTranscribeCarryColumn(env);
+  const per = TRANSCRIBE_SECONDS_PER_POINT;
+  await env.DB.prepare("UPDATE users SET transcribe_carry = transcribe_carry + ? WHERE id = ?").bind(Math.max(0, Math.round(seconds)), userID).run();
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const row = await env.DB.prepare("SELECT transcribe_carry FROM users WHERE id = ?").bind(userID).first();
+    const carry = row && Number.isFinite(row.transcribe_carry) ? row.transcribe_carry : 0;
+    const units = Math.floor(carry / per);
+    if (units <= 0) return 0;
+    const result = await env.DB.prepare("UPDATE users SET transcribe_carry = transcribe_carry - ? WHERE id = ? AND transcribe_carry = ?")
+      .bind(units * per, userID, carry).run();
+    if (result.meta && result.meta.changes > 0) return units;
+  }
+  // 引けなかった秒は端数に残り、次の文字起こしで数える
+  return 0;
+}
+
+/** m4a / mp4 の moov → mvhd に書かれた長さ(秒)。読めなければ null */
+function mp4DurationSeconds(bytes) {
+  try {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const find = (start, end, type) => {
+      let offset = start;
+      while (offset + 8 <= end) {
+        let size = view.getUint32(offset);
+        const name = String.fromCharCode(bytes[offset + 4], bytes[offset + 5], bytes[offset + 6], bytes[offset + 7]);
+        let header = 8;
+        if (size === 1) {
+          if (offset + 16 > end) return null;
+          size = view.getUint32(offset + 8) * 4294967296 + view.getUint32(offset + 12);
+          header = 16;
+        } else if (size === 0) {
+          size = end - offset;
+        }
+        if (size < header || offset + size > end) return null;
+        if (name === type) return { start: offset + header, end: offset + size };
+        offset += size;
+      }
+      return null;
+    };
+    const moov = find(0, bytes.byteLength, "moov");
+    if (!moov) return null;
+    const mvhd = find(moov.start, moov.end, "mvhd");
+    if (!mvhd) return null;
+    let timescale;
+    let duration;
+    if (bytes[mvhd.start] === 1) {
+      if (mvhd.start + 32 > mvhd.end) return null;
+      timescale = view.getUint32(mvhd.start + 20);
+      duration = view.getUint32(mvhd.start + 24) * 4294967296 + view.getUint32(mvhd.start + 28);
+    } else {
+      if (mvhd.start + 20 > mvhd.end) return null;
+      timescale = view.getUint32(mvhd.start + 12);
+      duration = view.getUint32(mvhd.start + 16);
+    }
+    if (!timescale) return null;
+    const seconds = duration / timescale;
+    return seconds > 0 && seconds < 86400 ? seconds : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** OpenAI に渡す文字起こしの本文を作り直す(許可した項目だけ。response_format はモデルに合わせてサーバーで決める) */
+function buildTranscribeForm(form, model, file) {
+  const out = new FormData();
+  out.append("model", model);
+  const language = String(form.get("language") || "").trim();
+  if (/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(language)) out.append("language", language);
+  const prompt = form.get("prompt");
+  if (typeof prompt === "string" && prompt.trim() && !model.includes("diarize")) {
+    out.append("prompt", prompt.slice(0, MAX_TRANSCRIBE_PROMPT_CHARS));
+  }
+  if (model.startsWith("whisper")) {
+    // 長さ(duration)が返る形に決める(ポイントの精算に使う)
+    out.append("response_format", "verbose_json");
+    const granularities = new Set(form.getAll("timestamp_granularities[]").map((v) => String(v)));
+    for (const g of ["word", "segment"]) if (granularities.has(g)) out.append("timestamp_granularities[]", g);
+    const temperature = Number(form.get("temperature"));
+    if (Number.isFinite(temperature) && temperature >= 0 && temperature <= 1) out.append("temperature", String(temperature));
+  } else if (model.includes("diarize")) {
+    out.append("response_format", "diarized_json");
+    out.append("chunking_strategy", "auto");
+  } else {
+    out.append("response_format", "json");
+    out.append("chunking_strategy", "auto");
+  }
+  out.append("file", file, (file && file.name) || "audio.m4a");
+  return out;
 }
 
 async function commitSpeechCarry(env, userID, carry) {
@@ -1016,10 +1279,13 @@ function insufficient(need, have) {
 // AI 中継
 // ---------------------------------------------------------------------
 
-/** 不適切な内容か(OpenAI の moderation)。判定できないとき(鍵なし・失敗・8 秒超)は false にして止めない */
+/** 不適切な内容か(OpenAI の moderation)。判定できないとき(鍵なし・失敗・8 秒超)は false にして止めない。
+ *  長い文は MODERATION_MAX_CHARS ごとに区切って、すべてを 1 回で確かめる */
 async function isContentFlagged(text, env) {
-  const input = String(text || "").trim().slice(0, MODERATION_MAX_CHARS);
-  if (!input || !env.OPENAI_API_KEY) return false;
+  const whole = String(text || "").trim();
+  if (!whole || !env.OPENAI_API_KEY) return false;
+  const input = [];
+  for (let i = 0; i < whole.length; i += MODERATION_MAX_CHARS) input.push(whole.slice(i, i + MODERATION_MAX_CHARS));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
@@ -1043,15 +1309,33 @@ function contentBlocked() {
   return error(400, "この内容は生成できません", "content_blocked");
 }
 
-/** チャットの messages から利用者の文章(user ロール)だけを取り出してつなげる(content は文字列か、{type:"text"} の配列) */
-function userText(messages) {
-  const parts = [];
+/** チャットの messages を作り直す(role は system / user / assistant、content は文字列だけ。{type:"text"} の配列は文字列にする)。
+ *  形が違う・多すぎる・長すぎるときは null */
+function sanitizeChatMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_CHAT_MESSAGES) return null;
+  const out = [];
+  let total = 0;
   for (const m of messages) {
-    if (!m || m.role !== "user") continue;
-    if (typeof m.content === "string") parts.push(m.content);
-    else if (Array.isArray(m.content)) for (const p of m.content) if (p && typeof p.text === "string") parts.push(p.text);
+    if (!m || !CHAT_ROLES.includes(m.role)) return null;
+    let content;
+    if (typeof m.content === "string") {
+      content = m.content;
+    } else if (Array.isArray(m.content)) {
+      const parts = [];
+      for (const p of m.content) {
+        // 画像などの文字以外は受け付けない
+        if (!p || p.type !== "text" || typeof p.text !== "string") return null;
+        parts.push(p.text);
+      }
+      content = parts.join("\n");
+    } else {
+      return null;
+    }
+    total += content.length;
+    if (total > MAX_CHAT_CHARS) return null;
+    out.push({ role: m.role, content });
   }
-  return parts.join("\n");
+  return out;
 }
 
 async function transcribe(request, user, env) {
@@ -1060,53 +1344,54 @@ async function transcribe(request, user, env) {
   const bodyBytes = await request.arrayBuffer();
   if (bodyBytes.byteLength > 26 * 1024 * 1024) return error(413, "音声が大きすぎます(25MB まで)", "too_large");
 
-  // 使う前の見積もり: アプリが伝える秒数と、ファイルの大きさ(256kbps として)の大きいほう
-  const claimed = Math.max(0, Number(request.headers.get("x-vm-seconds") || 0));
-  const fromBytes = bodyBytes.byteLength / 32000;
-  const estimateSeconds = Math.max(claimed, fromBytes, 1);
-  const estimate = Math.max(1, Math.ceil(estimateSeconds / 60)) * POINTS.transcribePerMinute;
-  if (!(await reserve(env, user.id, estimate, "transcribe:reserve"))) {
-    return insufficient(estimate, await balance(env, user.id));
-  }
-
-  // モデルを確かめる(許可したものだけ)
+  // 中身を先に読む(ポイントを確保する前)。モデルと項目は許可したものだけを OpenAI に渡す
   const form = await new Request("https://local/", { method: "POST", headers: { "content-type": contentType }, body: bodyBytes })
     .formData()
     .catch(() => null);
   const model = form ? String(form.get("model") || "") : "";
-  if (!ALLOWED_TRANSCRIBE_MODELS.includes(model)) {
-    await refund(env, user.id, estimate, "transcribe:refund");
-    return error(400, "このモデルは使えません: " + model, "bad_model");
-  }
+  if (!ALLOWED_TRANSCRIBE_MODELS.includes(model)) return error(400, "このモデルは使えません: " + model, "bad_model");
+  const file = form.get("file");
+  if (!file || typeof file === "string") return error(400, "形式が正しくありません", "bad_request");
+  const audio = new Uint8Array(await file.arrayBuffer());
+  const upstreamForm = buildTranscribeForm(form, model, file);
+
+  // 使う前の見積もり(秒): アプリが伝える秒数・音声ファイルに書かれた長さ・ファイルの大きさ(256kbps として)の大きいほう
+  const claimed = Math.min(Math.max(0, Number(request.headers.get("x-vm-seconds")) || 0), 3600);
+  const container = mp4DurationSeconds(audio) || 0;
+  const estimateSeconds = Math.max(claimed, container, audio.byteLength / 32000, 1);
+  const reserved = Math.ceil(estimateSeconds / TRANSCRIBE_SECONDS_PER_POINT);
+  const taken = await reserve(env, user.id, reserved, "transcribe:reserve");
+  if (!taken) return insufficient(reserved, await balance(env, user.id));
 
   let upstream;
   try {
     upstream = await fetch(OPENAI + "/v1/audio/transcriptions", {
       method: "POST",
-      headers: { authorization: "Bearer " + env.OPENAI_API_KEY, "content-type": contentType },
-      body: bodyBytes,
+      headers: { authorization: "Bearer " + env.OPENAI_API_KEY },
+      body: upstreamForm,
     });
   } catch (e) {
-    await refund(env, user.id, estimate, "transcribe:refund");
+    await refund(env, user.id, reserved, "transcribe:refund", taken.fromPlan);
     return error(502, "文字起こしのサービスにつながりませんでした", "upstream_unreachable");
   }
   const text = await upstream.text();
   if (!upstream.ok) {
-    await refund(env, user.id, estimate, "transcribe:refund");
+    await refund(env, user.id, reserved, "transcribe:refund", taken.fromPlan);
     if (upstream.status === 401 || upstream.status === 403) return upstreamAuthError();
     return new Response(text, { status: upstream.status, headers: { "content-type": upstream.headers.get("content-type") || "application/json" } });
   }
 
-  // 実際の長さ(verbose_json の duration)で精算する
-  let actual = estimate;
+  // 実際の長さ(verbose_json の duration、無ければ音声ファイルに書かれた長さ)を秒で数え、端数は次に持ち越して精算する。
+  // 1 回の文字起こしが何ピースに分かれても、合計の長さどおり(1 分 POINTS.transcribePerMinute pt)になる
+  let actualSeconds = 0;
   try {
     const parsed = JSON.parse(text);
-    if (typeof parsed.duration === "number" && parsed.duration > 0) {
-      actual = Math.max(1, Math.ceil(parsed.duration / 60)) * POINTS.transcribePerMinute;
-    }
+    if (typeof parsed.duration === "number" && parsed.duration > 0) actualSeconds = parsed.duration;
   } catch (_) {}
-  if (actual < estimate) await refund(env, user.id, estimate - actual, "transcribe:settle");
-  if (actual > estimate) await chargeExtra(env, user.id, actual - estimate, "transcribe:settle");
+  if (!(actualSeconds > 0)) actualSeconds = container > 0 ? container : estimateSeconds;
+  const cost = await settleTranscribeSeconds(env, user.id, Math.max(1, Math.round(actualSeconds)));
+  if (cost < reserved) await refund(env, user.id, reserved - cost, "transcribe:settle", planShare(taken, reserved, reserved - cost));
+  if (cost > reserved) await chargeExtra(env, user.id, cost - reserved, "transcribe:settle");
 
   return new Response(text, {
     status: 200,
@@ -1122,8 +1407,9 @@ async function speech(request, user, env) {
   const input = body.input.trim();
   if (!input) return error(400, "読み上げる文章が空です", "bad_request");
   if (input.length > MAX_SPEECH_CHARS) return error(413, "文章が長すぎます(" + MAX_SPEECH_CHARS + " 文字まで)", "too_large");
-  // 不適切な文章は読み上げない(ポイントを確保する前。Google の声もここを通る)
-  if (await isContentFlagged(input, env)) return contentBlocked();
+  // 不適切な文章は読み上げない(ポイントを確保する前。Google の声もここを通る)。OpenAI の声に渡す指示文も一緒に確かめる
+  const instructionsText = typeof body.instructions === "string" ? body.instructions.trim().slice(0, 400) : "";
+  if (await isContentFlagged(instructionsText ? input + "\n" + instructionsText : input, env)) return contentBlocked();
   // 日本語の文は、声が読み間違えやすい言葉(固有名詞・読みが何通りもある熟語など)だけをひらがなにしてから渡す。
   // ポイントは元の文の長さで数える(読みの確認は追加のポイントなし)。失敗したら元の文のまま
   const spoken = body.fixReadings === false ? input : await fixJapaneseReadings(input, env);
@@ -1144,11 +1430,11 @@ async function speech(request, user, env) {
       body: JSON.stringify(payload),
     });
   } catch (e) {
-    await refund(env, user.id, cost, "speech:refund");
+    await refund(env, user.id, cost, "speech:refund", charge.fromPlan);
     return error(502, "読み上げのサービスにつながりませんでした", "upstream_unreachable");
   }
   if (!upstream.ok) {
-    await refund(env, user.id, cost, "speech:refund");
+    await refund(env, user.id, cost, "speech:refund", charge.fromPlan);
     if (upstream.status === 401 || upstream.status === 403) return upstreamAuthError();
     const text = await upstream.text();
     return new Response(text, { status: upstream.status, headers: { "content-type": upstream.headers.get("content-type") || "application/json" } });
@@ -1183,18 +1469,18 @@ async function googleSpeech(body, input, spoken, user, env) {
         }),
       });
     } catch (e) {
-      await refund(env, user.id, cost, "speech:google:refund");
+      await refund(env, user.id, cost, "speech:google:refund", charge.fromPlan);
       return error(502, "読み上げのサービスにつながりませんでした", "upstream_unreachable");
     }
     if (!upstream.ok) {
-      await refund(env, user.id, cost, "speech:google:refund");
+      await refund(env, user.id, cost, "speech:google:refund", charge.fromPlan);
       if (upstream.status === 401 || upstream.status === 403) return upstreamAuthError();
       const text = await upstream.text();
       return new Response(text, { status: upstream.status, headers: { "content-type": upstream.headers.get("content-type") || "application/json" } });
     }
     const json = await upstream.json().catch(() => null);
     if (!json || typeof json.audioContent !== "string") {
-      await refund(env, user.id, cost, "speech:google:refund");
+      await refund(env, user.id, cost, "speech:google:refund", charge.fromPlan);
       return error(502, "読み上げの結果を読めませんでした", "upstream_bad_response");
     }
     const binary = atob(json.audioContent);
@@ -1301,33 +1587,41 @@ function splitByBytes(text, maxBytes) {
 async function chat(request, user, env) {
   const body = await request.json().catch(() => null);
   if (!body || !Array.isArray(body.messages)) return error(400, "形式が正しくありません", "bad_request");
-  // モデルと長さはサーバーで決める(高いモデルを使われないように)
-  body.model = CHAT_MODEL;
-  const asked = Number(body.max_tokens || body.max_completion_tokens || MAX_CHAT_TOKENS);
-  delete body.max_completion_tokens;
-  body.max_tokens = Math.min(Math.max(1, asked), MAX_CHAT_TOKENS);
-  body.stream = false;
+  // OpenAI に渡す本文はサーバーで作り直す(許可した項目だけ。モデル・長さ・回答の数はサーバーで決める)
+  const messages = sanitizeChatMessages(body.messages);
+  if (!messages) return error(400, "形式が正しくありません", "bad_request");
+  const asked = Number(body.max_tokens ?? body.max_completion_tokens);
+  const payload = {
+    model: CHAT_MODEL,
+    messages,
+    max_tokens: Number.isFinite(asked) ? Math.min(Math.max(1, Math.floor(asked)), MAX_CHAT_TOKENS) : MAX_CHAT_TOKENS,
+    n: 1,
+    stream: false,
+  };
+  const temperature = Number(body.temperature);
+  if (body.temperature != null && Number.isFinite(temperature)) payload.temperature = Math.min(Math.max(0, temperature), 2);
+  const format = body.response_format && typeof body.response_format === "object" ? body.response_format.type : undefined;
+  if (format === "json_object" || format === "text") payload.response_format = { type: format };
 
-  // 利用者の文章(テーマ・字幕など)が不適切なら生成しない(ポイントを確保する前)
-  if (await isContentFlagged(userText(body.messages), env)) return contentBlocked();
+  // 送るすべての文(system・assistant も)が不適切なら生成しない(ポイントを確保する前)
+  if (await isContentFlagged(messages.map((m) => m.content).join("\n"), env)) return contentBlocked();
 
-  if (!(await reserve(env, user.id, POINTS.chat, "chat"))) {
-    return insufficient(POINTS.chat, await balance(env, user.id));
-  }
+  const taken = await reserve(env, user.id, POINTS.chat, "chat");
+  if (!taken) return insufficient(POINTS.chat, await balance(env, user.id));
   let upstream;
   try {
     upstream = await fetch(OPENAI + "/v1/chat/completions", {
       method: "POST",
       headers: { authorization: "Bearer " + env.OPENAI_API_KEY, "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
   } catch (e) {
-    await refund(env, user.id, POINTS.chat, "chat:refund");
+    await refund(env, user.id, POINTS.chat, "chat:refund", taken.fromPlan);
     return error(502, "AI のサービスにつながりませんでした", "upstream_unreachable");
   }
   const text = await upstream.text();
   if (!upstream.ok) {
-    await refund(env, user.id, POINTS.chat, "chat:refund");
+    await refund(env, user.id, POINTS.chat, "chat:refund", taken.fromPlan);
     if (upstream.status === 401 || upstream.status === 403) return upstreamAuthError();
   }
   return new Response(text, {

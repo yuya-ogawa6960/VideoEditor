@@ -143,6 +143,8 @@ enum TalkCleanup {
         let layout = CompositionBuilder.timelineLayout(for: snapshot)
         let guardSpeech = SpeechGuard(snapshot: snapshot, pad: speechPad)
         let cues = subtitles.sorted { $0.start < $1.start }
+        // ナレーション・効果音が鳴っている所(「話していない所」として詰めない。無音カットと同じ)
+        let busy = EditorProject.narrationBusyRanges(snapshot.narration)
 
         for (index, clip) in snapshot.clips.enumerated() where index < layout.count {
             try Task.checkCancellation()
@@ -153,19 +155,27 @@ enum TalkCleanup {
             let talks = utterances(for: clip, placement: placement, cues: cues)
             // 声がまったく無いクリップは風景などの B ロールとみなして触らない
             guard !talks.isEmpty else { continue }
+            // トランジションで前後のクリップと重なる所(removeOutputRanges の扱い): 前のクリップの終わりと後ろのクリップの頭が
+            // どちらも話していないときだけ、重なりごと詰める。そのときも話の前後には重なりの長さぶんの余白を残す
+            // (重なりの中に声が入ると、前の文末と次の文頭がディゾルブの中で重なってフェードし、字幕もつなぎ目ごとに遅れていた)。
+            // 片方だけが話していないときは、重なりの 2 倍は切られずに残る
+            let inOverlap = index > 0 ? max(0, layout[index - 1].end - placement.start) : 0
+            let outOverlap = index + 1 < layout.count ? max(0, placement.end - layout[index + 1].start) : 0
 
             // 1. 声の無い区間(前後 speechPad を残す)
             var gaps: [(start: Double, end: Double)] = []
             var cursor = placement.start
             for (i, talk) in talks.enumerated() {
                 let a = (i == 0) ? placement.start : cursor + speechPad
-                let b = talk.start - speechPad
+                let b = talk.start - speechPad - (i == 0 ? inOverlap : 0)
                 if b - a >= minimumGap { gaps.append((a, b)) }
                 cursor = talk.end
             }
-            if placement.end - (cursor + speechPad) >= minimumGap {
-                gaps.append((cursor + speechPad, placement.end))
+            let tailStart = cursor + speechPad + outOverlap
+            if placement.end - tailStart >= minimumGap {
+                gaps.append((tailStart, placement.end))
             }
+            gaps = EditorProject.subtracting(busy, from: gaps, minimumLength: minimumGap)
 
             for gap in gaps {
                 guard let tight = tightened(gap, clip: clip, index: index, placement: placement,
@@ -222,6 +232,9 @@ enum TalkCleanup {
                     guard isRetake else { continue }
                     // 字幕なしの推測は当たりはずれが大きいので、いまは切らない(後で「切る」を選べる設定にするかもしれない)
                     if low { continue }
+                    // 前の回の頭がトランジションの重なりの近く(重なりの 2 倍)なら切らない
+                    // (そこは切られずに残るので、言いかけの頭だけが残ってしまう)
+                    guard first.start - speechPad >= placement.start + 2 * inOverlap - 0.001 else { continue }
                     let start = max(placement.start, first.start - speechPad)
                     let end = min(placement.end, second.start - speechPad)
                     guard end - start >= 0.1 else { continue }
@@ -244,27 +257,20 @@ enum TalkCleanup {
 
     // MARK: - 適用
 
-    /// 区間を取り除き、調べ物を切った所にマーカーを置く。取り除けた合計秒を返す
+    /// 区間を取り除き、調べ物・言い直しを切った所にマーカーを置く。実際に短くなった秒を返す
     @MainActor
     @discardableResult
     static func apply(_ plan: TalkCleanupPlan, to project: EditorProject) -> Double {
         guard !plan.isEmpty else { return 0 }
         let ranges = plan.cuts.map { (start: max(0, $0.start), end: $0.end) }
-        // マーカーの位置は取り除いたあとの時刻で先に出しておく(removeOutputRanges と同じ計算)
-        let joined = merged(ranges)
-        func shifted(_ t: Double) -> Double {
-            var removedBefore = 0.0
-            for r in joined {
-                if t >= r.end { removedBefore += r.end - r.start }
-                else if t > r.start { removedBefore += t - r.start }
-            }
-            return max(0, t - removedBefore)
+        // マーカーは切る所の頭に先に置いておく(removeOutputRanges が消さずに詰めた先へ寄せる)。
+        // 言い直しは当たりはずれがあるので、どこを切ったか分かるように印を残す(対談で相手の受け答えを切っていないか確かめられる)
+        for cut in plan.cuts where cut.reason == .lookup || cut.reason == .retake {
+            let name = cut.reason == .lookup ? String(localized: "調べ物をカット") : String(localized: "言い直しをカット")
+            project.markers.append(TimelineMarker(time: max(0, cut.start), name: name, kind: .note))
         }
-        let markerTimes = plan.cuts.filter { $0.reason == .lookup }.map { shifted($0.start) }
         let removed = project.removeOutputRanges(ranges)
-        for time in markerTimes {
-            project.markers.append(TimelineMarker(time: time, name: String(localized: "調べ物をカット"), kind: .note))
-        }
+        project.sortMarkers()
         return removed
     }
 
@@ -385,6 +391,9 @@ enum TalkCleanup {
         let trimmed = first.trimmingCharacters(in: .whitespacesAndNewlines)
         let endsSentence = sentenceEnds.contains { trimmed.hasSuffix($0) }
         guard !endsSentence || fullA.count < fullB.count else { return false }
+        // 前の回がそれだけで文として終わっている(「そうなんですよ」「よろしくお願いします。」)なら、言い直しではなく
+        // 対談で相手が同じ言葉で受けたか、同じ話を続けただけ(前の人の発言を丸ごと切っていた)
+        guard !endsAsSentence(trimmed) else { return false }
         if fullB.hasPrefix(fullA) { return true }
         // 前の回が、後の回の出だしをほぼそのまま言いかけただけのときだけ(出だしが同じでも、違う中身を話していたら残す)
         guard fullA.count <= fullB.count else { return false }
@@ -392,6 +401,30 @@ enum TalkCleanup {
         let headB = String(fullB.prefix(retakeHeadLength))
         guard similarity(headA, headB) >= retakeSimilarity else { return false }
         return similarity(fullA, String(fullB.prefix(fullA.count))) >= retakeSimilarity
+    }
+
+    /// 文末の形(句点が無い認識結果でも文が終わっていると分かる形)。後ろに「ね」「よ」「か」が付いた形も文末
+    private static let sentenceEndings = ["ございます", "ます", "ました", "ません", "ましょう", "です", "でした", "でしょう", "ください"]
+    private static let sentenceEndingParticles = ["ね", "よ", "よね", "か", "かね", "よな", "な"]
+
+    /// それだけで文として終わっている一言か。句点の有無ではなく文末の形で見る(認識結果に句点が無いことも、
+    /// 言いかけに句点が付くこともある)。「！」「？」で終わる言葉も終わっているとみなす。読点で終わる言いかけは終わっていない
+    static func endsAsSentence(_ text: String) -> Bool {
+        var t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = t.last, "」』）)\"”’'】〕".contains(last) { t.removeLast() }
+        guard let last = t.last else { return false }
+        if "！？!?‼⁉".contains(last) { return true }
+        if "、，,；;：:".contains(last) { return false }
+        let hasJapanese = t.unicodeScalars.contains { (0x3040...0x30FF).contains($0.value) || (0x4E00...0x9FFF).contains($0.value) }
+        // 英語など: 句点で終わっていれば文として終わっている
+        if !hasJapanese { return ".…".contains(last) }
+        var core = t
+        while let c = core.last, "。．.…ー〜～ 　".contains(c) { core.removeLast() }
+        for ending in sentenceEndings {
+            if core.hasSuffix(ending) { return true }
+            for particle in sentenceEndingParticles where core.hasSuffix(ending + particle) { return true }
+        }
+        return false
     }
 
     // MARK: - 景色の場面

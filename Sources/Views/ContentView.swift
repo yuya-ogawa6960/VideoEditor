@@ -46,6 +46,22 @@ struct ContentView: View {
     @State private var pacingClipsKey = ""
     /// 写真ライブラリの動画を読み直している途中(この間は保存しない。空の内容で上書きしないため)
     @State private var isLoadingPhotoMedia = false
+    /// 写真ライブラリの動画の読み込みの進み具合(済んだ本数・全体の本数・いまの 1 本の iCloud からのダウンロード 0...1)
+    @State private var photoLoadDone = 0
+    @State private var photoLoadTotal = 0
+    @State private var photoLoadFraction: Double = 0
+    /// 写真ライブラリの動画を読み込む処理(読み込み中に「一覧へ戻る」で止める)
+    @State private var photoLoadTask: Task<Void, Never>?
+    /// 写真ライブラリに見つからない動画のお知らせ(クリップは残している。「見つからない動画を外す」も選べる)
+    @State private var missingPhotoNotice: String?
+    /// missingPhotoNotice の対象("photos:<id>")
+    @State private var missingPhotoReferences: [String] = []
+    /// missingPhotoNotice で設定アプリへの入り口を出すか
+    @State private var missingPhotoNoticeOffersSettings = false
+    /// 保存に失敗したまま(空き容量が無いなど)。画面の上に出し続ける
+    @State private var saveFailed = false
+    /// 閉じるときの保存に失敗した(閉じずに、どうするか聞く)
+    @State private var showCloseSaveFailed = false
     /// 保存ファイル(project.json)が読めなかった。編集画面は出さず、保存もしない(空の内容で上書きしないため)
     @State private var isProjectUnreadable = false
     /// 読めなかったときに、前回きちんと保存できた控えがある(「前回の状態に戻す」を出す)
@@ -105,6 +121,9 @@ struct ContentView: View {
     /// SNS の表示ガイド(TikTok などのボタンが重なる範囲をプレビューに出す。SafeZoneModels.swift)
     @AppStorage("safeZoneGuide") private var safeZoneGuide: SafeZoneGuide = SafeZoneGuide.none
     @State private var showClearProjectConfirm = false
+    /// 消すとクリップが 0 本になる削除の確認と、確かめたあとに行う削除(キャプション・テキストなども一緒に消えるため)
+    @State private var showDeleteAllClipsConfirm = false
+    @State private var pendingClipDelete: (() -> Void)? = nil
     /// 無音カットのテンポを選ぶ
     @State private var showSilenceCutConfirm = false
     @State private var showPunchInDialog = false
@@ -138,6 +157,8 @@ struct ContentView: View {
 
     /// 1.5: 画面を止めない短いお知らせ(2 秒で消える)
     @State private var toast: EditorToast?
+    /// 「元に戻す」つきのトーストを出したときに、↶ で戻る先(あとから別の編集をしたら、トーストからは戻さない)
+    @State private var toastUndoTarget: ProjectSnapshot?
     /// 1.5: ツールバーで開いているグループ(選択が変わると閉じる)
     @State private var toolbarGroupPath: [String] = []
     /// 1.5: パネルを開いたときの状態(✕「キャンセル」で戻す)
@@ -169,6 +190,8 @@ struct ContentView: View {
     /// ドラッグ中の項目がタイムライン・プレビューの上にあるか
     @State private var timelineDropTargeted = false
     @State private var previewDropTargeted = false
+    /// 空の画面の上にドラッグ中の項目があるか
+    @State private var emptyDropTargeted = false
     @State private var timelineWidth: CGFloat = 0
     /// クリップを動かしている間(移動・トリム・並べ替え)に固定しておくタイムラインの高さ。終わったら nil に戻す
     /// (ドラッグ中に行が増えて、指の下でタイムラインがずれないように)
@@ -189,6 +212,11 @@ struct ContentView: View {
     @State private var overlayPickerFilter: PHPickerFilter = .videos
     /// マルチカメラを V1 のカットに書き出している最中
     @State private var isFlatteningMulticam = false
+    /// 「V1 に書き出す」を押せない理由(押したときにシートの中で出す)
+    @State private var multicamFlattenBlockMessage: String?
+    /// 長い動画の逆再生を作る前に確かめているクリップと、その説明
+    @State private var reverseConfirmClipID: UUID?
+    @State private var reverseConfirmMessage = ""
     /// ステッカーパネルの「GIF を読み込む」(写真ライブラリ / 「ファイル」。どちらもオーバーレイとして入る)
     @State private var showGIFPhotoPicker = false
     @State private var showGIFFileImporter = false
@@ -431,6 +459,20 @@ struct ContentView: View {
         } message: {
             Text("このプロジェクトのクリップ・キャプション・BGM・オーバーレイ・ナレーション・テキスト・手書き・マーカーはすべて消え、元に戻せません。プロジェクト自体は一覧に残ります。")
         }
+        .confirmationDialog("すべてのクリップを削除しますか?",
+                            isPresented: $showDeleteAllClipsConfirm,
+                            titleVisibility: .visible) {
+            Button("削除", role: .destructive) {
+                let action = pendingClipDelete
+                pendingClipDelete = nil
+                action?()
+            }
+            Button("キャンセル", role: .cancel) {
+                pendingClipDelete = nil
+            }
+        } message: {
+            Text("キャプション・テキスト・オーバーレイ・ナレーション・手書き・マーカーも一緒に消えます。消したあとは「元に戻す」で戻せます。")
+        }
         .alert("お知らせ", isPresented: alertIsPresented) {
             if alertOffersSettings {
                 Button("設定を開く") {
@@ -453,9 +495,16 @@ struct ContentView: View {
             topBarWithDialogs
             // 本体をタップすると書き出し画面に戻る
             ExportProgressBanner(onOpen: { openExport() })
+            if saveFailed && !isProjectUnreadable {
+                saveFailureBanner
+            }
             if isProjectUnreadable {
                 // 保存ファイルが読めなかった: 空の画面の代わりに説明を出す(空のまま編集しても保存されず、作業が消えるため)
                 unreadableProjectView
+            } else if isLoadingPhotoMedia {
+                // 写真ライブラリの動画を読み込み中: 空の画面は出さない
+                // (前は空の画面で素材を足せてしまい、足したクリップやカメラの撮影が読み込みの完了で黙って消えていた)
+                photoLoadingView
             } else if project.isEmpty {
                 emptyState
             } else {
@@ -501,6 +550,16 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             IncomingMediaCenter.shared.refresh()
             scheduleIncomingCheck()
+        }
+        // 保存に失敗した・また保存できるようになった(空き容量が無いなど。ProjectStore が知らせる)
+        .onReceive(NotificationCenter.default.publisher(for: ProjectStore.saveStatusDidChange)) { note in
+            guard let id = note.userInfo?["projectID"] as? UUID, id == projectID else { return }
+            saveFailed = (note.userInfo?["failed"] as? Bool) ?? false
+        }
+        // 取り込めずに残したカメラの撮影の置き場所を覚えておく(アプリが終了しても、次に開いたときにまた聞けるように)
+        .onChange(of: keptCameraTakes) { _, takes in
+            let saved: [URL] = KeptCameraTakesStore.save(takes)
+            if saved != takes { keptCameraTakes = saved }
         }
         .onChange(of: IncomingMediaCenter.shared.pendingURLs) { _, _ in
             checkIncomingMedia()
@@ -573,6 +632,7 @@ struct ContentView: View {
         case .warning: EditorHaptics.warning()
         case .info: break
         }
+        toastUndoTarget = undo ? history.undoTarget(project) : nil
         withAnimation(EditorToastView.showAnimation) {
             toast = EditorToast(message, style: style, canUndo: undo)
         }
@@ -582,6 +642,13 @@ struct ContentView: View {
         withAnimation(EditorToastView.hideAnimation) {
             toast = nil
         }
+        // トーストを出したあとに別の編集(トリム・移動など)をしていたら戻さない。前はその別の編集のほうを戻していた
+        if let expected = toastUndoTarget, history.undoTarget(project) != expected {
+            toastUndoTarget = nil
+            showToast(String(localized: "あとから別の編集をしたため、戻していません。↶ で 1 つずつ戻せます"), style: .info)
+            return
+        }
+        toastUndoTarget = nil
         activePanel = nil
         Analytics.shared.trackUndo(source: "toast")
         history.undo(project)
@@ -616,7 +683,7 @@ struct ContentView: View {
                     ProjectLibrary.shared.setMediaMode(id: projectID, to: .photoLibrary)
                     // 次に作るプロジェクトも同じ置き場所にする
                     NewProjectMediaMode.last = .photoLibrary
-                    showToast(String(localized: "これから追加する動画は写真ライブラリから参照します"))
+                    showToast(String(localized: "これから追加する動画は写真ライブラリから参照します(次に作るプロジェクトも同じです)"))
                 }
                 Button("アプリに取り込む") {
                     ProjectLibrary.shared.setMediaMode(id: projectID, to: .appCopy)
@@ -625,7 +692,7 @@ struct ContentView: View {
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("これから追加する動画に使われます。追加済みの動画はそのままです。\n「写真ライブラリから参照」では、写真アプリで動画を消すとこのプロジェクトでも使えなくなります。スローモーションの動画はアプリに取り込みます。")
+                Text("これから追加する動画に使われます。追加済みの動画はそのままです。次に作るプロジェクトも同じ置き場所になります(「新しいプロジェクト」の画面で変えられます)。\n「写真ライブラリから参照」では、写真アプリで動画を消すとこのプロジェクトでも使えなくなります。スローモーションの動画はアプリに取り込みます。")
             }
     }
 
@@ -751,7 +818,7 @@ struct ContentView: View {
                     .background(FacetedBrandBackground())
             }
             .buttonStyle(.plain)
-            .disabled(isImporting)
+            .disabled(isImporting || isLoadingPhotoMedia)
 
             // 写真ライブラリ以外の取り込み元は小さく並べる。1 行に入らないときは 2 段に、それでも入らないときは縦に並べる
             // (文字の途中で折り返さない)
@@ -769,10 +836,36 @@ struct ContentView: View {
                     emptyStateMadeSources
                 }
             }
-            .disabled(isImporting)
+            .disabled(isImporting || isLoadingPhotoMedia)
+
+            // 最後のクリップを消した直後なども戻せるよう、空の画面にも「元に戻す」を出す(編集画面の ↶ は空の画面には無い)
+            if history.canUndo {
+                Button {
+                    EditorHaptics.tap()
+                    undoFromButton()
+                } label: {
+                    Label("元に戻す", systemImage: "arrow.uturn.backward")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Color.white.opacity(0.75))
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+        // ほかのアプリから落とした動画・写真は、クリップとして取り込む(前は空のプロジェクトには落とせなかった)
+        .contentShape(Rectangle())
+        .onDrop(of: MediaDrop.types, isTargeted: $emptyDropTargeted) { providers in
+            handleEmptyDrop(providers)
+        }
+        .overlay {
+            if emptyDropTargeted, canAcceptDrop {
+                MediaDropHighlight(title: String(localized: "クリップとして追加"))
+                    .padding(8)
+            }
+        }
     }
 
     /// 空の画面の取り込み元(端末にあるもの)
@@ -794,7 +887,7 @@ struct ContentView: View {
     private var emptyStateMadeSources: some View {
         // 空の画面には下のパネルが無いので、黒 3 秒をそのまま入れる(入ってから編集画面で色や長さを変えられる)
         emptyStateSourceButton(String(localized: "カラー"), systemImage: "rectangle.fill") {
-            guard !isImporting else { return }
+            guard !isImporting, !isLoadingPhotoMedia else { return }
             history.record(project)
             importAppendsAtEnd = true
             insertColorScreen(hex: "#000000", seconds: 3)
@@ -859,7 +952,157 @@ struct ContentView: View {
                 } message: {
                     Text(keptCameraTakesMessage)
                 }
+            // 写真ライブラリに見つからない動画: クリップは消さずに残し、外すのは自分で選んだときだけ
+            Color.clear
+                .alert(String(localized: "見つからない動画があります"), isPresented: Binding(
+                    get: { missingPhotoNotice != nil },
+                    set: { if !$0 { missingPhotoNotice = nil } }
+                )) {
+                    if missingPhotoNoticeOffersSettings {
+                        Button(String(localized: "設定を開く")) {
+                            openSystemSettings()
+                        }
+                    }
+                    Button(String(localized: "見つからない動画を外す"), role: .destructive) {
+                        removeMissingPhotoClips()
+                    }
+                    Button(String(localized: "残しておく"), role: .cancel) {}
+                } message: {
+                    Text(missingPhotoNotice ?? "")
+                }
+            // 長い動画の逆再生を作る前の確認(元の動画全体から作るため、時間と容量がかかる)
+            Color.clear
+                .alert(String(localized: "逆再生の動画を作成しますか?"), isPresented: Binding(
+                    get: { reverseConfirmClipID != nil },
+                    set: { if !$0 { reverseConfirmClipID = nil } }
+                )) {
+                    Button(String(localized: "作成する")) {
+                        if let id = reverseConfirmClipID {
+                            reverseConfirmClipID = nil
+                            toggleReverse(id, confirmedLongSource: true)
+                        }
+                    }
+                    Button(String(localized: "キャンセル"), role: .cancel) {}
+                } message: {
+                    Text(reverseConfirmMessage)
+                }
+            // 閉じるときの保存に失敗した: 閉じると編集が消えるので、閉じずにどうするか聞く
+            Color.clear
+                .alert(String(localized: "保存できませんでした"), isPresented: $showCloseSaveFailed) {
+                    Button(String(localized: "もう一度保存して閉じる")) {
+                        // お知らせが閉じ終わってから(また失敗したときに、もう一度聞けるように)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            closeProject()
+                        }
+                    }
+                    Button(String(localized: "保存せずに一覧へ戻る"), role: .destructive) {
+                        closeWithoutSaving()
+                    }
+                    Button(String(localized: "編集に戻る"), role: .cancel) {}
+                } message: {
+                    Text(String(localized: "iPhone の空き容量が足りない可能性があります。設定アプリの「一般」→「iPhone ストレージ」で空きを作ってから、もう一度保存してください。このまま一覧へ戻ると、最後に保存できたあとの編集は消えます。"))
+                }
         }
+    }
+
+    /// 写真ライブラリの動画を読み込んでいる間に、空の画面の代わりに出す(何本目か・iCloud からのダウンロード・一覧へ戻る)
+    private var photoLoadingView: some View {
+        VStack(spacing: 18) {
+            ProgressView(value: photoLoadProgressValue)
+                .progressViewStyle(.linear)
+                .tint(.white)
+                .frame(maxWidth: 260)
+            Text(String(localized: "写真ライブラリから動画を読み込んでいます…"))
+                .font(.headline)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+            if photoLoadTotal > 0 {
+                Text(String(localized: "\(min(photoLoadDone + 1, photoLoadTotal)) / \(photoLoadTotal) 本"))
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Text(String(localized: "iCloud にある動画はダウンロードするため、時間がかかることがあります。"))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                EditorHaptics.tap()
+                closeProject()
+            } label: {
+                Text(String(localized: "プロジェクト一覧へ戻る"))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.white.opacity(0.75))
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: 440)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 写真ライブラリの動画の読み込みの進み具合(0...1)
+    private var photoLoadProgressValue: Double {
+        guard photoLoadTotal > 0 else { return 0 }
+        let done: Double = Double(photoLoadDone) + min(max(photoLoadFraction, 0), 1)
+        return min(1, max(0, done / Double(photoLoadTotal)))
+    }
+
+    /// 保存に失敗したままのときに上に出し続ける帯(前は何も出ず、閉じると最後に保存できたあとの編集が消えていた)
+    private var saveFailureBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.yellow)
+            Text(String(localized: "保存できませんでした。iPhone の空き容量を確保してください"))
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Button {
+                EditorHaptics.tap()
+                retrySave()
+            } label: {
+                Text(String(localized: "もう一度保存"))
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .background(Color.red.opacity(0.35))
+    }
+
+    /// 帯の「もう一度保存」
+    private func retrySave() {
+        guard !isLoadingPhotoMedia, !isProjectUnreadable else { return }
+        if ProjectStore.saveNow(project.snapshot(), projectID: projectID) {
+            showToast(String(localized: "保存しました"))
+        } else {
+            showToast(String(localized: "まだ保存できません。空き容量を確保してください"), style: .warning)
+        }
+    }
+
+    /// 「保存せずに一覧へ戻る」(閉じるときの保存に失敗し、自分で選んだとき)
+    private func closeWithoutSaving() {
+        ProjectLibrary.shared.flush()
+        onClose(isImporting || isLoadingPhotoMedia)
+    }
+
+    /// 「見つからない動画を外す」: 写真ライブラリに見つからないまま残していたクリップ・オーバーレイを、保存ファイルからも外す
+    /// (自分で選んだときだけ。iCloud から取れなかっただけの動画は外さない)
+    private func removeMissingPhotoClips() {
+        let references = Set(missingPhotoReferences)
+        missingPhotoReferences = []
+        guard !references.isEmpty,
+              ProjectStore.discardHeldPhotoReferences(projectID: projectID, references: references) else { return }
+        ProjectStore.scheduleSave(project.snapshot(), projectID: projectID)
+        showToast(String(localized: "見つからない動画をプロジェクトから外しました"))
     }
 
     /// 保存ファイル(project.json)が読めなかったときに、空の画面・編集画面の代わりに出す。
@@ -1059,7 +1302,8 @@ struct ContentView: View {
             // SNS の表示ガイド(TikTok などのボタンが重なる範囲)。プレビューだけで、書き出しには影響しない
             .overlay {
                 SafeZonePreviewLayer(guide: $safeZoneGuide, project: project,
-                                     renderSize: player.renderSize, showsButton: !isDrawingNew)
+                                     renderSize: player.renderSize, showsButton: !isDrawingNew,
+                                     player: player)
             }
     }
 
@@ -1207,6 +1451,11 @@ struct ContentView: View {
         guard activePanel == nil else { return nil }
         return { clipID, time in
             guard activePanel == nil else { return }
+            // マルチカメラは Pro の機能(クリップの「マルチカメラ」ボタンと同じく、ここでもプランを確かめる)
+            guard PlanStore.shared.allows(.multicam) else {
+                PlanPaywall.present(for: .multicam)
+                return
+            }
             player.pause()
             player.seek(to: time)
             history.record(project)
@@ -1361,7 +1610,7 @@ struct ContentView: View {
 
     /// オーバーレイを写真ライブラリから足す。kind が nil なら、動画か写真かを先に聞く
     private func requestOverlayAdd(_ kind: MediaPickKind? = nil) {
-        guard !isImporting else { return }
+        guard !isImporting, !isLoadingPhotoMedia else { return }
         guard let kind else {
             mediaKindQuestion = MediaKindQuestion(overlay: true, appendAtEnd: false)
             return
@@ -1374,7 +1623,7 @@ struct ContentView: View {
     /// kind が nil なら、動画か写真かを先に聞く(選んだほうだけを写真ライブラリに出す)。
     /// appendAtEnd: タイムライン末尾の「+」からのときは末尾に足す(それ以外は再生位置のクリップの後ろ)
     private func requestMediaAdd(appendAtEnd: Bool, kind: MediaPickKind? = nil) {
-        guard !isImporting else { return }
+        guard !isImporting, !isLoadingPhotoMedia else { return }
         guard let kind else {
             mediaKindQuestion = MediaKindQuestion(overlay: false, appendAtEnd: appendAtEnd)
             return
@@ -1405,7 +1654,7 @@ struct ContentView: View {
     /// 解説スライド用の方眼紙を、写真と同じように再生位置の後ろへ足す。
     /// 足せたら名前を付けて、カラーの画面と同じように差し込んだ所を見せる(続けて置く文字が方眼紙に載るように)
     private func addGridPaperBackground() {
-        guard !isImporting else { return }
+        guard !isImporting, !isLoadingPhotoMedia else { return }
         player.pause()
         importAppendsAtEnd = false
         let canvasSize = player.renderSize
@@ -1454,14 +1703,14 @@ struct ContentView: View {
 
     /// 「ファイル」アプリ(Google ドライブ・iCloud Drive など)から追加する
     private func requestFileAdd(appendAtEnd: Bool) {
-        guard !isImporting else { return }
+        guard !isImporting, !isLoadingPhotoMedia else { return }
         importAppendsAtEnd = appendAtEnd
         showFileImporter = true
     }
 
     /// 「カメラで撮る」(CameraRecorderView)。撮った動画は「ファイル」から追加したときと同じように Media フォルダへコピーして足す
     private func requestCameraAdd(appendAtEnd: Bool) {
-        guard !isImporting else { return }
+        guard !isImporting, !isLoadingPhotoMedia else { return }
         importAppendsAtEnd = appendAtEnd
         player.pause()
         showCameraRecorder = true
@@ -1470,7 +1719,7 @@ struct ContentView: View {
     #if OSMO_LIVE
     /// 「Osmo Pocket で撮る(実験)」(OsmoLiveMonitorView)。録った動画はカメラで撮るときと同じように取り込む
     private func requestOsmoAdd(appendAtEnd: Bool) {
-        guard !isImporting else { return }
+        guard !isImporting, !isLoadingPhotoMedia else { return }
         importAppendsAtEnd = appendAtEnd
         player.pause()
         showOsmoRecorder = true
@@ -1479,7 +1728,7 @@ struct ContentView: View {
 
     /// 「カラーの画面」(EditorColorScreenPanel)。色と長さを選んだら insertColorScreen で差し込む
     private func requestColorScreenAdd(appendAtEnd: Bool) {
-        guard !isImporting else { return }
+        guard !isImporting, !isLoadingPhotoMedia else { return }
         importAppendsAtEnd = appendAtEnd
         player.pause()
         selection = nil
@@ -1546,7 +1795,7 @@ struct ContentView: View {
 
     /// Google フォトから追加する
     private func requestGooglePhotosAdd(appendAtEnd: Bool) {
-        guard !isImporting else { return }
+        guard !isImporting, !isLoadingPhotoMedia else { return }
         importAppendsAtEnd = appendAtEnd
         player.pause()
         activeSheet = .googlePhotos
@@ -1700,7 +1949,7 @@ struct ContentView: View {
             guard let i = project.subtitles.firstIndex(where: { $0.id == cueID }) else { return nil }
             return String(localized: "キャプション\(i + 1)")
         case .bgm:
-            return project.audio.bgmName ?? "BGM"
+            return project.audio.bgmName.map { BGMTrack.displayName(forStoredName: $0) } ?? "BGM"
         case .overlay(let overlayID):
             guard let i = project.overlays.firstIndex(where: { $0.id == overlayID }) else { return nil }
             return String(localized: "オーバーレイ\(i + 1)")
@@ -1732,6 +1981,8 @@ struct ContentView: View {
         if panel == .drawingCanvas {
             finishDrawing()
         } else {
+            // 無料プランの試用(画質補正・背景を消す)は、何か変えて閉じたときだけ確定する(何も変えなければポイントを返す)
+            PlanTrial.settle(panel: panel, applied: panelSnapshot.map { project.snapshot() != $0 } ?? true)
             activePanel = nil
             discardOpenHistoryEntryIfUnchanged(after: panel)
             rewindToText(of: panel)
@@ -1763,6 +2014,8 @@ struct ContentView: View {
         let snapshot = panelSnapshot
         activePanel = nil
         panelSnapshot = nil
+        // 無料プランの試用(画質補正・背景を消す)を使わずに閉じた → ポイントを返す
+        PlanTrial.settle(panel: panel, applied: false)
         // 解析が終わる前に ✕ で閉じたら解析も止める(戻したクリップに、あとから結果が書き込まれないように)
         switch panel {
         case .autoReframe, .stabilize:
@@ -1851,6 +2104,10 @@ struct ContentView: View {
         case .colorAdjust(let clipID):
             if let clip = project.clipBinding(id: clipID) {
                 EditorColorAdjustPanel(clip: clip)
+                    // 合成の作り直しを待たずに、いまの映像へ色を入れる(カラープリセットのパネルと同じ。前は指を止めるまで変わらなかった)
+                    .onChange(of: clip.wrappedValue.filter) { _, newValue in
+                        player.setLiveFilter(newValue, for: clipID)
+                    }
             } else {
                 EditorMissingPanelContent()
             }
@@ -1900,12 +2157,18 @@ struct ContentView: View {
         case .hsl(let clipID):
             if let clip = project.clipBinding(id: clipID) {
                 EditorHSLPanel(clip: clip)
+                    .onChange(of: clip.wrappedValue.filter) { _, newValue in
+                        player.setLiveFilter(newValue, for: clipID)
+                    }
             } else {
                 EditorMissingPanelContent()
             }
         case .lut(let clipID):
             if let clip = project.clipBinding(id: clipID) {
                 EditorLUTPanel(clip: clip)
+                    .onChange(of: clip.wrappedValue.filter) { _, newValue in
+                        player.setLiveFilter(newValue, for: clipID)
+                    }
             } else {
                 EditorMissingPanelContent()
             }
@@ -2678,7 +2941,9 @@ struct ContentView: View {
     private var isVerticalProject: Bool {
         if let ratio = project.canvas.aspect.ratio { return ratio < 1 }
         guard let first = project.clips.first else { return false }
-        return first.displaySize.height > first.displaySize.width
+        // 90° / 270° 回したクリップは縦横が入れ替わる(CompositionBuilder.renderSize と同じ)
+        let size = ClipFramingMath.sourceSize(of: first)
+        return size.height > size.width
     }
 
     /// 再生位置のクリップを選んでから処理する(何も選んでいないときのスプリットや、クリップ用の AI 機能のため)
@@ -2843,7 +3108,7 @@ struct ContentView: View {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem(String(localized: "画質補正"), systemImage: "sparkles.tv", id: "clip-ai-quality") {
             openPanel(.enhance(clipID))
-        })
+        }.freeToAdjust(!(project.clips.first(where: { $0.id == clipID })?.enhance.isIdentity ?? true)))
         return items
     }
 
@@ -2874,7 +3139,7 @@ struct ContentView: View {
             if let i = project.index(of: clipID), !project.clips[i].backgroundRemoval.isActive {
                 project.clips[i].backgroundRemoval.mode = .auto
             }
-        })
+        }.freeToAdjust(project.clips.first(where: { $0.id == clipID })?.backgroundRemoval.isActive ?? false))
         items.append(EditorToolItem(String(localized: "クロマキー"), systemImage: "eyedropper", id: "clip-chroma-key") {
             openPanel(.backgroundRemoval(clipID))
             if let i = project.index(of: clipID), !project.clips[i].backgroundRemoval.isActive {
@@ -3055,7 +3320,7 @@ struct ContentView: View {
                !project.overlays[i].backgroundRemoval.isActive {
                 project.overlays[i].backgroundRemoval.mode = .auto
             }
-        })
+        }.freeToAdjust(project.overlays.first(where: { $0.id == overlayID })?.backgroundRemoval.isActive ?? false))
         motion.append(EditorToolItem(String(localized: "クロマキー"), systemImage: "eyedropper", id: "overlay-chroma-key") {
             openPanel(.overlayBackgroundRemoval(overlayID))
             if let i = project.overlays.firstIndex(where: { $0.id == overlayID }),
@@ -3186,6 +3451,7 @@ struct ContentView: View {
             selection = nil
             project.audio.bgmURL = nil
             project.audio.bgmName = nil
+            project.audio.bgmSourceStart = 0
             showToast(String(localized: "削除しました"), undo: true)
         })
         return items
@@ -3264,6 +3530,11 @@ struct ContentView: View {
         player.pause()
         let snapshot = project.snapshot()
         analysis.run(title: String(localized: "動画をチェックしています"), robot: .consensus) { report in
+            // 無料プランの試用(ポイント)は、結果が出たときだけ確定する(失敗・中止したときは返す)
+            var finished = false
+            defer {
+                if finished { PlanTrial.commit(.editCheck) } else { PlanTrial.refund(.editCheck) }
+            }
             let sensitivity = PacingSensitivity(rawValue: UserDefaults.standard.string(forKey: "pacing.sensitivity") ?? "") ?? .normal
             let useAI: Bool = UserDefaults.standard.bool(forKey: "pacing.useAI")
             let platform = TargetPlatform(rawValue: UserDefaults.standard.string(forKey: "pacing.platform") ?? "") ?? .youtube
@@ -3278,6 +3549,7 @@ struct ContentView: View {
             pacingClipsKey = Self.clipsKey(snapshot)
             selection = nil
             activePanel = .pacing
+            finished = true
         } onError: { error in
             showToast(String(localized: "チェックできませんでした(\(error.localizedDescription))"), style: .warning)
         }
@@ -3296,7 +3568,10 @@ struct ContentView: View {
             showToast(String(localized: "話している間は BGM を下げるようにしました"), undo: true)
         case .makeVertical:
             history.record(project)
+            let before = project.snapshot()
             project.canvas.aspect = .portrait9x16
+            // モザイクは映像に合わせて置き直す(画面に対する位置のままだと顔から外れる)
+            project.remapMosaics(from: before)
             showToast(String(localized: "9:16 の縦にしました"), undo: true)
         case .openCover:
             player.pause()
@@ -3309,7 +3584,12 @@ struct ContentView: View {
             project.audio.bgmVolume = volume
             showToast(String(localized: "BGM を \(Int((volume * 100).rounded()))% にしました"), undo: true)
         case .normalizeLoudness:
-            normalizeAll()
+            // 音量そろえは Standard の機能(編集チェックの「直す」からも、ツールバーと同じくプランを確かめる)
+            if PlanStore.shared.allows(.loudness) {
+                normalizeAll()
+            } else {
+                PlanPaywall.present(for: .loudness)
+            }
         case .openColorMatch(let clipID):
             selection = .clip(clipID)
             openPanel(.colorMatch(clipID))
@@ -3322,10 +3602,17 @@ struct ContentView: View {
             openPanel(.autoReframe(clipID))
         case .setAspect(let aspect):
             history.record(project)
+            let before = project.snapshot()
             project.canvas.aspect = aspect
+            project.remapMosaics(from: before)
             showToast(String(localized: "\(aspect.displayName)にしました"), undo: true)
         case .addEndScreen:
-            appendEndScreen()
+            // 終了画面は有料の機能(無料プランは試用のポイント)。ツールバーと同じく確かめる
+            if PlanStore.shared.allows(.endScreen) {
+                appendEndScreen()
+            } else {
+                PlanTrial.offer(.endScreen) { appendEndScreen() }
+            }
         }
     }
 
@@ -3402,14 +3689,21 @@ struct ContentView: View {
     private func cutFillers() {
         let cues = project.subtitles
         guard !cues.isEmpty else {
+            PlanTrial.refund(.fillerCut)
             showToast(String(localized: "先に「自動字幕」で字幕を作ってください"), style: .warning)
             return
         }
         let spans = FillerDetector.spans(in: cues)
         guard !spans.isEmpty else {
-            showToast(String(localized: "言いよどみは見つかりませんでした"), style: .info)
+            // 無料プランの試用で払ったポイントは返す(何も切っていないので)
+            if PlanTrial.refund(.fillerCut) {
+                showToast(String(localized: "言いよどみは見つかりませんでした。ポイントは戻しました"), style: .info)
+            } else {
+                showToast(String(localized: "言いよどみは見つかりませんでした"), style: .info)
+            }
             return
         }
+        PlanTrial.commit(.fillerCut)
         player.pause()
         history.record(project)
         let removed = project.removeOutputRanges(spans.map { (start: max(0, $0.start - 0.03), end: $0.end + 0.03) })
@@ -3458,7 +3752,10 @@ struct ContentView: View {
             let segStart = layout[best.clipIndex].start + (best.start - source.startTime) / speed
             let segEnd = segStart + (best.end - best.start) / speed
             history.record(project)
-            project.shiftTimelineItems(from: 0, by: length)
+            // 後ろの部品は、実際に伸びた長さ(フェード(黒)の重なりを引いた長さ)だけずらす(前は 0.4 秒遅れていた)
+            let durationBefore = project.layoutDuration
+            project.clips.insert(piece, at: 0)
+            project.shiftTimelineItems(from: 0, by: project.layoutDuration - durationBefore)
             // 見どころの字幕も先頭にコピーする
             var copies: [SubtitleCue] = []
             for cue in snapshot.subtitles where cue.end > segStart && cue.start < segEnd {
@@ -3476,7 +3773,6 @@ struct ContentView: View {
             }
             project.subtitles.append(contentsOf: copies)
             project.sortSubtitles()
-            project.clips.insert(piece, at: 0)
             player.seek(to: 0)
             showToast(String(localized: "見どころ(\(clipFXSeconds(best.end - best.start)))を先頭に差し込みました"), undo: true)
         } onError: { error in
@@ -3486,7 +3782,10 @@ struct ContentView: View {
 
     /// 最後に終了画面用の余白(最後のコマを少し暗くした静止画 10 秒)を足す
     private func appendEndScreen(seconds: Double = 10) {
-        guard let last = project.clips.last else { return }
+        guard let last = project.clips.last else {
+            PlanTrial.refund(.endScreen)
+            return
+        }
         player.pause()
         mediaToolTask?.cancel()
         mediaToolTask = Task { @MainActor in
@@ -3496,10 +3795,20 @@ struct ContentView: View {
                 if last.isStill, let still = last.stillImageURL {
                     imageURL = still
                 } else {
-                    imageURL = try await MediaTools.freezeFrameImage(from: last.url, at: max(last.startTime, last.endTime - 0.1))
+                    // マルチカメラで別のカメラに切り替えたまま終わっていれば、そのカメラのコマを使う
+                    let lastTime = max(last.startTime, last.endTime - 0.1)
+                    if let angle = last.angleFrame(atSourceTime: lastTime),
+                       let angleImage = try? await MediaTools.freezeFrameImage(from: angle.url, at: angle.time) {
+                        imageURL = angleImage
+                    } else {
+                        imageURL = try await MediaTools.freezeFrameImage(from: last.url, at: lastTime)
+                    }
                 }
                 mediaToolProgress = nil
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    PlanTrial.refund(.endScreen)
+                    return
+                }
                 let size = MediaStore.imagePixelSize(of: imageURL) ?? last.displaySize
                 let thumb = MediaStore.makeImageClipThumbnail(url: imageURL, maxPixel: 320)
                 var still = Clip(url: imageURL,
@@ -3512,16 +3821,24 @@ struct ContentView: View {
                 still.stillImageURL = imageURL
                 still.startTime = 0
                 still.endTime = seconds
+                // 最後のクリップの切り抜き・ズーム・回転・反転・色を写す(前は外れたコマになっていた)
+                still.geometry = last.geometry
+                still.mask = last.mask
+                still.enhance = last.enhance
+                still.filter = last.filter
                 // 終了画面の部品(次の動画・登録ボタン)が目立つよう少し暗くする
-                still.filter.adjustments.brightness = -0.25
+                still.filter.adjustments.brightness = max(-0.5, last.filter.adjustments.brightness - 0.25)
                 history.record(project)
                 if project.clips.indices.last.map({ project.clips[$0].transition.type == .none }) ?? false {
                     project.clips[project.clips.count - 1].transition = ClipTransition(type: .dissolve, duration: 0.5)
                 }
                 project.clips.append(still)
+                // 無料プランの試用(ポイント)は、作れたときだけ確定する
+                PlanTrial.commit(.endScreen)
                 showToast(String(localized: "最後に \(Int(seconds)) 秒の余白を足しました"), undo: true)
             } catch {
                 mediaToolProgress = nil
+                PlanTrial.refund(.endScreen)
                 showToast(String(localized: "余白を作れませんでした: \(error.localizedDescription)"), style: .warning)
             }
         }
@@ -3544,77 +3861,36 @@ struct ContentView: View {
         activePanel = .mosaic(clip.id)
     }
 
-    /// 再生位置のコマで顔を探し、顔ごとにモザイクを置いて、クリップの終わりまで追いかけさせる
+    /// 再生位置のコマ(見えているとおりの映像)で顔を探し、顔ごとにモザイクを置いて、映っている間追いかけさせる
+    /// (FaceMosaicPlanner。拡大・切り抜き・反転・リフレーム・マルチカメラ・重ねた素材の顔も、見えている位置で隠す)。
+    /// 顔を見失った所があれば、モザイクを大きくして残したうえで、その位置へ動かして知らせる
     private func autoMosaicFaces() {
         let t = player.currentTime
-        guard let location = project.locate(timelineTime: t), location.index < project.clips.count else {
-            showToast(String(localized: "再生位置にクリップがありません"), style: .warning)
-            return
-        }
-        let clip = project.clips[location.index]
-        if clip.isStill || clip.isReversed {
-            showToast(clip.isStill ? String(localized: "静止画では顔を追いかけられません") : String(localized: "逆再生中のクリップでは使えません"), style: .warning)
-            return
-        }
         player.pause()
         let snapshot = project.snapshot()
-        let canvasSize = CompositionBuilder.renderSize(for: snapshot, purpose: .preview)
-        let scaling: ScalingMode = (snapshot.canvas.aspect == .original) ? .fit : snapshot.canvas.scaling
-        let sourceStart = min(max(location.sourceTime, clip.startTime), clip.endTime)
-        let sourceEnd = clip.endTime
-        let outputStartInClip: Double = ClipFXTimeline.outputOffset(sourceTime: sourceStart, clip: clip)
-        let outputEndInClip: Double = ClipFXTimeline.outputOffset(sourceTime: sourceEnd, clip: clip)
-        let duration: Double = max(0.5, outputEndInClip - outputStartInClip)
-        let clipRect = PreviewTrackingMath.clipRect(clipSize: clip.displaySize, canvasSize: canvasSize, scaling: scaling)
-        let url = clip.url
         let project = self.project
         let history = self.history
 
         analysis.run(title: String(localized: "顔を探しています")) { report in
-            let faces = try await MosaicFaceFinder.findFaces(in: clip, sourceTime: sourceStart,
-                                                            canvasSize: canvasSize, scaling: scaling)
-            guard !faces.isEmpty else {
+            let plan = try await FaceMosaicPlanner.plan(snapshot: snapshot, time: t, progress: report)
+            if Task.isCancelled { return }
+            guard !plan.mosaics.isEmpty else {
                 showToast(String(localized: "この位置のコマに顔が見つかりませんでした"), style: .warning)
                 return
             }
-            var mosaics: [TextClip] = []
-            for (n, face) in faces.enumerated() {
-                var mosaic = TextClip.newMosaic(start: t, duration: duration)
-                // 顔より少し大きめに
-                mosaic.center = NormalizedPoint(x: face.canvasRect.midX, y: face.canvasRect.midY)
-                mosaic.widthRatio = min(1, face.canvasRect.width * 1.35)
-                mosaic.mosaic?.heightRatio = min(1, face.canvasRect.height * 1.5)
-                // 顔を追いかける(見失ったらそこで止まり、以降は最後の位置)
-                if sourceEnd - sourceStart >= 0.2 {
-                    let base = Double(n) / Double(faces.count)
-                    let share = 1 / Double(faces.count)
-                    if let tracked = try? await MotionTracker.track(url: url, start: sourceStart, end: sourceEnd,
-                                                                    initialRect: face.sourceRect, fps: 15,
-                                                                    progress: { report(base + $0 * share) }) {
-                        var keyframes: [Keyframe] = []
-                        for tracker in tracked {
-                            let out = ClipFXTimeline.outputOffset(sourceTime: sourceStart + tracker.time, clip: clip)
-                                - outputStartInClip
-                            let p = PreviewTrackingMath.canvasPoint(fromSource: tracker.center,
-                                                                    clipRect: clipRect, canvasSize: canvasSize)
-                            keyframes.append(Keyframe(time: max(0, out),
-                                                      center: NormalizedPoint(x: min(max(p.x, -0.25), 1.25),
-                                                                              y: min(max(p.y, -0.25), 1.25)),
-                                                      scale: 1, rotation: 0, opacity: 1, easing: .linear))
-                        }
-                        mosaic.keyframes = keyframes.sorted { $0.time < $1.time }
-                    }
-                }
-                mosaics.append(mosaic)
-            }
-            if Task.isCancelled { return }
             history.record(project)
-            project.textClips.append(contentsOf: mosaics)
+            project.textClips.append(contentsOf: plan.mosaics)
             project.sortTextClips()
-            if let first = mosaics.first {
+            if let first = plan.mosaics.first {
                 selection = .text(first.id)
             }
-            showToast(String(localized: "\(mosaics.count) 人の顔にモザイクをかけました"), undo: true)
+            if let lost = plan.firstLostTime {
+                // 見失った所へ動かして、そこから先を確かめてもらう
+                player.seek(to: lost)
+                showToast(plan.message, style: .warning, undo: true)
+            } else {
+                showToast(plan.message, undo: true)
+            }
         } onError: { error in
             showToast(String(localized: "顔を探せませんでした(\(error.localizedDescription))"), style: .warning)
         }
@@ -3809,9 +4085,18 @@ struct ContentView: View {
 
     /// クリップを前後に動かす(動かせたら true)。字幕・テキスト・オーバーレイなどは同じ素材の位置に付いたまま動く
     private func moveClipsRippling(_ ids: Set<UUID>, by step: Int) -> Bool {
-        history.record(project)
+        let recorded = history.record(project)
         let layout = project.captureClipLayout()
-        guard project.moveClips(ids: ids, by: step) else { return false }
+        let originalClips: [Clip] = project.clips
+        guard project.moveClips(ids: ids, by: step) else {
+            // 動かせないときは並びも変えない(離れたクリップを寄せただけで並びが変わり、字幕・テキストなどが付いてこなかった)
+            if project.clips.map(\.id) != originalClips.map(\.id) {
+                project.clips = originalClips
+            }
+            // 端で動かせなかった: ここで積んだ記録を捨てる(「やり直す」も消さない)
+            if recorded { history.discardLastIfUnchanged(project) }
+            return false
+        }
         project.rippleTimelineItems(from: layout)
         return true
     }
@@ -3827,9 +4112,15 @@ struct ContentView: View {
         }
     }
 
-    private func deleteMultiSelected() {
+    private func deleteMultiSelected(confirmed: Bool = false) {
         let ids = timeline.multiSelectedClipIDs
         guard !ids.isEmpty else { return }
+        // すべてのクリップを選んでいたら、「このプロジェクトを空にする」と同じく先に確かめる
+        if !confirmed, project.clips.allSatisfy({ ids.contains($0.id) }) {
+            pendingClipDelete = { deleteMultiSelected(confirmed: true) }
+            showDeleteAllClipsConfirm = true
+            return
+        }
         let count = ids.count
         history.record(project)
         timeline.endMultiSelect()
@@ -3837,25 +4128,37 @@ struct ContentView: View {
         // 後ろから 1 本ずつ消して詰める。再生位置も詰めた分だけ動かす
         var playhead = player.currentTime
         let ordered: [UUID] = project.clips.map { $0.id }.filter { ids.contains($0) }
+        // リンク解除した音声もいっしょに消える(切られる)ので、お知らせに書く
+        let detachedAudio = ordered.reduce(0) { $0 + project.detachedAudioCount(overlappingClip: $1) }
         for id in ordered.reversed() {
             if let gap = project.removeClip(id: id) {
                 playhead = Self.rippledTime(playhead, gap)
             }
         }
         movePlayheadAfterDelete(to: playhead)
-        showToast(String(localized: "\(count) 本のクリップを削除しました"), undo: true)
+        showToast(detachedAudio > 0 ? String(localized: "\(count) 本のクリップを削除しました(分けた音声もいっしょに消しました)")
+                                    : String(localized: "\(count) 本のクリップを削除しました"), undo: true)
     }
 
     /// クリップを削除(「元に戻す」つきのトースト)
-    private func deleteClip(_ clipID: UUID) {
+    private func deleteClip(_ clipID: UUID, confirmed: Bool = false) {
+        // 最後の 1 本を消すとキャプション・テキストなども全部消えるので、「このプロジェクトを空にする」と同じく先に確かめる
+        if !confirmed, project.clips.count == 1, project.clips.first?.id == clipID {
+            pendingClipDelete = { deleteClip(clipID, confirmed: true) }
+            showDeleteAllClipsConfirm = true
+            return
+        }
         history.record(project)
         selection = nil
+        // リンク解除した音声もいっしょに消える(切られる)ので、お知らせに書く
+        let detachedAudio = project.detachedAudioCount(overlappingClip: clipID)
         var playhead = player.currentTime
         if let gap = project.removeClip(id: clipID) {
             playhead = Self.rippledTime(playhead, gap)
         }
         movePlayheadAfterDelete(to: playhead)
-        showToast(String(localized: "削除しました"), undo: true)
+        showToast(detachedAudio > 0 ? String(localized: "削除しました(分けた音声もいっしょに消しました)")
+                                    : String(localized: "削除しました"), undo: true)
     }
 
     /// 詰めた区間に合わせた再生位置(消した区間の中なら区間の頭 = 後ろのクリップの頭、後ろなら詰めた分だけ前へ)
@@ -3893,14 +4196,29 @@ struct ContentView: View {
                             let reason: String? = project.clips.first(where: { $0.id == clipID })
                                 .flatMap { EditorProject.multicamFlattenBlockReason($0) }
                             Button {
-                                flattenMulticam(clipID)
+                                if let reason {
+                                    // 押せない理由と直し方を出す(前は灰色のまま押せず、理由も出なかった)
+                                    multicamFlattenBlockMessage = reason + "\n" + String(localized: "速度を 1x に戻し、タイムリマップを外すと書き出せます。")
+                                } else {
+                                    flattenMulticam(clipID)
+                                }
                             } label: {
                                 Label("V1 に書き出す", systemImage: "square.and.arrow.down.on.square")
                                     .labelStyle(.titleAndIcon)
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(reason != nil || isFlatteningMulticam)
+                            .tint(reason != nil ? Color.gray : nil)
+                            .disabled(isFlatteningMulticam)
                         }
+                    }
+                    // 「V1 に書き出す」を押せないときの理由(シートの中に出す)
+                    .alert(String(localized: "V1 に書き出せません"), isPresented: Binding(
+                        get: { multicamFlattenBlockMessage != nil },
+                        set: { if !$0 { multicamFlattenBlockMessage = nil } }
+                    )) {
+                        Button("OK", role: .cancel) {}
+                    } message: {
+                        Text(multicamFlattenBlockMessage ?? "")
                     }
             }
         case .subtitles:
@@ -3911,13 +4229,13 @@ struct ContentView: View {
             AudioSettingsView(project: project)
         case .export:
             // 編集画面のプレーヤーを渡す(「比較」から「この位置で編集画面に戻る」で同じ位置に戻れるように)
-            ExportView(project: project, player: player)
+            ExportView(project: project, player: player, projectID: projectID)
         case .scopes(let clipID):
             ScopeSheetView(player: player, clip: project.clips.first(where: { $0.id == clipID }))
         case .coverMaker:
             CoverMakerView(project: project)
         case .compare:
-            CompareView(project: project, player: player)
+            CompareView(project: project, player: player, projectID: projectID)
         case .autoEdit:
             AutoEditSheetView(project: project,
                               player: player,
@@ -3933,6 +4251,7 @@ struct ContentView: View {
             ScriptWriterSheetView(project: project,
                                   player: player,
                                   history: history,
+                                  projectID: projectID,
                                   onNarrationAdded: { id in selection = .narration(id) })
         case .googlePhotos:
             // 選んだ写真・動画は一時ファイルで届く(取り込んだら消す)。シートは自分で閉じる
@@ -4144,6 +4463,16 @@ struct ContentView: View {
             return
         }
         let now = player.currentTime
+        // 入りのアニメーション(フェードなど)があるテキストは、範囲の中でも入りの途中だと薄く・一部しか映らず、
+        // 文字や色を変えても見えないので、入りきった所へ動かす
+        if case .text(let textID) = target, Self.panelShowsTextAppearance(panel),
+           let text = project.textClips.first(where: { $0.id == textID }), text.animIn != .none {
+            let visibleFrom: Double = text.start + Self.textEntranceLead(text)
+            if now >= text.start, now < visibleFrom - 0.01, visibleFrom < text.end {
+                player.seek(to: visibleFrom)
+                return
+            }
+        }
         guard now < range.lowerBound || now >= range.upperBound else { return }
         let length = range.upperBound - range.lowerBound
         if let clipEnd, now >= range.upperBound, now < clipEnd {
@@ -4162,10 +4491,38 @@ struct ContentView: View {
             if let overlay = project.overlays.first(where: { $0.id == overlayID }) {
                 lead = (overlay.transitionIn.isActive ? overlay.transitionIn.duration : overlay.fadeIn) + 0.05
             }
+        case .text(let textID):
+            if Self.panelShowsTextAppearance(panel),
+               let text = project.textClips.first(where: { $0.id == textID }), text.animIn != .none {
+                lead = Self.textEntranceLead(text)
+            }
         default:
             break
         }
         player.seek(to: range.lowerBound + min(lead, length / 2))
+    }
+
+    /// 文字の見た目・置き場所を編集するパネルか(入りのアニメーションの途中ではなく、文字が出きった所を見せる。
+    /// アニメーション・キーフレームのパネルは再生位置そのものを使うので動かさない)
+    private static func panelShowsTextAppearance(_ panel: EditorPanel) -> Bool {
+        switch panel {
+        case .textStyle, .textPlacement: return true
+        default: return false
+        }
+    }
+
+    /// テキストの入りのアニメーションが終わって、文字が出きるまでの秒(少し余裕を足す)
+    private static func textEntranceLead(_ text: TextClip) -> Double {
+        min(max(0, text.animInDuration), text.duration / 2) + 0.05
+    }
+
+    /// テキスト・ステッカーを足す開始時刻(合成のコマに合わせる)。動画の最後(残り 0.5 秒未満)にいるときは、
+    /// 長さ length が動画の中に収まる所へ戻す(そのままだと動画の外に置かれ、打っても映らず、書き出しにも入らなかった)
+    private func placementStart(length: Double) -> Double {
+        let total = project.layoutDuration
+        let start = frameAligned(player.currentTime)
+        guard total > 0.5, start > total - 0.5 else { return start }
+        return frameAligned(max(0, total - length))
     }
 
     /// 統計用の名前(言語に依らない enum の名前だけ。中の ID などは落とす)
@@ -4188,8 +4545,8 @@ struct ContentView: View {
         let before = project.snapshot()
         history.record(project)
         // 合成のコマに合わせる。合わせないと、いま見えているコマの時刻がテキストの開始より
-        // わずかに前になり、プレビューにテキストが出ないことがある
-        let start = frameAligned(player.currentTime)
+        // わずかに前になり、プレビューにテキストが出ないことがある(動画の最後にいるときは中へ戻す)
+        let start = placementStart(length: 3)
         let clip = TextClip(text: String(localized: "テキスト"), start: start)
         project.textClips.append(clip)
         project.sortTextClips()
@@ -4218,7 +4575,9 @@ struct ContentView: View {
     /// 絵文字ステッカーを再生位置に追加して選択する(ステッカーパネルは選択の変化で閉じる)
     private func addSticker(_ emoji: String) {
         history.record(project)
-        var clip = TextClip(text: emoji, start: max(0, player.currentTime))
+        // コマに合わせ、動画の最後にいるときは中へ戻す(前はそのままの時刻で、止めた画面や動画の最後では映らなかった)
+        let start = placementStart(length: 3)
+        var clip = TextClip(text: emoji, start: start)
         clip.isSticker = true
         clip.widthRatio = 0.3
         clip.style.sizeRatio = 0.18
@@ -4229,12 +4588,15 @@ struct ContentView: View {
         project.textClips.append(clip)
         project.sortTextClips()
         selection = .text(clip.id)
+        // 止めている画面にすぐ映す(前は再生するまで出ず、出ていないと思って二重に足してしまうことがあった)
+        if !player.isPlaying { player.seek(to: start) }
     }
 
     /// 動くステッカーを再生位置に追加して選択する(色は style.colorHex、吹き出しなどの文字は text)
     private func addVectorSticker(_ kind: VectorStickerKind) {
         history.record(project)
-        var clip = TextClip(text: kind.defaultText, start: max(0, player.currentTime))
+        let start = placementStart(length: 3)
+        var clip = TextClip(text: kind.defaultText, start: start)
         clip.isSticker = true
         clip.vectorSticker = kind
         clip.widthRatio = 0.3
@@ -4247,6 +4609,8 @@ struct ContentView: View {
         project.textClips.append(clip)
         project.sortTextClips()
         selection = .text(clip.id)
+        // 止めている画面にすぐ映す。線が描かれていく種類は開始のコマでは何も描かれないので、少し進んだ所を出す
+        if !player.isPlaying { player.seek(to: frameAligned(start + min(0.6, clip.duration / 2))) }
     }
 
     /// 選択中のテキストを複製して直後に置き、複製を選択する
@@ -4256,6 +4620,11 @@ struct ContentView: View {
         var copy = original
         copy.id = UUID()
         copy.start = original.end
+        // 動画の終わりを越えるときは、直後ではなく動画の中に収まる所へ置く(前は丸ごと動画の外に置かれ、映らなかった)
+        let total = project.layoutDuration
+        if total > 0.5, copy.start > total - 0.5 {
+            copy.start = frameAligned(max(0, total - copy.duration))
+        }
         copy.keyframes = original.keyframes.map { keyframe in
             var k = keyframe
             k.id = UUID()
@@ -4317,7 +4686,7 @@ struct ContentView: View {
     private func addChapterTitleTelop() {
         let before = project.snapshot()
         history.record(project)
-        let start = frameAligned(player.currentTime)
+        let start = placementStart(length: 3)
         // 何番目の章か(言語に依らないよう、章タイトルとして入れた「見出し」テンプレのテロップを数える)
         let n = project.textClips.filter { $0.template == .headline && !$0.isSticker && $0.mosaic == nil }.count + 1
         var clip = TextClip(text: String(localized: "第\(n)章") + "\n" + String(localized: "タイトル"), start: start)
@@ -4336,7 +4705,8 @@ struct ContentView: View {
         // 履歴は追加前に記録済みなので openPanel は使わない。✕「キャンセル」で追加前に戻る
         panelSnapshot = before
         activePanel = .textStyle(clip.id)
-        player.seek(to: start)
+        // 入りがフェードなので、先頭のコマでは何も映らない。編集している間は入りきった所を出す
+        player.seek(to: start + Self.textEntranceLead(clip))
     }
 
     /// 再生位置に(以前の黒い画面の)章タイトルを追加して編集パネルを開く
@@ -4537,6 +4907,9 @@ struct ContentView: View {
                     var image = try MediaStore.makeImageOverlay(from: photo.url)
                     image.duration = 4
                     overlay = image
+                } else if Self.hasImageType(item) {
+                    // 写真なのに受け取れなかった(iCloud にだけある写真を圏外で選んだなど): 写真のエラーとして出す
+                    throw PickedPhotoLoadError.unavailable
                 } else {
                     // 種類が判定できなかった場合の保険
                     let movieURL = try await importMovieURL(item, onProgress: progress)
@@ -4587,6 +4960,16 @@ struct ContentView: View {
     }
 
     /// 選んだ項目が動画らしいか
+    /// 選んだ項目が写真(画像の形式を持つ)か。写真を受け取れなかったときに、動画の取り込みに回さないために見る
+    private static func hasImageType(_ item: PhotosPickerItem) -> Bool {
+        item.supportedContentTypes.contains(where: { $0.conforms(to: .image) })
+    }
+
+    /// GIF をクリップとして入れたときのお知らせ(V1 では最初のコマの写真になる)
+    private static func stillGIFNote() -> String {
+        String(localized: "GIF は止まった写真として入りました。動かすには「ステッカー」の「GIF を読み込む」から重ねてください")
+    }
+
     private static func looksLikeMovie(_ item: PhotosPickerItem) -> Bool {
         item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) || $0.conforms(to: .video) })
     }
@@ -4614,7 +4997,7 @@ struct ContentView: View {
     // MARK: 逆再生 / フリーズ / 自動補正
 
     /// 逆再生の切り替え。逆再生ファイルがまだなければ作ってから有効にする(解除してもファイルは残す)
-    private func toggleReverse(_ clipID: UUID) {
+    private func toggleReverse(_ clipID: UUID, confirmedLongSource: Bool = false) {
         guard let i = project.index(of: clipID) else { return }
         let clip = project.clips[i]
         if clip.isReversed {
@@ -4627,10 +5010,26 @@ struct ContentView: View {
             project.clips[i].isReversed = true
             return
         }
+        // 逆再生のファイルは元の動画全体から作る(あとでトリミングを変えても使えるように)。長い動画では時間と容量がかかるので、
+        // 作る前に空き容量を確かめ、使っているのが一部だけなら確かめてから作る(前は数十分・数 GB かかっても何も言わずに始めていた)
+        let estimate: Int64 = Self.estimatedReverseBytes(for: clip)
+        let available: Int64 = StorageEstimator.availableBytes()
+        if available > 0, estimate + StorageEstimator.safetyMarginBytes > available {
+            alertMessage = String(localized: "空き容量が足りないため、逆再生の動画を作れません(約 \(StorageEstimator.formatBytes(estimate)) 必要・空き \(StorageEstimator.formatBytes(available)))。")
+            return
+        }
+        if !confirmedLongSource, clip.duration > 120, clip.endTime - clip.startTime < clip.duration * 0.5 {
+            reverseConfirmMessage = String(localized: "逆再生は、トリミングした部分ではなく元の動画全体(\(MediaTimeText.mmss(clip.duration)))から作るため、時間がかかり、約 \(StorageEstimator.formatBytes(estimate)) の容量を使います。")
+            reverseConfirmClipID = clipID
+            return
+        }
         player.pause()
         mediaToolTask?.cancel()
         mediaToolTask = Task { @MainActor in
             mediaToolProgress = ClipFXProgress(title: String(localized: "逆再生の動画を作成中"), fraction: 0)
+            // 作成中は画面の自動ロックを止め、アプリを離れてもしばらく続ける(FlowSlowControls.swift の LongTaskKeepAlive)
+            let keepAlive = LongTaskKeepAlive.begin(title: String(localized: "逆再生の動画を作成中")) { mediaToolTask?.cancel() }
+            defer { keepAlive.finish(success: project.clips.first(where: { $0.id == clipID })?.reversedURL != nil) }
             do {
                 // 元素材全体を逆再生にする(トリミング範囲を後で変えても使えるように)
                 let url = try await MediaTools.reversedCopy(of: clip.url, start: 0, end: clip.duration, progress: { value in
@@ -4657,11 +5056,21 @@ struct ContentView: View {
             } catch {
                 mediaToolProgress = nil
                 if !Task.isCancelled {
-                    alertMessage = String(localized: "逆再生の動画を作成できませんでした。\n\(error.localizedDescription)")
+                    alertMessage = keepAlive.leftApp
+                        ? String(localized: "アプリを離れたため止まりました。もう一度お試しください")
+                        : String(localized: "逆再生の動画を作成できませんでした。\n\(error.localizedDescription)")
                 }
             }
             mediaToolTask = nil
         }
+    }
+
+    /// 逆再生のファイルの大きさの見積もり(元の動画ファイルの約 3 倍。高いビットレートで書き直すため)
+    private static func estimatedReverseBytes(for clip: Clip) -> Int64 {
+        let size: Int64 = (try? clip.url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { Int64($0) } ?? 0
+        if size > 0 { return size * 3 }
+        // 大きさが分からないときは 1 秒あたり約 8 MB で見積もる
+        return Int64(max(0, clip.duration) * 8_000_000)
     }
 
     /// 再生位置のコマを静止画クリップにして、クリップを分割した間に差し込む
@@ -4685,7 +5094,14 @@ struct ContentView: View {
         mediaToolTask = Task { @MainActor in
             mediaToolProgress = ClipFXProgress(title: String(localized: "フレーム保持を作成中"), fraction: nil)
             do {
-                let imageURL = try await MediaTools.freezeFrameImage(from: clip.url, at: sourceTime)
+                // マルチカメラで別のカメラに切り替えている所は、そのカメラのコマを使う(読めなければメインのカメラ)
+                let imageURL: URL
+                if let angle = clip.angleFrame(atSourceTime: sourceTime),
+                   let angleImage = try? await MediaTools.freezeFrameImage(from: angle.url, at: angle.time) {
+                    imageURL = angleImage
+                } else {
+                    imageURL = try await MediaTools.freezeFrameImage(from: clip.url, at: sourceTime)
+                }
                 mediaToolProgress = nil
                 if Task.isCancelled { return }
                 let size = MediaStore.imagePixelSize(of: imageURL) ?? clip.displaySize
@@ -4701,6 +5117,12 @@ struct ContentView: View {
                 still.startTime = 0
                 still.endTime = 2
                 still.filter = clip.filter
+                // 切り抜き・ズーム・回転・反転・画面分割の位置、マスク、画質補正、背景を消すも写す
+                // (前は色だけで、止まっている間だけ構図が飛んでいた。キーフレーム・手ぶれ補正・自動リフレームは静止画には写らない)
+                still.geometry = clip.geometry
+                still.mask = clip.mask
+                still.enhance = clip.enhance
+                still.backgroundRemoval = clip.backgroundRemoval
 
                 guard let i = project.index(of: clipID) else { return }
                 history.record(project)
@@ -4746,27 +5168,36 @@ struct ContentView: View {
         Task { @MainActor in
             guard let i = project.index(of: clipID) else { return }
             let clip = project.clips[i]
-            var image = clip.thumbnail
-            if image == nil {
-                if let still = clip.stillImageURL {
-                    image = MediaStore.makeImageClipThumbnail(url: still, maxPixel: 320)
-                } else {
-                    image = await MediaStore.thumbnail(for: clip.url, at: clip.startTime, maxPixel: 320)
-                }
-            }
+            // 今のトリミング範囲の中ほどのコマを、プリセット・LUT・HSL を掛けた色で測る(色調整は全部書き換えるので外す。
+            // ClipFXPanels.swift の ClipColorSample)。前は読み込んだときの元素材の先頭のコマ(clip.thumbnail)で決めていた
+            var look = clip.filter
+            look.adjustments = ColorAdjustments()
+            let image = await ClipColorSample.image(for: clip, settings: look)
             guard let image else {
                 alertMessage = String(localized: "サムネイルを取得できなかったため、自動補正できませんでした。")
                 return
             }
-            let adjustments = FilterEngine.autoEnhanceAdjustments(for: image)
+            let auto = FilterEngine.autoEnhanceAdjustments(for: image)
             guard let j = project.index(of: clipID) else { return }
             let before = project.snapshot()
             history.record(project)
+            // 自動補正が決める項目だけを書き換え、自分で付けた色温度・シャープネスは残す(前は全部を置き換えて 0 に戻していた)。
+            // 彩度・シャドウ・ハイライトは自動補正が値を決めたときだけ書き換える
+            var adjustments = project.clips[j].filter.adjustments
+            adjustments.brightness = auto.brightness
+            adjustments.contrast = auto.contrast
+            if auto.saturation != 1 { adjustments.saturation = auto.saturation }
+            if auto.shadows != 0 { adjustments.shadows = auto.shadows }
+            if auto.highlights != 0 { adjustments.highlights = auto.highlights }
+            // 露出は補正前の映像で明るさを測っているので、重ねると明るくなりすぎる。0 に戻し、そのことを伝える
+            let resetExposure: Bool = adjustments.exposure != 0
+            adjustments.exposure = 0
             project.clips[j].filter.adjustments = adjustments
             // 結果を確認・微調整できるよう色調整パネルを開く(履歴は記録済み。✕「キャンセル」で補正前に戻る)
             panelSnapshot = before
             activePanel = .colorAdjust(clipID)
-            showToast(String(localized: "自動補正しました"), undo: true)
+            showToast(resetExposure ? String(localized: "自動補正しました(露出は 0 に戻しました)")
+                                    : String(localized: "自動補正しました"), undo: true)
         }
     }
 
@@ -4797,6 +5228,9 @@ struct ContentView: View {
             } else if let photo = try? await item.loadTransferable(type: PickedPhoto.self) {
                 importedURL = photo.url
                 fresh = try makeStillClip(from: photo.url)
+            } else if Self.hasImageType(item) {
+                // 写真なのに受け取れなかった: 写真のエラーとして出す(動画の取り込みに回すと、要らないフルアクセスを求めていた)
+                throw PickedPhotoLoadError.unavailable
             } else {
                 let url = try await MovieImporter.importMovie(item, onProgress: progress)
                 importedURL = url
@@ -5025,6 +5459,8 @@ struct ContentView: View {
                 newClips.append(clip)
                 continue
             }
+            // ナレーション・効果音・分けた音声が鳴っている所は詰めない(詰めるとナレーションの終わりが切れ、話の間の効果音が消えていた)
+            ranges += project.narrationSourceRanges(in: clip, placementStart: oldLayout[index].start)
             // トランジションで前後と重なる所(重なりの 2 倍)は切らない。切ると前後のクリップの区間が重なりの中でかぶって
             // 字幕などを二重に詰めて消したり、重なりが短くなって後ろの部品が早まったりする
             let inOverlap = index > 0 ? max(0, oldLayout[index - 1].end - oldLayout[index].start) : 0
@@ -5297,6 +5733,13 @@ struct ContentView: View {
             showKeptCameraTakes = true
             return
         }
+        // 読み上げを作成中なら閉じない(閉じたあとにできたナレーションは保存されず、ポイントだけ減っていた)
+        if EditorPendingAudioWork.isRendering {
+            showToast(String(localized: "読み上げを作成中です。できあがってから「一覧」に戻ってください"), style: .warning)
+            return
+        }
+        // 録音中なら、止めてナレーションを足してから保存する(パネルが閉じたあとに足すと保存されない)
+        EditorPendingAudioWork.finishRecording?()
         // 取り込み中に閉じたかは、片付けの前に控えておく
         let wasImporting: Bool = isImporting || isLoadingPhotoMedia
         player.pause()
@@ -5308,7 +5751,9 @@ struct ContentView: View {
         activeSheet = nil
         selection = nil
         if isLoadingPhotoMedia {
-            // まだ読み込み終わっていない(保存すると空の内容で上書きしてしまう)
+            // まだ読み込み終わっていない(保存すると空の内容で上書きしてしまう)。読み込みも止める
+            photoLoadTask?.cancel()
+            photoLoadTask = nil
             onClose(wasImporting)
             return
         }
@@ -5318,7 +5763,12 @@ struct ContentView: View {
             return
         }
         let snapshot = project.snapshot()
-        ProjectStore.saveNow(snapshot, projectID: projectID)
+        guard ProjectStore.saveNow(snapshot, projectID: projectID) else {
+            // 保存できなかった(空き容量が無いなど): 閉じると最後に保存できたあとの編集が消えるので、閉じずにどうするか聞く
+            saveFailed = true
+            showCloseSaveFailed = true
+            return
+        }
         if snapshot.clips.isEmpty {
             ProjectStore.deleteThumbnail(projectID: projectID)
         } else if let image = snapshot.clips.first?.thumbnail {
@@ -5361,6 +5811,9 @@ struct ContentView: View {
         if !didRestore {
             didRestore = true
             Analytics.shared.projectOpened()
+            saveFailed = ProjectStore.hasSaveFailure(projectID: projectID)
+            // 前に取り込めずに残したカメラの撮影があれば、また聞く(アプリが終了しても行き先を失わないよう覚えている)
+            restoreKeptCameraTakes()
             openSavedProject()
         }
         player.update(with: project.snapshot())
@@ -5377,21 +5830,73 @@ struct ContentView: View {
         if photoReferences.isEmpty {
             restoreSavedProject()
         } else {
+            // 読み込み中は空の画面の代わりに読み込み中の画面(進み具合と「一覧へ戻る」)を出し、取り込み・元に戻すも止める
             isLoadingPhotoMedia = true
-            showToast(String(localized: "写真ライブラリから動画を読み込んでいます…"))
-            Task { @MainActor in
-                let missing: [String] = await PhotoMediaResolver.prepare(references: photoReferences)
+            photoLoadDone = 0
+            photoLoadTotal = photoReferences.count
+            photoLoadFraction = 0
+            // 写真アプリで編集されて長さが変わった動画を、取り込んだときの版で開くための長さ
+            let expected: [String: Double] = ProjectStore.photoReferenceDurations(projectID: projectID)
+            photoLoadTask?.cancel()
+            photoLoadTask = Task { @MainActor in
+                let result = await PhotoMediaResolver.prepareDetailed(references: photoReferences,
+                                                                      expectedDurations: expected,
+                                                                      onProgress: { done, total, fraction in
+                    photoLoadDone = done
+                    photoLoadTotal = total
+                    photoLoadFraction = fraction
+                })
+                // 「一覧へ戻る」で止めたときは開かない(画面はもう閉じている)
+                if Task.isCancelled { return }
+                photoLoadTask = nil
                 restoreSavedProject()
                 isLoadingPhotoMedia = false
-                if !missing.isEmpty, !isProjectUnreadable {
-                    // 写真へのアクセスを許可していない・選んだ写真だけのときは、設定アプリへの入り口を出す
-                    let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-                    alertOffersSettings = status == .denied || status == .limited
-                    let photoNote = String(localized: "写真ライブラリに見つからない動画が \(missing.count) 本ありました。写真アプリで削除したか、写真へのアクセスが許可されていない可能性があります(設定アプリの「Video Mania」→「写真」で「フルアクセス」を選んでください)。")
-                    // 素材ファイルが見つからない項目のお知らせ(restoreSavedProject)があれば、続けて出す
-                    alertMessage = [alertMessage, photoNote].compactMap { $0 }.joined(separator: "\n\n")
+                if !isProjectUnreadable {
+                    notePhotoLibraryResult(result)
                 }
             }
+        }
+    }
+
+    /// 写真ライブラリの動画を読み込んだ結果を伝える。
+    /// 見つからない・アクセスがない(外すかを選べるお知らせ)/ iCloud から取れない(通信の案内。前は「削除したか、アクセスが
+    /// 許可されていない」と誤って出ていた)/ 写真アプリで編集されて長さが変わった、を分けて出す
+    @MainActor
+    private func notePhotoLibraryResult(_ result: PhotoMediaResolver.PrepareResult) {
+        var lines: [String] = []
+        if !result.offline.isEmpty {
+            lines.append(String(localized: "iCloud から動画を \(result.offline.count) 本ダウンロードできませんでした。インターネットに接続してから、プロジェクトを開き直してください(クリップはプロジェクトに残っています)。"))
+        }
+        if !result.changed.isEmpty {
+            lines.append(String(localized: "写真アプリで編集されて長さが変わった動画が \(result.changed.count) 本あります。カットやキャプションの位置がずれていないか確かめてください。"))
+        }
+        if !result.missing.isEmpty {
+            // 写真へのアクセスを許可していない・選んだ写真だけのときは、設定アプリへの入り口を出す
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            missingPhotoNoticeOffersSettings = status == .denied || status == .limited
+            missingPhotoReferences = result.missing
+            let head = String(localized: "写真ライブラリに見つからない動画が \(result.missing.count) 本あります。写真アプリで削除したか、写真へのアクセスが許可されていない可能性があります(設定アプリの「Video Mania」→「写真」で「フルアクセス」を選んでください)。クリップはプロジェクトに残しているので、写真アプリの「最近削除した項目」から戻すと、次に開いたときに使えます。")
+            // 素材ファイルが見つからない項目のお知らせ(restoreSavedProject)なども、このお知らせにまとめる(2 つ重ねて出せないため)
+            missingPhotoNotice = ([head] + lines + [alertMessage].compactMap { $0 }).joined(separator: "\n\n")
+            alertMessage = nil
+        } else if !lines.isEmpty {
+            alertOffersSettings = false
+            alertMessage = ([alertMessage].compactMap { $0 } + lines).joined(separator: "\n\n")
+        }
+    }
+
+    /// 前に取り込めずに残したカメラの撮影(KeptCameraTakesStore)を、お知らせで聞き直すために戻す。
+    /// どこかのプロジェクトで使っているもの(念のため)は除く
+    @MainActor
+    private func restoreKeptCameraTakes() {
+        let stored: [URL] = KeptCameraTakesStore.load()
+        guard !stored.isEmpty else { return }
+        var used = Set<String>()
+        for id in ProjectStore.storedProjectIDs() {
+            used.formUnion(ProjectStore.mediaFileNames(projectID: id))
+        }
+        for url in stored where !used.contains(url.lastPathComponent) && !keptCameraTakes.contains(url) {
+            keptCameraTakes.append(url)
         }
     }
 
@@ -5417,6 +5922,8 @@ struct ContentView: View {
             unreadableRestoreFailed = false
             showUnreadableAlert = true
         }
+        // 開く前(読み込み中など)の履歴は残さない(↶ で開く前の空の状態に戻り、それが保存されることがあった)
+        history.clear()
         player.update(with: project.snapshot())
     }
 
@@ -5504,6 +6011,8 @@ struct ContentView: View {
         var needsPhotoSettings = false
         var recorded = false
         var added = 0
+        // GIF をクリップとして入れた(最初のコマの写真になるので、最後に知らせる)
+        var addedStillGIF = false
         // 差し込む位置: 再生位置のクリップの後ろ(末尾の「+」からのときと、クリップが無いときは末尾)
         var insertAt: Int? = nil
         if !importAppendsAtEnd, !project.clips.isEmpty,
@@ -5530,6 +6039,11 @@ struct ContentView: View {
                 } else if let photo = try? await item.loadTransferable(type: PickedPhoto.self) {
                     // 写真は静止画クリップになる
                     clip = try makeStillClip(from: photo.url)
+                    if item.isGIF { addedStillGIF = true }
+                } else if Self.hasImageType(item) {
+                    // 写真なのに受け取れなかった(iCloud にだけある写真を圏外で選んだなど): 写真のエラーとして出す
+                    // (前は動画の取り込みに回り、要らない写真へのフルアクセスを求めて、動画の説明を出していた)
+                    throw PickedPhotoLoadError.unavailable
                 } else {
                     // 種類が判定できなかった場合の保険
                     let movieURL = try await importMovieURL(item, onProgress: progress)
@@ -5575,7 +6089,10 @@ struct ContentView: View {
                 toastAfterAlert = EditorToast(String(localized: "\(added)件を追加しました"), canUndo: true)
             }
         } else if added > 0 {
-            if importCopiedPhotoMedia {
+            if addedStillGIF {
+                // GIF が止まった写真として入ったことを伝える(元に戻すも出す)
+                showToast(Self.stillGIFNote(), style: .info, undo: true)
+            } else if importCopiedPhotoMedia {
                 // 写真ライブラリから参照できずにアプリへ取り込んだことを伝える(元に戻すも出す)
                 showToast(Self.photoCopiedNote(), style: .info, undo: true)
             } else {
@@ -5633,7 +6150,8 @@ struct ContentView: View {
     /// importLocalFiles を「キャンセル」で止められるように importTask で始める
     private func startLocalImport(_ urls: [URL], securityScoped: Bool, deleteSourcesAfter: Bool) {
         guard !urls.isEmpty else { return }
-        guard !isImporting else {
+        // 写真ライブラリの動画を読み込み中も取り込まない(読み込みの完了で上書きされて消えるため。撮影は残してあとで聞く)
+        guard !isImporting, !isLoadingPhotoMedia else {
             // 取り込めないので、Google フォトの一時ファイルは残さない
             // (共有で受け取ったファイルは残して IncomingMediaCenter に返す。あとでまた聞く。
             //  カメラで撮った動画はほかに無いので消さずに残し、いまの取り込みが終わってからどうするか聞く)
@@ -5680,6 +6198,8 @@ struct ContentView: View {
         var failures: [String] = []
         var recorded = false
         var added = 0
+        // GIF などの動く画像をクリップとして入れた(最初のコマの写真になるので、最後に知らせる)
+        var addedStillGIF = false
         // 差し込む位置: 再生位置のクリップの後ろ(末尾の「+」からのときと、クリップが無いときは末尾)。
         // タイムラインに落としたときは、落とした位置の切れ目
         let droppedIndex: Int? = importInsertIndex
@@ -5738,6 +6258,7 @@ struct ContentView: View {
                 case .image:
                     // 写真は静止画クリップになる
                     clip = try makeStillClip(from: destination)
+                    if AnimatedImageCache.isAnimated(url: destination) { addedStillGIF = true }
                 }
                 if !recorded {
                     history.record(project)
@@ -5831,6 +6352,8 @@ struct ContentView: View {
             if added > 0 {
                 toastAfterAlert = EditorToast(String(localized: "\(added)件を追加しました"), canUndo: true)
             }
+        } else if added > 0, addedStillGIF {
+            showToast(Self.stillGIFNote(), style: .info, undo: true)
         } else if added > 0 {
             showToast(insertAt != nil && droppedIndex == nil
                       ? String(localized: "再生位置の後ろに \(added)件を差し込みました")
@@ -5880,6 +6403,16 @@ struct ContentView: View {
         let index = ranges.firstIndex { ($0.start + $0.end) / 2 > time } ?? ranges.count
         beginDropImport(providers) { urls in
             importInsertIndex = index
+            await importLocalFiles(urls, securityScoped: false, deleteSourcesAfter: true)
+        }
+        return true
+    }
+
+    /// 空の画面に落とした: クリップとして末尾に取り込む
+    private func handleEmptyDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard canAcceptDrop, !providers.isEmpty else { return false }
+        beginDropImport(providers) { urls in
+            importAppendsAtEnd = true
             await importLocalFiles(urls, securityScoped: false, deleteSourcesAfter: true)
         }
         return true
@@ -6142,6 +6675,15 @@ struct ContentView: View {
     }
 }
 
+/// 写真ピッカーで選んだ写真を受け取れなかった(iCloud にだけある写真を圏外で選んだなど)
+private enum PickedPhotoLoadError: LocalizedError {
+    case unavailable
+
+    var errorDescription: String? {
+        String(localized: "写真を読み込めませんでした。iCloud にだけある写真は、インターネットに接続してからもう一度選んでください。")
+    }
+}
+
 // MARK: - 端末にあるファイルを Media フォルダにコピーする
 
 /// 「ファイル」アプリ・Google フォト・共有で受け取った動画・写真を Media フォルダにコピーする(共有で受け取ったものは移す)。
@@ -6338,7 +6880,8 @@ struct EditorTransportRow: View {
                 if showsFullScreenButton {
                     Button {
                         EditorHaptics.tap()
-                        openFullScreen(.landscapeRight)
+                        // 縦長・正方形の作品は回さずに縦のまま全画面にする(前は横に回され、映像は編集画面と同じくらいの大きさだった)
+                        openFullScreen(isPortraitCanvas ? nil : .landscapeRight)
                     } label: {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
                             .font(.system(size: 17, weight: .semibold))
@@ -6348,7 +6891,7 @@ struct EditorTransportRow: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(player.duration <= 0)
-                    .accessibilityLabel("横向きの全画面で見る")
+                    .accessibilityLabel(isPortraitCanvas ? String(localized: "全画面で見る") : String(localized: "横向きの全画面で見る"))
                 }
             }
         }
@@ -6360,7 +6903,9 @@ struct EditorTransportRow: View {
             // iPhone を横にしたら全画面で見る。
             // シート・アラート・写真の選択などを出している間は開かない(全画面を重ねて出せず、横向きのまま戻れなくなるため)
             let device = UIDevice.current.orientation
-            if device.isLandscape, !isFullScreen, !OrientationController.isLargeWindow, player.duration > 0, !Self.isPresentingSomething {
+            // 縦長・正方形の作品では開かない(横にしても大きくならず、寝転んで傾けただけで開いて編集が止まっていた)
+            if device.isLandscape, !isFullScreen, !OrientationController.isLargeWindow, player.duration > 0, !Self.isPresentingSomething,
+               !isPortraitCanvas {
                 openFullScreen(OrientationController.landscapeMask(for: device))
             } else if device == .portrait, isFullScreen, !OrientationController.isLargeWindow,
                       !OrientationController.isLandscapePreviewVisible {
@@ -6375,8 +6920,16 @@ struct EditorTransportRow: View {
         }
     }
 
-    private func openFullScreen(_ orientation: UIInterfaceOrientationMask) {
+    /// 縦長・正方形の作品か(全画面にするとき回さない)
+    private var isPortraitCanvas: Bool {
+        let size = player.renderSize
+        return size.width > 0 && size.height >= size.width
+    }
+
+    /// 全画面を開く。orientation が nil なら回さずに今の向きのまま出す(縦長・正方形の作品)
+    private func openFullScreen(_ orientation: UIInterfaceOrientationMask?) {
         isFullScreen = true
+        guard let orientation else { return }
         OrientationController.previewRequestedAt = Date()
         OrientationController.rotate(to: orientation)
         // 何かを出している最中などで全画面を出せなかったときは、横向きのままにせず元に戻す

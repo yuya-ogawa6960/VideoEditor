@@ -45,6 +45,13 @@ enum StorageLocations {
         let models = applicationSupport.appendingPathComponent("WhisperKit", isDirectory: true)
         try? FileManager.default.createDirectory(at: models, withIntermediateDirectories: true)
         excludeFromBackup(models)
+        // ダウンロードした BGM(BGMCatalog の BGMTracks。いつでもダウンロードし直せ、プロジェクトで使った曲は
+        // 「使う」で Media にコピーされる)も iCloud バックアップに入れない
+        let bgmTracks = applicationSupport.appendingPathComponent("BGMTracks", isDirectory: true)
+        try? FileManager.default.createDirectory(at: bgmTracks, withIntermediateDirectories: true)
+        excludeFromBackup(bgmTracks)
+        // 取り込んだ動画のコピー・逆再生・なめらかスローなど(Media)はバックアップに残す。
+        // コピーは「写真アプリで消しても編集を続けられる」ためのもので、逆再生などは消えても作り直す処理がまだ無いため
     }
 
     /// from を to へ移す。to がもうあれば(前回の途中で止まったなど)、中身を 1 つずつ足す。

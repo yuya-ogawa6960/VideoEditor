@@ -40,13 +40,13 @@ struct EditorSubjectFlashPanel: View {
             Group {
                 VStack(alignment: .leading, spacing: 6) {
                     EditorSectionTitle(title: String(localized: "光らせるもの"))
-                    HStack(spacing: 8) {
+                    // 長い訳でも画面からはみ出さないよう折り返す(EditorChipFlow は TextPanels.swift)
+                    EditorChipFlow {
                         ForEach(SubjectFlashTarget.allCases) { target in
                             EditorChip(title: target.displayName, isSelected: clip.subjectFlash.target == target) {
                                 clip.subjectFlash.target = target
                             }
                         }
-                        Spacer(minLength: 0)
                     }
                 }
 

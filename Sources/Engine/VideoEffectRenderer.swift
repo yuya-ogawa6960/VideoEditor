@@ -11,7 +11,7 @@ import CoreImage
 
 enum VideoEffectRenderer {
 
-    /// ズームパルス・ビート揺れの 1 拍の長さ(秒。120 BPM)
+    /// ズームパルス・ビート揺れの 1 拍の長さ(秒。120 BPM)。BGM の拍が分かるときはそちらを使う(VideoEffectClip.beatPeriod)
     static let beatPeriod: Double = 0.5
 
     /// time に表示中のエフェクトを、開始が早い順に重ねてかける
@@ -22,14 +22,16 @@ enum VideoEffectRenderer {
         for effect in effects where effect.contains(timelineTime: time) {
             let local = max(0, time - effect.start)
             result = render(effect.type, image: result, local: local, duration: effect.duration,
-                            intensity: effect.intensity, canvas: canvas).cropped(to: canvas)
+                            intensity: effect.intensity, canvas: canvas,
+                            beatPhase: bgmBeatPhase(for: effect, time: time)).cropped(to: canvas)
         }
         return result
     }
 
     /// 1 つのエフェクトをかける。intensity は 0 ... 1
+    /// beatPhase: BGM の拍の中の位置(0 ... 1)。nil なら 120 BPM でエフェクトの先頭から
     static func render(_ type: VideoEffectType, image: CIImage, local t: Double, duration: Double,
-                       intensity: Double, canvas: CGRect) -> CIImage {
+                       intensity: Double, canvas: CGRect, beatPhase phaseOverride: Double? = nil) -> CIImage {
         let k = min(max(intensity, 0), 1)
         let minSide = Double(min(canvas.width, canvas.height))
         switch type {
@@ -41,12 +43,12 @@ enum VideoEffectRenderer {
                                dx: dx, dy: dy, canvas: canvas)
 
         case .zoomPulse:
-            let phase = beatPhase(t)
+            let phase = phaseOverride ?? beatPhase(t)
             let pulse = exp(-phase * 5)
             return transformed(image, scale: 1 + 0.18 * k * pulse, rotation: 0, dx: 0, dy: 0, canvas: canvas)
 
         case .beatShake:
-            let phase = beatPhase(t)
+            let phase = phaseOverride ?? beatPhase(t)
             let decay = exp(-phase * 7)
             let amp = minSide * 0.04 * k * decay
             return transformed(image, scale: 1 + 0.1 * k * decay, rotation: 0.025 * k * decay * sin(t * 47),
@@ -179,6 +181,13 @@ enum VideoEffectRenderer {
     /// 0 ... 1 の拍の中の位置
     private static func beatPhase(_ t: Double) -> Double {
         t.truncatingRemainder(dividingBy: beatPeriod) / beatPeriod
+    }
+
+    /// BGM の拍が分かっているときの、出力タイムライン time での拍の中の位置(0 ... 1)。分からなければ nil
+    private static func bgmBeatPhase(for effect: VideoEffectClip, time: Double) -> Double? {
+        guard effect.beatPeriod > 0.2, effect.beatPeriod.isFinite, effect.beatOrigin.isFinite else { return nil }
+        let x = (time - effect.beatOrigin) / effect.beatPeriod
+        return x - floor(x)
     }
 
     /// 時刻(や番号)から作る 0 ..< 1 の値(同じ入力なら同じ値)

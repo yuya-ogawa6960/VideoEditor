@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 // =====================================================================
-// サーバーから配る BGM(Google Lyria で作った曲)。
+// サーバーから配る BGM(Google Lyria で作った曲と、著作権の切れたクラシックの録音)。
 // 一覧(catalog.json)と曲(files/<id>_1.mp3)はサーバーの /v1/bgm/... にある(server/src/bgm.js、R2 に置く)。
 // 試聴はストリーミング、「ダウンロード」で Application Support/BGMTracks に保存し、「使う」で
 // 読み込んだ曲と同じく MediaStore.mediaDirectory にコピーして BGM にする(ダウンロードを消してもプロジェクトは困らない)。
@@ -27,6 +27,26 @@ struct BGMTrack: Codable, Identifiable, Hashable {
     let credit: String?
 
     var moodKind: BGMMood? { BGMMood(rawValue: mood) }
+
+    /// 画面に出す曲名(端末の言語。訳が無ければ元の名前)
+    var localizedName: String { Self.displayName(forStoredName: name) }
+
+    /// 保存した曲名(訳す前の名前。project.audio.bgmName)を画面に出す名前にする。
+    /// 「使用中」の判定は訳す前の名前で行うので、保存は訳さずに表示するときだけ訳す。読み込んだ曲(訳が無い名前)はそのまま
+    static func displayName(forStoredName name: String) -> String {
+        String(localized: String.LocalizationValue(name))
+    }
+
+    /// 演奏者の表記(「演奏: 米空軍バンド」の「演奏」と名前をそれぞれ訳す)
+    var localizedCredit: String? {
+        guard let credit, !credit.isEmpty else { return nil }
+        guard let separator = credit.range(of: ": ") else {
+            return String(localized: String.LocalizationValue(credit))
+        }
+        let role = String(credit[..<separator.lowerBound])
+        let performer = String(credit[separator.upperBound...])
+        return String(localized: String.LocalizationValue(role)) + ": " + String(localized: String.LocalizationValue(performer))
+    }
 }
 
 private struct BGMCatalogFile: Codable {

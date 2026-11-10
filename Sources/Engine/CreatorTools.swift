@@ -125,8 +125,9 @@ enum FillerDetector {
 }
 
 extension EditorProject {
-    /// 出力タイムライン上の区間を取り除く。クリップは分割して詰め、字幕・テキスト・マーカーなども前にずらす。
-    /// 取り除けた合計秒を返す(クリップの無い所は無視)
+    /// 出力タイムライン上の区間を取り除く。クリップは分割して詰め、字幕・テキスト(モザイク)・B ロール・ナレーション・マーカーなども
+    /// クリップの削除と同じように消したり詰めたりする。トランジションの重なりの所は切らない。
+    /// 実際に短くなった秒を返す(クリップの無い所は無視)
     @discardableResult
     func removeOutputRanges(_ input: [(start: Double, end: Double)]) -> Double {
         // 1) 区間を整えてまとめる
@@ -142,20 +143,58 @@ extension EditorProject {
         }
         guard !ranges.isEmpty else { return 0 }
 
-        // 2) クリップごとに「残す元素材の範囲」を作る
-        let layout = CompositionBuilder.timelineLayout(for: snapshot())
+        // 2) クリップごとに「残す元素材の範囲」を作る。トランジションの重なりは次のように扱う(無音カットと同じ考え方):
+        //    - 区間が重なりを両側に余裕をもって覆っているときは、重なりごと前後のクリップから切る(つなぎ目は残りの映像どうしになる)
+        //    - それ以外は、重なりの 2 倍(前のクリップの終わり・後ろのクリップの頭)は切らない。重なりの中や端だけを切ると、
+        //      短い切れ端が挟まって重なりが変わり、作品の長さと字幕などの詰め方が合わなくなって、つなぎ目ごとに遅れていった
+        //    区間がクリップを丸ごと覆うときは、クリップごと取り除く。
+        //    逆再生のクリップは分割と同じく切らない(画面の向きと元素材の向きが逆で、違う所を切ってしまう)
+        let oldLayout = CompositionBuilder.timelineLayout(for: snapshot())
+        /// つなぎ目 k(クリップ k と k+1 の間)の重なり [後ろのクリップの頭, 前のクリップの終わり]。無ければ nil
+        func overlapRegion(_ k: Int) -> (start: Double, end: Double)? {
+            guard k >= 0, k + 1 < oldLayout.count else { return nil }
+            let start = oldLayout[k + 1].start
+            let end = oldLayout[k].end
+            return end > start + 0.0005 ? (start: start, end: end) : nil
+        }
+        /// 区間 r がつなぎ目 k の重なりを、両側に余裕をもって覆っているか(重なりが無いつなぎ目は true)
+        func cutsThrough(_ r: (start: Double, end: Double), _ k: Int) -> Bool {
+            guard let o = overlapRegion(k) else { return true }
+            return r.start < o.start - 0.01 && r.end > o.end + 0.01
+        }
         var newClips: [Clip] = []
-        var removedOutput = 0.0
+        /// クリップごとに取り除いた区間(組み立て直す前の出力タイムラインの秒)
+        var clipRemoved: [[(start: Double, end: Double)]] = []
+        /// 元のクリップごとの、組み立て直したあとの最初の切れ端の番号(丸ごと取り除いたら nil)
+        var firstPiece: [Int?] = []
         for (index, clip) in clips.enumerated() {
-            guard index < layout.count, !clip.isStill || true else { newClips.append(clip); continue }
-            let placement = layout[index]
+            guard index < oldLayout.count, !(clip.isReversed && clip.reversedURL != nil) else {
+                clipRemoved.append([])
+                firstPiece.append(newClips.count)
+                newClips.append(clip)
+                continue
+            }
+            let placement = oldLayout[index]
+            let inOverlap = overlapRegion(index - 1).map { $0.end - $0.start } ?? 0
+            let outOverlap = overlapRegion(index).map { $0.end - $0.start } ?? 0
             var cuts: [(start: Double, end: Double)] = []
             for r in ranges where r.end > placement.start && r.start < placement.end {
-                let a = clip.sourceTime(atOutputOffset: max(0, r.start - placement.start))
-                let b = clip.sourceTime(atOutputOffset: min(placement.end, r.end) - placement.start)
+                let whole = r.start <= placement.start + 0.001 && r.end >= placement.end - 0.001
+                let lower = (whole || cutsThrough(r, index - 1))
+                    ? max(r.start, placement.start) : max(r.start, placement.start + 2 * inOverlap)
+                let upper = (whole || cutsThrough(r, index))
+                    ? min(r.end, placement.end) : min(r.end, placement.end - 2 * outOverlap)
+                guard upper > lower + 0.01 else { continue }
+                let a = clip.sourceTime(atOutputOffset: lower - placement.start)
+                let b = clip.sourceTime(atOutputOffset: upper - placement.start)
                 if b > a + 0.01 { cuts.append((a, b)) }
             }
-            guard !cuts.isEmpty else { newClips.append(clip); continue }
+            guard !cuts.isEmpty else {
+                clipRemoved.append([])
+                firstPiece.append(newClips.count)
+                newClips.append(clip)
+                continue
+            }
             var kept: [(start: Double, end: Double)] = []
             var cursor = clip.startTime
             for c in cuts.sorted(by: { $0.start < $1.start }) {
@@ -163,8 +202,18 @@ extension EditorProject {
                 cursor = max(cursor, c.end)
             }
             if clip.endTime > cursor + 0.05 { kept.append((cursor, clip.endTime)) }
-            let keptSource = kept.reduce(0.0) { $0 + ($1.end - $1.start) }
-            removedOutput += max(0, clip.trimmedDuration - keptSource) / max(clip.speed, 0.01)
+            // 取り除いた元素材(残す範囲のすき間)を、組み立て直す前の出力タイムラインの秒にして控える
+            var removedHere: [(start: Double, end: Double)] = []
+            var cutStart = clip.startTime
+            for range in kept + [(start: clip.endTime, end: clip.endTime)] {
+                if range.start > cutStart + 0.0005 {
+                    removedHere.append((start: placement.start + clip.outputOffset(atSourceTime: cutStart),
+                                        end: placement.start + clip.outputOffset(atSourceTime: range.start)))
+                }
+                cutStart = max(cutStart, range.end)
+            }
+            clipRemoved.append(removedHere)
+            firstPiece.append(kept.isEmpty ? nil : newClips.count)
             for (j, range) in kept.enumerated() {
                 var piece = (j == 0) ? clip : clip.duplicated()
                 // 速度カーブ・被写体フラッシュも切れ端に合わせる(Clip.restrictToSource)
@@ -178,15 +227,52 @@ extension EditorProject {
         }
         clips = newClips
 
-        // 3) タイムライン上の部品を前にずらす
+        // 部品を詰める区間: 1 本のクリップだけが映っている所はそのクリップで取り除いた所。トランジションの重なりは、
+        // 前後の両方のクリップで取り除いた所だけ(片方が残っていれば、そこにある部品も残す)
+        func intersect(_ list: [(start: Double, end: Double)], _ lo: Double, _ hi: Double) -> [(start: Double, end: Double)] {
+            var result: [(start: Double, end: Double)] = []
+            for r in list {
+                let s = max(r.start, lo)
+                let e = min(r.end, hi)
+                if e > s + 0.0005 { result.append((start: s, end: e)) }
+            }
+            return result
+        }
+        var removed: [(start: Double, end: Double)] = []
+        for index in clipRemoved.indices where index < oldLayout.count {
+            let lo = oldLayout[index].start + (overlapRegion(index - 1).map { $0.end - $0.start } ?? 0)
+            let hi = max(lo, oldLayout[index].end - (overlapRegion(index).map { $0.end - $0.start } ?? 0))
+            removed += intersect(clipRemoved[index], lo, hi)
+            if let o = overlapRegion(index), index + 1 < clipRemoved.count {
+                for part in intersect(clipRemoved[index], o.start, o.end) {
+                    removed += intersect(clipRemoved[index + 1], part.start, part.end)
+                }
+            }
+        }
+
+        // 3) タイムライン上の部品を、クリップの削除・無音カットと同じ removeTimelineRange で消したり詰めたりする(TimelineRipple.swift)。
+        //    区間の中だけにある B ロール・効果音・映像エフェクト・テロップは消え、またぐものは縮み、追尾のモザイクやステッカーの
+        //    キーフレームも同じだけ詰まり、リンク解除した音声も映像と同じ所で切れる。前は開始位置しか動かさなかったので、
+        //    モザイクが顔から外れて顔が映ったり、消した文の B ロール・効果音が次の話の上に出たり、分けた音声だけ消した言葉が鳴り続けたりしていた
+        var gaps: [(start: Double, end: Double)] = []
+        for r in removed.sorted(by: { $0.start < $1.start }) {
+            if let last = gaps.last, r.start <= last.end + 0.0005 {
+                gaps[gaps.count - 1].end = max(last.end, r.end)
+            } else {
+                gaps.append(r)
+            }
+        }
         func shifted(_ t: Double) -> Double {
             var removedBefore = 0.0
-            for r in ranges {
+            for r in gaps {
                 if t >= r.end { removedBefore += r.end - r.start }
                 else if t > r.start { removedBefore += t - r.start }
             }
             return max(0, t - removedBefore)
         }
+        // 元のクリップの頭が、詰めたあとに来るはずの時刻(4) で実際の並びと比べる)
+        let expectedStarts: [Double] = oldLayout.map { shifted($0.start) }
+        // 字幕は前と同じ扱い(短くなった字幕は 0.1 秒まで残し、0.02 秒未満になった単語は外す)
         subtitles = subtitles.compactMap { cue in
             var c = cue
             c.start = shifted(cue.start)
@@ -200,21 +286,33 @@ extension EditorProject {
             }
             return c
         }
-        // テキストは長さも詰める(章の全長のテキストが、詰めたあとの次の章へはみ出さないように)。全部切られたものは字幕と同じく外す
-        textClips = textClips.compactMap { item in
-            var moved = item
-            moved.start = shifted(item.start)
-            moved.duration = shifted(item.end) - moved.start
-            return moved.duration >= 0.1 ? moved : nil
-        }
-        for i in narration.indices { narration[i].start = shifted(narration[i].start) }
-        for i in overlays.indices { overlays[i].start = shifted(overlays[i].start) }
-        for i in drawings.indices { drawings[i].start = shifted(drawings[i].start) }
-        for i in videoEffects.indices { videoEffects[i].start = shifted(videoEffects[i].start) }
+        // マーカー(章の区切りなど)は消さずに、詰めた先へ寄せる(無音カットと同じ)
         for i in markers.indices { markers[i].time = shifted(markers[i].time) }
-        for i in titleCards.indices { titleCards[i].start = shifted(titleCards[i].start) }
-        for i in lowerThirds.indices { lowerThirds[i].start = shifted(lowerThirds[i].start) }
-        return removedOutput
+        // 後ろの区間から詰めるので、前の区間の秒は変わらない
+        for gap in gaps.reversed() {
+            removeTimelineRange(from: gap.start, to: gap.end, keepingSubtitlesAndMarkers: true)
+        }
+
+        // 4) 切れ端が短くなったり、クリップを丸ごと取り除いたりしてトランジションの重なりが変わった所は、
+        //    再生と同じ並べ方(CompositionBuilder.timelineLayout)で測った実際の位置との差だけ、後ろの部品をずらす
+        let newLayout = CompositionBuilder.timelineLayout(for: snapshot())
+        var corrections: [(time: Double, delta: Double)] = []
+        var applied = 0.0
+        for (index, first) in firstPiece.enumerated() where index < expectedStarts.count {
+            guard let pieceIndex = first, pieceIndex < newLayout.count else { continue }
+            let error = newLayout[pieceIndex].start - expectedStarts[index]
+            if abs(error - applied) > 0.002 {
+                corrections.append((time: expectedStarts[index], delta: error - applied))
+                applied = error
+            }
+        }
+        for correction in corrections.reversed() {
+            shiftTimelineItems(from: correction.time, by: correction.delta)
+        }
+        // 実際に短くなった長さ
+        let lengthBefore = oldLayout.last?.end ?? 0
+        let lengthAfter = newLayout.last?.end ?? 0
+        return max(0, lengthBefore - lengthAfter)
     }
 
     /// time 以降にある字幕・テキスト・マーカーなどを delta 秒だけ後ろへずらす(先頭にクリップを差し込んだときに使う)

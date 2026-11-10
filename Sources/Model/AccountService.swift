@@ -74,6 +74,10 @@ final class AccountService {
 
     private static let tokenKey = "vm.sessionToken"
     private static let sourceKey = "vm.cloudAISource"
+    /// 送れなかった試用(50pt)の返金(サーバーの trialID)。次に残高を取り直すときに送る
+    private static let pendingTrialRefundsKey = "vm.pendingTrialRefunds"
+    /// セッションの残りがこれより短くなったら、サーバーで延ばしてもらう(/v1/me が新しいトークンを返す)
+    private static let sessionRenewSeconds: Double = 7 * 86400
     /// 「Apple でサインイン」の利用者 ID(やめられていないかを確かめるのに使う)
     private static let appleUserIDKey = "vm.appleUserID"
 
@@ -83,8 +87,8 @@ final class AccountService {
     private(set) var dailyAvailable = false
     /// サーバーのポイントの値段(/v1/me の prices。キーは server/src/index.js の POINTS)
     private(set) var prices: [String: Int] = [:]
-    /// 毎日ボーナスのポイント
-    var dailyPoints: Int { prices["daily"] ?? 20 }
+    /// 毎日ボーナスのポイント(サーバーの値を取る前はサーバーの既定と同じ 10)
+    var dailyPoints: Int { prices["daily"] ?? 10 }
 
     func price(_ key: String, default value: Int) -> Int {
         prices[key] ?? value
@@ -100,8 +104,12 @@ final class AccountService {
         let per = speechCharsPerPoint
         return (chars + per - 1) / per
     }
-    /// サーバー上の利用者 ID(リワード広告のサーバー側検証に渡す)
+    /// サーバー上の利用者 ID
     private(set) var userID: String?
+    /// リワード広告のサーバー側検証で Google に渡す ID(/v1/me の rewardID。アカウントの ID そのものは渡さない)
+    private(set) var rewardID: String?
+    /// リワード広告に渡す ID(古いサーバーで rewardID が無いときは利用者 ID)
+    var adUserIdentifier: String? { rewardID ?? userID }
     /// テスト版(TestFlight・App Review)の証明。Apple が署名した AppTransaction を、テスト広告のポイントを
     /// 受け取るときにサーバーへ送る(サーバーは署名と environment を確かめる。本番版の証明では付かない)
     private var appTransactionJWS: String?
@@ -222,7 +230,12 @@ final class AccountService {
             points = json["points"] as? Int
             dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
             if let flag = json["googleTTS"] as? Bool { googleVoicesAvailable = flag }
-            source = .points
+            // 自分の OpenAI キーを選んでいた人(キーが入っている)は、サインインし直してもその選択を残す
+            if source != .ownKey || AppSettings.shared.openAIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                source = .points
+            }
+            // 値段・広告の回数・利用者 ID を取り直す(取る前は「今日のボーナス」の数や「広告を見る」の行が違って見える)
+            await refresh()
             // 先に買ったプランがあれば、このアカウントで毎月のポイントを受け取る
             Task { await PlanStore.shared.refresh() }
         } catch {
@@ -237,6 +250,7 @@ final class AccountService {
         points = nil
         dailyAvailable = false
         userID = nil
+        rewardID = nil
         adRewardsToday = 0
         adRewardLimit = 0
     }
@@ -262,12 +276,23 @@ final class AccountService {
     @MainActor
     func verifyAppleCredential() async {
         guard isSignedIn else { return }
+        if let exp = (Self.sessionClaims(sessionToken)?["exp"] as? NSNumber)?.doubleValue {
+            let now = Date().timeIntervalSince1970
+            if exp < now {
+                // 使わないまま期限が切れた。黙ってサインアウトすると、ポイントが消えたように見えるので知らせる
+                signOut()
+                lastError = Self.sessionExpiredNotice
+                Self.presentSessionExpiredNotice()
+                return
+            }
+            // 残りが短ければ延ばしてもらう(使っている間は切れない)
+            if exp - now < Self.sessionRenewSeconds {
+                await refresh()
+            }
+        }
+        guard isSignedIn else { return }
         let token = sessionToken
         let claims = Self.sessionClaims(token)
-        if let exp = (claims?["exp"] as? NSNumber)?.doubleValue, exp < Date().timeIntervalSince1970 {
-            signOut()
-            return
-        }
         // 利用者 ID を保存する前のバージョンでサインインした人は、トークンの sub("apple:…")から取る
         var appleUserID = KeychainStore.get(Self.appleUserIDKey) ?? ""
         if appleUserID.isEmpty, let sub = claims?["sub"] as? String, sub.hasPrefix("apple:") {
@@ -279,6 +304,30 @@ final class AccountService {
         guard isSignedIn, token == sessionToken else { return }
         if state == .revoked || state == .notFound {
             signOut()
+        }
+    }
+
+    /// ログインの期限が切れてサインアウトしたときの文
+    private static var sessionExpiredNotice: String {
+        String(localized: "ログインの期限が切れました。もう一度 Apple でサインインしてください(ポイントとプランはそのまま残っています)。")
+    }
+
+    /// ログインの期限が切れたことを 1 回だけ知らせる(「サインインする」で「アカウントとポイント」を開く)
+    @MainActor
+    private static func presentSessionExpiredNotice() {
+        Task { @MainActor in
+            // 起動直後のほかの確認(統計・トラッキング)と重ならないよう、少し待ってから出す
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !AccountService.shared.isSignedIn, let presenter = AdsManager.presentingViewController() else { return }
+            let alert = UIAlertController(title: String(localized: "ログインの期限が切れました"),
+                                          message: Self.sessionExpiredNotice, preferredStyle: .alert)
+            let signIn = UIAlertAction(title: String(localized: "サインインする"), style: .default) { _ in
+                Task { @MainActor in AccountPointsPresenter.present() }
+            }
+            alert.addAction(signIn)
+            alert.addAction(UIAlertAction(title: String(localized: "閉じる"), style: .cancel))
+            alert.preferredAction = signIn
+            presenter.present(alert, animated: true)
         }
     }
 
@@ -303,6 +352,10 @@ final class AccountService {
         defer { isRefreshing = false }
         do {
             let json = try await request("v1/me", method: "GET", body: nil, authorized: true)
+            // 期限が近いセッションには、サーバーが新しいトークンを返す(差し替えて、使っている間は切れないようにする)
+            if let renewed = json["token"] as? String, !renewed.isEmpty {
+                setToken(renewed)
+            }
             points = json["points"] as? Int
             dailyAvailable = (json["dailyAvailable"] as? Bool) ?? false
             if let serverPrices = json["prices"] as? [String: Int] { prices = serverPrices }
@@ -310,7 +363,9 @@ final class AccountService {
             applyAdState(json)
         } catch {
             lastError = error.localizedDescription
+            return
         }
+        await retryPendingTrialRefunds()
     }
 
     @MainActor
@@ -335,6 +390,7 @@ final class AccountService {
 
     private func applyAdState(_ json: [String: Any]) {
         if let id = json["id"] as? String { userID = id }
+        if let id = json["rewardID"] as? String, !id.isEmpty { rewardID = id }
         if let n = json["adRewardsToday"] as? Int { adRewardsToday = n }
         if let n = json["adRewardLimit"] as? Int { adRewardLimit = n }
         if let n = json["adRewardPoints"] as? Int { adRewardPoints = n }
@@ -413,12 +469,56 @@ final class AccountService {
         return data
     }
 
-    /// 有料プランの機能を 1 回だけポイントで使う(無料プラン向け。サーバーが PlanFeature.trialPoints を引く。PlanTrial)
+    /// 有料プランの機能を 1 回だけポイントで使う(無料プラン向け。サーバーが PlanFeature.trialPoints を引く。PlanTrial)。
+    /// 返り値はサーバーの trialID(結果が出なかったときに refundFeatureTrial で返す。古いサーバーでは nil)
     @MainActor
-    func spendForFeature(_ feature: PlanFeature) async throws {
+    @discardableResult
+    func spendForFeature(_ feature: PlanFeature) async throws -> String? {
         let body = try JSONSerialization.data(withJSONObject: ["feature": feature.rawValue])
         let json = try await request("v1/points/feature", method: "POST", body: body, authorized: true)
         if let value = json["points"] as? Int { points = value }
+        return json["trialID"] as? String
+    }
+
+    /// 試用のポイントを返す(結果が出なかった・キャンセルした・失敗した)。
+    /// 通信できなければ覚えておき、次に残高を取り直すとき(refresh)に送る
+    @MainActor
+    func refundFeatureTrial(_ trialID: String) async {
+        guard await sendTrialRefund(trialID) == false else { return }
+        var queued = UserDefaults.standard.stringArray(forKey: Self.pendingTrialRefundsKey) ?? []
+        if !queued.contains(trialID) { queued.append(trialID) }
+        UserDefaults.standard.set(Array(queued.suffix(20)), forKey: Self.pendingTrialRefundsKey)
+    }
+
+    /// 送れた・送っても意味が無い(サーバーが断った)なら true、通信できなかったなら false
+    @MainActor
+    private func sendTrialRefund(_ trialID: String) async -> Bool {
+        guard isSignedIn, isAvailable,
+              let body = try? JSONSerialization.data(withJSONObject: ["trialID": trialID]) else { return false }
+        do {
+            let json = try await request("v1/points/feature/refund", method: "POST", body: body, authorized: true)
+            if let value = json["points"] as? Int { points = value }
+            return true
+        } catch let error as AccountError {
+            // 見つからない・時間切れなど、サーバーが断ったものは送り直さない
+            if case .server(_, let status, _) = error, (400..<500).contains(status) { return true }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    /// 前に送れなかった試用の返金を送り直す
+    @MainActor
+    private func retryPendingTrialRefunds() async {
+        let queued = UserDefaults.standard.stringArray(forKey: Self.pendingTrialRefundsKey) ?? []
+        guard !queued.isEmpty else { return }
+        var remaining: [String] = []
+        for trialID in queued {
+            let sent = await sendTrialRefund(trialID)
+            if !sent { remaining.append(trialID) }
+        }
+        UserDefaults.standard.set(remaining, forKey: Self.pendingTrialRefundsKey)
     }
 
     /// AI を使ったあとの応答ヘッダ(X-VM-Points)で残りを更新する
@@ -632,7 +732,7 @@ extension CloudAIGateway {
         }
         let alert = UIAlertController(
             title: String(localized: "クラウド AI に送ります"),
-            message: String(localized: "音声と文章を OpenAI(Google の声は Google)に送ります。送った内容は保存されません。"),
+            message: String(localized: "音声と文章を米国の OpenAI に送ります(Google の声を選んだときは、文章を Google にも送ります)。開発者のサーバーには保存しません。OpenAI は送った内容を不正利用の確認のため最大 30 日保管することがありますが、AI の学習には使いません。"),
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: String(localized: "プライバシーポリシー"), style: .default) { _ in
@@ -649,6 +749,47 @@ extension CloudAIGateway {
         alert.addAction(proceed)
         alert.preferredAction = proceed
         presenter.present(alert, animated: true)
+    }
+}
+
+extension CloudAIGateway {
+    /// ポイントで使う前の確認(「約 N pt を使います(いま M pt)」)。「使う」で true、「キャンセル」や出せないときは false。
+    /// 足りないときは、途中で止まることと、止まるまでにできた分は残ることも書く
+    @MainActor
+    static func confirmPoints(_ points: Int, title: String, detail: String? = nil) async -> Bool {
+        guard let presenter = AdsManager.presentingViewController() else { return false }
+        var lines: [String] = []
+        if let detail, !detail.isEmpty { lines.append(detail) }
+        if let have = AccountService.shared.points {
+            lines.append(String(localized: "約 \(points)pt を使います(いま \(have)pt)。"))
+            if have < points {
+                lines.append(String(localized: "ポイントが足りないため、途中で止まります。止まるまでにできた分は残ります。"))
+            }
+        } else {
+            lines.append(String(localized: "約 \(points)pt を使います。"))
+        }
+        // いちばん上に出ている画面から出す(シートの上でも出せるように)
+        var top: UIViewController = presenter
+        while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+        // ほかの確認が出ているときは重ねられないので、使わない扱いにする(答えを待ったまま止まらないように)
+        if top is UIAlertController { return false }
+        let host = top
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let alert = UIAlertController(title: title, message: lines.joined(separator: "\n"), preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: String(localized: "キャンセル"), style: .cancel) { _ in
+                continuation.resume(returning: false)
+            })
+            let use = UIAlertAction(title: String(localized: "使う"), style: .default) { _ in
+                continuation.resume(returning: true)
+            }
+            alert.addAction(use)
+            alert.preferredAction = use
+            host.present(alert, animated: true)
+            // 出せなかったとき(画面の切り替え中など)はボタンが押されないので、ここで終える
+            if alert.presentingViewController == nil {
+                continuation.resume(returning: false)
+            }
+        }
     }
 }
 

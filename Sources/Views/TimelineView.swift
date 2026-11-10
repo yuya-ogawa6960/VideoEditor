@@ -823,7 +823,12 @@ struct TimelineView: View {
         ForEach(1...max(1, segment.angleCount), id: \.self) { n in
             if n != segment.angle {
                 Button("アングル\(n)(V\(n + 1))にする") {
-                    setCameraAngle(segment, to: n)
+                    // アングルの切り替えは Pro の機能(マルチカメラ)。V1 に戻す(このカットを消す)のはいつでもできる
+                    if PlanStore.shared.allows(.multicam) {
+                        setCameraAngle(segment, to: n)
+                    } else {
+                        PlanPaywall.present(for: .multicam)
+                    }
                 }
             }
         }
@@ -1063,6 +1068,13 @@ struct TimelineView: View {
         return (result, bars, transitions)
     }
 
+    /// VoiceOver で読むクリップの名前(何本目か・長さ)
+    private func clipAccessibilityLabel(_ clip: Clip) -> String {
+        let number = (project.index(of: clip.id) ?? 0) + 1
+        let length = TimelineFormat.precise(clip.outputDuration)
+        return String(localized: "クリップ \(number)・長さ \(length)")
+    }
+
     private func videoTrack(width: CGFloat, originX: CGFloat, pps: CGFloat,
                             ranges: [TimelineClipRange], total: Double) -> some View {
         let h = TimelineMetrics.videoHeight
@@ -1143,6 +1155,19 @@ struct TimelineView: View {
                         }
                     }
                     .gesture(reorderGesture(clipID: item.id, width: width))
+                    // VoiceOver: サムネイルを 1 枚ずつ名前のない「画像」と読ませず、1 本のクリップとして
+                    // 何本目か・長さ・選択中かを読む。ダブルタップで選ぶ(複数選択中は選択を切り替える)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(clipAccessibilityLabel(item.clip)))
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAddTraits((isMulti ? multiIDs.contains(item.id) : item.id == selectedClipID) ? .isSelected : [])
+                    .accessibilityAction {
+                        if timeline.isMultiSelecting {
+                            timeline.toggleMultiSelect(item.id)
+                        } else {
+                            selection = .clip(item.id)
+                        }
+                    }
                     .zIndex(item.isLifted ? 10 : (item.id == selectedClipID ? 1 : 0))
             }
 
@@ -1540,7 +1565,7 @@ struct TimelineView: View {
                             audio: AudioSettings) -> some View {
         let h = TimelineMetrics.audioHeight
         let hasBGM = audio.bgmURL != nil
-        let name = audio.bgmName ?? "BGM"
+        let name = audio.bgmName.map { BGMTrack.displayName(forStoredName: $0) } ?? "BGM"
         let fullWidth = max(CGFloat(total) * pps, 40)
         let span = TimelineMetrics.visibleSpan(x: originX, width: fullWidth, viewWidth: width)
         let isSelected = selection == EditorSelection.bgm
@@ -2194,7 +2219,7 @@ struct TimelineView: View {
         case let .moveOverlay(id, _) where overlayToMain:
             project.sortOverlays()
             dropOverlayToMain(id: id)
-        case let .moveOverlay(id, _):
+        case let .moveOverlay(id, originalStart):
             // 上下に動かして別の段で離したら、その段へ(ほかのオーバーレイは動かし始めたときの段のまま固定)
             if let lane = carryLane, let original = startOverlayLanes, lane != original[id] {
                 if !interaction.historyRecorded {
@@ -2207,9 +2232,23 @@ struct TimelineView: View {
                 if let i = project.overlays.firstIndex(where: { $0.id == id }) {
                     project.overlays[i].lane = lane
                 }
+            } else if let original = startOverlayLanes,
+                      let moved = project.overlays.first(where: { $0.id == id }), abs(moved.start - originalStart) > 0.0005 {
+                // 横にずらしただけのときも、段は動かし始めたときのまま固定する
+                // (段を決めていないと開始の順番で段が決まるので、追い越すと重なり順まで入れ替わり、ワイプが B ロールの下に隠れていた)
+                for j in project.overlays.indices {
+                    project.overlays[j].lane = original[project.overlays[j].id] ?? 0
+                }
             }
             project.sortOverlays()
-        case .trimOverlay:
+        case let .trimOverlay(id, _, original):
+            // 長さを変えて開始の順番が入れ替わっても、段(重なり順)は始めたときのまま固定する
+            if let lanes = frozenLanes?.overlayLanes,
+               let trimmed = project.overlays.first(where: { $0.id == id }), trimmed != original {
+                for j in project.overlays.indices {
+                    project.overlays[j].lane = lanes[project.overlays[j].id] ?? 0
+                }
+            }
             project.sortOverlays()
         case .moveNarration, .trimNarration:
             project.sortNarration()
@@ -2632,7 +2671,13 @@ struct TimelineView: View {
                 noteTrimLimit(abs(newStart - proposed) > 0.0001)
                 if abs(project.subtitles[i].start - newStart) > 0.0001 {
                     recordEditHistory()
-                    project.subtitles[i].start = newStart
+                    var cue = project.subtitles[i]
+                    let oldStart = cue.start
+                    cue.start = newStart
+                    // 単語ごとの時刻(カラオケ・ポップ・マーカー・タイプ)も新しい区間に合わせる(字幕の編集画面と同じ)
+                    cue.words = SubtitleWordTiming.rescaled(cue.words, oldStart: oldStart, oldEnd: cue.end,
+                                                            newStart: newStart, newEnd: cue.end)
+                    project.subtitles[i] = cue
                 }
             } else {
                 let upper = max(timelineDuration(), originalEnd)
@@ -2641,7 +2686,13 @@ struct TimelineView: View {
                 noteTrimLimit(abs(newEnd - proposed) > 0.0001)
                 if abs(project.subtitles[i].end - newEnd) > 0.0001 {
                     recordEditHistory()
-                    project.subtitles[i].end = newEnd
+                    var cue = project.subtitles[i]
+                    let oldEnd = cue.end
+                    cue.end = newEnd
+                    // 単語ごとの時刻も新しい区間に合わせる
+                    cue.words = SubtitleWordTiming.rescaled(cue.words, oldStart: cue.start, oldEnd: oldEnd,
+                                                            newStart: cue.start, newEnd: newEnd)
+                    project.subtitles[i] = cue
                 }
             }
         case let .moveSubtitle(id, originalStart, originalEnd)?:
@@ -2652,8 +2703,13 @@ struct TimelineView: View {
             let newStart = min(max(0, originalStart + moved), upperStart)
             if abs(project.subtitles[i].start - newStart) > 0.0001 {
                 recordEditHistory()
-                project.subtitles[i].start = newStart
-                project.subtitles[i].end = newStart + length
+                var cue = project.subtitles[i]
+                let shift = newStart - cue.start
+                cue.start = newStart
+                cue.end = newStart + length
+                // 単語ごとの時刻(カラオケ・ポップ・マーカー・タイプ)も同じだけ動かす(動かさないとハイライトがずれ、タイプは出なくなる)
+                cue.words = cue.words.map { SubtitleWord(text: $0.text, start: $0.start + shift, end: $0.end + shift) }
+                project.subtitles[i] = cue
             }
         default:
             break
@@ -2916,8 +2972,12 @@ struct TimelineView: View {
                 UISelectionFeedbackGenerator().selectionChanged()
             }
             interaction.carryLane = lane
+            // V2 に入れ物が無くて外れる設定(位置・クロップ・手ぶれ補正など)は、離す前に知らせる
+            let lost = EditorProject.liftLossNames(of: clip)
             withAnimation(.easeOut(duration: 0.12)) {
-                trackDropHint = String(localized: "離すと V\(lane + 2) に重ねます")
+                trackDropHint = lost.isEmpty
+                    ? String(localized: "離すと V\(lane + 2) に重ねます")
+                    : String(localized: "離すと V\(lane + 2) に重ねます(\(lost) は外れます)")
             }
         }
         interaction.carryStart = start

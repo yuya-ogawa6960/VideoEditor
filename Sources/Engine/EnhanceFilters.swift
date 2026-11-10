@@ -60,15 +60,16 @@ enum EnhanceFilters {
         return cropped(out, to: extent)
     }
 
-    /// 簡易高画質化 0...1。upscaled = 元素材がキャンバスより小さく拡大されたとき
-    static func sharpen(_ image: CIImage, amount: Double, upscaled: Bool) -> CIImage {
+    /// 簡易高画質化 0...1。upscaled = 元素材がキャンバスより小さく拡大されたとき。
+    /// radiusScale: 書き出しより小さく描くとき(プレビュー)の倍率。アンシャープマスクの半径を合わせて、書き出しと同じ見た目にする
+    static func sharpen(_ image: CIImage, amount: Double, upscaled: Bool, radiusScale: Double = 1) -> CIImage {
         let s = GeometryMath.clamp(amount, 0, 1)
         guard s > 0.001 else { return image }
         let extent = image.extent
         let out: CIImage
         if upscaled {
             out = image.applyingFilter("CIUnsharpMask", parameters: [
-                kCIInputRadiusKey: NSNumber(value: 2.5),
+                kCIInputRadiusKey: NSNumber(value: 2.5 * GeometryMath.clamp(radiusScale, 0.1, 1)),
                 kCIInputIntensityKey: NSNumber(value: 0.3 + 0.7 * s)
             ])
         } else {

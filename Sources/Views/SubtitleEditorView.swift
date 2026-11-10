@@ -180,6 +180,16 @@ struct SubtitleEditorView: View {
     @State private var aiTranslationTask: Task<Void, Never>?
     /// AI 翻訳の前に見せるポイントの目安(ポイントで使うときだけ。nil なら確認を出していない)
     @State private var aiTranslationEstimate: Int?
+    /// AI 翻訳で訳すキャプション(「訳文の無い分だけ」を選んだとき。nil なら全部)
+    @State private var aiTranslationTargetIDs: Set<UUID>?
+    /// 訳文があるときの「訳文の無い分だけ訳す / すべて訳し直す」の確認を出している
+    @State private var isRetranslateChoicePresented: Bool = false
+    /// 「＋訳」で訳が付かなかった分を端末の翻訳で付けている(終わったら原文と訳文の 2 行で出す)
+    @State private var translatingUntranslatedCaptions: Bool = false
+    /// 「選んだクリップだけ」で作り直す前の確認(その範囲にあるキャプションの数。nil なら確認を出していない)
+    @State private var pendingClipReplaceCount: Int?
+    /// 前回「全体」で作ったときの話している言語(CaptionLanguage の rawValue。開いたときの初期値に使う)
+    @AppStorage("captionEditor.lastCaptionLanguage") private var lastCaptionLanguage: String = ""
 
     @State private var editingCueID: UUID?
     /// 字幕 1 件の編集を開いたときの文(閉じたときに、ほかの字幕の同じ言葉も直すか聞くため)
@@ -467,16 +477,7 @@ struct SubtitleEditorView: View {
             if !running { isCancellingTranscription = false }
         }
         .subtitleTranslation(project: project, request: $translationRequest, onFinish: { result in
-            switch result {
-            case .success(let count):
-                // 表示モードは書き出しにも効くので勝手に切り替えず、ボタンで選べるようにする
-                showAlert(title: String(localized: "翻訳しました"),
-                          message: String(localized: "\(count) 件の字幕を翻訳しました。"),
-                          action: .showBoth)
-            case .failure(let error):
-                showAlert(title: String(localized: "翻訳できませんでした"),
-                          message: String(localized: "もう一度お試しください。続くときは「AIで自然に」をオンにしてください。\n\n詳細: ") + error.localizedDescription)
-            }
+            handleTranslationFinish(result)
         })
         .alert(alertTitle, isPresented: Binding(
             get: { alertMessage != nil },
@@ -530,6 +531,11 @@ struct SubtitleEditorView: View {
                 .onAppear {
                     guard !didPrepareOnAppear else { return }
                     didPrepareOnAppear = true
+                    // 話している言語: 今あるキャプションの言語 → 前回「全体」で作ったときの言語 → 端末の言語
+                    // (以前は開くたびに日本語に戻り、英語の声を日本語として文字起こし・英語の字幕を「英語に翻訳」していた)
+                    let initialChoice = initialCaptionChoice()
+                    captionChoice = initialChoice
+                    wholeCaptionChoice = initialChoice
                     // クリップを選んで開いたときは「選んだクリップだけ」にし、自動作成を開いておく
                     applyFocusClipDefaults()
                     if focusClip != nil, !project.subtitles.isEmpty {
@@ -666,6 +672,22 @@ struct SubtitleEditorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // 「＋訳」でも訳を付ける AI が使えない端末では、作ったあとに端末の翻訳で付ける(黙って原文だけにしない)
+            if captionChoice.translatesToEnglish != nil,
+               SubtitlePolisher.resolveEngine(settings: AppSettings.shared) == .none {
+                Text("この端末では AI で訳を付けられないため、作ったあとに端末の翻訳で付けます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // 日本語・英語以外の端末: 文字起こしできるのは日本語と英語の声だけ
+            if !SubtitleEditorView.deviceUsesJapaneseOrEnglish {
+                Text("文字起こしできるのは、日本語と英語の声です。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // 文字起こし中は、画面全体に作業カードを重ねる(body の overlay)。
             // 今あるキャプションを置き換えるか追加するかは、押したあとの確認で選ぶ
             autoCaptionButton(isFirstTime: isFirstTime)
@@ -724,6 +746,48 @@ struct SubtitleEditorView: View {
         }
     }
 
+    /// 開いたときの「話している言語」。今あるキャプションがあればその言語(英語のキャプションなら翻訳も英語→日本語になる)、
+    /// 無ければ前回「全体」で作ったときの言語、それも無ければ端末の言語(日本語以外は英語)
+    private func initialCaptionChoice() -> CaptionLanguage {
+        let last = CaptionLanguage(rawValue: lastCaptionLanguage)
+        let texts = project.subtitles.map { $0.text }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !texts.isEmpty {
+            let japaneseCount = texts.filter { SubtitleRenderer.containsJapanese($0) }.count
+            let spoken: TranscriptionLanguage = japaneseCount * 2 >= texts.count ? .japanese : .english
+            // 前回の選び方(訳を付けるかも)が同じ言語なら、それを使う
+            if let last, last.spoken == spoken { return last }
+            return CaptionLanguage(spoken)
+        }
+        if let last { return last }
+        let code = Locale.preferredLanguages.first ?? "ja"
+        return code.hasPrefix("ja") ? .japanese : .english
+    }
+
+    /// 端末の言語が日本語か英語か(ほかの言語の声はまだ文字起こしできない)
+    private static var deviceUsesJapaneseOrEnglish: Bool {
+        let code = Locale.preferredLanguages.first ?? "ja"
+        return code.hasPrefix("ja") || code.hasPrefix("en")
+    }
+
+    /// 「選んだクリップだけ」で入れ替える区間: クリップの範囲から、前後のクリップとトランジションで重なる所を除いたもの
+    /// (重なりの中の字幕は隣のクリップのもの。以前はそれも消して、作り直されないまま無くなっていた)
+    private func ownCaptionRange(ofClip id: UUID) -> (start: Double, end: Double)? {
+        let layout = CompositionBuilder.timelineLayout(for: project.snapshot())
+        guard let k = layout.firstIndex(where: { $0.clipID == id }) else { return project.outputRange(ofClip: id) }
+        var start = layout[k].start
+        var end = layout[k].end
+        if k > 0 { start = max(start, layout[k - 1].end) }
+        if k + 1 < layout.count { end = min(end, layout[k + 1].start) }
+        guard end - start > 0.05 else { return (layout[k].start, layout[k].end) }
+        return (start, end)
+    }
+
+    /// 字幕の真ん中がその区間にあるか(区間の境にかかる字幕は、真ん中のある側のものとみなす)
+    private static func isInside(_ cue: SubtitleCue, _ range: (start: Double, end: Double)) -> Bool {
+        let middle = (cue.start + cue.end) / 2
+        return middle >= range.start && middle < range.end
+    }
+
     private var autoCaptionIntro: some View {
         HStack(alignment: .top, spacing: 12) {
             // ヘッドホンで声を聞くロボット(粘土の 1 枚絵)
@@ -750,6 +814,18 @@ struct SubtitleEditorView: View {
         }
         .buttonStyle(.borderedProminent)
         .disabled(project.isEmpty || isTranslating || isTranscribing)
+        // 「選んだクリップだけ」で作り直す前の確認(その範囲のキャプションは、手で直したものも置き換わる)
+        .confirmationDialog("このクリップの \(pendingClipReplaceCount ?? 0) 件のキャプションを作り直しますか?",
+                            isPresented: Binding(get: { pendingClipReplaceCount != nil },
+                                                 set: { if !$0 { pendingClipReplaceCount = nil } }),
+                            titleVisibility: .visible) {
+            Button("作り直す", role: .destructive) {
+                startTranscription(replace: true)
+            }
+            Button("キャンセル", role: .cancel) { }
+        } message: {
+            Text("手で直したキャプションも置き換わります。声が見つからなかったときは、今のキャプションを残します。")
+        }
     }
 
     /// 文字起こし・翻訳の途中は確認してから閉じる(閉じると止まるため)
@@ -810,9 +886,18 @@ struct SubtitleEditorView: View {
         }
     }
 
-    /// 今あるキャプションを消す前に、置き換えるか追加するかを聞く(選んだクリップだけのときはその範囲だけなので聞かない)
+    /// 今あるキャプションを消す前に、置き換えるか追加するかを聞く。
+    /// 選んだクリップだけのときは、その範囲にキャプションがあれば作り直すか確かめる(手で直したものも置き換わるため)
     private func requestTranscription() {
-        if !project.subtitles.isEmpty, !(captionScope == .clip && focusClip != nil) {
+        if captionScope == .clip, let clip = focusClip {
+            let count = ownCaptionRange(ofClip: clip.id)
+                .map { range in project.subtitles.filter { SubtitleEditorView.isInside($0, range) }.count } ?? 0
+            if count > 0 {
+                pendingClipReplaceCount = count
+            } else {
+                startTranscription(replace: replaceExisting)
+            }
+        } else if !project.subtitles.isEmpty {
             pendingReplaceTarget = .transcription
         } else {
             startTranscription(replace: replaceExisting)
@@ -856,6 +941,10 @@ struct SubtitleEditorView: View {
         if let onlyClipID, let index = project.index(of: onlyClipID) {
             project.clips[index].captionLanguage = captionChoice
         }
+        // 「全体」で選んだ言語は覚えておき、次に開いたときの初期値にする
+        if onlyClipID == nil {
+            lastCaptionLanguage = captionChoice.rawValue
+        }
         let snapshot = project.snapshot()
         let language = selectedLanguage
         let defaultCaption = captionChoice
@@ -887,26 +976,43 @@ struct SubtitleEditorView: View {
                     Analytics.shared.track("transcribe_cancelled", ["engine": engine])
                     return
                 }
-                if let onlyClipID, let range = project.outputRange(ofClip: onlyClipID) {
-                    // そのクリップの範囲にあった字幕だけを入れ替える(ほかのクリップの字幕はそのまま)
-                    project.subtitles.removeAll { $0.start < range.end - 0.01 && $0.end > range.start + 0.01 }
-                    project.subtitles.append(contentsOf: cues)
-                } else if replace {
-                    project.subtitles = cues
+                // 「選んだクリップだけ」は、そのクリップの範囲(前後のクリップとトランジションで重なる所は除く)の字幕だけを入れ替える。
+                // 新しい字幕もその範囲のものだけを入れる(範囲の外にある隣のクリップの字幕には触らない)
+                let clipRange = onlyClipID.flatMap { ownCaptionRange(ofClip: $0) }
+                let placed: [SubtitleCue]
+                if let clipRange {
+                    placed = cues.filter { SubtitleEditorView.isInside($0, clipRange) }
                 } else {
-                    project.subtitles.append(contentsOf: cues)
+                    placed = cues
                 }
-                project.sortSubtitles()
+                // 声が見つからなかったときは、今あるキャプション(手で入れたものも)を消さずに残す
+                if !placed.isEmpty {
+                    if let clipRange {
+                        project.subtitles.removeAll { SubtitleEditorView.isInside($0, clipRange) }
+                        project.subtitles.append(contentsOf: placed)
+                    } else if replace && onlyClipID == nil {
+                        project.subtitles = placed
+                    } else {
+                        project.subtitles.append(contentsOf: placed)
+                    }
+                    project.sortSubtitles()
+                    // 「＋訳」で訳が付いたら、原文と訳文の 2 行で出す(2 行にするかは「表示」の選択で決まる)
+                    if placed.contains(where: { !($0.translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                        project.subtitleStyle.displayMode = .both
+                    }
+                }
                 transcriptionTask = nil
                 Analytics.shared.track("transcribe_done", ["engine": engine,
                                                            "took": Analytics.durationBucket(Date().timeIntervalSince(startedAt)),
-                                                           "cues": cues.isEmpty ? "0" : Analytics.countBucket(cues.count)])
-                if !cues.isEmpty { Analytics.shared.captionsDone() }
-                if cues.isEmpty {
+                                                           "cues": placed.isEmpty ? "0" : Analytics.countBucket(placed.count)])
+                if !placed.isEmpty { Analytics.shared.captionsDone() }
+                if placed.isEmpty {
+                    let kept = project.subtitles.isEmpty ? "" : String(localized: "今あるキャプションはそのまま残しました。") + "\n"
                     showAlert(title: String(localized: "声が見つかりませんでした"),
-                              message: String(localized: "話している言語が合っているか確かめて、もう一度お試しください。BGMだけの動画ではキャプションは作られません。"))
+                              message: kept + String(localized: "話している言語が合っているか確かめて、もう一度お試しください。BGMだけの動画ではキャプションは作られません。"))
                 } else {
-                    showCaptionDone(count: cues.count)
+                    translateUntranslatedCaptions(among: placed)
+                    showCaptionDone(count: placed.count)
                 }
             } catch is CancellationError {
                 transcriptionTask = nil
@@ -918,6 +1024,12 @@ struct SubtitleEditorView: View {
                 showAlert(title: String(localized: "音声認識を許可してください"),
                           message: String(localized: "「設定を開く」→「音声認識」をオンにしてから、もう一度「自動で作る」を押してください。"),
                           action: .systemSettings)
+            } catch TranscriptionError.noAudioClips {
+                // ミュート・リンク解除などで声が無い。方式を変えても直らないので「文字起こしとAI仕上げ」へは案内しない
+                transcriptionTask = nil
+                Analytics.shared.track("transcribe_failed", ["engine": engine, "kind": "no_audio"])
+                showAlert(title: String(localized: "キャプションを作れませんでした"),
+                          message: TranscriptionError.noAudioClips.localizedDescription)
             } catch {
                 let cancelled = Task.isCancelled
                 transcriptionTask = nil
@@ -929,6 +1041,40 @@ struct SubtitleEditorView: View {
                                       fallbackAction: .aiSettings)
                 }
             }
+        }
+    }
+
+    /// 「＋訳」を選んだのに訳を付けられなかったキャプション(AI が使えない端末など)に、端末の翻訳(Apple の翻訳)で訳を付ける。
+    /// 以前は黙って原文だけになっていた
+    private func translateUntranslatedCaptions(among cues: [SubtitleCue]) {
+        guard translationRequest == nil, aiTranslationTask == nil else { return }
+        let added = Set(cues.map { $0.id })
+        guard let pending = transcriber.lastUntranslated.first(where: { !$0.cueIDs.isDisjoint(with: added) }) else { return }
+        translatingUntranslatedCaptions = true
+        translationRequest = TranslationRequest(source: pending.source, targetIsEnglish: pending.toEnglish,
+                                                cueIDs: pending.cueIDs.intersection(added))
+    }
+
+    /// 端末の翻訳が終わったとき
+    private func handleTranslationFinish(_ result: Result<Int, Error>) {
+        let afterCaptions = translatingUntranslatedCaptions
+        translatingUntranslatedCaptions = false
+        switch result {
+        case .success(let count):
+            if afterCaptions {
+                // 「＋訳」の続き: 原文と訳文の 2 行で出す
+                if count > 0 { project.subtitleStyle.displayMode = .both }
+                showAlert(title: String(localized: "訳を付けました"),
+                          message: String(localized: "\(count) 件のキャプションに端末の翻訳で訳を付けました。"))
+            } else {
+                // 表示モードは書き出しにも効くので勝手に切り替えず、ボタンで選べるようにする
+                showAlert(title: String(localized: "翻訳しました"),
+                          message: String(localized: "\(count) 件の字幕を翻訳しました。"),
+                          action: .showBoth)
+            }
+        case .failure(let error):
+            showAlert(title: String(localized: "翻訳できませんでした"),
+                      message: String(localized: "もう一度お試しください。続くときは「AIで自然に」をオンにしてください。\n\n詳細: ") + error.localizedDescription)
         }
     }
 
@@ -946,7 +1092,7 @@ struct SubtitleEditorView: View {
 
     /// このプロジェクトのクリップを使った、未取り込みのクラウド文字起こし(新しいもの)
     private var pendingCloudJob: CloudJobManifest? {
-        let clipIDs = Set(project.clips.map { $0.id })
+        let clipIDs = Set(project.clips.map { $0.id } + project.narration.map { $0.id })
         guard !clipIDs.isEmpty else { return nil }
         return pendingCloudJobs.first { $0.matches(clipIDs: clipIDs) }
     }
@@ -1022,12 +1168,15 @@ struct SubtitleEditorView: View {
                     refreshPendingCloudJobs()
                     return
                 }
-                if replace {
-                    project.subtitles = cues
-                } else {
-                    project.subtitles.append(contentsOf: cues)
+                // 声が無かったときは、今あるキャプションを消さずに残す(「置き換える」でも)
+                if !cues.isEmpty {
+                    if replace {
+                        project.subtitles = cues
+                    } else {
+                        project.subtitles.append(contentsOf: cues)
+                    }
+                    project.sortSubtitles()
                 }
-                project.sortSubtitles()
                 CloudBackgroundUploader.shared.discard(jobID: job.id)
                 transcriptionTask = nil
                 refreshPendingCloudJobs()
@@ -1085,6 +1234,23 @@ struct SubtitleEditorView: View {
                           systemImage: useAITranslation && canUseAITranslation ? "sparkles" : "globe")
                 }
                 .disabled(project.subtitles.isEmpty || isTranscribing)
+                // 訳文があるときは、訳文の無い分だけ訳すか、すべて訳し直すかを選ぶ(手で直した訳文を黙って上書きしない)
+                .confirmationDialog(String(localized: "訳文のあるキャプションが \(translatedCueCount) 件あります"),
+                                    isPresented: $isRetranslateChoicePresented,
+                                    titleVisibility: .visible) {
+                    let missing = missingTranslationIDs.count
+                    if missing > 0 {
+                        Button(String(localized: "訳文の無い \(missing) 件だけ訳す")) {
+                            runTranslation(onlyMissing: true)
+                        }
+                    }
+                    Button("すべて訳し直す", role: .destructive) {
+                        runTranslation(onlyMissing: false)
+                    }
+                    Button("キャンセル", role: .cancel) { }
+                } message: {
+                    Text("すべて訳し直すと、手で直した訳文も上書きされます。")
+                }
 
                 // AI が使えるときだけ。ポイントを使うときは目安を添える
                 if canUseAITranslation {
@@ -1112,13 +1278,38 @@ struct SubtitleEditorView: View {
         return SubtitlePolisher.estimatedPoints(lineCount: project.subtitles.count)
     }
 
-    /// 「英語に翻訳」/「日本語に翻訳」。「AIで自然に」がオンなら AI、オフなら端末の翻訳
+    /// 訳文のあるキャプションの数
+    private var translatedCueCount: Int {
+        project.subtitles.filter { !($0.translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+    }
+
+    /// 訳文の無い(本文のある)キャプション
+    private var missingTranslationIDs: Set<UUID> {
+        Set(project.subtitles.filter { cue in
+            !cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && (cue.translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.map { $0.id })
+    }
+
+    /// 「英語に翻訳」/「日本語に翻訳」。訳文があるときは、訳文の無い分だけ訳すか、すべて訳し直すかを先に選ぶ
+    /// (以前は手で直した訳文も黙ってすべて上書きし、AI 翻訳では全件ぶんのポイントを使っていた)
     private func startTranslation() {
+        if translatedCueCount > 0 {
+            isRetranslateChoicePresented = true
+        } else {
+            runTranslation(onlyMissing: false)
+        }
+    }
+
+    /// 「AIで自然に」がオンなら AI、オフなら端末の翻訳。onlyMissing なら訳文の無いキャプションだけ訳す
+    private func runTranslation(onlyMissing: Bool) {
+        let targets: Set<UUID>? = onlyMissing ? missingTranslationIDs : nil
         if useAITranslation, canUseAITranslation {
-            requestAITranslation()
+            requestAITranslation(only: targets)
         } else {
             translationRequest = TranslationRequest(source: selectedLanguage,
-                                                    targetIsEnglish: selectedLanguage != .english)
+                                                    targetIsEnglish: selectedLanguage != .english,
+                                                    cueIDs: targets)
         }
     }
 
@@ -1132,8 +1323,12 @@ struct SubtitleEditorView: View {
 
     /// ポイントで使うときは、使うポイントの目安(SubtitlePolisher.estimatedPoints)を確かめてから始める
     /// (Apple Intelligence で翻訳するときはポイントを使わないので聞かない)
-    private func requestAITranslation() {
+    /// targets: 訳すキャプション(訳文の無い分だけのとき。nil なら全部)。ポイントの目安も実際に送る件数で出す
+    private func requestAITranslation(only targets: Set<UUID>?) {
         guard aiTranslationTask == nil, !project.subtitles.isEmpty else { return }
+        aiTranslationTargetIDs = targets
+        let lineCount = targets?.count ?? project.subtitles.count
+        guard lineCount > 0 else { return }
         let engine = aiTranslationEngine
         Task { @MainActor in
             // OpenAI に送るときは、初回だけ送り先の確認(CloudAIGateway.ensureConsent)
@@ -1141,7 +1336,7 @@ struct SubtitleEditorView: View {
                 guard await CloudAIGateway.ensureConsent() else { return }
             }
             if CloudAIGateway.usesPoints, engine == .cloud {
-                aiTranslationEstimate = SubtitlePolisher.estimatedPoints(lineCount: project.subtitles.count)
+                aiTranslationEstimate = SubtitlePolisher.estimatedPoints(lineCount: lineCount)
             } else {
                 startAITranslation()
             }
@@ -1150,7 +1345,9 @@ struct SubtitleEditorView: View {
 
     private func startAITranslation() {
         guard aiTranslationTask == nil, !project.subtitles.isEmpty else { return }
-        let cues = project.subtitles
+        // 「訳文の無い分だけ」を選んだときは、そのキャプションだけ送る(ほかの訳文には触らない)
+        let cues = aiTranslationTargetIDs.map { ids in project.subtitles.filter { ids.contains($0.id) } } ?? project.subtitles
+        guard !cues.isEmpty else { return }
         let language = selectedLanguage
         let toEnglish = (language != .english)
         aiTranslationTask = Task { @MainActor in
@@ -1772,7 +1969,11 @@ struct SubtitleEditorView: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel("時刻や分割を直す")
             }
-            TextField("テキストを入力", text: binding.text, axis: .vertical)
+            // 文を直したら単語ごとの時刻(カラオケ・ポップ・マーカー・タイプ)も合わせ直す(古いままだと直す前の言葉が出ていた)
+            TextField("テキストを入力",
+                      text: Binding(get: { binding.wrappedValue.text },
+                                    set: { binding.wrappedValue = SubtitleWordTiming.retexted(binding.wrappedValue, newText: $0) }),
+                      axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.plain)
             if cue.translatedText != nil {
@@ -2171,6 +2372,18 @@ enum SubtitleWordTiming {
                          start: newStart + (word.start - oldStart) * scale,
                          end: newStart + (word.end - oldStart) * scale)
         }
+    }
+
+    /// 本文を直したときの字幕。単語ごとの時刻があれば新しい本文に合わせ直す(単語の数が同じなら時刻はそのまま、
+    /// 違えば元の単語の区間に配り直す。SubtitlePolisher.rescaleWords)。単語の時刻が無ければ本文だけ変える
+    static func retexted(_ cue: SubtitleCue, newText: String) -> SubtitleCue {
+        var c = cue
+        guard c.text != newText else { return c }
+        c.text = newText
+        guard !c.words.isEmpty else { return c }
+        let language: TranscriptionLanguage = SubtitleRenderer.containsJapanese(newText) ? .japanese : .english
+        c.words = SubtitlePolisher.rescaleWords(c.words, newText: newText, start: c.start, end: c.end, language: language)
+        return c
     }
 
     /// NLTokenizer で単語に分ける。単語の後ろの句読点・記号は前の単語に付ける(日本語・英語とも)

@@ -34,9 +34,21 @@ enum AudioEffectsRendererError: LocalizedError {
     }
 }
 
+extension Notification.Name {
+    /// 合成に使う材料(音声効果の処理済みファイル・声の区間・BGM の拍)を裏で作り終えた。
+    /// PlayerController が受けて、同じ内容でもプレビューを作り直す
+    static let compositionMaterialsDidChange = Notification.Name("VideoMania.compositionMaterialsDidChange")
+}
+
 enum AudioEffectsRenderer {
     private static let lock = NSLock()
     private static var inFlight: [String: Task<URL, Error>] = [:]
+    /// 音声効果パネルが最後に頼んだ処理(素材ごと)。新しい値が来たら前の値の処理を止める
+    private static var panelRequests: [String: (key: String, task: Task<URL, Error>)] = [:]
+    /// プレビューのために裏で作り始めたキー(失敗しても起動中は試し直さない。作り直しのくり返しを防ぐ)
+    private static var backgroundKeys: Set<String> = []
+    /// パネル以外(書き出し・プレビューの合成)で処理を待っている数(キーごと)。待っている人がいる処理はパネルの値の変更で止めない
+    private static var otherWaiters: [String: Int] = [:]
 
     /// Caches/ProcessedAudio(必要に応じて作成)
     static var cacheDirectory: URL {
@@ -81,30 +93,98 @@ enum AudioEffectsRenderer {
         return FileManager.default.fileExists(atPath: target.path) ? target : nil
     }
 
-    /// 処理済みファイルを返す(無ければ作る)。effects が identity なら元の URL をそのまま返す
-    static func processedURL(for url: URL, effects: AudioEffects) async throws -> URL {
+    /// 処理済みファイルを返す(無ければ作る)。effects が identity なら元の URL をそのまま返す。
+    /// supersedesPrevious: 音声効果パネルから(同じ素材で前に頼んだ別の値の処理は要らないので止める)
+    static func processedURL(for url: URL, effects: AudioEffects, supersedesPrevious: Bool = false) async throws -> URL {
         if effects.isIdentity { return url }
         let key = cacheKey(for: url, effects: effects)
         let target = cacheDirectory.appendingPathComponent(key + ".m4a")
         if FileManager.default.fileExists(atPath: target.path) { return target }
 
-        lock.lock()
-        if let existing = inFlight[key] {
-            lock.unlock()
-            return try await existing.value
-        }
-        let task = Task.detached(priority: .userInitiated) { () async throws -> URL in
-            try await AudioEffectsRenderer.render(source: url, effects: effects, to: target)
-            return target
-        }
-        inFlight[key] = task
-        lock.unlock()
-        defer {
-            lock.lock()
-            inFlight[key] = nil
-            lock.unlock()
-        }
+        let task = startTask(key: key, source: url, effects: effects, target: target,
+                             supersedesPrevious: supersedesPrevious)
+        defer { finishTask(key: key, countedWaiter: !supersedesPrevious) }
         return try await task.value
+    }
+
+    /// 処理を始める(同じキーが処理中ならそれを使う)
+    private static func startTask(key: String, source: URL, effects: AudioEffects, target: URL,
+                                  supersedesPrevious: Bool) -> Task<URL, Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        let sourceKey = source.standardizedFileURL.path
+        if supersedesPrevious, let previous = panelRequests[sourceKey], previous.key != key {
+            // スライダーを動かして値が変わった: 前の値の処理は止める(素材全体の処理が重なり、何分も待たされていた)。
+            // ただし書き出しなどほかに待っている処理があれば止めない(止めると書き出しが失敗する)
+            if (otherWaiters[previous.key] ?? 0) == 0 {
+                previous.task.cancel()
+            }
+            panelRequests[sourceKey] = nil
+        }
+        if !supersedesPrevious {
+            otherWaiters[key, default: 0] += 1
+        }
+        let task: Task<URL, Error>
+        if let existing = inFlight[key], !existing.isCancelled {
+            task = existing
+        } else {
+            task = Task.detached(priority: .userInitiated) { () async throws -> URL in
+                try await AudioEffectsRenderer.render(source: source, effects: effects, to: target)
+                return target
+            }
+            inFlight[key] = task
+        }
+        if supersedesPrevious {
+            panelRequests[sourceKey] = (key: key, task: task)
+        }
+        return task
+    }
+
+    private static func finishTask(key: String, countedWaiter: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        if countedWaiter {
+            let remaining = (otherWaiters[key] ?? 1) - 1
+            otherWaiters[key] = remaining > 0 ? remaining : nil
+        }
+        inFlight[key] = nil
+        for (sourceKey, request) in panelRequests where request.key == key {
+            panelRequests[sourceKey] = nil
+        }
+    }
+
+    /// プレビュー用: 処理済みファイルが無い音声効果を裏で作り、できたら .compositionMaterialsDidChange を送る
+    /// (キャッシュが消えた・バックアップから戻した・動画を置き換えた・逆再生・読み上げの声の雰囲気などで、
+    /// 前は表示だけ残って音に入らなかった)。書き出しは CompositionBuilder が processedURL を待つ
+    static func prepareInBackground(_ url: URL, effects: AudioEffects) {
+        guard !effects.isIdentity else { return }
+        let key = cacheKey(for: url, effects: effects)
+        guard claimBackgroundKey(key) else { return }
+        Task.detached(priority: .utility) {
+            do {
+                _ = try await AudioEffectsRenderer.processedURL(for: url, effects: effects)
+                NotificationCenter.default.post(name: .compositionMaterialsDidChange, object: nil)
+            } catch is CancellationError {
+                // パネルの新しい値で止められた: 次に合成を作るときにまた試す
+                AudioEffectsRenderer.releaseBackgroundKey(key)
+            } catch {
+                // 作れなかった: 起動中は試し直さない(元の音のまま)
+            }
+        }
+    }
+
+    private static func claimBackgroundKey(_ key: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if backgroundKeys.contains(key) { return false }
+        backgroundKeys.insert(key)
+        return true
+    }
+
+    private static func releaseBackgroundKey(_ key: String) {
+        lock.lock()
+        backgroundKeys.remove(key)
+        lock.unlock()
     }
 
     /// キャッシュをすべて削除する
@@ -228,6 +308,12 @@ enum AudioEffectsRenderer {
 
         var stalls = 0
         while engine.manualRenderingSampleTime < totalFrames {
+            // 新しい値の処理に替わったら止める(長い素材で、要らなくなった処理が最後まで走っていた)
+            if Task.isCancelled {
+                player.stop()
+                engine.stop()
+                throw CancellationError()
+            }
             let remaining = totalFrames - engine.manualRenderingSampleTime
             let count = AVAudioFrameCount(min(AVAudioFramePosition(buffer.frameCapacity), remaining))
             let status: AVAudioEngineManualRenderingStatus

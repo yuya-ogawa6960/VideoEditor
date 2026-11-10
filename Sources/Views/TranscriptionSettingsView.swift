@@ -113,6 +113,26 @@ struct TranscriptionSettingsView: View {
                 }
             }
         }
+        // 「仕上げに使うAI」をクラウドにしたときも、字幕の文を OpenAI に送る前の確認を出す。断ったら元に戻す
+        .onChange(of: settings.polishEngine) { previous, engine in
+            guard engine == .cloud else { return }
+            Task { @MainActor in
+                let agreed = await CloudAIGateway.ensureConsent()
+                if !agreed, settings.polishEngine == .cloud {
+                    settings.polishEngine = previous
+                }
+            }
+        }
+        // 前のバージョンでクラウドを選んだまま同意していない人にも、この画面を開いたときに確かめる
+        // (同意するまで、自動の仕上げはクラウドに送らない。SubtitlePolisher.resolveEngine)
+        .task {
+            guard settings.polishEngine == .cloud,
+                  !UserDefaults.standard.bool(forKey: CloudAIGateway.consentKey) else { return }
+            let agreed = await CloudAIGateway.ensureConsent()
+            if !agreed, settings.polishEngine == .cloud {
+                settings.polishEngine = .auto
+            }
+        }
     }
 
     /// 「モデルをダウンロード」の確認の題(「base(約150MB)をダウンロードします」)

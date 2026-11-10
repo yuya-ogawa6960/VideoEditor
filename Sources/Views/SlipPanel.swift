@@ -25,6 +25,8 @@ struct EditorSlipPanel: View {
     @State private var stripTask: Task<Void, Never>?
     @State private var reloadTask: Task<Void, Never>?
     @State private var dragStartValue: Double?
+    /// なぞり始めたときのクリップ(被写体フラッシュの時刻は、なぞっている間ずっとこれを基準に直す)
+    @State private var dragStartClip: Clip?
     @State private var frameSource = SlipFrameSource()
 
     /// 使う長さ(元素材の秒。変えない)
@@ -32,6 +34,8 @@ struct EditorSlipPanel: View {
     /// 始まりを動かせる範囲
     private var maxStart: Double { max(0, clip.duration - length) }
     private var frameSeconds: Double { 1.0 / Double(min(max(project.canvas.frameRate, 1), 120)) }
+    /// 逆再生のクリップ(画面の先頭が元素材の終わり。大きなコマには endTime、小さなコマには startTime を出す)
+    private var isReversedActive: Bool { clip.isReversed && clip.reversedURL != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -93,6 +97,7 @@ struct EditorSlipPanel: View {
             // なぞっている途中でジェスチャーが取り消されると onEnded が来ない。プレビューの作り直しを止めたままにしない
             if dragStartValue != nil {
                 dragStartValue = nil
+                dragStartClip = nil
                 player.endInteraction()
             }
         }
@@ -114,7 +119,7 @@ struct EditorSlipPanel: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .overlay(alignment: .bottomLeading) {
-                Text("\(String(localized: "始まり")) \(clipFXSeconds(clip.startTime))")
+                Text("\(String(localized: "始まり")) \(clipFXSeconds(isReversedActive ? clip.endTime : clip.startTime))")
                     .font(.caption.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
@@ -133,7 +138,7 @@ struct EditorSlipPanel: View {
                     }
                     .frame(width: 56, height: 36)
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    Text("\(String(localized: "終わり")) \(clipFXSeconds(clip.endTime))")
+                    Text("\(String(localized: "終わり")) \(clipFXSeconds(isReversedActive ? clip.startTime : clip.endTime))")
                         .font(.system(size: 9, weight: .semibold).monospacedDigit())
                         .foregroundStyle(.white)
                 }
@@ -149,13 +154,15 @@ struct EditorSlipPanel: View {
                     .onChanged { value in
                         if dragStartValue == nil {
                             dragStartValue = clip.startTime
+                            dragStartClip = clip
                             player.beginInteraction()
                         }
                         let seconds = Double(value.translation.width / max(geo.size.width, 1)) * length
-                        setStart((dragStartValue ?? clip.startTime) + seconds)
+                        setStart((dragStartValue ?? clip.startTime) + seconds, from: dragStartClip)
                     }
                     .onEnded { _ in
                         dragStartValue = nil
+                        dragStartClip = nil
                         player.endInteraction()
                         seekToClipStart()
                     }
@@ -207,10 +214,11 @@ struct EditorSlipPanel: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .contentShape(Rectangle())
-            // タップした所を始まりにする
+            // タップした所を始まりにする(逆再生では画面の先頭 = 元素材の終わりなので、タップした所を終わりにする)
             .onTapGesture { location in
                 EditorHaptics.tap()
-                setStart(Double(location.x / w) * total)
+                let tapped = Double(location.x / w) * total
+                setStart(isReversedActive ? tapped - length : tapped)
                 seekToClipStart()
             }
             // なぞると大きく動く(幅いっぱい = 元の動画の長さぶん)
@@ -219,13 +227,15 @@ struct EditorSlipPanel: View {
                     .onChanged { value in
                         if dragStartValue == nil {
                             dragStartValue = clip.startTime
+                            dragStartClip = clip
                             player.beginInteraction()
                         }
                         let seconds = Double(value.translation.width / w) * total
-                        setStart((dragStartValue ?? clip.startTime) + seconds)
+                        setStart((dragStartValue ?? clip.startTime) + seconds, from: dragStartClip)
                     }
                     .onEnded { _ in
                         dragStartValue = nil
+                        dragStartClip = nil
                         player.endInteraction()
                         seekToClipStart()
                     }
@@ -258,11 +268,20 @@ struct EditorSlipPanel: View {
 
     // MARK: - 動かす
 
-    /// 始まりを動かす(長さは変えない)
-    private func setStart(_ value: Double) {
-        let start = min(max(0, value), maxStart)
-        clip.startTime = start
-        clip.endTime = start + length
+    /// 始まりを動かす(長さは変えない)。長さは書き込む前に一度だけ求め、クリップはまとめて 1 回で書く
+    /// (前は startTime を書いた直後に、縮んだ長さで endTime を求めていたので、押すたびにクリップが短くなっていた)。
+    /// 被写体フラッシュは同じ元素材のコマで光るように直す(Models.swift の keepSubjectFlashSource)
+    private func setStart(_ value: Double, from base: Clip? = nil) {
+        let old = base ?? clip
+        let len = max(0.05, old.endTime - old.startTime)
+        let start = min(max(0, value), max(0, old.duration - len))
+        var next = old
+        next.startTime = start
+        next.endTime = start + len
+        next.keepSubjectFlashSource(from: old)
+        if next != clip {
+            clip = next
+        }
     }
 
     /// このクリップの先頭(出力タイムライン上の秒)
@@ -297,13 +316,17 @@ struct EditorSlipPanel: View {
         reloadTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
-            if let first = await source.frame(clip: snapshot, sourceTime: snapshot.startTime) {
+            // 逆再生のクリップは、画面で最初に映るのが元素材の終わりのコマ、最後に映るのが始まりのコマ
+            let reversed = snapshot.isReversed && snapshot.reversedURL != nil
+            let firstTime = reversed ? max(0, snapshot.endTime - 0.05) : snapshot.startTime
+            let lastTime = reversed ? snapshot.startTime : max(0, snapshot.endTime - 0.05)
+            if let first = await source.frame(clip: snapshot, sourceTime: firstTime) {
                 guard !Task.isCancelled else { return }
                 startImage = first
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
-            if let last = await source.frame(clip: snapshot, sourceTime: max(0, snapshot.endTime - 0.05)) {
+            if let last = await source.frame(clip: snapshot, sourceTime: lastTime) {
                 guard !Task.isCancelled else { return }
                 endImage = last
             }

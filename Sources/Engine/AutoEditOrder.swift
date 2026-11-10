@@ -97,18 +97,22 @@ enum AutoEditOrder {
         // 全角の英数字は半角に、半角カナは全角にそろえる(「」やカタカナはそのまま)
         let text = raw.precomposedStringWithCompatibilityMapping
 
-        // スタイル(先に書いてあるものより、はっきりした言葉を優先)
-        let styles: [(AutoEditStyle, [String])] = [
+        // スタイル: 「ドキュメンタリー」「ショート」のような形式の言葉を、「旅行」「家族」のような題材の言葉より優先する
+        // (「家族旅行を10分のドキュメンタリーに」は Vlog ではなくドキュメンタリー)
+        let formStyles: [(AutoEditStyle, [String])] = [
             (.short, ["ショート", "short", "tiktok", "リール", "reel", "縦動画"]),
-            (.vlog, ["vlog", "ブイログ", "旅行", "旅", "trip", "travel"]),
-            (.documentary, ["ドキュメンタリー", "documentary", "映画", "シネマ", "cinematic"]),
-            (.family, ["家族", "子ども", "子供", "赤ちゃん", "運動会", "family", "kids"]),
-            (.howto, ["解説", "紹介", "レビュー", "ハウツー", "手順", "how to", "howto", "tutorial", "review"]),
+            (.vlog, ["vlog", "ブイログ"]),
+            (.documentary, ["ドキュメンタリー", "documentary", "documental", "documentário", "映画", "シネマ", "cinematic"]),
+            (.howto, ["解説", "ハウツー", "how to", "howto", "tutorial", "explainer", "explicativo"]),
         ]
-        for (style, words) in styles where contains(text, words) {
-            s.style = style
+        let subjectStyles: [(AutoEditStyle, [String])] = [
+            (.vlog, ["旅行", "旅", "trip", "travel", "viaje", "viagem"]),
+            (.family, ["家族", "子ども", "子供", "赤ちゃん", "運動会", "family", "kids", "familia", "familiar", "família"]),
+            (.howto, ["紹介", "レビュー", "手順", "review", "reseña", "análise"]),
+        ]
+        if let found = formStyles.first(where: { contains(text, $0.1) }) ?? subjectStyles.first(where: { contains(text, $0.1) }) {
+            s.style = found.0
             t.style = true
-            break
         }
 
         // 長さ: 「1分30秒」「3分半」「90秒」「2 min」。「全部」「フル」は全部使う
@@ -128,28 +132,35 @@ enum AutoEditOrder {
         } else if contains(text, ["タイトルなし", "タイトルはいらない", "タイトル不要", "no title"]) {
             s.addTitleCard = false
             t.title = true
-        } else if contains(text, ["タイトル", "title"]) {
+        } else if contains(text, ["タイトル", "title", "título"]) {
             s.addTitleCard = true
             t.title = true
         }
 
-        if contains(text, ["顔", "笑顔", "笑って", "表情", "face", "smile"]) {
+        // 「顔出しなし」「顔なし」は顔を優先しない(「顔」の言葉に当たって逆に優先していた)
+        if contains(text, ["顔出しなし", "顔出し無し", "顔出しng", "顔出しはしない", "顔出しはなし", "顔なし", "顔無し",
+                           "顔を出さない", "顔は出さない", "顔を映さない", "顔は映さない", "顔を出したくない",
+                           "no face", "without face", "faceless", "sin cara", "sin rostro", "sem rosto"]) {
+            s.preferFaces = false
+            t.faces = true
+        } else if contains(text, ["顔", "笑顔", "笑って", "表情", "face", "smile", "sonrisa", "rostro", "sorriso", "rosto"]) {
             s.preferFaces = true
             t.faces = true
         }
-        if contains(text, ["話して", "しゃべ", "トーク", "talk", "speech"]) {
+        if contains(text, ["話して", "しゃべ", "トーク", "talk", "speech", "hablando", "falando"]) {
             s.preferSpeech = true
             t.speech = true
         }
-        if contains(text, ["えー", "あのー", "間はカット", "間をカット", "無言", "沈黙", "間を詰", "silence", "filler"]) {
+        if contains(text, ["えー", "あのー", "間はカット", "間をカット", "無言", "沈黙", "間を詰", "silence", "filler",
+                           "\"um", "“um", "\"eh", "“eh", "\"é", "“é", "muletilla", "silencio", "silêncio"]) {
             s.cutNonSpeech = true
             t.cutSilence = true
         }
-        if contains(text, ["言い直し", "撮り直し", "噛んだ", "retake"]) {
+        if contains(text, ["言い直し", "撮り直し", "噛んだ", "retake", "última toma", "última tomada"]) {
             s.cutRetakes = true
             t.cutRetakes = true
         }
-        if contains(text, ["調べ物", "調べて", "手元"]) {
+        if contains(text, ["調べ物", "調べて"]) {
             s.cutLookups = true
             t.cutLookups = true
         }
@@ -160,14 +171,17 @@ enum AutoEditOrder {
             s.addTransitions = true
             t.transitions = true
         }
-        if contains(text, ["色味はそのまま", "色はそのまま", "色味そのまま", "色は変えない", "色味は変えない", "no color", "keep color"]) {
+        if contains(text, ["色味はそのまま", "色はそのまま", "色味そのまま", "色は変えない", "色味は変えない", "元の色",
+                           "色はいじらない", "色味なし", "フィルターなし", "no color", "keep color", "keep the color",
+                           "original color", "natural color", "no filter", "colores originales", "color original",
+                           "sin filtro", "cores originais", "cor original", "sem filtro"]) {
             s.applyLook = false
             t.look = true
         } else if contains(text, ["色味", "エモ", "フィルム", "シネマ", "color", "look"]) {
             s.applyLook = true
             t.look = true
         }
-        if contains(text, ["ビート", "リズム", "テンポよく", "テンポ良く", "beat", "rhythm"]) {
+        if contains(text, ["ビート", "リズム", "テンポよく", "テンポ良く", "beat", "rhythm", "ritmo"]) {
             s.useBGMBeats = true
             t.beats = true
         }
@@ -175,7 +189,9 @@ enum AutoEditOrder {
 
     /// 文章の中の長さ(秒)。「2秒以上の無言」のような条件の秒は長さとみなさない
     static func parseDuration(_ text: String) -> Double? {
-        let pattern = #"(\d+(?:\.\d+)?)\s*(分半|分|min|minutes?|m(?![a-z])|秒|sec|seconds?|s(?![a-z]))(?:\s*(\d+)\s*(秒|sec|s(?![a-z])))?"#
+        // 「1-minute」「30-second」のようにハイフンでつないだ書き方と、スペイン語・ポルトガル語の segundo(s) も読む
+        // (minuto(s) は min に当たる)
+        let pattern = #"(\d+(?:\.\d+)?)\s*[-‐–]?\s*(分半|分|min|minutes?|m(?![a-z])|秒|segundos?|seg(?![a-z])|sec|seconds?|s(?![a-z]))(?:\s*(\d+)\s*(秒|sec|s(?![a-z])))?"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
         let ns = text as NSString
         let conditions = ["以上", "以内", "未満", "以下", "前後", "ごと", "おき", "くらいの間", "の間", "or more", "or less"]
@@ -199,7 +215,8 @@ enum AutoEditOrder {
     }
 
     private static func quotedTitle(_ text: String) -> String? {
-        guard let range = text.range(of: "タイトル") ?? text.range(of: "title", options: .caseInsensitive) else { return nil }
+        guard let range = text.range(of: "タイトル") ?? text.range(of: "title", options: .caseInsensitive)
+                ?? text.range(of: "título", options: .caseInsensitive) else { return nil }
         let after = text[range.upperBound...]
         let pairs: [(Character, Character)] = [("「", "」"), ("『", "』"), ("\"", "\""), ("“", "”")]
         for (open, close) in pairs {

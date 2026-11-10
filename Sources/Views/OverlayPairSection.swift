@@ -331,8 +331,22 @@ struct OverlayPairSection: View {
 
     private func unarrange() {
         history?.record(project)
-        // V2 を動かしたあとでも戻せるように、半分に置いた V1 のクリップはすべて画面全体に戻す
-        for i in project.clips.indices where !project.clips[i].geometry.canvasFrame.isFull {
+        // 戻すのはこの V2 と重なる V1 だけ(ほかの場所で並べた V1 まで戻すと、そこの V2 が半分のまま残って画面が崩れていた)
+        var targets = pairedClips.map { $0.index }.filter { !project.clips[$0].geometry.canvasFrame.isFull }
+        if targets.isEmpty {
+            // V2 を動かしたあと(重なる V1 が無い): ほかの V2 と時間が重なっていない、半分に置いた V1 だけを戻す
+            let starts = project.clipStartTimes()
+            let others = project.overlays.filter { $0.id != overlay.id }
+            for (i, clip) in project.clips.enumerated() where i < starts.count && !clip.geometry.canvasFrame.isFull {
+                let start = starts[i]
+                let end = start + clip.outputDuration
+                let pairedElsewhere = others.contains { $0.end > start + 0.01 && $0.start < end - 0.01 }
+                if !pairedElsewhere {
+                    targets.append(i)
+                }
+            }
+        }
+        for i in targets {
             project.clips[i].geometry.canvasFrame = .full
         }
         var updated = overlay

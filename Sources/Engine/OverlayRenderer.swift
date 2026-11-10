@@ -6,7 +6,7 @@ import UIKit
 // =====================================================================
 // OverlayRenderer: Bロール / ワイプ(PiP) / 写真クリップを 1 フレームに重ねる
 // VideoCompositor から毎フレーム呼ばれる。
-// 手順(オーバーレイごと): ソース画像 → Ken Burns クロップ → フィルタ → 枠に収める(fill / fit)
+// 手順(オーバーレイごと): ソース画像 → Ken Burns クロップ → フィルタ → 全体の色味(動画・写真)→ 枠に収める(fill / fit)
 //   → 角丸マスク → 回転(キーフレーム) → 不透明度(フェード込み) → 合成(通常 or ブレンドモード)
 // キーフレームがあるときは枠の中心・大きさ・回転・不透明度を KeyframeInterpolator の値で置き換える。
 // CoreImage は左下原点、NormalizedRect は左上原点なので y を変換する。
@@ -20,12 +20,14 @@ enum OverlayRenderer {
 
     /// frame(キャンバス全面、左下原点)の上に、時刻 time に表示中のオーバーレイを並び順に重ねる
     /// (並び順はトラックの順。V2 → V3 … と上のトラックほど後に重ねる。CompositionBuilder で並べ替え済み)
+    /// look: 全体の色味(全体の仕上げのルック)。takesGlobalLook のオーバーレイに、オーバーレイのフィルタのあとでかける(nil ならかけない)
     static func draw(_ overlays: [VideoCompositorOverlay],
                      over frame: CIImage,
                      time: Double,
                      request: AVAsynchronousVideoCompositionRequest,
                      canvasSize: CGSize,
-                     accurate: Bool = false) -> CIImage {
+                     accurate: Bool = false,
+                     look: DocumentaryRenderInfo? = nil) -> CIImage {
         guard canvasSize.width >= 2, canvasSize.height >= 2 else { return frame }
         let canvas = CGRect(origin: .zero, size: canvasSize)
         var out = frame
@@ -51,7 +53,7 @@ enum OverlayRenderer {
             guard let source else { continue }
 
             if let rendered = Self.image(for: overlay, source: source, time: time, fade: fade, canvasSize: canvasSize,
-                                         accurate: accurate) {
+                                         accurate: accurate, look: look) {
                 let withOverlay = composite(rendered, over: out, blendMode: overlay.blendMode, canvas: canvas)
                 // 出てくるとき・消えるときは、下の映像とのあいだをクリップと同じトランジションで切り替える。
                 // 切り替えるのはオーバーレイのある範囲だけ(小さなワイプでも、まわりの映像は動かさない)
@@ -82,7 +84,8 @@ enum OverlayRenderer {
                       time: Double,
                       fade: Double,
                       canvasSize: CGSize,
-                      accurate: Bool = false) -> CIImage? {
+                      accurate: Bool = false,
+                      look: DocumentaryRenderInfo? = nil) -> CIImage? {
         var image = GeometryMath.normalizedToOrigin(source)
         let sourceExtent = image.extent
         guard sourceExtent.width >= 1, sourceExtent.height >= 1, !sourceExtent.isInfinite else { return nil }
@@ -118,6 +121,10 @@ enum OverlayRenderer {
 
         // 2. フィルタ(identity ならそのまま返る)
         image = FilterEngine.apply(overlay.filter, to: image)
+        // 2'. 全体の色味(B ロール・ワイプ・写真もメインの映像と同じ色に。ロゴなど透明つきの画像にはかけない)
+        if let look, overlay.takesGlobalLook {
+            image = DocumentaryRenderer.applyLook(image, info: look)
+        }
 
         // 3. 枠(キーフレームがあれば中心・大きさ・回転・不透明度を置き換える)
         var frameRect = pixelFrame(overlay.frame, canvasSize: canvasSize)
@@ -231,10 +238,11 @@ enum OverlayRenderer {
         return c
     }()
 
-    /// 角丸マスク(サイズ + 半径ごと)
+    /// 角丸マスク(サイズ + 半径ごと)。キーフレームで大きさが変わると毎コマ違う大きさになるので、容量にも上限を付ける
     private static let maskCache: NSCache<NSString, CIImage> = {
         let c = NSCache<NSString, CIImage>()
         c.countLimit = 24
+        c.totalCostLimit = 128 * 1024 * 1024
         return c
     }()
 
@@ -266,6 +274,17 @@ enum OverlayRenderer {
     static func roundedMask(size: CGSize, radius: CGFloat) -> CIImage? {
         let w = max(1, Int(size.width.rounded()))
         let h = max(1, Int(size.height.rounded()))
+        // 大きく拡大した枠は縮めて描いてから広げる(4K で画面より大きい角丸マスクを毎コマ作ると、書き出し中にメモリが足りなくなる)
+        let longSide = max(w, h)
+        if longSide > 4096 {
+            let k = CGFloat(4096) / CGFloat(longSide)
+            guard let small = roundedMask(size: CGSize(width: CGFloat(w) * k, height: CGFloat(h) * k), radius: radius * k) else {
+                return nil
+            }
+            let e = small.extent
+            guard e.width >= 1, e.height >= 1 else { return nil }
+            return small.transformed(by: CGAffineTransform(scaleX: CGFloat(w) / e.width, y: CGFloat(h) / e.height))
+        }
         let r = max(0, min(radius, CGFloat(min(w, h)) / 2))
         let key = "\(w)x\(h)|\(Int((r * 10).rounded()))" as NSString
         if let cached = maskCache.object(forKey: key) { return cached }
@@ -282,7 +301,7 @@ enum OverlayRenderer {
         }
         guard let cg = uiImage.cgImage else { return nil }
         let mask = CIImage(cgImage: cg)
-        maskCache.setObject(mask, forKey: key)
+        maskCache.setObject(mask, forKey: key, cost: w * h * 4)
         return mask
     }
 

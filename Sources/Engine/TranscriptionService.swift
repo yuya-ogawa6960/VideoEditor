@@ -123,7 +123,7 @@ enum TranscriptionError: LocalizedError {
         case .alreadyRunning:
             return String(localized: "文字起こしはすでに実行中です。")
         case .noAudioClips:
-            return String(localized: "文字起こしできる音声がありません(すべてのクリップが無音またはミュートです)。")
+            return String(localized: "文字起こしできる音声がありません。クリップがミュート・音声なし・リンク解除済みで、声のナレーションもありません。")
         case .audioExportFailed(let detail):
             return String(localized: "音声の切り出しに失敗しました: \(detail)")
         case .recognitionFailed(let detail):
@@ -132,6 +132,15 @@ enum TranscriptionError: LocalizedError {
             return detail
         }
     }
+}
+
+/// 「＋訳」を選んだのに訳を付けられなかったキャプション(AI が使えない端末など)。字幕の画面が端末の翻訳で付け直す
+struct UntranslatedCaptions {
+    /// 話している言語(訳す元)
+    let source: TranscriptionLanguage
+    /// true = 英語へ、false = 日本語へ
+    let toEnglish: Bool
+    let cueIDs: Set<UUID>
 }
 
 /// SFSpeech の認識結果の1単語(チャンク先頭からの秒)
@@ -422,6 +431,8 @@ final class TranscriptionService {
     private(set) var statusText: String = ""
     /// 直近の文字起こしで取り除いた、続く同じ文・音声のない所の定型文の数(完了の表示に出す。始めるたびに 0 に戻す)
     private(set) var lastCleanupReport = CaptionCleanup.Report()
+    /// 直近の文字起こしで「＋訳」の訳を付けられなかったキャプション(始めるたびに空に戻す)
+    private(set) var lastUntranslated: [UntranslatedCaptions] = []
 
     /// Whisper の準備がこれより長くかかったら、Apple 音声認識への切り替えを出す
     private static let switchOfferDelay: UInt64 = 60_000_000_000
@@ -528,7 +539,10 @@ final class TranscriptionService {
             }
         }
 
-        await MainActor.run { self.lastCleanupReport = CaptionCleanup.Report() }
+        await MainActor.run {
+            self.lastCleanupReport = CaptionCleanup.Report()
+            self.lastUntranslated = []
+        }
         await updateUI(running: true, progress: 0, status: String(localized: "準備中…"))
 
         let work = Task<[SubtitleCue], Error> {
@@ -653,8 +667,10 @@ final class TranscriptionService {
             guard settings.isCloudConfigured else { throw CloudTranscriptionError.missingAPIKey }
         }
 
-        // クリップごとのジョブ(範囲を選んだときは、そのクリップだけ)
+        // クリップごとのジョブ(範囲を選んだときは、そのクリップだけ)。
+        // ナレーションの段の声(録音したナレーション・リンク解除した音声・マルチカメラを書き出したあとのメインの音声)も入れる
         let jobs = Self.makeJobs(for: snapshot).filter { clipIDs == nil || clipIDs!.contains($0.clip.id) }
+            + Self.makeNarrationJobs(for: snapshot, clipIDs: clipIDs)
         guard !jobs.isEmpty else { throw TranscriptionError.noAudioClips }
         // クリップごとの言語(選んでいなければ全体の選び方)
         func caption(of job: ClipJob) -> CaptionLanguage { job.clip.captionLanguage ?? defaultCaption }
@@ -816,7 +832,10 @@ final class TranscriptionService {
                                                                         pauseReporter: pauseReporter)
                     }
                 }
-                TranscriptCache.shared.store(sourceTokens ?? [], for: cacheKey(job, engine: engine))
+                // クラウドで途中までしか文字起こしできなかったクリップ(ポイント不足)は残さない(作り直したときに残りも送るように)
+                if !CloudTranscriber.takeIncomplete(job.clip.id) {
+                    TranscriptCache.shared.store(sourceTokens ?? [], for: cacheKey(job, engine: engine))
+                }
             }
             doneUnits += job.chunks.count
             try checkCancelled()
@@ -838,7 +857,7 @@ final class TranscriptionService {
 
         // 言語ごとに AI 仕上げ(句読点・フィラー・分割)。失敗しても字幕はそのまま。
         // 継続処理が動いている間は pauseReporter.allowsBackgroundWork が true なので、ロック中でも待たずに進む。
-        // 「＋訳」を選んだクリップは訳を付け、原文と訳を 2 行で出す(全体の表示モードに関係なく)
+        // 「＋訳」を選んだクリップは訳を付ける(2 行で出すかは「表示」の選択。字幕の画面が「両方」にする)
         var all: [SubtitleCue] = []
         for choice in CaptionLanguage.allCases {
             guard let group = cuesByCaption[choice], !group.isEmpty else { continue }
@@ -848,13 +867,16 @@ final class TranscriptionService {
             if let toEnglish = choice.translatesToEnglish {
                 try checkCancelled()
                 await updateUI(progress: 1, status: String(localized: "字幕に訳を付けています…"))
-                // 訳を付けられたときだけ 2 行にする(AI が使えない端末では原文だけ)
+                // AI が使えない端末などで訳を付けられなかったものは、字幕の画面が端末の翻訳で付ける(黙って原文だけにしない)
                 if let translated = await SubtitlePolisher.translate(polished, from: choice.spoken, toEnglish: toEnglish,
                                                                      settings: settings) {
                     polished = translated
-                    for i in polished.indices {
-                        polished[i].bilingual = true
-                    }
+                }
+                let missing = Set(polished.filter { ($0.translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .map { $0.id })
+                if !missing.isEmpty {
+                    let untranslated = UntranslatedCaptions(source: choice.spoken, toEnglish: toEnglish, cueIDs: missing)
+                    await MainActor.run { self.lastUntranslated.append(untranslated) }
                 }
                 try checkCancelled()
             }
@@ -945,6 +967,11 @@ final class TranscriptionService {
             let start = i < layout.count ? layout[i].start : timelineStart
             result[clip.id] = ClipJob(clip: clip, clipTimelineStart: start, chunks: [])
             timelineStart += clip.outputDuration
+        }
+        // ナレーションの段の音声(makeNarrationJobs と同じ id で送っている)
+        for item in snapshot.narration where result[item.id] == nil {
+            let clip = narrationSourceClip(item, sourceStart: item.sourceStart, sourceEnd: item.sourceEnd)
+            result[item.id] = ClipJob(clip: clip, clipTimelineStart: item.start, chunks: [])
         }
         return result
     }
@@ -1126,6 +1153,78 @@ final class TranscriptionService {
             jobs.append(ClipJob(clip: clip, clipTimelineStart: clipStart, chunks: chunks))
         }
         return jobs
+    }
+
+    /// ナレーションの段の声のジョブ。録音したナレーション・読み上げ・取り出した音声・リンクを解除した音声
+    /// (マルチカメラの「V1 に書き出す」で分けたメインの音声も)を、V1 のクリップと同じように文字起こしする。
+    /// 効果音(soundRecipeID がある)と吹き替えは除く。リンクを解除したあとクリップのミュートを戻していて、
+    /// 同じ素材の音がクリップでも鳴っているところは二重にしない。
+    /// clipIDs を渡したとき(選んだクリップだけ)は、そのクリップの範囲に重なる部分だけ
+    private static func makeNarrationJobs(for snapshot: ProjectSnapshot, clipIDs: Set<UUID>?) -> [ClipJob] {
+        guard !snapshot.narration.isEmpty else { return [] }
+        let layout = CompositionBuilder.timelineLayout(for: snapshot)
+        var audibleClips: [(url: URL, start: Double, end: Double)] = []
+        var selectedRanges: [(start: Double, end: Double)] = []
+        var clipLanguages: [(start: Double, end: Double, language: CaptionLanguage?)] = []
+        for (index, clip) in snapshot.clips.enumerated() where index < layout.count {
+            let placement = layout[index]
+            if clip.hasAudio, !clip.isMuted {
+                audibleClips.append((url: clip.url, start: placement.start, end: placement.end))
+            }
+            if let clipIDs, clipIDs.contains(clip.id) {
+                selectedRanges.append((start: placement.start, end: placement.end))
+            }
+            clipLanguages.append((start: placement.start, end: placement.end, language: clip.captionLanguage))
+        }
+        var jobs: [ClipJob] = []
+        for item in snapshot.narration {
+            // 吹き替えの音声はファイル名の終わりに「_vmdub」が付く(DubbingRenderer.isDubbing と同じ判定。あちらは MainActor なので呼ばない)
+            let isDubbing = item.url.deletingPathExtension().lastPathComponent.hasSuffix("_vmdub")
+            guard item.soundRecipeID == nil, !isDubbing, item.duration >= 0.3 else { continue }
+            let middle = (item.start + item.end) / 2
+            if audibleClips.contains(where: { $0.url == item.url && middle >= $0.start && middle < $0.end }) { continue }
+            var ranges: [(start: Double, end: Double)] = []
+            if clipIDs == nil {
+                ranges = [(start: item.start, end: item.end)]
+            } else {
+                for range in selectedRanges {
+                    let lower = max(item.start, range.start)
+                    let upper = min(item.end, range.end)
+                    if upper - lower >= 0.3 { ranges.append((start: lower, end: upper)) }
+                }
+            }
+            for range in ranges {
+                let sourceStart = item.sourceStart + (range.start - item.start)
+                let sourceEnd = item.sourceStart + (range.end - item.start)
+                var clip = narrationSourceClip(item, sourceStart: sourceStart, sourceEnd: sourceEnd)
+                // リンクを解除した V1 の音声は、元のクリップで選んだ言語で作る
+                if item.track == 1, let owner = clipLanguages.first(where: { middle >= $0.start && middle < $0.end }) {
+                    clip.captionLanguage = owner.language
+                }
+                var chunks: [SourceRange] = []
+                var s = sourceStart
+                while s < sourceEnd - 0.05 {
+                    let e = min(s + chunkLength, sourceEnd)
+                    if e - s >= 0.3 {
+                        chunks.append(SourceRange(start: s, end: e))
+                    }
+                    s = e
+                }
+                guard !chunks.isEmpty else { continue }
+                jobs.append(ClipJob(clip: clip, clipTimelineStart: range.start, chunks: chunks))
+            }
+        }
+        return jobs
+    }
+
+    /// ナレーションの段の音声を、文字起こしのジョブ用のクリップ(速度 1 倍・音声だけ)にする。id は音声の部品と同じ
+    private static func narrationSourceClip(_ item: NarrationClip, sourceStart: Double, sourceEnd: Double) -> Clip {
+        var clip = Clip(id: item.id, url: item.url, duration: max(sourceEnd, item.sourceEnd),
+                        naturalSize: .zero, preferredTransform: .identity, hasAudio: true,
+                        thumbnail: nil, name: item.name)
+        clip.startTime = sourceStart
+        clip.endTime = sourceEnd
+        return clip
     }
 
     /// 元素材上の秒 → 出力タイムライン上の秒(トリミング・速度・速度カーブを反映)

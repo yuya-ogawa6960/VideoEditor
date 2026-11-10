@@ -34,12 +34,34 @@ enum CoverRenderer {
 
     // MARK: - 公開 API
 
-    /// size ピクセルのカバー画像を作る
-    static func render(snapshot: ProjectSnapshot, cover: CoverSettings, size: CGSize) async throws -> UIImage {
+    /// size ピクセルのカバー画像を作る。
+    /// purpose: 背景のコマを作る大きさ。nil なら size から決める(プレビュー用のコマより大きく描くときは書き出し用の大きさ)
+    static func render(snapshot: ProjectSnapshot, cover: CoverSettings, size: CGSize,
+                       purpose: RenderPurpose? = nil) async throws -> UIImage {
         let targetSize = CGSize(width: max(16, size.width.rounded()), height: max(16, size.height.rounded()))
-        let background = try await backgroundImage(snapshot: snapshot, cover: cover, size: targetSize)
+        let background = try await backgroundImage(snapshot: snapshot, cover: cover, size: targetSize, purpose: purpose)
         try Task.checkCancellation()
         return compose(background: background, cover: cover, size: targetSize)
+    }
+
+    /// 背景にするコマの時刻(作品の秒)。コマを選んだときのクリップと元素材の秒が残っていれば、そこから今の位置を求める
+    /// (選んだあとに前へクリップやパーツを足したり、無音カット・削除で詰めたりしても同じ場面になる)。
+    /// 分割で後ろ半分に移ったときは同じ素材のクリップから探す。見つからないときは選んだときの作品の秒(frameTime)
+    static func resolvedFrameTime(cover: CoverSettings, snapshot: ProjectSnapshot) -> Double {
+        let fallback = cover.frameTime.isFinite ? max(0, cover.frameTime) : 0
+        guard let clipID = cover.frameClipID, let source = cover.frameSourceTime, source.isFinite else { return fallback }
+        func covers(_ clip: Clip) -> Bool {
+            source >= clip.startTime - 0.01 && source <= clip.endTime + 0.01
+        }
+        var target: Clip? = snapshot.clips.first { $0.id == clipID && covers($0) }
+        if target == nil, let original = snapshot.clips.first(where: { $0.id == clipID }) {
+            target = snapshot.clips.first { $0.url == original.url && $0.stillImageURL == original.stillImageURL && covers($0) }
+        }
+        guard let clip = target,
+              let placement = CompositionBuilder.timelineLayout(for: snapshot).first(where: { $0.clipID == clip.id }) else {
+            return fallback
+        }
+        return placement.start + clip.outputOffset(atSourceTime: source)
     }
 
     /// 写真ライブラリに保存する(追加のみの許可)
@@ -55,7 +77,8 @@ enum CoverRenderer {
 
     // MARK: - 背景
 
-    private static func backgroundImage(snapshot: ProjectSnapshot, cover: CoverSettings, size: CGSize) async throws -> UIImage {
+    private static func backgroundImage(snapshot: ProjectSnapshot, cover: CoverSettings, size: CGSize,
+                                        purpose requested: RenderPurpose?) async throws -> UIImage {
         if let imageURL = cover.imageURL {
             let maxPixel = max(size.width, size.height) * 1.5
             guard let image = MediaStore.makeImageClipThumbnail(url: imageURL, maxPixel: maxPixel) else {
@@ -71,6 +94,13 @@ enum CoverRenderer {
         buildSnapshot.drawings = []
         // 映像エフェクト(揺れ・ストロボなど動きのあるもの)もサムネには入れない
         buildSnapshot.videoEffects = []
+        // 音もサムネには要らない(書き出し用の大きさで作るとき、音声効果の処理や声の解析を待たないように)
+        buildSnapshot.audio.bgmURL = nil
+        buildSnapshot.narration = []
+        for i in buildSnapshot.clips.indices {
+            buildSnapshot.clips[i].isMuted = true
+            buildSnapshot.clips[i].audio.effects = AudioEffects()
+        }
         buildSnapshot.watermark = WatermarkSettings()
         buildSnapshot.documentary.fadeFromToBlack = false
         buildSnapshot.documentary.dipToBlackBetweenClips = false
@@ -84,12 +114,21 @@ enum CoverRenderer {
             buildSnapshot.documentary.vignette = 0
         }
 
-        let purpose: RenderPurpose = size.width > 1300 ? .export : .preview
+        // プレビュー用のコマ(短辺 720)より大きく描くときは、書き出し用の大きさのコマを使う
+        // (以前は幅だけで決めていたので、縦 1080×1920 などは 720 のコマを引き伸ばしてぼやけていた)
+        let purpose: RenderPurpose
+        if let requested {
+            purpose = requested
+        } else {
+            let previewSize = CompositionBuilder.renderSize(for: buildSnapshot, purpose: .preview)
+            let needsLarger = previewSize.width + 1 < size.width || previewSize.height + 1 < size.height
+            purpose = needsLarger ? .export : .preview
+        }
         let built = try await CompositionBuilder.build(buildSnapshot, purpose: purpose)
         try Task.checkCancellation()
 
         let total = built.duration.seconds
-        var seconds = cover.frameTime.isFinite ? max(0, cover.frameTime) : 0
+        var seconds = resolvedFrameTime(cover: cover, snapshot: snapshot)
         if total.isFinite && total > 0 {
             seconds = min(seconds, max(0, total - 0.05))
         }

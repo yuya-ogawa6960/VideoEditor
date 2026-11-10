@@ -2,12 +2,15 @@ import Foundation
 import Observation
 import StoreKit
 import CryptoKit
+import UIKit
 
 // =====================================================================
 // アプリ内課金のプラン(Starter 無料 / Standard / Pro。自動更新サブスクリプション)。
 //
 // - 使えるかどうかは StoreKit 2 の「いま有効な購入」(Transaction.currentEntitlements)で決める。
-//   サインインしていなくても、オフラインでも、買ったプランの機能(画質・長さ・広告の減り方・有料の機能)は使える
+//   サインインしていなくても、オフラインでも、買ったプランの機能(画質・長さ・広告の減り方・有料の機能)は使える。
+//   請求の猶予期間中(支払いに失敗したが Apple がまだ使ってよいとしている間)も有料のまま
+// - サーバーに送れなかった購入の記録は、前面に戻ったとき・「アカウントとポイント」を開いたときに送り直す
 // - サインインしていれば、有効な購入の記録(JWS)をサーバー(/v1/subscription/sync)に送り、毎月のポイントを受け取る
 // - プランの条件(PlanTerms)は、プラン設定のページ(tiers/current の plans)とそろえる
 // - 商品 ID は App Store Connect のサブスクリプションと、server/src/subscriptions.js の PRODUCTS と同じにする
@@ -187,8 +190,13 @@ final class PlanStore {
 
     /// いまのプラン
     private(set) var tier: PlanTier
-    /// いまのプランの期限(自動更新なら次の更新日)
+    /// いまのプランの期限(自動更新なら次の更新日。請求の猶予期間中は猶予の終わり)
     private(set) var expiresAt: Date?
+    /// 自動更新がオンか(オフ = 解約済みなら「○月○日まで」と出す)。わからないときは true
+    private(set) var willAutoRenew = true
+    /// 購入の記録をサーバーに送れなかった(前面に戻ったとき・「アカウントとポイント」を開いたときに送り直す)
+    private(set) var syncPending = false
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
     /// 有効な購入がほかのアカウントに結びついていて、ポイントを受け取れなかった
     private(set) var ownedByOtherAccount = false
 
@@ -263,32 +271,66 @@ final class PlanStore {
                 await self?.refresh()
             }
         }
+        // 購入の記録をサーバーに送れなかったときは、前面に戻ったときに送り直す
+        activeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
+                                                                object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                await PlanStore.shared.retrySyncIfNeeded()
+            }
+        }
         Task { await refresh() }
+    }
+
+    /// 前に購入の記録をサーバーに送れなかったときだけ、もう一度送る
+    func retrySyncIfNeeded() async {
+        guard syncPending else { return }
+        await refresh()
     }
 
     /// いま有効な購入からプランを決め、サインインしていればサーバーに送って毎月のポイントを受け取る
     func refresh() async {
         var best: PlanTier = .free
         var expiry: Date?
+        var autoRenew = true
         var signed: [String] = []
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result,
                   transaction.revocationDate == nil,
                   let plan = Self.tier(forProductID: transaction.productID) else { continue }
-            if let expiration = transaction.expirationDate, expiration < Date() { continue }
+            // 自動更新の状態(解約済みか・請求の猶予期間中か)
+            var periodEnd = transaction.expirationDate
+            var renews = true
+            var inGracePeriod = false
+            if let status = await transaction.subscriptionStatus {
+                inGracePeriod = status.state == .inGracePeriod
+                if case .verified(let renewal) = status.renewalInfo {
+                    renews = renewal.willAutoRenew
+                    if inGracePeriod, let graceEnd = renewal.gracePeriodExpirationDate {
+                        periodEnd = graceEnd
+                    }
+                }
+            }
+            // 期限を過ぎたものは外す。ただし請求の猶予期間中は Apple がまだ使ってよいとしているので有料のまま
+            if !inGracePeriod, let expiration = transaction.expirationDate, expiration < Date() { continue }
             signed.append(result.jwsRepresentation)
             if plan > best || (plan == best && expiry == nil) {
                 best = plan
-                expiry = transaction.expirationDate
+                expiry = periodEnd
+                autoRenew = renews
             }
         }
         tier = best
         expiresAt = expiry
+        willAutoRenew = autoRenew
         UserDefaults.standard.set(best.rawValue, forKey: Self.cacheKey)
         if !signed.isEmpty {
-            ownedByOtherAccount = await AccountService.shared.syncSubscriptions(signed) == .ownedByOtherAccount
+            let result = await AccountService.shared.syncSubscriptions(signed)
+            ownedByOtherAccount = result == .ownedByOtherAccount
+            // 送れなかった(通信エラーなど)ときは、あとで送り直す
+            syncPending = result == .failed
         } else {
             ownedByOtherAccount = false
+            syncPending = false
         }
     }
 

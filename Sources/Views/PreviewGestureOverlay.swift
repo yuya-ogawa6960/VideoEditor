@@ -162,6 +162,8 @@ struct PreviewGestureOverlay: View {
     @GestureState private var gestureLive = false
     /// プレビュー全体のピンチ・回転が続いている間 true(同上)
     @GestureState private var previewPinchLive = false
+    /// モザイク・マスクの四隅の●・回転のつまみのドラッグが続いている間 true(システムに取り消されても false に戻る)
+    @GestureState private var handleLive = false
     /// ドラッグ中、中心が映像の中央に吸い付いているか(x = 縦線、y = 横線を出す)
     @State private var snapGuide: (x: Bool, y: Bool) = (false, false)
     /// ドラッグ中の中心が、縦動画で隠れやすい範囲に入っているか
@@ -264,7 +266,14 @@ struct PreviewGestureOverlay: View {
                 finishInteractionIfNeeded()
             }
         }
+        .onChange(of: handleLive) { _, live in
+            // ●・つまみのドラッグがシステム(コントロールセンター・着信など)に取り消されても、状態と作り直しの停止を戻す
+            if !live {
+                cancelHandlesIfNeeded()
+            }
+        }
         .onDisappear {
+            cancelHandlesIfNeeded()
             finishInteractionIfNeeded()
         }
         .onChange(of: selection) { _, _ in
@@ -289,6 +298,17 @@ struct PreviewGestureOverlay: View {
         guard session.interactionOpen else { return }
         session.interactionOpen = false
         player?.endInteraction()
+    }
+
+    /// 四隅の●・回転のつまみのドラッグが取り消されて onEnded が来なかったときの後始末
+    /// (残ったままだと、そのあとの編集がプレビューに出ず、次に触ると古い開始値へ飛んでいた)
+    private func cancelHandlesIfNeeded() {
+        guard mosaicHandleStart != nil || mosaicKnobStart != nil || maskHandleStart != nil || maskKnobActive else { return }
+        mosaicHandleStart = nil
+        mosaicKnobStart = nil
+        maskHandleStart = nil
+        maskKnobActive = false
+        closeInteraction()
     }
 
     /// 開始値・差分はそのまま残す(この後に onEnded が来ても正しい値で書ける)
@@ -361,11 +381,26 @@ struct PreviewGestureOverlay: View {
     }
 
     /// 今の時刻に表示中のテキスト・ステッカー・オーバーレイを上から順に当たり判定する。
-    /// 描画順はオーバーレイ(開始が早い順)→ テキスト(配列の順)なので、その逆順に調べる
+    /// 描画は オーバーレイ → テキスト の順で、どちらもトラック(段)の小さい順・同じ段なら開始の早い順に重ねる
+    /// (CompositionBuilder.sortedOverlaysByLane / sortedByLane)。上に見えている方が選ばれるよう、その逆順に調べる
     private func hitTest(at point: CGPoint, size: CGSize, time: Double) -> EditorSelection? {
         guard size.width > 0, size.height > 0 else { return nil }
 
-        for clip in project.textClips.reversed() where clip.contains(timelineTime: time) {
+        let textLanes: [UUID: Int] = TimelineMetrics.textLanes(project.textClips)
+        let indexedTexts: [(offset: Int, element: TextClip)] = Array(project.textClips.enumerated())
+        let orderedTexts = indexedTexts.sorted { (a: (offset: Int, element: TextClip), b: (offset: Int, element: TextClip)) -> Bool in
+            let laneA: Int = textLanes[a.element.id] ?? 0
+            let laneB: Int = textLanes[b.element.id] ?? 0
+            if laneA != laneB {
+                return laneA < laneB
+            }
+            if a.element.start != b.element.start {
+                return a.element.start < b.element.start
+            }
+            return a.offset < b.offset
+        }
+        for item in orderedTexts.reversed() where item.element.contains(timelineTime: time) {
+            let clip = item.element
             let placed = Self.placedText(resolvingEdge(clip), at: time)
             let rect = Self.estimatedRect(for: placed, in: size, canvasSize: player?.renderSize)
             if Self.hit(point, rect: rect, rotation: placed.rotation) {
@@ -373,8 +408,14 @@ struct PreviewGestureOverlay: View {
             }
         }
 
+        let overlayLanes: [UUID: Int] = TimelineMetrics.overlayLanes(project.overlays)
         let indexed: [(offset: Int, element: OverlayClip)] = Array(project.overlays.enumerated())
         let ordered = indexed.sorted { (a: (offset: Int, element: OverlayClip), b: (offset: Int, element: OverlayClip)) -> Bool in
+            let laneA: Int = overlayLanes[a.element.id] ?? 0
+            let laneB: Int = overlayLanes[b.element.id] ?? 0
+            if laneA != laneB {
+                return laneA < laneB
+            }
             if a.element.start != b.element.start {
                 return a.element.start < b.element.start
             }
@@ -524,10 +565,15 @@ struct PreviewGestureOverlay: View {
                         overlayBinding.wrappedValue = overlay
                     }
                 )
-                // オーバーレイのマスクはそのオーバーレイの枠の中で考える(キーフレームがあれば再生位置の枠)
+                // オーバーレイのマスクはそのオーバーレイの枠の中で考える(キーフレームがあれば再生位置の枠)。
+                // マスクは枠と一緒に回る(OverlayRenderer: 切り抜いてからオーバーレイごと回す)ので、点線も枠の中心まわりに回す
                 let overlay = overlayBinding.wrappedValue
-                let container = Self.placedOverlayRect(overlay, at: frameTime(for: overlay.keyframes), in: size).rect
-                maskFrame(maskBinding, container: container)
+                let placed = Self.placedOverlayRect(overlay, at: frameTime(for: overlay.keyframes), in: size)
+                let container = placed.rect
+                maskFrame(maskBinding, container: container, frameRotation: placed.rotation)
+                    .rotationEffect(.degrees(placed.rotation),
+                                    anchor: UnitPoint(x: container.midX / max(size.width, 1),
+                                                      y: container.midY / max(size.height, 1)))
             }
         }
     }
@@ -545,9 +591,10 @@ struct PreviewGestureOverlay: View {
         }
     }
 
-    /// マスクの形の点線(container はマスク座標の基準になる矩形、ビュー座標)
+    /// マスクの形の点線(container はマスク座標の基準になる矩形、ビュー座標)。
+    /// frameRotation: 回したオーバーレイの傾き(点線はこの外で回す。指の動きはここで戻す)
     @ViewBuilder
-    private func maskFrame(_ binding: Binding<MaskSettings>, container: CGRect) -> some View {
+    private func maskFrame(_ binding: Binding<MaskSettings>, container: CGRect, frameRotation: Double = 0) -> some View {
         let mask = binding.wrappedValue
         if mask.shape != .none {
             let short = max(min(container.width, container.height), 1)
@@ -559,9 +606,9 @@ struct PreviewGestureOverlay: View {
                 .contentShape(Rectangle())
                 // モザイクと同じ: 四隅の●で大きさ、上のつまみで回転(枠と一緒に回る)
                 .overlay {
-                    maskHandles(binding, frame: frameSize, short: short, container: container)
+                    maskHandles(binding, frame: frameSize, short: short, container: container, frameRotation: frameRotation)
                 }
-                .gesture(maskGesture(binding, container: container).updating($gestureLive) { _, state, _ in
+                .gesture(maskGesture(binding, container: container, frameRotation: frameRotation).updating($gestureLive) { _, state, _ in
                     state = true
                 })
                 .rotationEffect(.degrees(mask.rotation))
@@ -609,7 +656,7 @@ struct PreviewGestureOverlay: View {
 
     /// マスクの枠に重ねるハンドル。四角・角丸・楕円は四隅の●で幅・高さ、どの形も上のつまみで回転
     private func maskHandles(_ binding: Binding<MaskSettings>, frame: CGSize, short: CGFloat,
-                             container: CGRect) -> some View {
+                             container: CGRect, frameRotation: Double = 0) -> some View {
         let mask = binding.wrappedValue
         let knobDistance: CGFloat = 30
         let showsCorners = mask.shape != .linear && mask.shape != .mirror
@@ -630,7 +677,8 @@ struct PreviewGestureOverlay: View {
             .frame(width: 44, height: 44 + knobDistance, alignment: .top)
             .contentShape(Rectangle())
             .offset(y: -frame.height / 2 - knobDistance - 8)
-            .gesture(maskKnobGesture(binding, frame: frame, knobDistance: knobDistance + 8))
+            .gesture(maskKnobGesture(binding, frame: frame, knobDistance: knobDistance + 8, frameRotation: frameRotation)
+                .updating($handleLive) { _, state, _ in state = true })
 
             if maskKnobActive {
                 Text(verbatim: "\(Int(mask.rotation.rounded()))°")
@@ -654,7 +702,9 @@ struct PreviewGestureOverlay: View {
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                         .offset(x: corner.sx * frame.width / 2, y: corner.sy * frame.height / 2)
-                        .gesture(maskCornerGesture(binding, corner: corner, short: short, container: container))
+                        .gesture(maskCornerGesture(binding, corner: corner, short: short, container: container,
+                                                   frameRotation: frameRotation)
+                            .updating($handleLive) { _, state, _ in state = true })
                 }
             }
         }
@@ -662,7 +712,7 @@ struct PreviewGestureOverlay: View {
 
     /// 四隅の●: 向かいの角を動かさずに幅・高さを変える(モザイクと同じ計算。大きさは短辺比、中心は container 比)
     private func maskCornerGesture(_ binding: Binding<MaskSettings>, corner: MosaicCorner, short: CGFloat,
-                                   container: CGRect) -> some Gesture {
+                                   container: CGRect, frameRotation: Double = 0) -> some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
                 var mask = binding.wrappedValue
@@ -672,8 +722,10 @@ struct PreviewGestureOverlay: View {
                     maskHandleStart = (mask.center, mask.width, mask.height)
                 }
                 guard let start = maskHandleStart else { return }
-                // 指の動きを、マスクの向きに合わせた軸(枠の縦横)へ直す
-                let r = CGFloat(mask.rotation * Double.pi / 180)
+                // 指の動きを、マスクの向きに合わせた軸(枠の縦横)へ直す(回したオーバーレイでは、その傾きも足す)
+                let r = CGFloat((mask.rotation + frameRotation) * Double.pi / 180)
+                // 中心のずれはオーバーレイの枠の向きで書くので、マスクの角度だけで戻す
+                let rm = CGFloat(mask.rotation * Double.pi / 180)
                 let dx = value.translation.width
                 let dy = value.translation.height
                 let lx = dx * cos(r) + dy * sin(r)
@@ -686,8 +738,8 @@ struct PreviewGestureOverlay: View {
                 // 向かいの角を動かさない: 中心を枠の軸で (Δw/2, Δh/2) ずらし、画面の向きに戻す
                 let sx = corner.sx * (w - w0) / 2
                 let sy = corner.sy * (h - h0) / 2
-                let shiftX = sx * cos(r) - sy * sin(r)
-                let shiftY = sx * sin(r) + sy * cos(r)
+                let shiftX = sx * cos(rm) - sy * sin(rm)
+                let shiftY = sx * sin(rm) + sy * cos(rm)
                 let base = max(short, 1)
                 mask.width = min(max(Double(w / base), 0.05), 3)
                 mask.height = min(max(Double(h / base), 0.05), 3)
@@ -702,7 +754,8 @@ struct PreviewGestureOverlay: View {
     }
 
     /// 上のつまみ: 中心のまわりに回す(0° / 90° / 180° の近くは吸い付く)
-    private func maskKnobGesture(_ binding: Binding<MaskSettings>, frame: CGSize, knobDistance: CGFloat) -> some Gesture {
+    private func maskKnobGesture(_ binding: Binding<MaskSettings>, frame: CGSize, knobDistance: CGFloat,
+                                 frameRotation: Double = 0) -> some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
                 var mask = binding.wrappedValue
@@ -712,7 +765,8 @@ struct PreviewGestureOverlay: View {
                     maskKnobActive = true
                     session.startRotation = mask.rotation
                 }
-                let r0 = CGFloat(session.startRotation * Double.pi / 180)
+                // 画面の上でのつまみの向き(回したオーバーレイでは、その傾きも足す。角度は最後に戻す)
+                let r0 = CGFloat((session.startRotation + frameRotation) * Double.pi / 180)
                 let length = frame.height / 2 + knobDistance
                 let knob = CGPoint(x: length * sin(r0), y: -length * cos(r0))
                 let v = CGPoint(x: knob.x + value.translation.width, y: knob.y + value.translation.height)
@@ -722,6 +776,9 @@ struct PreviewGestureOverlay: View {
                 for snap in [-180.0, -90.0, 0.0, 90.0, 180.0] where abs(degrees - snap) < 4 {
                     degrees = snap == 180 ? -180 : snap
                 }
+                degrees -= frameRotation
+                if degrees > 180 { degrees -= 360 }
+                if degrees < -180 { degrees += 360 }
                 mask.rotation = degrees
                 binding.wrappedValue = mask
             }
@@ -758,15 +815,22 @@ struct PreviewGestureOverlay: View {
         }
     }
 
-    private func applyMask(_ binding: Binding<MaskSettings>, container: CGRect, force: Bool) {
+    private func applyMask(_ binding: Binding<MaskSettings>, container: CGRect, force: Bool,
+                           frameRotation: Double = 0) {
         let now = CFAbsoluteTimeGetCurrent()
         if !force, now - session.lastWrite < Self.minWriteInterval { return }
         session.lastWrite = now
 
         var mask = binding.wrappedValue
+        // 指の動き(画面の向き)を、回したオーバーレイの枠の向きに戻してから枠の比率にする
         let d = session.effectiveDrag
-        let cx = session.startCenter.x + Double(d.width / max(container.width, 1))
-        let cy = session.startCenter.y + Double(d.height / max(container.height, 1))
+        let fr = frameRotation * Double.pi / 180
+        let dw = Double(d.width)
+        let dh = Double(d.height)
+        let lx = dw * cos(fr) + dh * sin(fr)
+        let ly = -dw * sin(fr) + dh * cos(fr)
+        let cx = session.startCenter.x + lx / Double(max(container.width, 1))
+        let cy = session.startCenter.y + ly / Double(max(container.height, 1))
         mask.center = NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25))
         let m = Double(session.effectiveMagnify)
         mask.width = min(max(session.startMaskWidth * m, 0.05), 3)
@@ -778,16 +842,17 @@ struct PreviewGestureOverlay: View {
         binding.wrappedValue = mask
     }
 
-    private func maskGesture(_ binding: Binding<MaskSettings>, container: CGRect) -> some Gesture {
+    private func maskGesture(_ binding: Binding<MaskSettings>, container: CGRect,
+                             frameRotation: Double = 0) -> some Gesture {
         let drag = DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
                 beginIfNeeded(mask: binding.wrappedValue)
                 session.dragActive = true
                 session.rawDrag = value.translation
-                applyMask(binding, container: container, force: false)
+                applyMask(binding, container: container, force: false, frameRotation: frameRotation)
             }
             .onEnded { _ in
-                applyMask(binding, container: container, force: true)
+                applyMask(binding, container: container, force: true, frameRotation: frameRotation)
                 endGesture(mask: binding.wrappedValue) {
                     session.rawDrag = .zero
                     session.baseDrag = .zero
@@ -800,10 +865,10 @@ struct PreviewGestureOverlay: View {
                 beginIfNeeded(mask: binding.wrappedValue)
                 session.magnifyActive = true
                 session.rawMagnify = value.magnification
-                applyMask(binding, container: container, force: false)
+                applyMask(binding, container: container, force: false, frameRotation: frameRotation)
             }
             .onEnded { _ in
-                applyMask(binding, container: container, force: true)
+                applyMask(binding, container: container, force: true, frameRotation: frameRotation)
                 endGesture(mask: binding.wrappedValue) {
                     session.rawMagnify = 1
                     session.baseMagnify = 1
@@ -816,10 +881,10 @@ struct PreviewGestureOverlay: View {
                 beginIfNeeded(mask: binding.wrappedValue)
                 session.rotateActive = true
                 session.rawRotate = value.rotation.degrees
-                applyMask(binding, container: container, force: false)
+                applyMask(binding, container: container, force: false, frameRotation: frameRotation)
             }
             .onEnded { _ in
-                applyMask(binding, container: container, force: true)
+                applyMask(binding, container: container, force: true, frameRotation: frameRotation)
                 endGesture(mask: binding.wrappedValue) {
                     session.rawRotate = 0
                     session.baseRotate = 0
@@ -841,9 +906,10 @@ struct PreviewGestureOverlay: View {
             let c = clip.center.point(in: size)
             return CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h)
         }
-        // 端に置いたテキストと端のデザインは実際の大きさで枠を出す(幅いっぱいの推定だと、枠が画面の外へ出る)
-        if clip.edgeAnchor != nil || clip.template.isEdgeTitle, clip.keyframes.isEmpty,
-           let canvasSize, canvasSize.width > 0, canvasSize.height > 0,
+        // テキストは実際に描く文字のかたまりの大きさで枠と当たり判定を出す(横書き・縦書き・曲げた文字・端のテキスト)。
+        // 折り返し幅いっぱいの推定だと、短い文字でも枠が画面幅の 80% になり、近くのステッカーを選べなくなる。
+        // clip はキーフレーム反映済みなので、大きさ(scale)もいまの値。ステッカーは下の推定を使う(blockSize は nil)
+        if clip.vectorSticker == nil, let canvasSize, canvasSize.width > 0, canvasSize.height > 0,
            let block = TextRenderer.blockSize(for: clip, canvasSize: canvasSize) {
             let w = block.width * size.width / canvasSize.width * CGFloat(clip.scale)
             let h = block.height * size.height / canvasSize.height * CGFloat(clip.scale)
@@ -1025,14 +1091,10 @@ struct PreviewGestureOverlay: View {
     // MARK: - 枠の中の映す範囲(ダブルタップ → ドラッグで位置・ピンチで大きさ)
 
     private func enterContentMode(_ binding: Binding<OverlayClip>) {
-        var overlay = binding.wrappedValue
+        let overlay = binding.wrappedValue
         guard !(overlay.isImage && overlay.parallax.enabled) else { return }
-        if overlay.fit != .fill || overlay.kenBurns.enabled {
-            history.record(project)
-            overlay.fit = .fill
-            overlay.kenBurns.enabled = false
-            binding.wrappedValue = overlay
-        }
+        // ダブルタップしただけでは何も変えない(前は入っただけでゆっくりズームが切れ、「全体が見える」が「枠いっぱい」に
+        // 変わったまま戻らなかった)。実際に動かし始めたときに切り替える(beginContent。下の案内で先に知らせる)
         UISelectionFeedbackGenerator().selectionChanged()
         contentStart = nil
         contentModeID = overlay.id
@@ -1103,7 +1165,9 @@ struct PreviewGestureOverlay: View {
         .overlay(alignment: .bottom) {
             Text(overlay.reframe.isActive
                  ? String(localized: "顔を追いかけ中。2本指で大きさ・ドラッグで追いかけをやめて位置を決める")
-                 : String(localized: "ドラッグで映す位置・2本指で大きさ。ダブルタップで終わる"))
+                 : (overlay.fit != .fill || overlay.kenBurns.enabled)
+                    ? String(localized: "動かすと「枠いっぱい」になり、ゆっくりズームは切れます。ダブルタップで終わる")
+                    : String(localized: "ドラッグで映す位置・2本指で大きさ。ダブルタップで終わる"))
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
@@ -1176,6 +1240,8 @@ struct PreviewGestureOverlay: View {
         // (ピンチの途中でも、ピンチの倍率はそのまま続ける)
         if isDrag, overlay.reframe.isActive {
             if contentStart == nil { history.record(project) }
+            overlay.fit = .fill
+            overlay.kenBurns.enabled = false
             let tracked = trackedCenter(overlay)
             let zoom = contentStart?.zoom ?? overlay.contentZoom
             overlay.contentCenter = tracked
@@ -1187,6 +1253,12 @@ struct PreviewGestureOverlay: View {
         }
         guard contentStart == nil else { return }
         history.record(project)
+        // 映す範囲を動かせるのは「枠いっぱい」でゆっくりズームが無いときだけ。動かし始めたここで切り替える
+        if overlay.fit != .fill || overlay.kenBurns.enabled {
+            overlay.fit = .fill
+            overlay.kenBurns.enabled = false
+            binding.wrappedValue = overlay
+        }
         var start = contentValue(overlay, frame: frame)
         if overlay.reframe.isActive {
             start.center = Self.clampedContentCenter(trackedCenter(overlay), overlay: overlay, frame: frame, zoom: start.zoom)
@@ -1264,7 +1336,8 @@ struct PreviewGestureOverlay: View {
             .frame(width: 44, height: 44 + knobDistance, alignment: .top)
             .contentShape(Rectangle())
             .offset(y: -frame.height / 2 - knobDistance - 8)
-            .gesture(mosaicKnobGesture(binding, size: size, frame: frame, knobDistance: knobDistance + 8))
+            .gesture(mosaicKnobGesture(binding, size: size, frame: frame, knobDistance: knobDistance + 8)
+                .updating($handleLive) { _, state, _ in state = true })
 
             if mosaicKnobStart != nil {
                 Text(verbatim: "\(Int(placed.rotation.rounded()))°")
@@ -1288,7 +1361,8 @@ struct PreviewGestureOverlay: View {
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
                     .offset(x: corner.sx * frame.width / 2, y: corner.sy * frame.height / 2)
-                    .gesture(mosaicCornerGesture(binding, corner: corner, size: size))
+                    .gesture(mosaicCornerGesture(binding, corner: corner, size: size)
+                        .updating($handleLive) { _, state, _ in state = true })
             }
         }
     }

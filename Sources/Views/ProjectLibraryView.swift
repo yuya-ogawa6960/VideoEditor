@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import Photos
 
 // =====================================================================
 // プロジェクト一覧(CapCut のホーム画面に相当)と、一覧 ⇄ 編集画面を切り替えるルート。
@@ -82,7 +83,7 @@ struct RootView: View {
                 UserDefaults.standard.set(true, forKey: Analytics.askedKey)
             }
         } message: {
-            Text("どの機能を使ったかだけを、匿名で送ります。")
+            Text("使った機能・動作の重さ・異常終了の情報を、機種・OS・言語とともに匿名で送ります。")
         }
         // 広告(トラッキングの確認 → AdMob の開始 → 広告の読み込み)
         .task {
@@ -175,6 +176,17 @@ struct ProjectLibraryView: View {
 
     @State private var deleteTarget: ProjectMeta?
     @State private var isDeleting = false
+    /// 削除するプロジェクトにある、アプリのカメラで撮った動画(写真アプリに保存されていないので一緒に消える)
+    @State private var deleteCameraTakes: [URL] = []
+    /// 削除するプロジェクトに、ナレーション・効果音などアプリで録音・作成した音声があるか
+    @State private var deleteHasRecordedAudio = false
+    /// 削除の前に、撮った動画を写真に保存している間
+    @State private var isSavingTakesBeforeDelete = false
+    /// 入れられなかった素材があるパッケージ(このまま送るかを聞いている間)
+    @State private var pendingShareURL: URL?
+    @State private var pendingShareMissingCount = 0
+    /// 「新しいプロジェクト」の動画の置き場所(比率のシートに出して変えられるようにする)
+    @State private var newMediaMode: ProjectMediaMode = .appCopy
 
     // パッケージを送る / 受け取る
     @State private var isImporterPresented = false
@@ -260,7 +272,12 @@ struct ProjectLibraryView: View {
                 pickedAspect = nil
                 createProject(mediaMode: NewProjectMediaMode.last, aspect: aspect)
             }) {
-                NewProjectAspectSheet(selected: NewProjectAspect.last) { aspect in
+                NewProjectAspectSheet(selected: NewProjectAspect.last,
+                                      mediaMode: newMediaMode,
+                                      onChangeMediaMode: { mode in
+                                          NewProjectMediaMode.last = mode
+                                          newMediaMode = mode
+                                      }) { aspect in
                     NewProjectAspect.last = aspect
                     pickedAspect = aspect
                     showAspectPicker = false
@@ -290,7 +307,7 @@ struct ProjectLibraryView: View {
             }
             // 受け取っている間は一覧を触れないようにする(途中でほかのプロジェクトを開かないように)
             .overlay {
-                if isLoadingDrop {
+                if isLoadingDrop || isSavingTakesBeforeDelete {
                     ZStack {
                         Color.black.opacity(0.5).ignoresSafeArea()
                         ProgressView()
@@ -377,6 +394,29 @@ struct ProjectLibraryView: View {
             } message: {
                 Text(alertMessage ?? "")
             }
+            // 入れられなかった素材があるときは、共有シートを出す前に聞く(ほかのお知らせと別の View に付ける)
+            .background {
+                Color.clear
+                    .alert(String(localized: "入れられなかった素材があります"), isPresented: Binding(
+                        get: { pendingShareURL != nil },
+                        set: { if !$0 { pendingShareURL = nil } }
+                    )) {
+                        Button("このまま送る") {
+                            guard let url = pendingShareURL else { return }
+                            pendingShareURL = nil
+                            // お知らせが閉じ終わってから共有シートを出す(閉じるまでは、ほかの送る・受け取るを止めておく)
+                            isSharingPackage = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                sharePackage(url)
+                            }
+                        }
+                        Button("送らない", role: .cancel) {
+                            pendingShareURL = nil
+                        }
+                    } message: {
+                        Text(String(localized: "\(pendingShareMissingCount) 個の素材をパッケージに入れられませんでした(写真ライブラリの動画を iCloud から取り出せない・写真へのアクセスが許可されていない・素材のファイルが見つからない、など)。このまま送ると、受け取った端末ではその素材が抜けます。"))
+                    }
+            }
             .overlay {
                 if isImporting || exportingMeta != nil {
                     packageProgressOverlay
@@ -397,9 +437,17 @@ struct ProjectLibraryView: View {
             }
         }
         .confirmationDialog(deleteTitle, isPresented: $isDeleting, titleVisibility: .visible) {
+            if !deleteCameraTakes.isEmpty {
+                Button("撮った動画を写真に保存してから削除") {
+                    if let target = deleteTarget {
+                        saveTakesThenDelete(target, takes: deleteCameraTakes)
+                    }
+                    deleteTarget = nil
+                }
+            }
             Button("削除", role: .destructive) {
                 if let target = deleteTarget {
-                    library.delete(id: target.id)
+                    deleteProject(target)
                 }
                 deleteTarget = nil
             }
@@ -407,7 +455,7 @@ struct ProjectLibraryView: View {
                 deleteTarget = nil
             }
         } message: {
-            Text("元に戻せません。元の動画は消えません。")
+            Text(deleteMessage)
         }
     }
 
@@ -415,12 +463,73 @@ struct ProjectLibraryView: View {
         String(localized: "「\(deleteTarget?.name ?? "")」を削除しますか?")
     }
 
+    /// 削除の確認の説明。アプリの中にしか無いもの(カメラで撮った動画・録音した音声)が一緒に消えることを正しく伝える
+    /// (前は「元の動画は消えません」とだけ出し、写真アプリに保存されていない撮影まで消えていた)
+    private var deleteMessage: String {
+        var lines: [String] = [String(localized: "元に戻せません。写真アプリや「ファイル」にある元の動画は消えません。")]
+        if !deleteCameraTakes.isEmpty {
+            lines.append(String(localized: "アプリのカメラで撮った動画 \(deleteCameraTakes.count) 本は写真アプリに保存されていないため、一緒に消えます。"))
+        }
+        if deleteHasRecordedAudio {
+            lines.append(String(localized: "アプリで録音・作成したナレーションや効果音などの音声も消えます。"))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// プロジェクトを消し、そのプロジェクトだけが使っていた素材もすぐに片づける
+    /// (前は一覧を開き直すまで容量が空かず、取り込んで 1 日以内の素材は翌日まで残っていた)
+    private func deleteProject(_ meta: ProjectMeta) {
+        let names: Set<String> = ProjectStore.mediaFileNames(projectID: meta.id)
+        library.delete(id: meta.id)
+        // 受け取りの途中は、受け取ったパッケージが同じ名前の素材を使い回すことがあるので、いつもの片づけ(1 日後)に任せる
+        guard !names.isEmpty, !isPackageBusy else { return }
+        Task.detached(priority: .utility) {
+            ProjectStore.cleanUpUnusedMedia(ignoringAgeFor: names)
+        }
+    }
+
+    /// アプリのカメラで撮った動画を写真ライブラリに保存してから(追加だけの許可)プロジェクトを消す。
+    /// 1 本でも保存できなければ消さずに知らせる
+    private func saveTakesThenDelete(_ meta: ProjectMeta, takes: [URL]) {
+        guard !isSavingTakesBeforeDelete else { return }
+        isSavingTakesBeforeDelete = true
+        Task { @MainActor in
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else {
+                isSavingTakesBeforeDelete = false
+                showAlert(String(localized: "削除しませんでした"),
+                          String(localized: "写真ライブラリへの保存が許可されていません。設定アプリで許可してから、もう一度お試しください。"))
+                return
+            }
+            var failed = false
+            for url in takes {
+                do {
+                    try await PHPhotoLibrary.shared().performChanges {
+                        _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+                    }
+                } catch {
+                    failed = true
+                }
+            }
+            isSavingTakesBeforeDelete = false
+            if failed {
+                showAlert(String(localized: "削除しませんでした"),
+                          String(localized: "撮った動画を写真に保存できませんでした。プロジェクトはそのまま残しています。"))
+                return
+            }
+            deleteProject(meta)
+            showAlert(String(localized: "削除しました"),
+                      String(localized: "撮った動画 \(takes.count) 本を写真アプリに保存してから、プロジェクトを削除しました。"))
+        }
+    }
+
     // MARK: 部品
 
     private var newProjectButton: some View {
         Button {
-            // 比率を選んでから作る(動画の置き場所は最後に使ったもの。編集画面の「その他」で変えられる)
+            // 比率を選んでから作る(動画の置き場所は最後に使ったもの。シートに出して、そこでも変えられる)
             guard !isPackageBusy else { return }
+            newMediaMode = NewProjectMediaMode.last
             showAspectPicker = true
         } label: {
             HStack(spacing: 10) {
@@ -606,6 +715,8 @@ struct ProjectLibraryView: View {
 
     private func beginDelete(_ meta: ProjectMeta) {
         deleteTarget = meta
+        deleteCameraTakes = ProjectStore.inAppCameraTakeURLs(projectID: meta.id)
+        deleteHasRecordedAudio = ProjectStore.hasRecordedAudio(projectID: meta.id)
         isDeleting = true
     }
 
@@ -625,27 +736,38 @@ struct ProjectLibraryView: View {
         exportProgress = 0
         Task { @MainActor in
             do {
-                let url = try await ProjectPackage.export(projectID: meta.id, progress: { value in
+                let exported = try await ProjectPackage.export(projectID: meta.id, progress: { value in
                     Task { @MainActor in
                         exportProgress = value
                     }
                 })
                 exportingMeta = nil
-                // 共有シート(AirDrop・「ファイル」に保存など)を閉じるまでは、ほかの送る・受け取るを止めておく
-                isSharingPackage = true
-                let presented = PackageShare.present(url) {
-                    isSharingPackage = false
+                if exported.missingCount > 0 {
+                    // 入れられなかった素材があれば、送る前に知らせる(このまま送るか、やめるかを選んでもらう)
+                    pendingShareMissingCount = exported.missingCount
+                    pendingShareURL = exported.url
+                    return
                 }
-                if !presented {
-                    isSharingPackage = false
-                    showAlert(String(localized: "送れませんでした"),
-                              String(localized: "もう一度「別の端末に送る」を押してください。"))
-                }
+                sharePackage(exported.url)
             } catch {
                 exportingMeta = nil
                 showAlert(String(localized: "送る準備ができませんでした"),
                           String(localized: "端末の空き容量を確かめて、もう一度「別の端末に送る」を押してください。\n\n詳細: ") + error.localizedDescription)
             }
+        }
+    }
+
+    /// まとめたパッケージを共有シート(AirDrop・「ファイル」に保存など)で送る
+    private func sharePackage(_ url: URL) {
+        // 共有シートを閉じるまでは、ほかの送る・受け取るを止めておく
+        isSharingPackage = true
+        let presented = PackageShare.present(url) {
+            isSharingPackage = false
+        }
+        if !presented {
+            isSharingPackage = false
+            showAlert(String(localized: "送れませんでした"),
+                      String(localized: "もう一度「別の端末に送る」を押してください。"))
         }
     }
 
@@ -664,13 +786,19 @@ struct ProjectLibraryView: View {
         isImporting = true
         Task { @MainActor in
             do {
-                let meta = try await ProjectPackage.importPackage(from: url)
+                let imported = try await ProjectPackage.importPackage(from: url)
+                let meta = imported.meta
                 isImporting = false
                 if removeAfterImport {
                     // 読み込んだので、受け取り用にコピーされたパッケージ(Documents/Inbox)は要らない
                     try? FileManager.default.removeItem(at: url)
                 }
-                showAlert(String(localized: "受け取りました"), String(localized: "「\(meta.name)」を一覧に追加しました。タップすると開けます。"))
+                var message = String(localized: "「\(meta.name)」を一覧に追加しました。タップすると開けます。")
+                if !imported.missingFontNames.isEmpty {
+                    // パッケージに入っておらず、この端末にも無いフォント(標準のフォントに変わることを伝える)
+                    message += "\n\n" + String(localized: "この端末に無いフォントがあるため、標準のフォントで表示されます: \(imported.missingFontNames.joined(separator: "、"))")
+                }
+                showAlert(String(localized: "受け取りました"), message)
             } catch {
                 isImporting = false
                 showAlert(String(localized: "受け取れませんでした"), String(localized: "「別の端末に送る」で作った .videomania のファイルを選んでください。途中で壊れたときは送り直してもらってください。\n\n詳細: ") + error.localizedDescription)
@@ -680,7 +808,8 @@ struct ProjectLibraryView: View {
 
     /// 受け取り・送る準備・共有シート・落とした素材の受け取りのどれかが進行中
     private var isPackageBusy: Bool {
-        isImporting || exportingMeta != nil || isSharingPackage || isLoadingDrop
+        isImporting || exportingMeta != nil || isSharingPackage || isLoadingDrop || pendingShareURL != nil
+            || isSavingTakesBeforeDelete
     }
 
     /// 「ファイル」アプリなどから開かれた .videomania を、ほかの送る・受け取るが終わっていれば受け取る
@@ -749,27 +878,73 @@ private enum PackageShare {
 /// 「新しいプロジェクト」を押したときの 9:16 / 16:9 / 1:1(大きなアイコン 3 つを 1 行で)
 private struct NewProjectAspectSheet: View {
     let selected: CanvasAspect
+    /// 動画の置き場所(前のプロジェクトで変えたものが引き継がれるので、黙って使わずにここに出す)
+    let mediaMode: ProjectMediaMode
+    let onChangeMediaMode: (ProjectMediaMode) -> Void
     let onPick: (CanvasAspect) -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            ForEach(NewProjectAspect.choices) { aspect in
-                Button {
-                    onPick(aspect)
-                } label: {
-                    tile(aspect)
+        VStack(spacing: 6) {
+            HStack(spacing: 12) {
+                ForEach(NewProjectAspect.choices) { aspect in
+                    Button {
+                        onPick(aspect)
+                    } label: {
+                        tile(aspect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Self.accessibilityName(aspect))
+                    .accessibilityAddTraits(aspect == selected ? .isSelected : [])
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Self.accessibilityName(aspect))
-                .accessibilityAddTraits(aspect == selected ? .isSelected : [])
             }
+            mediaModeRow
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .presentationDetents([.height(190)])
+        .presentationDetents([.height(mediaMode == .photoLibrary ? 270 : 240)])
         .presentationDragIndicator(.visible)
         .presentationBackground(Color(white: 0.08))
         .preferredColorScheme(.dark)
+    }
+
+    /// 動画の置き場所(タップで変えられる)。「写真ライブラリから参照」のときは注意も出す
+    private var mediaModeRow: some View {
+        VStack(spacing: 2) {
+            Menu {
+                Button {
+                    onChangeMediaMode(.appCopy)
+                } label: {
+                    Label(ProjectMediaMode.appCopy.displayName,
+                          systemImage: mediaMode == .appCopy ? "checkmark" : "square.and.arrow.down")
+                }
+                Button {
+                    onChangeMediaMode(.photoLibrary)
+                } label: {
+                    Label(ProjectMediaMode.photoLibrary.displayName,
+                          systemImage: mediaMode == .photoLibrary ? "checkmark" : "photo.on.rectangle")
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: mediaMode == .photoLibrary ? "photo.on.rectangle" : "square.and.arrow.down")
+                    Text("動画の置き場所: \(mediaMode.displayName)")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                }
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(mediaMode == .photoLibrary ? Color.yellow : Color.white.opacity(0.75))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            if mediaMode == .photoLibrary {
+                Text("写真アプリで元の動画を消すと、このプロジェクトでも使えなくなります")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private func tile(_ aspect: CanvasAspect) -> some View {
@@ -838,6 +1013,12 @@ private struct ProjectCardView: View {
                     .overlay(alignment: .bottomTrailing) {
                         durationBadge
                     }
+                    // 「写真ライブラリから参照」のプロジェクトの印(写真アプリで元の動画を消すと使えなくなるため)
+                    .overlay(alignment: .topLeading) {
+                        if meta.effectiveMediaMode == .photoLibrary {
+                            photoLibraryBadge
+                        }
+                    }
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
@@ -887,6 +1068,18 @@ private struct ProjectCardView: View {
     private var subtitle: String {
         let date = ProjectDateText.relative(meta.updatedAt)
         return date + String(localized: " ・ \(meta.clipCount) クリップ")
+    }
+
+    private var photoLibraryBadge: some View {
+        Label("写真を参照", systemImage: "photo.on.rectangle")
+            .labelStyle(.titleAndIcon)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.black.opacity(0.65), in: Capsule())
+            .padding(6)
+            .accessibilityLabel(Text("写真ライブラリから参照"))
     }
 
     private var durationBadge: some View {

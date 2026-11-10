@@ -105,12 +105,16 @@ enum SafeZoneGuide: String, CaseIterable, Identifiable {
         return regions.contains { $0.rect.contains(p) }
     }
 
-    /// 中心が隠れる範囲にあるテキスト・ステッカーの数(モザイクは数えない。キーフレームの動きは見ない)
-    func hiddenTextCount(in clips: [TextClip], canvasSize: CGSize, documentary: DocumentaryStyle) -> Int {
-        guard isOn else { return 0 }
+    /// 中心が隠れる範囲にあるテキスト・ステッカーの数(モザイクは数えない。キーフレームの動きは見ない)。
+    /// 範囲は 9:16 で測ったものなので、ほかの比率(ガイドの線を描かないとき)は 0。
+    /// time を渡すと、その時刻に画面に出ているテキストだけを数える(後ろの見えていないテキストで警告を出さない)
+    func hiddenTextCount(in clips: [TextClip], canvasSize: CGSize, documentary: DocumentaryStyle,
+                         at time: Double? = nil) -> Int {
+        guard isOn, Self.isPortrait9x16(canvasSize) else { return 0 }
         var count = 0
         // 端に固定したテキストの center は控えなので、描画と同じ位置で判定する
         for clip in clips where !clip.isMosaic && covers(TextRenderer.placedCenter(for: clip, canvasSize: canvasSize, documentary: documentary)) {
+            if let time, !clip.contains(timelineTime: time) { continue }
             count += 1
         }
         return count

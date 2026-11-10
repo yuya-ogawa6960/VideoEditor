@@ -245,17 +245,24 @@ final class EditorHistory {
     private var undoStack: [ProjectSnapshot] = []
     private var redoStack: [ProjectSnapshot] = []
     private let limit = 50
+    /// 直前の record() で消した「やり直す」と、そのとき積んだ記録。
+    /// パネル・シートを開いて何も変えずに閉じた(discardLastIfUnchanged でその記録を捨てた)ときは、やり直しを戻す。
+    /// 元に戻したあとにパネルを開いて閉じただけで「やり直す」が消えていた
+    @ObservationIgnored private var stashedRedo: (record: ProjectSnapshot, redo: [ProjectSnapshot])?
 
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
-    /// 変更前の状態を保存する
-    func record(_ project: EditorProject) {
+    /// 変更前の状態を保存する。新しく積んだら true(直前の記録と同じ状態なら積まずに false)
+    @discardableResult
+    func record(_ project: EditorProject) -> Bool {
         let snap = project.snapshot()
-        if let last = undoStack.last, last == snap { return }
+        if let last = undoStack.last, last == snap { return false }
         undoStack.append(snap)
         if undoStack.count > limit { undoStack.removeFirst(undoStack.count - limit) }
+        stashedRedo = redoStack.isEmpty ? nil : (record: snap, redo: redoStack)
         redoStack.removeAll()
+        return true
     }
 
     func undo(_ project: EditorProject) {
@@ -265,18 +272,32 @@ final class EditorHistory {
             undoStack.removeLast()
         }
         guard let previous = undoStack.popLast() else { return }
+        stashedRedo = nil
         redoStack.append(current)
         project.restore(previous)
     }
 
-    /// 直前の記録が今と同じ状態なら取り除く(パネルを開いて何も変えずに閉じたときなど)。やり直しの記録はそのまま
+    /// 直前の記録が今と同じ状態なら取り除く(パネルを開いて何も変えずに閉じたときなど)。
+    /// その記録を積んだときに消した「やり直す」は元に戻す(何も変えていないので、やり直しはそのまま使える)
     func discardLastIfUnchanged(_ project: EditorProject) {
         guard let last = undoStack.last, last == project.snapshot() else { return }
         undoStack.removeLast()
+        if let stash = stashedRedo, redoStack.isEmpty, stash.record == last {
+            redoStack = stash.redo
+        }
+        stashedRedo = nil
+    }
+
+    /// いま「元に戻す」を押すと戻る先(今と同じ記録は飛ばす。undo と同じ)。無ければ nil。
+    /// トーストの「元に戻す」が、トーストを出した操作を戻すかを確かめるのに使う(ContentView)
+    func undoTarget(_ project: EditorProject) -> ProjectSnapshot? {
+        let current = project.snapshot()
+        return undoStack.last(where: { $0 != current })
     }
 
     func redo(_ project: EditorProject) {
         guard let next = redoStack.popLast() else { return }
+        stashedRedo = nil
         undoStack.append(project.snapshot())
         project.restore(next)
     }
@@ -284,6 +305,7 @@ final class EditorHistory {
     func clear() {
         undoStack.removeAll()
         redoStack.removeAll()
+        stashedRedo = nil
     }
 }
 

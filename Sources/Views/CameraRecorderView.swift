@@ -306,6 +306,25 @@ struct CameraRecorderView: View {
 
     private var bottomBar: some View {
         VStack(spacing: 12) {
+            // マイクが許可されていないときは、撮る前に音なしになることを知らせる(CameraRecorder.isMicrophoneUnavailable)
+            if recorder.isMicrophoneUnavailable {
+                VStack(spacing: 6) {
+                    Text(String(localized: "マイクが許可されていないので、音なしで録ります。設定アプリで「マイク」を許可できます。"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(String(localized: "設定を開く")) {
+                        openSystemSettings()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .frame(minHeight: 44)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 16)
+            }
             if let hint = framingHint {
                 Text(hint)
                     .font(.caption.weight(.semibold))

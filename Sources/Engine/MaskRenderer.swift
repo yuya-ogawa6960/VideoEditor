@@ -65,7 +65,14 @@ enum MaskRenderer {
         guard settings.isActive, frameRect.width >= 2, frameRect.height >= 2, !frameRect.isInfinite else { return image }
         // キーフレームで枠の大きさが毎フレーム変わってもキャッシュが効くよう、長辺を 32 px 単位に切り上げた
         // 大きさで描き、同じ倍率で縮小して枠に合わせる(縦横同じ倍率なので形は変わらない)
-        let drawSize = Self.drawSize(for: frameRect.size)
+        var drawSize = Self.drawSize(for: frameRect.size)
+        // 大きく拡大した枠(4K の書き出しで画面より大きいワイプなど)は、長辺 maxDrawSide まで縮めて描いてから広げる
+        // (長辺が 8192 px を超えるとマスクを作れず、形が外れて四角いまま書き出されていた)
+        let longSide = max(drawSize.width, drawSize.height)
+        if longSide > Self.maxDrawSide {
+            let k = Self.maxDrawSide / longSide
+            drawSize = CGSize(width: max(2, (drawSize.width * k).rounded()), height: max(2, (drawSize.height * k).rounded()))
+        }
         guard let maskImage = Self.mask(for: settings, size: drawSize) else { return image }
         let sx: CGFloat = frameRect.width / drawSize.width
         let sy: CGFloat = frameRect.height / drawSize.height
@@ -96,6 +103,9 @@ enum MaskRenderer {
         guard let cg = drawShape(settings, width: w, height: h) else { return nil }
         return UIImage(cgImage: cg)
     }
+
+    /// オーバーレイのマスクを描く長辺の上限(px)。これより大きい枠は縮めて描いて広げる
+    private static let maxDrawSide: CGFloat = 4096
 
     /// マスクを描くピクセルサイズ。長辺を 32 px 単位に切り上げ、短辺は同じ倍率で丸める(縦横比はほぼ保たれる)
     private static func drawSize(for size: CGSize) -> CGSize {

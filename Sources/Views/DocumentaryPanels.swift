@@ -208,7 +208,12 @@ struct EditorDocumentaryPanel: View {
             VStack(alignment: .leading, spacing: 8) {
                 Button {
                     EditorHaptics.tap()
-                    project.documentary = Self.recommendedStyle
+                    var style = Self.recommendedStyle
+                    // 縦長・正方形の画面では上下の黒帯を付けない(9:16 では映像の約 4 分の 3 が隠れるため。AutoEditor.isWideCanvas)
+                    if !AutoEditor.isWideCanvas(project.snapshot()) {
+                        style.letterbox = false
+                    }
+                    project.documentary = style
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "sparkles")

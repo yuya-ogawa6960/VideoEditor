@@ -142,15 +142,23 @@ struct SafeZonePreviewLayer: View {
     let renderSize: CGSize
     /// 手書き中はボタンを出さない(角の線が描けなくなるため)
     var showsButton: Bool = true
+    /// 再生位置で画面に出ているテキストだけを数えるのに使う(nil ならすべて数える)
+    var player: PlayerController? = nil
+
+    /// 隠れているテキストの数。ガイドの線を描く 9:16 のときだけ数える(横長では線が出ないので警告も出さない)
+    private var hiddenTextCount: Int {
+        guard guide.isOn, SafeZoneGuide.isPortrait9x16(renderSize) else { return 0 }
+        return guide.hiddenTextCount(in: project.textClips,
+                                     canvasSize: renderSize,
+                                     documentary: project.documentary,
+                                     at: player?.currentTime)
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             SafeZoneOverlay(guide: guide, renderSize: renderSize)
             if showsButton {
-                SafeZoneGuideButton(guide: $guide,
-                                    hiddenTextCount: guide.hiddenTextCount(in: project.textClips,
-                                                                           canvasSize: renderSize,
-                                                                           documentary: project.documentary))
+                SafeZoneGuideButton(guide: $guide, hiddenTextCount: hiddenTextCount)
             }
         }
         // ガイドを出していないときもプレビュー全体に広げる(ボタンを左上に置くため)

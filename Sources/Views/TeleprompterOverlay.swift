@@ -237,18 +237,15 @@ private struct TeleprompterChip: View {
 
 // MARK: - 台本の入力
 
-/// 台本の文章を入れるシート(最後の台本は @AppStorage に残す。AI 台本(ScriptWriterDraft)があればそこから取れる)
+/// 台本の文章を入れるシート(最後の台本は @AppStorage に残す。AI 台本(ScriptWriterDraft.lastScript)があればそこから取れる)
 struct TeleprompterScriptSheet: View {
     @AppStorage(TeleprompterSettingsKey.script) private var script = ""
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isEditing: Bool
 
-    /// AI 台本(ScriptWriterView で作ったもの)。無ければ nil
+    /// AI 台本(ScriptWriterView で最後に残したもの。アプリを開き直しても残る)。無ければ nil
     private var aiScript: String? {
-        let lines = ScriptWriterDraft.lines
-            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        return lines.isEmpty ? nil : lines.joined(separator: "\n\n")
+        ScriptWriterDraft.lastScript
     }
 
     var body: some View {

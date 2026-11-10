@@ -61,6 +61,12 @@ struct EditorMosaicPanel: View {
                             value: style.strength,
                             range: 0...1,
                             display: "\(Int((style.wrappedValue.strength * 100).rounded()))%")
+            // オフにすると V1 の映像だけにかかる(上に重ねた B ロール・ワイプはぼかさない)
+            Toggle(isOn: style.coversOverlays) {
+                Text("重ねた素材(V2 など)にもかける")
+                    .font(.subheadline)
+            }
+            .tint(.accentColor)
             // 回転はプレビューの枠の上のつまみか 2 本指。ここは 0° に戻すだけ
             HStack(spacing: 8) {
                 if isKeyed {
@@ -80,6 +86,7 @@ struct EditorMosaicPanel: View {
             Button("リセット") {
                 var reset = MosaicStyle()
                 reset.kind = style.wrappedValue.kind
+                reset.coversOverlays = style.wrappedValue.coversOverlays
                 clip.mosaic = reset
                 clip.widthRatio = 0.3
                 updatePlacement {
@@ -197,7 +204,14 @@ struct EditorPacingPanel: View {
                 summary(.dull)
                 Spacer()
                 settingsMenu
-                EditorChip(title: String(localized: "再チェック"), isSelected: false) { onRerun() }
+                EditorChip(title: String(localized: "再チェック"), isSelected: false) {
+                    // 無料プランでは再チェックも 1 回ごとに試用(ポイント)の確認を通す(パネルを開いている間に何度でも使えないように)
+                    if PlanStore.shared.allows(.editCheck) {
+                        onRerun()
+                    } else {
+                        PlanTrial.offer(.editCheck, run: onRerun)
+                    }
+                }
             }
             Text(settingsText)
                 .font(.caption)

@@ -11,7 +11,7 @@ import CoreVideo
 // 1 フレームの手順:
 //   クリップ(1 つ、またはトランジション中は 2 つ)
 //     ソース(トラック / 静止画)→ 向き → ジオメトリ → フィルタ → キャンバスに配置 → ルック → イン/アウト
-//   → トランジション合成 → Bロール/ワイプ → 周辺減光・粒子 → 章タイトル/テロップ
+//   → トランジション合成 → モザイク(V1 だけ)→ Bロール/ワイプ → モザイク(重ねた素材にもかけるもの)→ 周辺減光・粒子 → 章タイトル/テロップ
 //   → 手書き → テキストレイヤー → 字幕 → 黒帯・黒フェード → 透かし
 // =====================================================================
 
@@ -161,6 +161,15 @@ struct VideoCompositorOverlay {
 
     /// 動画を描くために必要なソーストラックか(写真は不要)
     var needsSourceFrame: Bool { !isImage && trackID != nil }
+
+    /// 全体の色味(全体の仕上げのルック)をかけるか。動画(B ロール・ワイプ)と、透明の無い写真(JPEG・HEIC)にかける
+    /// (メインの映像と色がそろうように)。ロゴ・ステッカーに使う透明つきの画像(PNG・GIF など)は、色が変わらないようかけない
+    var takesGlobalLook: Bool {
+        guard isImage else { return true }
+        if isAnimatedImage { return false }
+        let ext = url.pathExtension.lowercased()
+        return ext == "jpg" || ext == "jpeg" || ext == "heic" || ext == "heif"
+    }
 
     func contains(timelineTime time: Double) -> Bool {
         time >= start && time < end
@@ -331,6 +340,8 @@ final class VideoCompositorScene {
     let totalDuration: Double
     /// 映像エフェクト(開始時刻順。VideoEffectRenderer)
     let videoEffects: [VideoEffectClip]
+    /// 「簡易高画質化」で拡大かどうかを決める大きさ(書き出しの大きさ。CompositionBuilder が作った直後に入れる。0 ならいまの描画の大きさ)
+    var sharpenReferenceSize: CGSize = .zero
 
     init(renderSize: CGSize,
          scaling: ScalingMode,
@@ -658,18 +669,24 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                 frame = image.composited(over: frame)
             }
 
-            // 1.5 モザイク / ぼかし(元の映像だけ。この上に重なるオーバーレイ・文字・キャプションにはかけない)
+            // 1.5 モザイク / ぼかし(V1 だけにかけるもの。この上に重なるオーバーレイ・文字・キャプションにはかけない)
             frame = MosaicRenderer.apply(scene.textClips, to: frame, time: seconds, canvasSize: size)
 
-            // 2. Bロール / ワイプ / 写真(メイン映像とルックの後、質感・テロップ・字幕・黒帯・フェードの前)
+            // 2. Bロール / ワイプ / 写真(メイン映像とルックの後、質感・テロップ・字幕・黒帯・フェードの前)。
+            // 全体の色味(全体の仕上げのルック)も動画・写真のオーバーレイにかける(元の色を見る長押しの「全部」の間は外す)
             if !scene.mediaOverlays.isEmpty {
+                let overlayLook: DocumentaryRenderInfo? = bypassesAllLooks() ? nil : withLiveLook(scene.documentary)
                 frame = OverlayRenderer.draw(withLiveFilters(scene.mediaOverlays),
                                              over: frame,
                                              time: seconds,
                                              request: request,
                                              canvasSize: size,
-                                             accurate: scene.postsFrames)
+                                             accurate: scene.postsFrames,
+                                             look: overlayLook)
             }
+
+            // 2.2 重ねた素材(V2 以上)の上にもかけるモザイク(B ロール・ワイプに映った顔も隠す。文字・キャプションにはかけない)
+            frame = MosaicRenderer.apply(scene.textClips, to: frame, time: seconds, canvasSize: size, overOverlays: true)
 
             // 2.5 映像エフェクト(メイン映像とオーバーレイを合わせた画面全体。質感・文字・キャプションにはかけない)
             // (元の色を見る長押しで「全部」のときは、映像エフェクトと質感を飛ばす)
@@ -748,6 +765,8 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                              canvasSize size: CGSize) -> CIImage? {
         let canvas = CGRect(origin: .zero, size: size)
         var source: CIImage? = nil
+        // マルチカメラの別アングルのコマを使ったか(手ぶれ補正・リフレームはメインのカメラで調べた値なのでかけない)
+        var usedAngle = false
 
         if let still = layer.stillImageURL {
             source = OverlayRenderer.cachedImage(url: still, canvasSize: size)
@@ -767,6 +786,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
                 transform = layer.transform
                 usedTrack = trackID
             }
+            usedAngle = usedTrack != trackID
             if let buffer {
                 var image = CIImage(cvPixelBuffer: buffer)
                 if layer.smoothSlow {
@@ -781,8 +801,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         let isStill = layer.stillImageURL != nil
         let sourceTime: Double? = isStill ? nil : layer.sourceTime(at: time)
 
-        // 手ぶれ補正(向き反映済みのソースに対して、平行移動 → 回転 → 端を隠す拡大)
-        if !isStill, layer.stabilization.isActive, let st = sourceTime,
+        // 手ぶれ補正(向き反映済みのソースに対して、平行移動 → 回転 → 端を隠す拡大)。
+        // 別アングルのコマにはかけない(メインの揺れの補正で、止まっていた三脚の映像が揺れていた)
+        if !isStill, !usedAngle, layer.stabilization.isActive, let st = sourceTime,
            let sample = layer.stabilization.sample(at: st) {
             image = Self.stabilized(image, sample: sample, track: layer.stabilization)
         }
@@ -834,8 +855,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         // キャンバスへの配置(自動リフレームが効く条件ならクロップ窓を切り出して埋める)
         var placed: CIImage
         var reframed = false
-        if !isStill, let st = sourceTime,
+        if !isStill, !usedAngle, let st = sourceTime,
            let window = reframeCrop(layer: layer, sourceTime: st, time: time,
+                                    geometry: geometry,
                                     imageSize: sourceExtent.size,
                                     canvasSize: pane.isFull ? size : CGSize(width: size.width * CGFloat(pane.width),
                                                                            height: size.height * CGFloat(pane.height)),
@@ -859,8 +881,14 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
         // 簡易高画質化(配置後。拡大されていればアンシャープマスク、そうでなければ弱いシャープ)
         if !bypassLook, layer.enhance.sharpenUpscale > 0.001, sourceExtent.width >= 1, sourceExtent.height >= 1, !sourceExtent.isInfinite {
-            let fitScale = min(size.width / sourceExtent.width, size.height / sourceExtent.height)
-            placed = EnhanceFilters.sharpen(placed, amount: layer.enhance.sharpenUpscale, upscaled: fitScale > 1.02)
+            // 拡大かどうかは書き出しの大きさで決める(プレビューは短辺 720 なので、書き出しだけアンシャープマスクになっていた)。
+            // 写真は描く大きさに合わせて読み込むので、いまの大きさのまま測る。半径はいまの描画の大きさに合わせて縮める
+            let reference = (!isStill && scene.sharpenReferenceSize.width >= 1 && scene.sharpenReferenceSize.height >= 1)
+                ? scene.sharpenReferenceSize : size
+            let fitScale = min(reference.width / sourceExtent.width, reference.height / sourceExtent.height)
+            let radiusScale = Double(min(size.width, size.height) / max(1, min(reference.width, reference.height)))
+            placed = EnhanceFilters.sharpen(placed, amount: layer.enhance.sharpenUpscale, upscaled: fitScale > 1.02,
+                                            radiusScale: radiusScale)
                 .cropped(to: canvas)
         }
 
@@ -959,6 +987,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
     private func reframeCrop(layer: VideoCompositorClipLayer,
                              sourceTime: Double,
                              time: Double,
+                             geometry: ClipGeometry,
                              imageSize: CGSize,
                              canvasSize: CGSize,
                              scaling: ScalingMode) -> CGRect? {
@@ -984,7 +1013,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         cropW = max(2, cropW / zoom)
         cropH = max(2, cropH / zoom)
 
-        let target = track.center(at: sourceTime)
+        // 解析した注目点は元の絵の座標なので、回転・反転・切り抜き・ズームのあとの座標に直す
+        // (そのまま使うと、反転したクリップでは人物と逆の側を映していた。外に出たら端に寄せる)
+        let target = ClipGeometryMapping.point(track.center(at: sourceTime), geometry: geometry)
         let center = smoothedReframeCenter(clipID: layer.clipID, target: target, time: time, smoothing: track.smoothing)
 
         // 左上原点の正規化座標 → CoreImage 座標(左下原点)、窓が画像からはみ出さないように

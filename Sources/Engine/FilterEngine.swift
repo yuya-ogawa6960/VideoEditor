@@ -161,8 +161,9 @@ enum FilterEngine {
         let highlights = clamp(adj.highlights, -1, 1)
         let shadows = clamp(adj.shadows, -1, 1)
 
-        // 基本: 明るさ / コントラスト / 彩度(正のハイライトは明るさを少し足して表現する)
-        let brightness = adj.brightness + 0.05 * max(0, highlights)
+        // 基本: 明るさ / コントラスト / 彩度
+        // (前は正のハイライトを明るさ +0.05 で表していたので、暗い部分まで画面全体が少し明るくなるだけだった。下のトーンカーブにした)
+        let brightness = adj.brightness
         if brightness != 0 || adj.contrast != 1 || adj.saturation != 1 {
             output = output.applyingFilter("CIColorControls", parameters: [
                 kCIInputBrightnessKey: NSNumber(value: brightness),
@@ -178,12 +179,27 @@ enum FilterEngine {
             ])
         }
 
-        // 色温度(負で青く、正で暖かく)
+        // 色温度(負で青く、正で暖かく)。CITemperatureAndTint は色を inputNeutral の白から inputTargetNeutral の白へ動かす
+        // (Apple の例: neutral 11500 → target 4000 でオレンジ寄りになる)。前は target 側を 6500 + t × 2500 にしていたので、
+        // + で青く、- で暖かくなっていた(しかも - 側だけ約 2 倍強かった)。
+        // neutral 側をミレッド(1,000,000 ÷ ケルビン)で ±70 動かし、target は 6500 K にする(+1 で約 11900 K → 6500 K = 暖かく)
         if adj.temperature != 0 {
-            let target = 6500 + clamp(adj.temperature, -1, 1) * 2500
+            let mired = 1_000_000.0 / 6500.0 - clamp(adj.temperature, -1, 1) * 70
+            let neutral = 1_000_000.0 / max(mired, 1)
             output = output.applyingFilter("CITemperatureAndTint", parameters: [
-                "inputNeutral": CIVector(x: 6500, y: 0),
-                "inputTargetNeutral": CIVector(x: CGFloat(target), y: 0)
+                "inputNeutral": CIVector(x: CGFloat(neutral), y: 0),
+                "inputTargetNeutral": CIVector(x: 6500, y: 0)
+            ])
+        }
+
+        // 正のハイライト: 明るい部分だけを持ち上げる(黒と白はそのまま。暗い部分はほとんど変えない)
+        if highlights > 0 {
+            output = output.applyingFilter("CIToneCurve", parameters: [
+                "inputPoint0": CIVector(x: 0, y: 0),
+                "inputPoint1": CIVector(x: 0.25, y: 0.25),
+                "inputPoint2": CIVector(x: 0.5, y: CGFloat(0.5 + 0.02 * highlights)),
+                "inputPoint3": CIVector(x: 0.75, y: CGFloat(0.75 + 0.10 * highlights)),
+                "inputPoint4": CIVector(x: 1, y: 1)
             ])
         }
 

@@ -94,6 +94,9 @@ enum ReelFinisher {
                 if b > a + 0.05 { silentOutput.append((start: a, end: min(b, placement.end))) }
             }
         }
+        // ナレーション・効果音が鳴っている所は詰めない(詰めるとナレーションの終わりが切れ、話の間の効果音が消える)
+        silentOutput = EditorProject.subtracting(EditorProject.narrationBusyRanges(project.narration),
+                                                 from: silentOutput, minimumLength: 0.05)
         if !silentOutput.isEmpty {
             summary.silenceCuts = silentOutput.count
             project.removeOutputRanges(silentOutput)

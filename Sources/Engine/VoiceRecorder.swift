@@ -138,7 +138,8 @@ final class VoiceRecorder {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        let fileName = "ナレーション \(formatter.string(from: Date())).m4a"
+        // 名前は端末の言語で(ナレーションの帯に出る)
+        let fileName = String(localized: "ナレーション") + " \(formatter.string(from: Date())).m4a"
         let url = MediaStore.uniqueDestination(forFileName: fileName)
 
         let settings: [String: Any] = [

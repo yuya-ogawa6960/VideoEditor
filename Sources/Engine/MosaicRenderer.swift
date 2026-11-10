@@ -3,9 +3,10 @@ import CoreImage
 import CoreGraphics
 
 // =====================================================================
-// モザイク / ぼかしの描画(VideoCompositor から、元の映像を描いた直後に呼ぶ)。
-// オーバーレイ(ワイプ・写真・Bロール)はこの上に重なるので、モザイクはかからない。
-// テキスト・字幕・透かしはこの後に重なるので、モザイクはかからない。
+// モザイク / ぼかしの描画(VideoCompositor から 2 回呼ぶ)。
+// 1 回目: 元の映像を描いた直後(V1 だけにかけるモザイク。オーバーレイはこの上に重なるのでかからない)
+// 2 回目: オーバーレイ(ワイプ・写真・Bロール)を重ねた後(MosaicStyle.coversOverlays。V2 以上に映った顔も隠す)
+// テキスト・字幕・透かしはこの後に重なるので、どちらもかからない。
 // =====================================================================
 
 enum MosaicRenderer {
@@ -13,9 +14,13 @@ enum MosaicRenderer {
     /// 1 つのモザイクは下の映像を 2 回使う(ぼかす元と、背景)。そのまま重ねると、モザイクが 1 つ増えるごとに
     /// それより前の描画(映像の読み込み・色・オーバーレイ)が倍々にやり直され、数個で書き出しが止まったように
     /// 遅くなっていた。各段を「中間結果」にして 1 回だけ描き、効果もモザイクの範囲の周りだけで計算する
-    static func apply(_ clips: [TextClip], to frame: CIImage, time: Double, canvasSize: CGSize) -> CIImage {
+    /// overOverlays: false = V1 だけにかけるモザイク、true = 重ねた素材の上にもかけるモザイク(coversOverlays)
+    static func apply(_ clips: [TextClip], to frame: CIImage, time: Double, canvasSize: CGSize,
+                      overOverlays: Bool = false) -> CIImage {
         guard canvasSize.width >= 2, canvasSize.height >= 2 else { return frame }
-        let active = clips.filter { $0.isMosaic && $0.contains(timelineTime: time) }
+        let active = clips.filter {
+            $0.isMosaic && $0.contains(timelineTime: time) && ($0.mosaic?.coversOverlays ?? false) == overOverlays
+        }
         guard !active.isEmpty else { return frame }
         var result = frame.insertingIntermediate(cache: false)
         for clip in active {

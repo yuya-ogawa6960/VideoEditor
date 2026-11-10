@@ -127,18 +127,35 @@ enum SRTCodec {
         return cues
     }
 
-    /// Data から文字コードを推定して decode する(UTF-8 → UTF-16 → Shift_JIS の順に試す)
+    /// Data から文字コードを推定して decode する(UTF-8 → UTF-16 → Shift_JIS の順に試す)。
+    /// UTF-16 は BOM があるか NUL バイトが多いときだけ試す(Shift_JIS の短いファイルが UTF-16 として読めてしまい、
+    /// 文字化けした文で「キャプションが見つかりませんでした」になっていた)。
+    /// 読めてもキャプションが 1 件も無ければ、次の文字コードを試す
     static func decode(data: Data) throws -> [SubtitleCue] {
-        if let s = String(data: data, encoding: .utf8) {
-            return try decode(s)
+        let head = [UInt8](data.prefix(4096))
+        let hasUTF16BOM = head.count >= 2
+            && ((head[0] == 0xFF && head[1] == 0xFE) || (head[0] == 0xFE && head[1] == 0xFF))
+        let nulCount = head.reduce(0) { $1 == 0 ? $0 + 1 : $0 }
+        var encodings: [String.Encoding] = [.utf8]
+        if hasUTF16BOM {
+            encodings.append(.utf16)
+        } else if head.count >= 2, nulCount * 4 >= head.count {
+            // BOM の無い UTF-16。英数字の上位バイト(0)が後ろにあれば little endian
+            encodings.append(head[1] == 0 ? .utf16LittleEndian : .utf16BigEndian)
         }
-        if let s = String(data: data, encoding: .utf16) {
-            return try decode(s)
+        encodings.append(.shiftJIS)
+
+        var readable = false
+        for encoding in encodings {
+            guard let s = String(data: data, encoding: encoding) else { continue }
+            readable = true
+            do {
+                return try decode(s)
+            } catch SRTCodecError.noCuesFound {
+                continue
+            }
         }
-        if let s = String(data: data, encoding: .shiftJIS) {
-            return try decode(s)
-        }
-        throw SRTCodecError.invalidEncoding
+        throw readable ? SRTCodecError.noCuesFound : SRTCodecError.invalidEncoding
     }
 
     // MARK: - 内部ヘルパー

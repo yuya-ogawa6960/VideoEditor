@@ -8,26 +8,109 @@ import Observation
 //   テーマ・長さ・口調から ScriptWriter.write で台本(時刻つきの行)を作り、
 //   行を直してから「ナレーションとして挿入」(TextToSpeech → ナレーション)/「キャプションとして挿入」(SubtitleCue)。
 //   「キャプションから構成案」は ScriptWriter.outline でチャプターのマーカーを追加する。
-//   作った台本はシートを閉じても ScriptWriterDraft に残す(次に開いたときに戻る)。
+//   作った台本は ScriptWriterDraft でプロジェクトごとのファイルに残す(次にそのプロジェクトで開いたときに戻る)。
 // =====================================================================
 
-/// 閉じても台本が消えないように、シートの外に残しておく下書き(TextToSpeechDraft と同じ仕組み)
+/// 閉じても台本が消えないように残しておく下書き。プロジェクトのフォルダの script_draft.json に保存する
+/// (前はメモリ上にアプリ全体で 1 つだけだったので、アプリが終了すると消え、別のプロジェクトを開くと前の台本が出ていた)。
+/// テレプロンプターの「AI 台本を使う」のために、最後に残した台本の文章は UserDefaults にも残す
+/// (プロジェクト一覧から開くカメラでも使えるように)
 enum ScriptWriterDraft {
-    static var topic = ""
-    /// nil なら、次に開いたときに動画の長さから決める
-    static var durationSeconds: Double?
-    static var tone: ScriptTone = .friendly
-    static var lines: [ScriptLine] = []
+    struct Draft {
+        var topic = ""
+        /// nil なら、開いたときに動画の長さから決める
+        var durationSeconds: Double?
+        var tone: ScriptTone = .friendly
+        var lines: [ScriptLine] = []
+    }
+
+    private struct StoredLine: Codable {
+        var time: Double
+        var text: String
+    }
+
+    private struct Stored: Codable {
+        var topic: String
+        var durationSeconds: Double?
+        var tone: String
+        var lines: [StoredLine]
+    }
+
+    private static let fileName = "script_draft.json"
+    /// テレプロンプター用: 最後に残した AI 台本の文章(行を空行でつないだもの)
+    private static let lastScriptKey = "scriptWriter.lastScript"
+
+    private static func fileURL(projectID: UUID) -> URL {
+        ProjectStore.projectDirectory(projectID: projectID).appendingPathComponent(fileName)
+    }
+
+    static func load(projectID: UUID) -> Draft {
+        guard let data = try? Data(contentsOf: fileURL(projectID: projectID)),
+              let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return Draft() }
+        var draft = Draft()
+        draft.topic = stored.topic
+        draft.durationSeconds = stored.durationSeconds
+        draft.tone = ScriptTone(rawValue: stored.tone) ?? .friendly
+        draft.lines = stored.lines.map { ScriptLine(time: $0.time, text: $0.text) }
+        return draft
+    }
+
+    /// テーマも台本も空ならファイルを消す。プロジェクトのフォルダが無い(削除済み)ときは作らない
+    static func save(_ draft: Draft, projectID: UUID) {
+        let url = fileURL(projectID: projectID)
+        let manager = FileManager.default
+        if draft.topic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.lines.isEmpty {
+            if manager.fileExists(atPath: url.path) {
+                try? manager.removeItem(at: url)
+            }
+            return
+        }
+        guard manager.fileExists(atPath: url.deletingLastPathComponent().path) else { return }
+        let stored = Stored(topic: draft.topic,
+                            durationSeconds: draft.durationSeconds,
+                            tone: draft.tone.rawValue,
+                            lines: draft.lines.map { StoredLine(time: $0.time, text: $0.text) })
+        if let data = try? JSONEncoder().encode(stored) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// 行を空行でつないだ文章(テレプロンプター用)
+    static func scriptText(_ lines: [ScriptLine]) -> String {
+        lines.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    /// テレプロンプター用に台本の文章を残す(空の台本では消さない。破棄したときは clearLastScript)
+    static func rememberLastScript(_ lines: [ScriptLine]) {
+        let text = scriptText(lines)
+        guard !text.isEmpty else { return }
+        UserDefaults.standard.set(text, forKey: lastScriptKey)
+    }
+
+    static func clearLastScript() {
+        UserDefaults.standard.removeObject(forKey: lastScriptKey)
+    }
+
+    /// 最後に残した AI 台本の文章。無ければ nil
+    static var lastScript: String? {
+        let text = UserDefaults.standard.string(forKey: lastScriptKey) ?? ""
+        return text.isEmpty ? nil : text
+    }
 }
 
 struct ScriptWriterSheetView: View {
     let project: EditorProject
     let player: PlayerController
     let history: EditorHistory
+    /// 下書きを残すプロジェクト(ScriptWriterDraft)
+    let projectID: UUID
     /// ナレーションを追加したときに呼ぶ(最後に追加した ID)
     let onNarrationAdded: (UUID) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     /// 確認してから始める AI の操作
     private enum PendingAction {
@@ -37,10 +120,13 @@ struct ScriptWriterSheetView: View {
         case outline
     }
 
-    @State private var topic = ScriptWriterDraft.topic
-    @State private var durationSeconds: Double = ScriptWriterDraft.durationSeconds ?? 60
-    @State private var tone: ScriptTone = ScriptWriterDraft.tone
-    @State private var lines: [ScriptLine] = ScriptWriterDraft.lines
+    // 下書き(ScriptWriterDraft)は onAppear でこのプロジェクトの分を読み込む
+    @State private var topic = ""
+    @State private var durationSeconds: Double = 60
+    @State private var tone: ScriptTone = .friendly
+    @State private var lines: [ScriptLine] = []
+    /// 下書きを読み込んだか(読み込む前に空の内容で上書きしないように)
+    @State private var didLoadDraft = false
     @State private var analysis = EditorAnalysisRunner()
     @State private var errorText: String?
     /// エラーの原因に合わせてアラートに付けるボタン(AccountService.swift の CloudAIGateway.recovery)
@@ -61,8 +147,15 @@ struct ScriptWriterSheetView: View {
     @State private var showsAISettings = false
     @State private var showsAccountSheet = false
 
-    // 読み上げ
-    @State private var language = "ja-JP"
+    // 読み上げ(初めはアプリの表示言語に合わせる。台本もその言語で作るため)
+    @State private var language: String = {
+        switch ScriptWriter.outputLanguage {
+        case .japanese: return "ja-JP"
+        case .spanish: return "es-MX"
+        case .portuguese: return "pt-BR"
+        case .english: return "en-US"
+        }
+    }()
     @State private var voices: [(id: String, name: String)] = []
     @State private var voiceID: String?
     /// クラウドの声(nil なら端末の声)
@@ -148,6 +241,10 @@ struct ScriptWriterSheetView: View {
                 }
                 Button("台本を破棄して閉じる", role: .destructive) {
                     analysis.cancel()
+                    // テレプロンプター用に残した文章も、この台本のものなら消す
+                    if ScriptWriterDraft.lastScript == ScriptWriterDraft.scriptText(lines) {
+                        ScriptWriterDraft.clearLastScript()
+                    }
                     lines = []
                     dismiss()
                 }
@@ -198,19 +295,38 @@ struct ScriptWriterSheetView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear {
-            // 下書きに長さが無ければ、動画の長さから決める
-            if ScriptWriterDraft.durationSeconds == nil {
-                let total = project.totalDuration
-                if total > 5 {
-                    durationSeconds = min(600, max(10, (total / 5).rounded() * 5))
+            if !didLoadDraft {
+                didLoadDraft = true
+                // このプロジェクトの下書きを読み込む(別のプロジェクトの台本は出さない)
+                let draft = ScriptWriterDraft.load(projectID: projectID)
+                topic = draft.topic
+                tone = draft.tone
+                lines = draft.lines
+                if let saved = draft.durationSeconds {
+                    durationSeconds = saved
+                } else {
+                    // 下書きに長さが無ければ、動画の長さから決める
+                    let total = project.totalDuration
+                    if total > 5 {
+                        durationSeconds = min(600, max(10, (total / 5).rounded() * 5))
+                    }
                 }
             }
             reloadVoices()
         }
         // 閉じるとき(スワイプで閉じられたときも)途中の作成を止めて、台本を下書きに残す
         .onDisappear {
-            analysis.cancel()
+            // 全画面広告がシートの上に出たときにも呼ばれるので、そのときは作成を止めない(広告のあと台本が届かないまま終わらないように)
+            if !AdsManager.shared.isShowing {
+                analysis.cancel()
+            }
             saveDraft()
+        }
+        // 開いたまま裏に回ったときも残す(そのまま iOS にアプリを終了されても消えないように)
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                saveDraft()
+            }
         }
     }
 
@@ -400,11 +516,22 @@ struct ScriptWriterSheetView: View {
     }
 
     private func saveDraft() {
-        ScriptWriterDraft.topic = topic
+        guard didLoadDraft else { return }
+        var draft = ScriptWriterDraft.Draft()
+        draft.topic = topic
         // 台本が無ければ長さは覚えない(次に開いたときに動画の長さから決める)
-        ScriptWriterDraft.durationSeconds = lines.isEmpty ? nil : durationSeconds
-        ScriptWriterDraft.tone = tone
-        ScriptWriterDraft.lines = lines
+        draft.durationSeconds = lines.isEmpty ? nil : durationSeconds
+        draft.tone = tone
+        draft.lines = lines
+        ScriptWriterDraft.save(draft, projectID: projectID)
+        ScriptWriterDraft.rememberLastScript(lines)
+    }
+
+    /// 動画の長さより後ろの時刻の行の数(挿入してもプレビュー・書き出しに入らない)
+    private var linesAfterVideoEnd: Int {
+        let total = project.totalDuration
+        guard total > 0 else { return 0 }
+        return nonEmptyLines.filter { $0.time >= total }.count
     }
 
     // MARK: 台本の行
@@ -442,7 +569,14 @@ struct ScriptWriterSheetView: View {
             }
         } footer: {
             if !lines.isEmpty {
-                Text("時刻は完成した動画での目安です。")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("時刻は完成した動画での目安です。")
+                    // 長さの違う台本を入れたときなど、動画より後ろの行は入れても聞こえず見えないので知らせる
+                    if linesAfterVideoEnd > 0 {
+                        Text("動画の長さより後ろの行が \(linesAfterVideoEnd) 行あります。挿入しても、いまは聞こえず見えません。")
+                            .foregroundStyle(.orange)
+                    }
+                }
             }
         }
     }
@@ -481,16 +615,16 @@ struct ScriptWriterSheetView: View {
 
     private var narrationSection: some View {
         Section {
-            HStack(spacing: 8) {
-                EditorChip(title: String(localized: "日本語"), isSelected: language == "ja-JP") {
-                    language = "ja-JP"
-                    reloadVoices()
+            // 端末の声の言語(「標準の声」もこの言語の声で読む)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(TTSLanguage.codes, id: \.self) { code in
+                        EditorChip(title: TTSLanguage.displayName(code), isSelected: language == code) {
+                            language = code
+                            reloadVoices()
+                        }
+                    }
                 }
-                EditorChip(title: "English", isSelected: language == "en-US") {
-                    language = "en-US"
-                    reloadVoices()
-                }
-                Spacer()
             }
 
             HStack {
@@ -552,7 +686,7 @@ struct ScriptWriterSheetView: View {
             Button {
                 insertNarration()
             } label: {
-                Label("ナレーションとして挿入", systemImage: "waveform.badge.plus")
+                Label(narrationInsertTitle, systemImage: "waveform.badge.plus")
             }
             .disabled(nonEmptyLines.isEmpty || analysis.isRunning || narrationInsertedLines == nonEmptyLines)
 
@@ -573,6 +707,37 @@ struct ScriptWriterSheetView: View {
         if let voiceID, !voices.contains(where: { $0.id == voiceID }) {
             self.voiceID = nil
         }
+        // 端末の「標準の声」は日本語の声で読むので、日本語以外のときはその言語の標準の声を選んでおく
+        if self.voiceID == nil, cloudVoice == nil, language != "ja-JP",
+           let id = AVSpeechSynthesisVoice(language: language)?.identifier,
+           voices.contains(where: { $0.id == id }) {
+            self.voiceID = id
+        }
+    }
+
+    /// ナレーションの 1 行を作った声を覚えておくキー(途中で止まったあと、作った行を使い回す。TTSResumeCache)
+    private static func narrationCacheKey(choice: TTSVoiceChoice, text: String, rate: Float, pitch: Float, language: String) -> String {
+        TTSResumeCache.key(choice: choice, text: text, rate: rate, pitch: pitch, extra: "script|" + language)
+    }
+
+    /// クラウドの声でポイントを使うときの目安(まだ作っていない行の分だけ)。ポイントを使わないなら nil
+    private var narrationEstimatedPoints: Int? {
+        guard let cloudVoice, cloudVoice.isGoogle || CloudAIGateway.prefersPoints else { return nil }
+        let choice: TTSVoiceChoice = .cloud(cloudVoice)
+        let chars = nonEmptyLines.reduce(0) { total, line in
+            let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = Self.narrationCacheKey(choice: choice, text: text, rate: rate, pitch: pitch, language: language)
+            return TTSResumeCache.url(for: key) == nil ? total + text.count : total
+        }
+        return AccountService.shared.speechPoints(forCharacters: chars)
+    }
+
+    /// 「ナレーションとして挿入」のボタン(ポイントを使うときは、押す前に目安を出す)
+    private var narrationInsertTitle: String {
+        if let points = narrationEstimatedPoints, points > 0 {
+            return String(localized: "ナレーションとして挿入 ・ 約 \(points)pt")
+        }
+        return String(localized: "ナレーションとして挿入")
     }
 
     /// クラウドの声(OpenAI / Google)に送る前の、初回だけの確認(CloudAIGateway.ensureConsent)を済ませてから作る
@@ -592,50 +757,84 @@ struct ScriptWriterSheetView: View {
         guard !items.isEmpty, !analysis.isRunning else { return }
         let chosenRate = rate
         let chosenPitch = pitch
+        let chosenLanguage = language
         errorText = nil
         narrationInfoText = nil
         player.pause()
         analysis.run(title: String(localized: "読み上げを作成中")) { report in
+            // 1 行ずつ受け止め、途中で止まっても作れた行は残す(クラウドの声はポイントを使っているため)。
+            // 作った声は TTSResumeCache に覚えておき、もう一度押したときは作り直さずに使う
             var created: [NarrationClip] = []
+            var failure: Error?
+            var failedLine = 0
+            // 前の行と重なるときは後ろへずらす(前に追加済みの行も数える)
+            var cursor: Double = 0
             let total = Double(items.count)
             for (i, line) in items.enumerated() {
                 if Task.isCancelled { break }
                 let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                let url = try await TextToSpeech.render(choice: chosenChoice, text: text,
-                                                        rate: chosenRate, pitch: chosenPitch, instructions: nil)
+                let cacheKey = Self.narrationCacheKey(choice: chosenChoice, text: text, rate: chosenRate,
+                                                      pitch: chosenPitch, language: chosenLanguage)
+                let url: URL
+                if let cached = TTSResumeCache.url(for: cacheKey) {
+                    // 途中で止まったときに追加済みの行は、もう一度入れない
+                    if let existing = project.narration.first(where: { $0.url == cached }) {
+                        cursor = max(cursor, existing.end + 0.2)
+                        report(Double(i + 1) / total)
+                        continue
+                    }
+                    url = cached
+                } else {
+                    do {
+                        url = try await TextToSpeech.render(choice: chosenChoice, text: text,
+                                                            rate: chosenRate, pitch: chosenPitch, instructions: nil,
+                                                            language: chosenLanguage)
+                    } catch {
+                        if Task.isCancelled { break }
+                        failure = error
+                        failedLine = i + 1
+                        break
+                    }
+                    TTSResumeCache.store(url, for: cacheKey)
+                }
                 let asset = AVURLAsset(url: url)
                 let loaded = try? await asset.load(.duration)
                 let seconds: Double = loaded?.seconds ?? 1
                 let duration: Double = (seconds.isFinite && seconds > 0) ? seconds : 1
                 let name = String(localized: "台本: ") + String(text.prefix(12))
-                created.append(NarrationClip(url: url, name: name, start: max(0, line.time), duration: duration))
+                let start = max(max(0, line.time), cursor)
+                created.append(NarrationClip(url: url, name: name, start: start, duration: duration))
+                cursor = start + duration + 0.2
                 report(Double(i + 1) / total)
             }
             if Task.isCancelled {
-                for clip in created {
-                    try? FileManager.default.removeItem(at: clip.url)
+                // 端末の声は消す。クラウドの声で作った分は残す(もう一度押すと続きから作り、作った分のポイントはかからない)
+                if !chosenChoice.isCloud {
+                    for clip in created {
+                        try? FileManager.default.removeItem(at: clip.url)
+                    }
                 }
                 return
             }
-            guard !created.isEmpty else { return }
-
-            // 前の行と重なるときは後ろへずらす
-            var adjusted = created
-            var cursor: Double = 0
-            for i in adjusted.indices {
-                if adjusted[i].start < cursor {
-                    adjusted[i].start = cursor
-                }
-                cursor = adjusted[i].end + 0.2
+            guard !created.isEmpty else {
+                if let failure { throw failure }
+                return
             }
 
             history.record(project)
-            project.narration.append(contentsOf: adjusted)
+            project.narration.append(contentsOf: created)
             project.sortNarration()
-            narrationInfoText = String(localized: "\(adjusted.count) 件のナレーションを追加しました。")
-            narrationInsertedLines = items
-            if let last = adjusted.last {
+            narrationInfoText = String(localized: "\(created.count) 件のナレーションを追加しました。")
+            if let last = created.last {
                 onNarrationAdded(last.id)
+            }
+            if let failure {
+                // 途中で止まった: 作れた行は追加済み。もう一度押せば残りの行だけを作る
+                narrationInsertedLines = nil
+                presentError(failure,
+                             retryHint: String(localized: "\(failedLine) 行目で止まりました。作れた \(created.count) 行は追加しました。もう一度「ナレーションとして挿入」を押すと、残りの行だけを作ります。"))
+            } else {
+                narrationInsertedLines = items
             }
         } onError: { error in
             presentError(error,
@@ -718,6 +917,8 @@ struct ScriptWriterSheetView: View {
                                                       settings: AppSettings.shared)
             if Task.isCancelled { return }
             lines = result.sorted { $0.time < $1.time }
+            // 作った台本はすぐ残す(シートを開いたままアプリが終了しても消えないように)
+            saveDraft()
             narrationInfoText = nil
             subtitleInfoText = nil
             narrationInsertedLines = nil

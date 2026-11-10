@@ -70,6 +70,10 @@ final class AnimatedImageCache {
     static let maxFrames = 300
     /// 1 ファイルあたりのメモリの上限(およそ 60 MB)
     static let maxBytes = 60 * 1024 * 1024
+    /// 同時にたくさん重ねたときの、1 ファイルあたりのメモリの下限(およそ 8 MB)
+    static let minBytes = 8 * 1024 * 1024
+    /// キャッシュ全体のメモリの上限(およそ 180 MB)
+    static let totalBytes = 3 * maxBytes
     /// 動く可能性のある拡張子(これ以外は見ない)
     static let animatedExtensions: Set<String> = ["gif", "png", "apng", "webp"]
 
@@ -81,11 +85,13 @@ final class AnimatedImageCache {
     private var animatedFlags: [String: Bool] = [:]
     /// 読めなかったファイル(毎フレーム読み直さない)
     private var failed: Set<String> = []
+    /// ファイルパス → 最後に描いた時刻(同時に重なっている GIF の数から、1 ファイルのメモリの予算を決める)
+    private var lastUse: [String: CFAbsoluteTime] = [:]
 
     private init() {
         let c = NSCache<NSString, AnimatedImageSequence>()
-        c.countLimit = 8
-        c.totalCostLimit = 3 * Self.maxBytes
+        c.countLimit = 16
+        c.totalCostLimit = Self.totalBytes
         cache = c
     }
 
@@ -134,10 +140,24 @@ final class AnimatedImageCache {
         sequence(url: url)?.duration ?? 0
     }
 
+    /// 1 周の長さ(秒)を、コマの表示時間の情報だけから求める(画像はデコードしない。読めなければ 0)。
+    /// 取り込むときに長さを決めるためだけに全コマをメインスレッドでデコードし、読み込み中の画面が止まっていた
+    static func loopDurationFromProperties(url: URL) -> Double {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else { return 0 }
+        let count = CGImageSourceGetCount(source)
+        guard count > 1 else { return 0 }
+        var total = 0.0
+        for index in 0..<count {
+            total += delay(source, index: index)
+        }
+        return total
+    }
+
     /// GIF をオーバーレイにしたときの最初の長さ(秒)。写真と同じ 4 秒以上で、1 周の切れ目に合わせる
     static func suggestedOverlayDuration(for url: URL) -> Double {
         let base = MediaStore.defaultImageOverlayDuration
-        let loop = shared.loopDuration(url: url)
+        let loop = loopDurationFromProperties(url: url)
         guard loop > 0.05 else { return base }
         let loops = max(1, (base / loop).rounded(.up))
         let fitted = loop * loops
@@ -150,6 +170,7 @@ final class AnimatedImageCache {
     func sequence(url: URL) -> AnimatedImageSequence? {
         let path = url.path
         let key = path as NSString
+        let activeCount = noteUse(path)
         if let cached = cache.object(forKey: key) { return cached }
         lock.lock()
         if failed.contains(path) {
@@ -168,7 +189,10 @@ final class AnimatedImageCache {
         fileLock.lock()
         defer { fileLock.unlock() }
         if let cached = cache.object(forKey: key) { return cached }
-        guard let decoded = Self.decode(url: url) else {
+        // 同時に重なっている GIF が多いときは 1 ファイルの予算を小さくして、全部がキャッシュに収まるようにする
+        // (前は 4 つ以上の大きな GIF を重ねると、描くたびに押し出された GIF の全コマを読み直し、プレビューと書き出しが極端に遅くなっていた)
+        let budget: Int = max(Self.minBytes, min(Self.maxBytes, (Self.totalBytes * 9 / 10) / max(1, activeCount)))
+        guard let decoded = Self.decode(url: url, maxBytes: budget) else {
             lock.lock()
             failed.insert(path)
             lock.unlock()
@@ -176,6 +200,22 @@ final class AnimatedImageCache {
         }
         cache.setObject(decoded, forKey: key, cost: decoded.cost)
         return decoded
+    }
+
+    /// 描いた時刻を覚え、直近 3 秒に描いた(同時に重なっている)ファイルの数を返す
+    private func noteUse(_ path: String) -> Int {
+        let now = CFAbsoluteTimeGetCurrent()
+        lock.lock()
+        defer { lock.unlock() }
+        lastUse[path] = now
+        if lastUse.count > 64 {
+            lastUse = lastUse.filter { now - $0.value < 10 }
+        }
+        var active = 0
+        for time in lastUse.values where now - time < 3 {
+            active += 1
+        }
+        return active
     }
 
     /// キャッシュを空にする(メモリ警告など)
@@ -188,7 +228,7 @@ final class AnimatedImageCache {
 
     // MARK: - 読み込み(ImageIO)
 
-    private static func decode(url: URL) -> AnimatedImageSequence? {
+    private static func decode(url: URL, maxBytes: Int) -> AnimatedImageSequence? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
         let count = CGImageSourceGetCount(source)

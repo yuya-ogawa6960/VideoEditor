@@ -96,6 +96,13 @@ enum CaptionCleanup {
                     merged.doubtfulWords.append(word)
                 }
                 merged.issueDismissed = last.issueDismissed && cue.issueDismissed
+                // 取り除いた言いよどみ(言いよどみカットの候補)は両方のものを残す
+                if let fillers = cue.removedFillers {
+                    var record = merged.removedFillers ?? RemovedSubtitleFillers(words: [], cueStart: merged.start, cueEnd: merged.end)
+                    record.words.append(contentsOf: fillers.words)
+                    merged.removedFillers = record
+                }
+                syncRemovedFillers(&merged)
                 result[result.count - 1] = merged
                 removed += 1
             } else {
@@ -119,12 +126,14 @@ enum CaptionCleanup {
                 let end = max(sorted[i].start + minimumDuration, limit)
                 sorted[i].end = end
                 sorted[i].words = SubtitleSegmenter.clampWords(sorted[i].words, start: sorted[i].start, end: end)
+                syncRemovedFillers(&sorted[i])
                 if end > limit {
                     let newStart = end + minimumGap
                     sorted[i + 1].end = max(sorted[i + 1].end, newStart + minimumDuration)
                     sorted[i + 1].start = newStart
                     sorted[i + 1].words = SubtitleSegmenter.clampWords(sorted[i + 1].words,
                                                                         start: newStart, end: sorted[i + 1].end)
+                    syncRemovedFillers(&sorted[i + 1])
                     shifted = true
                 }
             }
@@ -134,6 +143,16 @@ enum CaptionCleanup {
             sorted = reordered
         }
         return sorted
+    }
+
+    /// 字幕の表示の時刻だけを直したとき、取り除いた言いよどみの記録(RemovedSubtitleFillers)の字幕の時刻も今の値にする。
+    /// 音声は動いていないので、言いよどみの時刻はそのまま言いよどみカットの候補に使える
+    /// (記録の時刻が字幕と違うと、FillerDetector はタイムラインを編集したものとみなして使わない)
+    private static func syncRemovedFillers(_ cue: inout SubtitleCue) {
+        guard var record = cue.removedFillers else { return }
+        record.cueStart = cue.start
+        record.cueEnd = cue.end
+        cue.removedFillers = record
     }
 
     // MARK: - トークン

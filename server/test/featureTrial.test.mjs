@@ -27,6 +27,12 @@ function d1() {
 function setup(points, subPoints = 0) {
   const DB = d1();
   DB.raw.prepare("INSERT INTO users (id, points, sub_points, created_at) VALUES (?, ?, ?, ?)").run("apple:a", points, subPoints, "2026-06-01");
+  // プランのポイントは有効なプランがあるときだけ残る(期限が切れていれば使う前に消える)
+  if (subPoints > 0) {
+    DB.raw.prepare(
+      "INSERT INTO subscriptions (original_transaction_id, user_id, product_id, plan, expires_at, environment, revoked, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)"
+    ).run("t1", "apple:a", "com.yuyaogawa6960.videomania.standard.month", "standard", Date.now() + 86400000, "Production", "2026-06-01");
+  }
   return { DB, SESSION_SECRET };
 }
 

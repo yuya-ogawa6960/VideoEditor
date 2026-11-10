@@ -4,7 +4,7 @@ import Observation
 // =====================================================================
 // 書き出しプリセット(PresetStore)の UI。
 // - ExportPresetBar: 横スクロールのチップ(ユーザーが保存したものだけ)と、最後に「設定を保存」
-// - PresetSaveSheet: 名前と含める項目を選んで PresetStore.shared.save(...) を呼ぶ
+// - PresetSaveSheet: 名前を決めて PresetStore.shared.save(...) を呼ぶ(保存するのは書き出しの設定だけ)
 // ExportView から使う。PresetStore 本体は Sources/Model/PresetStore.swift(別担当)。
 // =====================================================================
 
@@ -152,15 +152,14 @@ struct PresetChipView: View {
 
 // MARK: - 保存シート
 
-/// 現在のキャンバス設定(と任意で字幕スタイル・ドキュメンタリー風設定)をプリセットとして保存する
+/// 現在の書き出しの設定をプリセットとして保存する。
+/// キャプションのスタイル・ドキュメンタリー風の設定は入れない(当てたときに、ほかのプロジェクトの見た目まで変わらないように)
 struct PresetSaveSheet: View {
     let project: EditorProject
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String = ""
-    @State private var includeSubtitleStyle: Bool = true
-    @State private var includeDocumentary: Bool = true
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -183,14 +182,11 @@ struct PresetSaveSheet: View {
                     LabeledContent("フレームレート", value: "\(project.canvas.frameRate) fps")
                     LabeledContent("コーデック", value: project.canvas.codec.displayName)
                     LabeledContent("ファイル形式", value: project.canvas.fileFormat.displayName)
+                    // ビットレートと音質もプリセットに入るので見せておく
+                    LabeledContent("ビットレート", value: project.canvas.bitrateMbps.map { "\(Int($0.rounded())) Mbps" } ?? String(localized: "自動"))
+                    LabeledContent("音質", value: "\(project.canvas.audioBitrateKbps) kbps")
                 } header: {
                     Text("保存する設定")
-                }
-                .listRowBackground(Color(white: 0.11))
-
-                Section {
-                    Toggle("キャプションのスタイルも含める", isOn: $includeSubtitleStyle)
-                    Toggle("ドキュメンタリー風の設定も含める", isOn: $includeDocumentary)
                 }
                 .listRowBackground(Color(white: 0.11))
             }
@@ -231,8 +227,8 @@ struct PresetSaveSheet: View {
         guard !trimmedName.isEmpty else { return }
         _ = PresetStore.shared.save(name: trimmedName,
                                     canvas: project.canvas,
-                                    subtitleStyle: includeSubtitleStyle ? project.subtitleStyle : nil,
-                                    documentary: includeDocumentary ? project.documentary : nil)
+                                    subtitleStyle: nil,
+                                    documentary: nil)
         dismiss()
     }
 }

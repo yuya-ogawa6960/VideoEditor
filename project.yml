@@ -7,13 +7,14 @@ options:
     iOS: "18.0"
   createIntermediateGroups: true
   # 開発言語は日本語。翻訳は Sources/Resources/Localizable.xcstrings(英語・スペイン語・ポルトガル語)
+  # (文字列のキーは日本語のまま。対応していない言語の端末で何語を出すかは、Info.plist の CFBundleDevelopmentRegion で決める)
   developmentLanguage: ja
 
 settings:
   base:
     SWIFT_VERSION: "5.0"
     # アプリと共有用の拡張機能で同じ番号にする(App Store の決まり)。上げるときはここだけ
-    MARKETING_VERSION: "1.12.103"
+    MARKETING_VERSION: "1.12.104"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: ""
@@ -121,7 +122,10 @@ targets:
         # <<< tiktok-url-scheme
         CFBundleDisplayName: Video Mania
         CFBundleName: VideoEditor
-        CFBundleDevelopmentRegion: ja
+        # 対応していない言語(フランス語・ドイツ語・韓国語・中国語など)の端末では英語を出す。
+        # 日本語の端末は ja.lproj(Localizable.xcstrings の ja の値・InfoPlist.xcstrings の ja)があるので日本語のまま。
+        # ja.lproj/Localizable.strings が必ず作られるように、カタログには ja の値を持つキー(「写真を選ぶ(複数)」)を残しておく
+        CFBundleDevelopmentRegion: en
         CFBundleLocalizations:
           - ja
           - en
@@ -139,7 +143,7 @@ targets:
         NSPhotoLibraryUsageDescription: 動画や写真を読み込み、写真アプリで消された動画を確かめるために使います。
         NSPhotoLibraryAddUsageDescription: 書き出した動画を保存するために写真ライブラリを使用します。
         NSSpeechRecognitionUsageDescription: 動画の音声から字幕を自動作成するために音声認識を使用します。
-        NSMicrophoneUsageDescription: ナレーションを録音するためにマイクを使用します。
+        NSMicrophoneUsageDescription: ナレーションの録音と、カメラで撮る動画の音声の録音にマイクを使用します。
         NSCameraUsageDescription: 動画を撮ってプロジェクトに入れるためにカメラを使用します。
         # >>> osmo-live(Osmo Pocket の実験。OSMO_LIVE が on でないとき CI が消す)
         NSBluetoothAlwaysUsageDescription: DJI Osmo Pocket を探して接続するために Bluetooth を使用します(開発者モードの実験機能)。
@@ -266,7 +270,8 @@ targets:
       path: ShareExtension-Info.plist
       properties:
         CFBundleDisplayName: Video Mania
-        CFBundleDevelopmentRegion: ja
+        # アプリと同じく、対応していない言語では英語(ShareExtension/Localizable.xcstrings の「OK」に ja の値を置き、ja.lproj を必ず作る)
+        CFBundleDevelopmentRegion: en
         CFBundleLocalizations:
           - ja
           - en

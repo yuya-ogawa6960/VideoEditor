@@ -210,7 +210,9 @@ final class ExportTimeEstimator {
 // MARK: - 画面ロック・ホームに戻ったときの案内(OS ごと)
 
 /// 長い処理の最中に出す「ロック・ホームに戻っても大丈夫か」の案内。
-/// iOS 26 以降はロック中も続けられる(継続処理)。それより前は約 30 秒で止まる。
+/// iOS 26 以降で継続処理(BGContinuedProcessingTask)を受け付けてもらえているときだけ、ロック中も続けられる。
+/// それより前の iOS と、システムに断られた・開始されない・止められたときは約 30 秒で止まる。
+/// 案内とアイコンは、OS のバージョンではなく、いまの処理が実際に続けられるかで決める
 enum BackgroundWorkNote {
     static var canContinueInBackground: Bool {
         if #available(iOS 26.0, *) {
@@ -219,26 +221,50 @@ enum BackgroundWorkNote {
         return false
     }
 
-    /// 書き出し中のカードの 1 行(iOS 26 より前は、ホームに戻ると止まることだけ伝える)
+    /// その種類の処理が、いま本当にロック中・裏でも続けられるか(ContinuedProcessing.hasLiveHandle)
+    static func continues(_ kind: ContinuedProcessingKind) -> Bool {
+        canContinueInBackground && ContinuedProcessing.hasLiveHandle(kind: kind)
+    }
+
+    /// 案内の横のアイコン(続けられるときは鍵が開いた印、続けられないときは注意の印)
+    private static func icon(_ continuing: Bool) -> String {
+        continuing ? "lock.open" : "exclamationmark.triangle"
+    }
+
+    /// 書き出し中のカードの 1 行(続けられないときは、ホームに戻ると止まることだけ伝える)
     static var export: String {
-        if canContinueInBackground {
+        if continues(.export) {
             return String(localized: "ロックしても続きます")
         }
         return String(localized: "ホームに戻ると止まります")
     }
 
+    static var exportIcon: String { icon(continues(.export)) }
+
+    /// 文字起こしがロック中も続くか。Whisper は端末の中で動かすので、継続処理があってもロック・ホームでは一時停止する
+    static var transcriptionContinues: Bool {
+        AppSettings.shared.transcriptionEngine != .whisper && continues(.transcribe)
+    }
+
     static var transcription: String {
-        if canContinueInBackground {
+        if transcriptionContinues {
             return String(localized: "ホームに戻ったり画面をロックしても、\n文字起こしは続きます。")
+        }
+        if AppSettings.shared.transcriptionEngine == .whisper {
+            return String(localized: "終わるまで、この画面を\n開いたままにしてください。\nロックすると一時停止し、\n戻ると続きから再開します。")
         }
         return String(localized: "終わるまで、この画面を\n開いたままにしてください。\nホームに戻ると約30秒で一時停止します。\n画面は自動でロックされません。")
     }
 
+    static var transcriptionIcon: String { icon(transcriptionContinues) }
+
     /// 見どころ探し・おまかせ編集などの解析(EditorAnalysisRunner)
     static var analysis: String {
-        if canContinueInBackground {
+        if continues(.analyze) {
             return String(localized: "ホームに戻ったり画面をロックしても、\nこの処理は続きます。")
         }
         return String(localized: "終わるまで、このアプリを\n開いたままにしてください。\nホームに戻ると約30秒で止まります。\n画面は自動でロックされません。")
     }
+
+    static var analysisIcon: String { icon(continues(.analyze)) }
 }

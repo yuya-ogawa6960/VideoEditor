@@ -107,6 +107,78 @@ private struct TextPanelResetRow: View {
     }
 }
 
+/// 選択肢のチップを横に並べ、入りきらないときは次の行へ折り返す。
+/// スペイン語・ポルトガル語の長い訳や SE の狭い画面でも、右側のチップが画面の外に出て押せなくならないように
+/// (チップは縮めず、各行は左から詰める。横スクロールの中など幅の指定がないときは 1 行)
+struct EditorChipFlow<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        EditorChipFlowLayout().callAsFunction { content }
+    }
+}
+
+/// EditorChipFlow の並べ方(折り返しのある横並び)
+struct EditorChipFlowLayout: SwiftUI.Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrangeRows(maxWidth: proposal.width ?? .infinity, subviews: subviews)
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+        for (i, row) in rows.enumerated() {
+            width = max(width, row.width)
+            height += row.height + (i > 0 ? lineSpacing : 0)
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = arrangeRows(maxWidth: bounds.width, subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2),
+                                      anchor: .topLeading,
+                                      proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + lineSpacing
+        }
+    }
+
+    private struct ChipRow {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrangeRows(maxWidth: CGFloat, subviews: Subviews) -> [ChipRow] {
+        var rows: [ChipRow] = []
+        var current = ChipRow()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            // 行が空でなく、足すと幅を超えるなら次の行へ(1 個だけでも幅を超えるチップはそのまま置く)
+            if !current.indices.isEmpty, current.width + spacing + size.width > maxWidth + 0.5 {
+                rows.append(current)
+                current = ChipRow()
+            }
+            current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+            current.indices.append(index)
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
+    }
+}
+
 private func textPanelPercent(_ value: Double) -> String {
     "\(Int((value * 100).rounded()))%"
 }
@@ -568,6 +640,13 @@ struct EditorTextStylePanel: View {
             .textFieldStyle(.plain)
             .padding(8)
             .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            // 強調色がオンのデザインでは【】は描かれない(中の文字の色が変わる)。【速報】のように【】を見せたいときに迷わないよう知らせる
+            if text.style.accentColorHex != nil, !text.isSticker, text.text.contains("【") || text.text.contains("】") {
+                Text("【】は色を変える印として隠れます(「色」タブで切れます)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -720,8 +799,11 @@ struct EditorTextStylePanel: View {
         // 帯の傾きは控えを取る前に外す(控えると、次のデザインへ移るときに -4° が戻る)
         if wasBand && template != .closingBand && (!restored || text.rotation == -4) { text.rotation = 0 }
         let before = text
+        // 色タブで【】の強調を切っていたら、デザインを替えても切ったままにする(【】が急に隠れないように)
+        let accentTurnedOff = text.style.accentColorHex == nil && TextStyle.preset(text.template).accentColorHex != nil
         text.template = template
         text.style = TextStyle.preset(template)
+        if accentTurnedOff { text.style.accentColorHex = nil }
         if template == .chapterLabel { applyChapterText() }
         var placedEdge = false
         if template == .closingBand, text.keyframes.isEmpty {
@@ -1060,14 +1142,14 @@ struct EditorTextPlacementPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: String(localized: "位置"))
-                HStack(spacing: 8) {
+                // 長い訳でも画面からはみ出さないよう、入りきらなければ折り返す
+                EditorChipFlow {
                     ForEach(Anchor.allCases) { anchor in
                         EditorChip(title: anchor.title,
                                    isSelected: abs(shown.center.x - anchor.point.x) < 0.01 && abs(shown.center.y - anchor.point.y) < 0.01) {
                             updatePlacement { $0.center = anchor.point }
                         }
                     }
-                    Spacer()
                 }
             }
 
@@ -1093,8 +1175,9 @@ struct EditorTextPlacementPanel: View {
                                 range: 0.2...1,
                                 display: textPanelPercent(text.widthRatio))
             }
+            // キーフレーム(トラッキング)があれば各キーの不透明度も直す(描画はキーの値を使うため)
             EditorSliderRow(title: String(localized: "不透明度"),
-                            value: $text.opacity,
+                            value: $text.keyedOpacity,
                             range: 0...1,
                             display: textPanelPercent(text.opacity))
 
@@ -1107,7 +1190,7 @@ struct EditorTextPlacementPanel: View {
                         $0.rotation = 0
                     }
                     text.widthRatio = 0.8
-                    text.opacity = 1
+                    text.keyedOpacity = 1
                 }
                 .disabled(isDefault)
                 .opacity(isDefault ? 0.4 : 1)
@@ -1369,13 +1452,13 @@ struct EditorOverlayBlendPanel: View {
             }
 
             EditorSliderRow(title: String(localized: "不透明度"),
-                            value: $overlay.opacity,
+                            value: $overlay.keyedOpacity,
                             range: 0...1,
                             display: textPanelPercent(overlay.opacity))
 
             TextPanelResetRow {
                 overlay.blendMode = nil
-                overlay.opacity = 1
+                overlay.keyedOpacity = 1
             }
         }
         .padding(.top, 6)
@@ -1429,6 +1512,11 @@ struct EditorDrawingToolsPanel: View {
     @Binding var width: Double
     let onFinish: () -> Void
     let onCancel: () -> Void
+    /// 「全部消す」の直前の線。「1つ戻す」でまとめて戻せるようにする(新しく線を描いたら捨てる)
+    @State private var clearedStrokes: [DrawingStroke] = []
+
+    /// 「1つ戻す」で戻せるものがあるか(描いた線、または全部消す前の線)
+    private var canStepBack: Bool { !strokes.isEmpty || !clearedStrokes.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1458,11 +1546,19 @@ struct EditorDrawingToolsPanel: View {
 
             HStack(spacing: 10) {
                 EditorPillButton(title: String(localized: "1つ戻す"), systemImage: "arrow.uturn.backward") {
-                    if !strokes.isEmpty { strokes.removeLast() }
+                    if !strokes.isEmpty {
+                        strokes.removeLast()
+                    } else if !clearedStrokes.isEmpty {
+                        // 「全部消す」を取り消して、消す前の線に戻す
+                        strokes = clearedStrokes
+                        clearedStrokes = []
+                    }
                 }
-                .disabled(strokes.isEmpty)
-                .opacity(strokes.isEmpty ? 0.4 : 1)
+                .disabled(!canStepBack)
+                .opacity(canStepBack ? 1 : 0.4)
                 EditorPillButton(title: String(localized: "全部消す"), systemImage: "trash", tint: .red) {
+                    // 押し間違えても「1つ戻す」で戻せるように、消す前の線を取っておく
+                    clearedStrokes = strokes
                     strokes.removeAll()
                 }
                 .disabled(strokes.isEmpty)
@@ -1479,6 +1575,12 @@ struct EditorDrawingToolsPanel: View {
             }
         }
         .padding(.top, 6)
+        // 全部消したあとに新しく描き始めたら、取っておいた線は捨てる(戻すのは直前の「全部消す」だけ)
+        .onChange(of: strokes.count) { oldCount, newCount in
+            if oldCount == 0, newCount == 1, !clearedStrokes.isEmpty {
+                clearedStrokes = []
+            }
+        }
     }
 }
 
@@ -1758,13 +1860,13 @@ struct EditorWatermarkPanel: View {
             Group {
                 VStack(alignment: .leading, spacing: 6) {
                     EditorSectionTitle(title: String(localized: "位置"))
-                    HStack(spacing: 8) {
+                    // 四隅の訳は長い(es/pt で 1 行に入らない)ので、入りきらなければ折り返す
+                    EditorChipFlow {
                         ForEach(WatermarkCorner.allCases) { corner in
                             EditorChip(title: corner.displayName, isSelected: project.watermark.corner == corner) {
                                 project.watermark.corner = corner
                             }
                         }
-                        Spacer()
                     }
                 }
 
@@ -1938,13 +2040,12 @@ struct EditorFormatKitPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
                 EditorTextFieldRow(title: String(localized: "名前"), placeholder: String(localized: "例: いつものオープニング"), text: $saveName)
                     .onSubmit { save() }
-                HStack(spacing: 8) {
+                EditorChipFlow {
                     ForEach(FormatKind.allCases) { kind in
                         EditorChip(title: kind.displayName, isSelected: saveKind == kind) {
                             saveKind = kind
                         }
                     }
-                    Spacer()
                 }
                 HStack {
                     Spacer()
@@ -2024,7 +2125,7 @@ struct EditorFormatKitPanel: View {
                 }
                 .accessibilityLabel("その他の操作")
             }
-            HStack(spacing: 8) {
+            EditorChipFlow {
                 EditorChip(title: String(localized: "先頭に挿入"), isSelected: false) {
                     insert(block, at: 0)
                 }
@@ -2064,7 +2165,8 @@ struct EditorFormatKitPanel: View {
 /// 読み上げパネルの入力。パネルを閉じても消えないよう、アプリを終了するまで残す
 enum TextToSpeechDraft {
     static var text = ""
-    static var language = "ja-JP"
+    /// 端末の声の言語(最初は端末の言語に合わせる)
+    static var language = TTSLanguage.deviceDefault
     static var voiceID: String?
     static var cloudVoice: CloudVoice?
     static var instructions = ""
@@ -2271,7 +2373,7 @@ struct EditorTextToSpeechPanel: View {
                     .contentShape(Rectangle())
                 }
             }
-            HStack(spacing: 8) {
+            EditorChipFlow {
                 EditorChip(title: String(localized: "標準"), isSelected: cloudVoice == nil) {
                     cloudVoice = nil
                 }
@@ -2283,7 +2385,6 @@ struct EditorTextToSpeechPanel: View {
                         if cloudVoice?.isGoogle != true { cloudVoice = .googleAoede }
                     }
                 }
-                Spacer()
             }
             if cloudVoice == nil {
                 if !personalVoiceAuthorized && !TextToSpeech.personalVoiceDenied {
@@ -2310,16 +2411,16 @@ struct EditorTextToSpeechPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             EditorSectionTitle(title: String(localized: "細かい調整"))
 
-            HStack(spacing: 8) {
-                EditorChip(title: String(localized: "日本語"), isSelected: language == "ja-JP") {
-                    language = "ja-JP"
-                    reloadVoices()
+            // 端末の声の言語(「標準の声」もこの言語の声で読む)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(TTSLanguage.codes, id: \.self) { code in
+                        EditorChip(title: TTSLanguage.displayName(code), isSelected: language == code) {
+                            language = code
+                            reloadVoices()
+                        }
+                    }
                 }
-                EditorChip(title: "English", isSelected: language == "en-US") {
-                    language = "en-US"
-                    reloadVoices()
-                }
-                Spacer()
             }
 
             // 声の雰囲気(作ったナレーションにかける音声効果)
@@ -2393,7 +2494,11 @@ struct EditorTextToSpeechPanel: View {
         let chosenPitch = pitch
         let chosenInstructions = instructions
         let chosenEffect = voiceEffect
+        let chosenLanguage = language
+        // 作成中に「一覧」へ戻ると、できたナレーションが保存されないので、終わるまで閉じさせない(AudioToolPanels.swift)
+        EditorPendingAudioWork.renderingCount += 1
         Task { @MainActor in
+            defer { EditorPendingAudioWork.renderingCount = max(0, EditorPendingAudioWork.renderingCount - 1) }
             // クラウドの声(OpenAI / Google)に送る前の、初回だけの確認(CloudAIGateway.ensureConsent)
             if chosen.isCloud {
                 let agreed = await CloudAIGateway.ensureConsent()
@@ -2404,14 +2509,19 @@ struct EditorTextToSpeechPanel: View {
             }
             do {
                 let url = try await TextToSpeech.render(choice: chosen, text: content, rate: chosenRate,
-                                                        pitch: chosenPitch, instructions: chosenInstructions)
+                                                        pitch: chosenPitch, instructions: chosenInstructions,
+                                                        language: chosenLanguage)
                 let asset = AVURLAsset(url: url)
                 let seconds = try await asset.load(.duration).seconds
                 let duration = (seconds.isFinite && seconds > 0) ? seconds : 1
-                history.record(project)
                 let name = String(localized: "読み上げ: ") + String(content.prefix(12))
                 var clip = NarrationClip(url: url, name: name, start: startTime, duration: duration)
                 clip.effects.voicePreset = chosenEffect
+                // 声の雰囲気は処理済みの音を作ってから追加する(前は値だけ入り、プレビューにも書き出しにも効かなかった)
+                if !clip.effects.isIdentity {
+                    _ = try? await AudioEffectsRenderer.processedURL(for: url, effects: clip.effects)
+                }
+                history.record(project)
                 project.narration.append(clip)
                 project.sortNarration()
                 resultText = String(localized: "\(MediaTimeText.precise(startTime)) に \(String(format: "%.1f", duration)) 秒のナレーションを追加しました。")
@@ -2460,7 +2570,7 @@ struct EditorOverlayOpacityPanel: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Slider(value: $overlay.opacity, in: 0...1)
+            Slider(value: $overlay.keyedOpacity, in: 0...1)
                 .tint(.white)
             Text(verbatim: "\(Int((overlay.opacity * 100).rounded()))")
                 .font(.system(size: 20, weight: .semibold))

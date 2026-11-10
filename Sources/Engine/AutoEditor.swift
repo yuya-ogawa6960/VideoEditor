@@ -236,7 +236,10 @@ enum AutoEditor {
         if settings.useBGMBeats, let bgmURL = snapshot.audio.bgmURL {
             var beats: [Double] = []
             do {
-                beats = try await BeatDetector.detectBeats(url: bgmURL, start: 0, end: 3600, sensitivity: 0.5)
+                // 使う長さ(できあがりの長さ + 少し)だけを読む(1 時間の曲を全部読むとメモリを使いすぎる)
+                let covering = pieces.reduce(0) { $0 + $1.outputDuration } + 5
+                beats = try await BeatDetector.detectBGMBeats(url: bgmURL, covering: covering,
+                                                              sourceStart: snapshot.audio.bgmSourceStart, sensitivity: 0.5)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -257,6 +260,15 @@ enum AutoEditor {
             let original = snapshot.clips[piece.clipIndex]
             var clip = usedOriginal.contains(piece.clipIndex) ? original.duplicated() : original
             usedOriginal.insert(piece.clipIndex)
+            // 元のクリップの一部だけを使う区間は、速度カーブ・被写体フラッシュを区間に合わせ(Clip.restrictToSource)、
+            // 途中で切った端には元の登場/退場アニメーション・音のフェード・J/L カットを付けない
+            // (前は区間ごとに付いたままで、カットのたびに「ふわっと」が出直し、音が下がっていた)
+            let cutHead = piece.start > original.startTime + 0.01
+            let cutTail = piece.end < original.endTime - 0.01
+            if cutHead || cutTail {
+                clip.restrictToSource(piece.start, piece.end, of: original)
+                clip.clearCutEdges(head: cutHead, tail: cutTail)
+            }
             clip.startTime = piece.start
             clip.endTime = piece.end
             clip.transition = (i == pieces.count - 1) ? ClipTransition() : transitions[i]
@@ -264,6 +276,17 @@ enum AutoEditor {
                 applyClipLook(&clip, style: settings.style)
             }
             newClips.append(clip)
+        }
+
+        // 各切れ端の新しい開始を、再生と同じ並べ方(トランジションの重なりを引く。CompositionBuilder.timelineLayout と同じ)で決め直す。
+        // layout(&pieces) は重なりを引かないので、字幕・テキスト・マーカーなどがつなぎ目ごとに重なりの分だけ遅れていた
+        var placedCursor = 0.0
+        for i in pieces.indices where i < newClips.count {
+            pieces[i].timelineStart = placedCursor
+            let placedEnd = placedCursor + newClips[i].outputDuration
+            placedCursor = i + 1 < newClips.count
+                ? max(placedCursor, placedEnd - CompositionBuilder.transitionOverlap(from: newClips[i], to: newClips[i + 1]))
+                : placedEnd
         }
 
         // 出力タイムライン上の部品を移し替える
@@ -331,6 +354,17 @@ enum AutoEditor {
             var moved = item
             moved.start = time
             moved.duration = end - time
+            // キーフレーム(部品の先頭からの秒)も同じように写し、切られた所のキーは外す
+            // (写さないと、追尾の顔モザイクやステッカーがカットのたびに顔から遅れていき、顔が映っていた)
+            if !item.keyframes.isEmpty {
+                let mappedKeys: [Keyframe] = item.keyframes.compactMap { key in
+                    guard let t = mapper.map(item.start + key.time), t >= time - 0.0005, t <= end + 0.0005 else { return nil }
+                    var k = key
+                    k.time = max(0, t - time)
+                    return k
+                }
+                if !mappedKeys.isEmpty { moved.keyframes = mappedKeys.sorted { $0.time < $1.time } }
+            }
             textClips.append(moved)
         }
         var drawings: [DrawingClip] = []
@@ -352,6 +386,10 @@ enum AutoEditor {
         var documentary = snapshot.documentary
         if settings.applyLook {
             documentary = lookStyle(base: documentary, style: settings.style)
+            // 縦長・正方形の画面では上下の黒帯を付けない(9:16 では映像の約 4 分の 3 が隠れるため)
+            if !isWideCanvas(snapshot) {
+                documentary.letterbox = false
+            }
         }
         if settings.preferSpeech && usesDucking(settings.style) {
             documentary.autoDucking = true
@@ -428,7 +466,9 @@ enum AutoEditor {
         if settings.useBGMBeats, let bgmURL = bgm {
             var beats: [Double] = []
             do {
-                beats = try await BeatDetector.detectBeats(url: bgmURL, start: 0, end: 3600, sensitivity: 0.5)
+                // 使う長さ(1 枚あたり最大 1.5 倍まで延ばす分 + 少し)だけを読む
+                let covering = per * Double(clips.count) * 1.5 + 5
+                beats = try await BeatDetector.detectBGMBeats(url: bgmURL, covering: covering, sensitivity: 0.5)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -475,6 +515,11 @@ enum AutoEditor {
             c.scaling = .fitBlur
             return c
         }()
+        // 縦長・正方形の画面では上下の黒帯を付けない(映像の大半が隠れるため)
+        if !isWideCanvas(ProjectSnapshot(clips: clips, subtitles: [], subtitleStyle: SubtitleStyle.starter,
+                                         audio: audio, canvas: resolvedCanvas)) {
+            documentary.letterbox = false
+        }
 
         return ProjectSnapshot(clips: clips,
                                subtitles: [],
@@ -529,15 +574,19 @@ enum AutoEditor {
         var total = 0.0
         var taken = [Bool](repeating: false, count: candidates.count)
 
-        // 1) 各クリップから最高の 1 件(クリップ順)
-        for index in clips.indices {
+        // 1) 各クリップから最高の 1 件。クリップ順ではなく、その 1 件の点数が高いクリップから入れる
+        //    (前はクリップ順だったので、クリップが多くて全部は入らないとき、先頭の数本だけで目標の長さが埋まり、
+        //     後ろのクリップの良い場面が使われなかった。選んだ区間は下でクリップ順に並べ直す)
+        var bestPerClip: [Int] = []
+        var seenClips = Set<Int>()
+        for ci in candidates.indices {
+            let clipIndex = candidates[ci].piece.clipIndex
+            if seenClips.contains(clipIndex) { continue }
+            seenClips.insert(clipIndex)
+            bestPerClip.append(ci)
+        }
+        for ci in bestPerClip {
             if total >= target - 0.25 { break }
-            var found: Int? = nil
-            for ci in candidates.indices where !taken[ci] && candidates[ci].piece.clipIndex == index {
-                found = ci
-                break
-            }
-            guard let ci = found else { continue }
             var piece = candidates[ci].piece
             if total + piece.outputDuration > target {
                 let allowed = target - total
@@ -782,6 +831,13 @@ enum AutoEditor {
 
     // MARK: - ルック・音声・タイトル
 
+    /// 横長の画面か(上下の黒帯を入れてよいか)。縦長・正方形では黒帯で映像の大半が隠れるので入れない
+    static func isWideCanvas(_ snapshot: ProjectSnapshot) -> Bool {
+        let size = CompositionBuilder.renderSize(for: snapshot, purpose: .export)
+        guard size.width > 0, size.height > 0 else { return false }
+        return size.width / size.height >= 1.3
+    }
+
     private static func lookStyle(base: DocumentaryStyle, style: AutoEditStyle) -> DocumentaryStyle {
         var d = base
         switch style {
@@ -898,11 +954,15 @@ enum AutoEditor {
         init(originals: [Clip], pieces: [Piece]) {
             self.originals = originals
             self.pieces = pieces
+            // 元の並びも再生と同じ並べ方(トランジションの重なりを引く。CompositionBuilder.timelineLayout と同じ)
             var starts: [Double] = []
             var cursor = 0.0
-            for clip in originals {
+            for (i, clip) in originals.enumerated() {
                 starts.append(cursor)
-                cursor += clip.outputDuration
+                let end = cursor + clip.outputDuration
+                cursor = i + 1 < originals.count
+                    ? max(cursor, end - CompositionBuilder.transitionOverlap(from: clip, to: originals[i + 1]))
+                    : end
             }
             originalStarts = starts
         }
@@ -915,7 +975,7 @@ enum AutoEditor {
                 let end = start + clip.outputDuration
                 if time < end || i == originals.count - 1 {
                     let local = max(0, min(time - start, clip.outputDuration))
-                    return (i, clip.startTime + local * clip.speed)
+                    return (i, clip.sourceTime(atOutputOffset: local))
                 }
             }
             return nil

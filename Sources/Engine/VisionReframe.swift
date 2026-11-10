@@ -20,6 +20,10 @@ import Vision
 //   かけ、大きく・中央に近く・直前の位置に近い被写体を 1 つ選ぶ。検出できないコマは直前の位置を
 //   保持(先頭の未検出区間は最初の検出位置で埋める)。サンプルは元素材上の秒。
 //   progress は 0...1 をバックグラウンドのスレッドから呼ぶ。
+//
+// CompositedFrameReader: 合成後(プレビュー・書き出しと同じ VideoCompositor)のコマを読む。
+//   顔モザイクとトラッキングは「実際に見えている映像」で探して追う(座標はキャンバス、時刻は出力タイムライン)。
+// ClipGeometryMapping / ClipCanvasMapping: 元の絵の点が、クリップの加工・配置のあとでどこに映るか(合成と同じ順)。
 // =====================================================================
 
 enum VisionAnalysisError: LocalizedError {
@@ -230,6 +234,311 @@ enum AnalysisFrameReader {
             y += step
         }
         return result
+    }
+}
+
+// MARK: - 合成後のコマ読み出し(顔モザイク・トラッキング)
+
+/// 合成後のコマ(見えているとおりの映像)を読む。クリップの拡大・切り抜き・反転・回転・リフレーム・キーフレーム・
+/// 並べた枠・マルチカメラのアングル・重ねた素材(V2 以上)がすべて入った絵なので、元の素材の座標から置き直す必要がない。
+/// 座標はキャンバスの正規化座標(左上原点)、時刻は出力タイムライン上の秒
+enum CompositedFrameReader {
+    /// 映像だけの状態(文字・ステッカー・モザイク・字幕・手書き・章タイトル・テロップ・透かし・ナレーションを外す)。
+    /// 上に重ねた文字で顔や物を見失わないように、また、すでにあるモザイクで顔が隠れて見つからなくならないように
+    static func videoOnly(_ snapshot: ProjectSnapshot) -> ProjectSnapshot {
+        var s = snapshot
+        s.textClips = []
+        s.subtitles = []
+        s.drawings = []
+        s.titleCards = []
+        s.lowerThirds = []
+        s.narration = []
+        s.watermark = WatermarkSettings()
+        return s
+    }
+
+    /// プレビューの大きさで合成を組み立てる
+    static func build(_ snapshot: ProjectSnapshot) async throws -> BuiltComposition {
+        try await CompositionBuilder.build(snapshot, purpose: .preview)
+    }
+
+    /// time(出力上の秒)の合成後のコマ
+    static func image(of built: BuiltComposition, at time: Double) async throws -> CGImage {
+        let generator = AVAssetImageGenerator(asset: built.composition)
+        generator.videoComposition = built.videoComposition
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 60)
+        generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 60)
+        let total = built.duration.seconds
+        var seconds = max(0, time)
+        if total.isFinite, total > 0.1 {
+            seconds = min(seconds, total - 0.05)
+        }
+        return try await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600)).image
+    }
+
+    /// [start, end](出力上の秒)の合成後のコマを約 fps コマ/秒で順に渡す(BGRA、キャンバスの大きさ)。
+    /// handler(buffer, 出力上の秒) が false を返すと中断する(エラーにはならない)。呼び出し側 Task のキャンセルで止める
+    static func readFrames(of built: BuiltComposition, start: Double, end: Double, fps: Double,
+                           handler: @escaping (CVPixelBuffer, Double) -> Bool) async throws {
+        let asset: AVAsset = built.composition
+        let tracks: [AVAssetTrack] = try await asset.loadTracks(withMediaType: .video)
+        guard !tracks.isEmpty else { throw VisionAnalysisError.noVideoTrack }
+        let total = built.duration.seconds
+        let rangeStart = max(0, min(start, end))
+        var rangeEnd = max(start, end)
+        if total.isFinite, total > 0 { rangeEnd = min(rangeEnd, total) }
+        guard rangeEnd - rangeStart > 0.02 else { throw VisionAnalysisError.invalidRange }
+        try Task.checkCancellation()
+
+        // 1 秒に fps コマだけ合成させる(作品のコマ数のまま全部合成すると時間がかかる)
+        var videoComposition: AVVideoComposition = built.videoComposition
+        if fps > 0, let copy = built.videoComposition.mutableCopy() as? AVMutableVideoComposition {
+            let rate = Int32(min(max(fps.rounded(), 1), 60))
+            copy.frameDuration = CMTime(value: 1, timescale: rate)
+            videoComposition = copy
+        }
+        let finalComposition = videoComposition
+        let readEnd = rangeEnd
+        let flag = MediaToolsCancelFlag()
+        let work = Task.detached(priority: .userInitiated) {
+            try CompositedFrameReader.readBlocking(asset: asset, tracks: tracks, videoComposition: finalComposition,
+                                                   start: rangeStart, end: readEnd, fps: fps, flag: flag,
+                                                   handler: handler)
+        }
+        try await withTaskCancellationHandler {
+            try await work.value
+        } onCancel: {
+            flag.cancel()
+            work.cancel()
+        }
+    }
+
+    private static func readBlocking(asset: AVAsset, tracks: [AVAssetTrack], videoComposition: AVVideoComposition,
+                                     start: Double, end: Double, fps: Double, flag: MediaToolsCancelFlag,
+                                     handler: (CVPixelBuffer, Double) -> Bool) throws {
+        let reader: AVAssetReader
+        do {
+            reader = try AVAssetReader(asset: asset)
+        } catch {
+            throw VisionAnalysisError.readFailed(error.localizedDescription)
+        }
+        reader.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
+                                       end: CMTime(seconds: end, preferredTimescale: 600))
+        let output = AVAssetReaderVideoCompositionOutput(
+            videoTracks: tracks,
+            videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        output.videoComposition = videoComposition
+        output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else { throw VisionAnalysisError.readFailed(String(localized: "映像出力を追加できません")) }
+        reader.add(output)
+        guard reader.startReading() else {
+            throw VisionAnalysisError.readFailed(reader.error?.localizedDescription ?? String(localized: "読み込みを開始できません"))
+        }
+
+        let interval: Double = fps > 0 ? 1.0 / fps : 0
+        var nextTime = start - 1
+        var delivered = 0
+        while let sample = output.copyNextSampleBuffer() {
+            if flag.isCancelled {
+                reader.cancelReading()
+                throw CancellationError()
+            }
+            guard let buffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+            let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+            guard pts.isFinite else { continue }
+            if interval > 0, pts < nextTime { continue }
+            nextTime = pts + interval - 0.004
+            delivered += 1
+            // 解析中の画面に「AI が見ているコマ」として出す
+            AnalysisPeek.shared.post(buffer)
+            if !handler(buffer, pts) {
+                reader.cancelReading()
+                return
+            }
+        }
+        if flag.isCancelled {
+            reader.cancelReading()
+            throw CancellationError()
+        }
+        if reader.status == .failed {
+            throw VisionAnalysisError.readFailed(reader.error?.localizedDescription ?? String(localized: "不明なエラー"))
+        }
+        if delivered == 0 {
+            throw VisionAnalysisError.noFrames
+        }
+    }
+}
+
+// MARK: - 元の絵 → 加工・配置のあとの位置
+
+/// 元の絵(向き反映済み、左上原点の正規化)の点を、ClipGeometry(90° 回転 → 反転 → 切り抜き → ズーム・位置)の
+/// あとの絵の正規化座標に移す(GeometryMath.applyClipGeometry と同じ順。整数への丸めは見ない)。外に出た点も丸めない
+enum ClipGeometryMapping {
+    static func point(_ p: NormalizedPoint, geometry g: ClipGeometry) -> NormalizedPoint {
+        if g.isIdentity { return p }
+        var x = p.x
+        var y = p.y
+        // 1. 90 度単位の回転(時計回り): (x, y) → (1 - y, x)
+        let turns = ((g.rotationQuarterTurns % 4) + 4) % 4
+        if turns > 0 {
+            for _ in 0..<turns {
+                let nx = 1 - y
+                let ny = x
+                x = nx
+                y = ny
+            }
+        }
+        // 2. 反転
+        if g.flipHorizontal { x = 1 - x }
+        if g.flipVertical { y = 1 - y }
+        // 3. 切り抜き
+        let crop = g.crop.clamped()
+        if !crop.isFull {
+            x = (x - crop.x) / max(crop.width, 0.0001)
+            y = (y - crop.y) / max(crop.height, 0.0001)
+        }
+        // 4. ズーム・位置(見える範囲は 1/zoom、中心は 0.5 + offset で、範囲の中に収める)
+        let zoom = GeometryMath.clamp(g.zoom, 1, 8)
+        let ox = GeometryMath.clamp(g.offsetX, -0.5, 0.5)
+        let oy = GeometryMath.clamp(g.offsetY, -0.5, 0.5)
+        if zoom > 1.0001 || ox != 0 || oy != 0 {
+            let visible = 1 / zoom
+            let x0 = min(max(0.5 + ox - visible / 2, 0), max(0, 1 - visible))
+            let y0 = min(max(0.5 + oy - visible / 2, 0), max(0, 1 - visible))
+            x = (x - x0) * zoom
+            y = (y - y0) * zoom
+        }
+        return NormalizedPoint(x: x, y: y)
+    }
+}
+
+/// メインのクリップの元の絵(向き反映済み、左上原点の正規化)→ キャンバス(左上原点の正規化)の変換。
+/// VideoCompositor.renderLayer と同じ順: 回転・反転・切り抜き・ズーム → オートリフレームの窓 → 置き場所(収め方・並べた枠)
+/// → クリップのキーフレーム。手ぶれ補正の小さな動き・リフレームのなめらかな追従の遅れ・イン/アウトの動きは入れない。
+/// マルチカメラで別のカメラに切り替えている所は、そのカメラの絵の大きさで考える(リフレームはかけない。合成と同じ)
+enum ClipCanvasMapping {
+    static func transform(clip: Clip, sourceTime: Double, canvasSize: CGSize, scaling: ScalingMode) -> CGAffineTransform {
+        let canvasW = max(Double(canvasSize.width), 1)
+        let canvasH = max(Double(canvasSize.height), 1)
+        let g = clip.geometry
+        var size = clip.displaySize
+        var usesAngle = false
+        if clip.multicam.isActive {
+            let index = clip.multicam.angleIndex(at: sourceTime)
+            if index > 0, index <= clip.multicam.angles.count {
+                size = clip.multicam.angles[index - 1].displaySize
+                usesAngle = true
+            }
+        }
+        var w = Double(size.width)
+        var h = Double(size.height)
+        guard w >= 1, h >= 1 else { return .identity }
+        // 正規化 → ピクセル(左上原点)
+        var t = CGAffineTransform(scaleX: CGFloat(w), y: CGFloat(h))
+        if !g.isIdentity {
+            // 90 度単位の回転(時計回り): (x, y) → (h - y, x)。大きさは入れ替わる
+            let turns = ((g.rotationQuarterTurns % 4) + 4) % 4
+            if turns > 0 {
+                for _ in 0..<turns {
+                    t = t.concatenating(CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: CGFloat(h), ty: 0))
+                    swap(&w, &h)
+                }
+            }
+            if g.flipHorizontal {
+                t = t.concatenating(CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: CGFloat(w), ty: 0))
+            }
+            if g.flipVertical {
+                t = t.concatenating(CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: CGFloat(h)))
+            }
+            let crop = g.crop.clamped()
+            if !crop.isFull {
+                t = t.concatenating(CGAffineTransform(translationX: CGFloat(-crop.x * w), y: CGFloat(-crop.y * h)))
+                w *= crop.width
+                h *= crop.height
+            }
+            let zoom = GeometryMath.clamp(g.zoom, 1, 8)
+            let ox = GeometryMath.clamp(g.offsetX, -0.5, 0.5)
+            let oy = GeometryMath.clamp(g.offsetY, -0.5, 0.5)
+            if zoom > 1.0001 || ox != 0 || oy != 0 {
+                let vw = w / zoom
+                let vh = h / zoom
+                let x0 = min(max((0.5 + ox) * w - vw / 2, 0), max(0, w - vw))
+                let y0 = min(max((0.5 + oy) * h - vh / 2, 0), max(0, h - vh))
+                t = t.concatenating(CGAffineTransform(translationX: CGFloat(-x0), y: CGFloat(-y0)))
+                w = vw
+                h = vh
+            }
+        }
+        // 置き場所(V2 と並べたときは画面の一部を埋める)
+        let pane = g.canvasFrame
+        var paneX = 0.0
+        var paneY = 0.0
+        var paneW = canvasW
+        var paneH = canvasH
+        var placeScaling = scaling
+        if !pane.isFull {
+            let x0 = max(pane.x, 0) * canvasW
+            let x1 = min(pane.maxX, 1) * canvasW
+            let y0 = max(pane.y, 0) * canvasH
+            let y1 = min(pane.maxY, 1) * canvasH
+            paneX = x0
+            paneY = y0
+            paneW = max(x1 - x0, 1)
+            paneH = max(y1 - y0, 1)
+            placeScaling = .fill
+        }
+        // オートリフレームの窓(合成と同じ条件。窓は「埋める」で置く)
+        if !clip.isStill, !usesAngle, clip.reframe.isActive {
+            let canvasAspect = paneW / paneH
+            let imageAspect = w / h
+            let aspectDiffers = abs(canvasAspect - imageAspect) / imageAspect > 0.02
+            if placeScaling == .fill || aspectDiffers {
+                let zoom = GeometryMath.clamp(clip.reframe.zoom, 1, 4)
+                var cropW: Double
+                var cropH: Double
+                if imageAspect > canvasAspect {
+                    cropH = h
+                    cropW = cropH * canvasAspect
+                } else {
+                    cropW = w
+                    cropH = cropW / canvasAspect
+                }
+                cropW = max(2, cropW / zoom)
+                cropH = max(2, cropH / zoom)
+                let target = ClipGeometryMapping.point(clip.reframe.center(at: sourceTime), geometry: g)
+                var cx = GeometryMath.clamp(target.x, 0, 1) * w
+                var cy = GeometryMath.clamp(target.y, 0, 1) * h
+                cx = min(max(cx, cropW / 2), w - cropW / 2)
+                cy = min(max(cy, cropH / 2), h - cropH / 2)
+                t = t.concatenating(CGAffineTransform(translationX: CGFloat(-(cx - cropW / 2)), y: CGFloat(-(cy - cropH / 2))))
+                w = cropW
+                h = cropH
+                placeScaling = .fill
+            }
+        }
+        // 置く(収める・ぼかしは内接、拡大は外接。中央に)
+        let sx = paneW / w
+        let sy = paneH / h
+        let s = placeScaling == .fill ? max(sx, sy) : min(sx, sy)
+        t = t.concatenating(CGAffineTransform(translationX: CGFloat(-w / 2), y: CGFloat(-h / 2)))
+        t = t.concatenating(CGAffineTransform(scaleX: CGFloat(s), y: CGFloat(s)))
+        t = t.concatenating(CGAffineTransform(translationX: CGFloat(paneX + paneW / 2), y: CGFloat(paneY + paneH / 2)))
+        // クリップのキーフレーム(キャンバスの中心まわりに 大きさ → 回転 → 位置。ClipKeyframeRenderer と同じ)
+        if !clip.keyframes.isEmpty {
+            let v = clip.keyframeValue(atSourceTime: sourceTime)
+            if !ClipKeyframeRenderer.isStill(v) {
+                let scale = v.scale.isFinite ? min(max(v.scale, 0.01), 20) : 1
+                let angle = (v.rotation.isFinite ? v.rotation : 0) * Double.pi / 180
+                t = t.concatenating(CGAffineTransform(translationX: CGFloat(-canvasW / 2), y: CGFloat(-canvasH / 2)))
+                t = t.concatenating(CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale)))
+                t = t.concatenating(CGAffineTransform(rotationAngle: CGFloat(angle)))
+                t = t.concatenating(CGAffineTransform(translationX: CGFloat(canvasW / 2 + (v.center.x - 0.5) * canvasW),
+                                                      y: CGFloat(canvasH / 2 + (v.center.y - 0.5) * canvasH)))
+            }
+        }
+        // ピクセル → 正規化
+        return t.concatenating(CGAffineTransform(scaleX: CGFloat(1 / canvasW), y: CGFloat(1 / canvasH)))
     }
 }
 

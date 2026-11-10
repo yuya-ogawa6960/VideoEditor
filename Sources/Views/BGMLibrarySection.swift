@@ -66,10 +66,11 @@ final class BGMPreviewPlayer {
 
 struct BGMLibrarySection: View {
     @Bindable var project: EditorProject
+    /// 試聴の再生(画面全体で持つ。Section の onDisappear は行ごとに働き、スクロールで行が見えなくなるたびに試聴が止まっていた)
+    let player: BGMPreviewPlayer
 
     @State private var store = BGMTrackStore.shared
     @State private var mood: BGMMood? = nil
-    @State private var player = BGMPreviewPlayer()
     @State private var errorMessage: String?
     @State private var trackToDelete: BGMTrack?
 
@@ -98,9 +99,8 @@ struct BGMLibrarySection: View {
         } header: {
             Text("用意された曲")
         } footer: {
-            Text("AI で作ったオリジナル曲なので、どの動画にも自由に使えます。試聴は通信を使います(ダウンロードは 1 曲 約 4MB)")
+            Text("AI で作った曲と、著作権の切れたクラシックの録音です。どの動画にも使えます。試聴は通信を使います(ダウンロードの大きさは曲ごとに出ています)")
         }
-        .task { await store.loadCatalog() }
         .alert("曲を使えませんでした", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -120,7 +120,6 @@ struct BGMLibrarySection: View {
         } message: { _ in
             Text("BGM に使った動画からは消えません。もう一度使うときは、またダウンロードします")
         }
-        .onDisappear { player.stop() }
     }
 
     // MARK: 一覧がまだ無いとき
@@ -198,7 +197,7 @@ struct BGMLibrarySection: View {
             .accessibilityLabel(Text("試聴"))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: String.LocalizationValue(track.name)))
+                Text(track.localizedName)
                     .font(.body)
                 Text(detail(track))
                     .font(.caption)
@@ -224,7 +223,11 @@ struct BGMLibrarySection: View {
         var parts = [length]
         if track.bpm > 0 { parts.append("\(Int(track.bpm)) BPM") }
         if let moodTitle = track.moodKind?.title { parts.append(moodTitle) }
-        if let credit = track.credit, !credit.isEmpty { parts.append(credit) }
+        if let credit = track.localizedCredit { parts.append(credit) }
+        // まだダウンロードしていない曲は大きさも出す(クラシックは 20MB を超える曲もある)
+        if let bytes = track.bytes, bytes > 0, !store.downloaded.contains(track.id) {
+            parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+        }
         return parts.joined(separator: "・")
     }
 
@@ -291,6 +294,7 @@ struct BGMLibrarySection: View {
             let localURL = try store.copyForProject(track)
             project.audio.bgmURL = localURL
             project.audio.bgmName = track.name
+            project.audio.bgmSourceStart = 0
         } catch {
             errorMessage = String(localized: "空き容量を確かめて、もう一度試してください。\n\n詳細: ") + error.localizedDescription
         }

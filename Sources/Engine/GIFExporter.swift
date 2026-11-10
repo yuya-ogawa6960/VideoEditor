@@ -28,6 +28,16 @@ enum GIFExporterError: LocalizedError {
 enum GIFExporter {
     /// 1 本あたりの最大コマ数(容量と時間の上限)
     static let maximumFrames = 900
+    /// 作り終えるまで溜めておくコマの大きさの目安(バイト)。縦長・大きい横幅ではコマ数の上限を下げる(メモリ不足で落ちないように)
+    private static let frameMemoryBudget: Double = 500_000_000
+
+    /// この大きさ(ピクセル)のコマで作れる最大のコマ数(maximumFrames とメモリの目安の小さいほう。少なくとも 30)。
+    /// 範囲がこれを超えるときは、コマの間隔を広げて範囲の最後まで入れる(書き出し画面でも同じ値で「間引きます」と出す)
+    static func frameLimit(for size: CGSize) -> Int {
+        let bytesPerFrame = max(1, Double(size.width) * Double(size.height) * 4)
+        let byMemory = Int(frameMemoryBudget / bytesPerFrame)
+        return max(30, min(maximumFrames, byMemory))
+    }
 
     /// tmp/VideoManiaGIF(必要に応じて作成)
     static var outputDirectory: URL {
@@ -55,14 +65,23 @@ enum GIFExporter {
         guard rangeEnd - rangeStart >= 0.1 else { throw GIFExporterError.invalidRange }
 
         let rate = max(1, min(30, fps))
-        let frameInterval = 1.0 / Double(rate)
-        var frameCount = Int(((rangeEnd - rangeStart) * Double(rate)).rounded(.down))
-        frameCount = max(1, min(frameCount, maximumFrames))
 
         let renderSize = built.renderSize
         let scale = min(1, max(16, maxWidth) / max(1, renderSize.width))
         let targetSize = CGSize(width: max(16, (renderSize.width * scale).rounded()),
                                 height: max(16, (renderSize.height * scale).rounded()))
+
+        // コマ数が上限を超えるときは、先頭だけで切らずに、コマの間隔を広げて範囲の最後まで入れる
+        // (以前は上限で打ち切っていたので、長い範囲は最初の 60〜112 秒しか入らなかった)
+        let rangeLength = rangeEnd - rangeStart
+        let limit = frameLimit(for: targetSize)
+        var frameInterval = 1.0 / Double(rate)
+        var frameCount = Int((rangeLength * Double(rate)).rounded(.down))
+        if frameCount > limit {
+            frameCount = limit
+            frameInterval = rangeLength / Double(limit)
+        }
+        frameCount = max(1, frameCount)
 
         let generator = AVAssetImageGenerator(asset: built.composition)
         generator.videoComposition = built.videoComposition

@@ -118,8 +118,13 @@ enum SubtitleRenderer {
         let template = style.template
         guard template != .plain, template != .outlineBig else { return state }
 
-        // 単語の時刻が無いキャプションでも、単語ごとのテンプレートが効くように時刻を作る
+        // 単語の時刻が無いキャプションでも、単語ごとのテンプレートが効くように時刻を作る。
+        // 文字を直した・字幕だけを動かしたのに単語が古いままのときも使わない(直す前の言葉が出る・ハイライトがずれるため)
         var sourceWords = words
+        if !sourceWords.isEmpty, !originalText.isEmpty,
+           !wordsFit(sourceWords, text: originalText, start: cueStart, end: cueEnd) {
+            sourceWords = []
+        }
         if sourceWords.isEmpty,
            template == .karaoke || template == .boxPop || template == .pillHighlight,
            cueEnd > cueStart, !originalText.isEmpty {
@@ -195,6 +200,30 @@ enum SubtitleRenderer {
     }
 
     // MARK: - 単語の時刻の補い
+
+    /// 単語の時刻が今の字幕に合っているか: 単語をつないだ文字が本文と同じ(空白・句読点・記号・大文字小文字は見ない)で、
+    /// 単語が字幕の表示の区間と重なっている。文字を直したのに単語が古いまま・字幕だけを動かしたときは false
+    private static func wordsFit(_ words: [SubtitleWord], text: String, start: Double, end: Double) -> Bool {
+        if end > start {
+            let first = words.map { $0.start }.min() ?? start
+            let last = words.map { $0.end }.max() ?? end
+            if first >= end || last <= start { return false }
+        }
+        return comparableText(words.map { $0.text }.joined()) == comparableText(text)
+    }
+
+    private static let ignoredInComparison = CharacterSet.whitespacesAndNewlines
+        .union(.punctuationCharacters)
+        .union(.symbols)
+
+    /// 比べるための形(小文字にして、空白・句読点・記号を除く)
+    private static func comparableText(_ text: String) -> String {
+        var view = String.UnicodeScalarView()
+        for scalar in text.lowercased().unicodeScalars where !ignoredInComparison.contains(scalar) {
+            view.append(scalar)
+        }
+        return String(view)
+    }
 
     private final class WordsBox {
         let words: [SubtitleWord]

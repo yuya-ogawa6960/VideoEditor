@@ -32,6 +32,9 @@ import UIKit
 //   必要になった送り直しは CloudBackgroundUploader がこのプロセスから送る。作業フォルダも作れなければ
 //   CloudBackgroundUploaderError.unavailable を投げる(呼び出し側はクリップごとの従来の経路 transcribe へ)
 // - API キーはログに出さない(ジョブの記録にも保存しない)
+// - ポイントで使うときは(transcribeClips)、送る前に声のある部分の合計の長さから目安のポイントを見せる。
+//   サーバーは秒で数えて端数を持ち越すので、ピースが何本でも合計の長さどおりになる。
+//   途中でポイントが足りなくなったら(402)、終わったピースの字幕は残し、途中だったクリップは TranscriptCache に残さない
 // =====================================================================
 
 enum CloudTranscriptionError: LocalizedError {
@@ -110,6 +113,23 @@ final class CloudTranscriber: @unchecked Sendable {
     static let accurateRequestTimeout: TimeInterval = 240
     /// バックグラウンドへ入った間に失敗した切り出しをやり直す回数の上限(1 ピースあたり。最初の 1 回を含む)
     static let maxExtractionAttempts = 3
+
+    /// ポイントが足りなくなって途中までしか文字起こしできなかったクリップ(TranscriptionService が取り出し、TranscriptCache に残さない)
+    private static let incompleteLock = NSLock()
+    private static var incompleteClipIDs: Set<UUID> = []
+
+    private static func markIncomplete(_ ids: Set<UUID>) {
+        incompleteLock.lock()
+        incompleteClipIDs.formUnion(ids)
+        incompleteLock.unlock()
+    }
+
+    /// このクリップが途中までしか文字起こしできていなければ true(1 回だけ。取り出すと消える)
+    static func takeIncomplete(_ clipID: UUID) -> Bool {
+        incompleteLock.lock()
+        defer { incompleteLock.unlock() }
+        return incompleteClipIDs.remove(clipID) != nil
+    }
 
     private let session: URLSession
 
@@ -312,6 +332,12 @@ final class CloudTranscriber: @unchecked Sendable {
             progress(BatchProgress(phase: .transcribing, completed: 1, total: 1, inBackgroundSession: false))
             return clips.map { _ in [] }
         }
+        // ポイントで使うときは、送る前に目安のポイントを見せる(声のある部分の合計の長さ。キャンセルなら送らない)。
+        // バックグラウンドで始まったとき(画面ロックの間など)は、利用者がもう始めているのでそのまま進める
+        if CloudAIGateway.usesPoints, !AppLifecycle.shared.isInBackground {
+            let seconds = plans.reduce(0.0) { $0 + max(0, $1.range.end - $1.range.start) }
+            guard await Self.confirmEstimate(seconds: seconds) else { throw CancellationError() }
+        }
 
         // 2. すべてのピースを先に切り出す
         let prepared = try await prepareAll(plans, clips: clips, directory: directory,
@@ -368,8 +394,23 @@ final class CloudTranscriber: @unchecked Sendable {
 
         if enqueued {
             progress(BatchProgress(phase: .transcribing, completed: 0, total: pieces.count, inBackgroundSession: true))
-            let results = try await uploader.waitForCompletion(jobID: jobID) { done, total in
-                progress(BatchProgress(phase: .transcribing, completed: done, total: total, inBackgroundSession: true))
+            let results: [Int: Data]
+            do {
+                results = try await uploader.waitForCompletion(jobID: jobID) { done, total in
+                    progress(BatchProgress(phase: .transcribing, completed: done, total: total, inBackgroundSession: true))
+                }
+            } catch let error as CloudTranscriptionError {
+                // ポイントが足りなくなって止まった: 終わったピースの字幕は残す(使ったポイントの分が 1 つも残らないことがないように)
+                guard case .server(let status, _) = error, status == 402,
+                      let stopped = uploader.job(withID: jobID),
+                      let partial = uploader.results(for: jobID) else { throw error }
+                var parsed: [Int: ParsedTranscription] = [:]
+                for piece in stopped.pieces {
+                    if let data = partial[piece.index], let value = try? Self.parse(data) {
+                        parsed[piece.index] = value
+                    }
+                }
+                return try Self.partialResult(job: stopped, parsed: parsed, error: error)
             }
             try Task.checkCancellation()
             let finished = uploader.job(withID: jobID) ?? manifest
@@ -377,12 +418,54 @@ final class CloudTranscriber: @unchecked Sendable {
         }
 
         progress(BatchProgress(phase: .transcribing, completed: 0, total: pieces.count, inBackgroundSession: false))
-        let parsed = try await uploadInProcess(pieces, directory: directory, language: language, apiKey: key,
-                                               firstModel: firstModel, pauseReporter: pauseReporter) { done, total in
+        let uploaded = try await uploadInProcess(pieces, directory: directory, language: language, apiKey: key,
+                                                 firstModel: firstModel, pauseReporter: pauseReporter) { done, total in
             progress(BatchProgress(phase: .transcribing, completed: done, total: total, inBackgroundSession: false))
         }
         try Task.checkCancellation()
-        return try Self.assembleTokens(job: manifest, parsed: parsed)
+        if uploaded.outOfPoints {
+            return try Self.partialResult(job: manifest, parsed: uploaded.parsed,
+                                          error: .server(status: 402, message: CloudAIGateway.insufficientPointsMessage))
+        }
+        return try Self.assembleTokens(job: manifest, parsed: uploaded.parsed)
+    }
+
+    /// ポイントで使う前の目安(1 分 N pt。サーバーは秒で数えて端数を持ち越す)。「使う」で true
+    private static func confirmEstimate(seconds: Double) async -> Bool {
+        let perMinute = AccountService.shared.price("transcribePerMinute", default: 10)
+        let points = max(1, Int((seconds * Double(perMinute) / 60).rounded(.up)))
+        let total = Int(seconds.rounded(.up))
+        let detail = String(localized: "声のある部分 \(total / 60) 分 \(total % 60) 秒を文字起こしします(1 分 \(perMinute)pt。秒単位で数えます)。")
+        // 確認を出せないとき(画面が無い)は、利用者が始めた文字起こしを止めずに進める
+        let canAsk = await MainActor.run { AdsManager.presentingViewController() != nil }
+        guard canAsk else { return true }
+        return await CloudAIGateway.confirmPoints(points, title: String(localized: "クラウド文字起こし"), detail: detail)
+    }
+
+    /// ポイントが足りなくなって途中で止まった: 終わったピースだけでトークンを作り、途中だったクリップを覚えて(キャッシュに残さない)知らせる。
+    /// 1 つも終わっていなければ error をそのまま投げる
+    private static func partialResult(job: CloudJobManifest, parsed: [Int: ParsedTranscription],
+                                      error: CloudTranscriptionError) throws -> [[TimedToken]] {
+        guard !parsed.isEmpty else { throw error }
+        markIncomplete(Set(job.pieces.filter { parsed[$0.index] == nil }.map { $0.clipID }))
+        let done = parsed.count
+        let total = job.pieces.count
+        Task { @MainActor in
+            CloudTranscriber.notifyStoppedForPoints(done: done, total: total)
+        }
+        return try assembleTokens(job: job, parsed: parsed, skipMissing: true)
+    }
+
+    /// 途中で止まったことを知らせる(できた分の字幕は残る)
+    @MainActor
+    private static func notifyStoppedForPoints(done: Int, total: Int) {
+        guard let presenter = AdsManager.presentingViewController() else { return }
+        let alert = UIAlertController(
+            title: String(localized: "ポイントが足りなくなりました"),
+            message: String(localized: "\(total) 個のうち \(done) 個まで文字起こしして止めました。できた分の字幕は残します。ポイントを増やしてもう一度作ると、途中だったクリップから作り直します。"),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .default))
+        presenter.present(alert, animated: true)
     }
 
     /// ジョブの応答(ピース番号 → JSON)から、clips の順(ClipInfo.order)に元素材上の秒のトークン列を作る。
@@ -396,11 +479,15 @@ final class CloudTranscriber: @unchecked Sendable {
         return try assembleTokens(job: job, parsed: parsed)
     }
 
-    private static func assembleTokens(job: CloudJobManifest,
-                                       parsed: [Int: ParsedTranscription]) throws -> [[TimedToken]] {
+    /// skipMissing: 応答の無いピースは飛ばす(途中で止まったときに、終わった分だけで作る)
+    private static func assembleTokens(job: CloudJobManifest, parsed: [Int: ParsedTranscription],
+                                       skipMissing: Bool = false) throws -> [[TimedToken]] {
         var perClip = [[TimedToken]](repeating: [], count: job.clips.count)
         for piece in job.pieces {
-            guard let result = parsed[piece.index] else { throw CloudTranscriptionError.badResponse }
+            guard let result = parsed[piece.index] else {
+                if skipMissing { continue }
+                throw CloudTranscriptionError.badResponse
+            }
             guard piece.clipOrder >= 0, piece.clipOrder < perClip.count else { continue }
             let pieceTokens = makeTokens(from: result, pieceDuration: piece.extractDuration, language: job.language)
             // ピースの範囲の外に出た時刻は元素材上の秒でこのピースの範囲内に収める(transcribeRange と同じ)
@@ -443,10 +530,14 @@ final class CloudTranscriber: @unchecked Sendable {
         let pieces: [PreparedPiece]
     }
 
+    /// parsed が nil = ポイントが足りずに送れなかった(402)
     private struct ParsedPiece: Sendable {
         let index: Int
-        let parsed: ParsedTranscription
+        let parsed: ParsedTranscription?
     }
+
+    /// uploadInProcess の結果(ピース番号 → 解析結果と、ポイントが足りなくなって途中で止まったか)
+    private typealias UploadOutcome = (parsed: [Int: ParsedTranscription], outOfPoints: Bool)
 
     /// plans をすべて切り出す(最大 maxConcurrentPieces 本ずつ)。plans と同じ順に返す
     private func prepareAll(_ plans: [PiecePlan], clips: [ClipSource], directory: URL,
@@ -526,21 +617,23 @@ final class CloudTranscriber: @unchecked Sendable {
         }
     }
 
-    /// 切り出し済みのピースをこのプロセスから送る(最大 maxConcurrentPieces 本ずつ。再試行・フォールバックは transcribePiece)
+    /// 切り出し済みのピースをこのプロセスから送る(最大 maxConcurrentPieces 本ずつ。再試行・フォールバックは transcribePiece)。
+    /// ポイントが足りなくなったら(402)新しいピースは送らず、送っていた分の結果を待ってから outOfPoints = true で返す
     private func uploadInProcess(_ pieces: [CloudJobManifest.Piece], directory: URL, language: String, apiKey: String,
                                  firstModel: String, pauseReporter: BackgroundPauseReporter?,
-                                 progress: @escaping (Int, Int) -> Void) async throws -> [Int: ParsedTranscription] {
+                                 progress: @escaping (Int, Int) -> Void) async throws -> UploadOutcome {
         let total = pieces.count
         let fallback = FallbackSwitch()
         let maxInFlight = max(1, Self.maxConcurrentPieces)
         return try await withThrowingTaskGroup(of: ParsedPiece.self,
-                                               returning: [Int: ParsedTranscription].self) { group in
+                                               returning: UploadOutcome.self) { group in
             var collected: [Int: ParsedTranscription] = [:]
             var launched = 0
             var finished = 0
+            var outOfPoints = false
             while finished < total {
                 try Task.checkCancellation()
-                while launched < total, launched - finished < maxInFlight {
+                while !outOfPoints, launched < total, launched - finished < maxInFlight {
                     let pieceIndex = pieces[launched].index
                     let fileURL = directory.appendingPathComponent(pieces[launched].audioFileName)
                     group.addTask {
@@ -550,19 +643,30 @@ final class CloudTranscriber: @unchecked Sendable {
                         } catch {
                             throw CloudTranscriptionError.network(error.localizedDescription)
                         }
-                        let parsed = try await self.transcribePiece(fileData: fileData, language: language,
-                                                                    apiKey: apiKey, firstModel: firstModel,
-                                                                    fallback: fallback, pauseReporter: pauseReporter)
-                        return ParsedPiece(index: pieceIndex, parsed: parsed)
+                        do {
+                            let parsed = try await self.transcribePiece(fileData: fileData, language: language,
+                                                                        apiKey: apiKey, firstModel: firstModel,
+                                                                        fallback: fallback, pauseReporter: pauseReporter)
+                            return ParsedPiece(index: pieceIndex, parsed: parsed)
+                        } catch CloudTranscriptionError.server(let status, _) where status == 402 {
+                            // ポイントが足りない: ここで止める(終わったピースの結果は残す)
+                            return ParsedPiece(index: pieceIndex, parsed: nil)
+                        }
                     }
                     launched += 1
                 }
+                // ポイントが足りなくなったら、送っていた分がそろったところで終える
+                if outOfPoints, finished >= launched { break }
                 guard let result = try await group.next() else { break }
-                collected[result.index] = result.parsed
+                if let parsed = result.parsed {
+                    collected[result.index] = parsed
+                } else {
+                    outOfPoints = true
+                }
                 finished += 1
                 progress(finished, total)
             }
-            return collected
+            return (parsed: collected, outOfPoints: outOfPoints)
         }
     }
 

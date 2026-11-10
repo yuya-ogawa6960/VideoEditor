@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import CoreText
 
 // =====================================================================
 // プロジェクトの持ち出し・持ち込み(.videomania パッケージ)。
@@ -9,6 +10,7 @@ import UIKit
 //     thumbnail.jpg   … 一覧用サムネイル(あれば)
 //     media/<素材ファイル>        … 参照している素材(名前はそのまま)
 //     media/LUTs/<名前>.cube     … 参照している LUT
+//     media/Fonts/<名前>.ttf     … テキスト・キャプション・サムネで使っている、読み込んだフォント(Google Fonts など)
 // 書き出しは temporaryDirectory/VideoManiaPackages/<uuid>/ にフォルダとして作る
 // (ShareLink(item: URL) でそのまま共有できる)。
 // 読み込みは素材を MediaStore.mediaDirectory にコピーし(同名で同じ大きさなら使い回し、
@@ -40,6 +42,7 @@ enum ProjectPackage {
     static let packageExtension = "videomania"
     static let mediaFolderName = "media"
     static let lutFolderName = "LUTs"
+    static let fontFolderName = "Fonts"
     static let infoFileName = "package.json"
     static let formatVersion = 1
 
@@ -57,11 +60,26 @@ enum ProjectPackage {
         var clipCount: Int
     }
 
+    /// 書き出したパッケージ
+    struct ExportedPackage {
+        let url: URL
+        /// 入れられなかった素材の数(写真ライブラリから読み出せなかった動画・見つからない素材や LUT)。
+        /// 1 つでもあれば、共有シートを出す前に知らせる(前は黙って抜けたまま送れていた)
+        let missingCount: Int
+    }
+
+    /// 受け取ったパッケージ
+    struct ImportedPackage {
+        let meta: ProjectMeta
+        /// この端末に無く、パッケージにも入っていなかったフォント(標準のフォントで表示される。受け取ったときに知らせる)
+        let missingFontNames: [String]
+    }
+
     // MARK: - 書き出し
 
-    /// プロジェクトを <名前>.videomania フォルダにまとめて、その URL を返す。
-    /// progress は 0...1 でメインスレッドに呼ばれる(素材のコピー量ベース)
-    static func export(projectID: UUID, progress: ((Double) -> Void)?) async throws -> URL {
+    /// プロジェクトを <名前>.videomania フォルダにまとめて返す。
+    /// progress は 0...1 でメインスレッドに呼ばれる(写真ライブラリの動画があれば前半はその取り出し、後半は素材のコピー量ベース)
+    static func export(projectID: UUID, progress: ((Double) -> Void)?) async throws -> ExportedPackage {
         let meta: ProjectMeta? = await MainActor.run { ProjectLibrary.shared.project(id: projectID) }
         guard let projectData = ProjectStore.projectFileData(projectID: projectID) else {
             throw ProjectPackageError.projectNotFound
@@ -73,7 +91,22 @@ enum ProjectPackage {
             throw ProjectPackageError.invalidProjectFile
         }
         // 写真ライブラリを参照している動画は、読み出せるようにしてからパッケージに入れる
-        _ = await PhotoMediaResolver.prepare(references: references.mediaFileNames.filter { PhotoMediaResolver.isReference($0) })
+        // (iCloud からのダウンロードの進み具合を前半に出す。前は 0% のまま止まって見えた)
+        let photoNames: [String] = references.mediaFileNames.filter { PhotoMediaResolver.isReference($0) }
+        var copyProgress: ((Double) -> Void)? = progress
+        if !photoNames.isEmpty {
+            let reportPrepare: ((Double) -> Void)? = progress
+            _ = await PhotoMediaResolver.prepareDetailed(references: photoNames, onProgress: { done, total, fraction in
+                guard total > 0 else { return }
+                let value = (Double(done) + min(max(fraction, 0), 1)) / Double(total)
+                reportPrepare?(0.5 * min(max(value, 0), 1))
+            })
+            if let progress {
+                copyProgress = { value in progress(0.5 + 0.5 * value) }
+            }
+        }
+        // テキスト・キャプション・サムネで使っている、読み込んだフォントのファイル
+        let fontFiles: [URL] = fontFileURLs(for: ProjectStore.fontNames(inProjectFileData: projectData))
         let snapshot = ProjectStore.snapshot(fromProjectFileData: projectData)
         let info = PackageInfo(formatVersion: formatVersion,
                                app: "Video Mania",
@@ -87,7 +120,7 @@ enum ProjectPackage {
             // 共有シートは 1 つずつしか開かないので、新しく書き出すときに使い中のものは無い
             cleanUpExportedPackages()
             return try buildPackage(projectData: projectData, info: info, references: references,
-                                    thumbnailURL: thumbnailURL, progress: progress)
+                                    fontFiles: fontFiles, thumbnailURL: thumbnailURL, progress: copyProgress)
         }
     }
 
@@ -100,7 +133,8 @@ enum ProjectPackage {
     }
 
     private static func buildPackage(projectData: Data, info: PackageInfo, references: ProjectStore.MediaReferences,
-                                     thumbnailURL: URL, progress: ((Double) -> Void)?) throws -> URL {
+                                     fontFiles: [URL], thumbnailURL: URL,
+                                     progress: ((Double) -> Void)?) throws -> ExportedPackage {
         let fm = FileManager.default
         let container = exportDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fm.createDirectory(at: container, withIntermediateDirectories: true)
@@ -133,16 +167,30 @@ enum ProjectPackage {
 
         // コピーする素材(生成した単色 PNG は読み込み側で作り直すので、mediaDirectory に無いものは入れない)
         var jobs: [(source: URL, destination: URL)] = []
+        // 入れられなかった素材(写真ライブラリから読み出せなかった動画・見つからない素材や LUT)の数
+        var missingCount = 0
         for name in references.mediaFileNames {
             if let url = ProjectStore.resolveMedia(name) {
                 jobs.append((url, mediaDir.appendingPathComponent(photoMapping[name] ?? name)))
+            } else if !FormatKitStore.isGeneratedStill(MediaStore.mediaDirectory.appendingPathComponent(name)) {
+                missingCount += 1
+            }
+        }
+        if !fontFiles.isEmpty {
+            let fontDir = mediaDir.appendingPathComponent(fontFolderName, isDirectory: true)
+            try fm.createDirectory(at: fontDir, withIntermediateDirectories: true)
+            for url in fontFiles {
+                jobs.append((url, fontDir.appendingPathComponent(url.lastPathComponent)))
             }
         }
         if !references.lutFileNames.isEmpty {
             let lutDir = mediaDir.appendingPathComponent(lutFolderName, isDirectory: true)
             var created = false
             for name in references.lutFileNames {
-                guard let url = ProjectStore.resolveLUT(name) else { continue }
+                guard let url = ProjectStore.resolveLUT(name) else {
+                    missingCount += 1
+                    continue
+                }
                 if !created {
                     try fm.createDirectory(at: lutDir, withIntermediateDirectories: true)
                     created = true
@@ -162,7 +210,39 @@ enum ProjectPackage {
             report(progress, Double(copiedBytes) / Double(totalBytes))
         }
         report(progress, 1)
-        return package
+        return ExportedPackage(url: package, missingCount: missingCount)
+    }
+
+    /// フォント名(PostScript 名)→ 読み込んだフォントのファイル(Media/Fonts にあるものだけ。内蔵・iOS のフォントは入れない)
+    private static func fontFileURLs(for names: [String]) -> [URL] {
+        guard !names.isEmpty else { return [] }
+        let wanted = Set(names)
+        guard let items = try? FileManager.default.contentsOfDirectory(at: MediaTools.fontsDirectory,
+                                                                       includingPropertiesForKeys: nil,
+                                                                       options: [.skipsHiddenFiles]) else { return [] }
+        let extensions: Set<String> = ["ttf", "otf", "ttc"]
+        var result: [URL] = []
+        for url in items where extensions.contains(url.pathExtension.lowercased()) {
+            if !wanted.isDisjoint(with: fontPostScriptNames(at: url)) {
+                result.append(url)
+            }
+        }
+        return result
+    }
+
+    /// フォントファイルに入っているフォントの PostScript 名(.ttc は複数)
+    private static func fontPostScriptNames(at url: URL) -> [String] {
+        guard let array = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) else { return [] }
+        let count = CFArrayGetCount(array)
+        var names: [String] = []
+        for i in 0..<count {
+            guard let raw = CFArrayGetValueAtIndex(array, i) else { continue }
+            let descriptor = unsafeBitCast(raw, to: CTFontDescriptor.self)
+            if let name = CTFontDescriptorCopyAttribute(descriptor, kCTFontNameAttribute) as? String, !name.isEmpty {
+                names.append(name)
+            }
+        }
+        return names
     }
 
     // MARK: - 読み込み
@@ -173,12 +253,15 @@ enum ProjectPackage {
         let thumbnailData: Data?
         let duration: Double
         let clipCount: Int
+        /// この端末で使えないフォント
+        let missingFontNames: [String]
     }
 
     /// .videomania フォルダ(または中の project.json)を読み込み、新しいプロジェクトとして一覧に登録して返す
-    static func importPackage(from url: URL) async throws -> ProjectMeta {
+    static func importPackage(from url: URL) async throws -> ImportedPackage {
         let prepared = try await offMain { try prepare(url) }
-        return try await MainActor.run { try register(prepared) }
+        let meta = try await MainActor.run { try register(prepared) }
+        return ImportedPackage(meta: meta, missingFontNames: prepared.missingFontNames)
     }
 
     private static func prepare(_ url: URL) throws -> PreparedImport {
@@ -263,6 +346,18 @@ enum ProjectPackage {
                                                                  mediaMapping: mediaMapping,
                                                                  lutMapping: lutMapping)
         }
+        // パッケージに入っているフォント(media/Fonts)を読み込んで登録する
+        // (前は入っておらず、受け取った端末ではテロップ・キャプションが標準のフォントに黙って変わっていた)
+        let fontSourceDir = mediaDir.appendingPathComponent(fontFolderName, isDirectory: true)
+        if let fontItems = try? fm.contentsOfDirectory(at: fontSourceDir, includingPropertiesForKeys: nil,
+                                                       options: [.skipsHiddenFiles]) {
+            for fontURL in fontItems {
+                _ = try? MediaTools.importFont(from: fontURL)
+            }
+        }
+        // それでもこの端末で使えないフォント(受け取ったときに知らせる)
+        let missingFontNames: [String] = ProjectStore.fontNames(inProjectFileData: rewritten)
+            .filter { UIFont(name: $0, size: 12) == nil }
         let thumbnailData = try? Data(contentsOf: root.appendingPathComponent(ProjectStore.thumbnailFileName))
         let snapshot = ProjectStore.snapshot(fromProjectFileData: rewritten)
 
@@ -274,7 +369,8 @@ enum ProjectPackage {
                               projectData: rewritten,
                               thumbnailData: thumbnailData,
                               duration: snapshot?.totalDuration ?? info?.duration ?? 0,
-                              clipCount: snapshot?.clips.count ?? info?.clipCount ?? 0)
+                              clipCount: snapshot?.clips.count ?? info?.clipCount ?? 0,
+                              missingFontNames: missingFontNames)
     }
 
     /// 素材を mediaDirectory にコピーする。同名で同じ大きさのファイルがあれば使い回し、違えば別名にする

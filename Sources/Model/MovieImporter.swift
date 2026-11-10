@@ -222,8 +222,9 @@ enum MovieImporter {
     }
 
     /// 通信できないための失敗か(下の階層のエラーもたどる)
-    /// 通信に関係するエラーか(写真ライブラリから直接取り出したときの失敗の言い換えに使う)
-    private static func isNetworkError(_ error: Error?) -> Bool {
+    /// 通信に関係するエラーか(写真ライブラリから直接取り出したときの失敗の言い換えに使う。
+    /// 「写真ライブラリから参照」の動画を開くときの失敗の見分けにも使う: PhotoMediaResolver)
+    static func isNetworkError(_ error: Error?) -> Bool {
         let networkCodes: [URLError.Code] = [.notConnectedToInternet, .networkConnectionLost, .timedOut,
                                              .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
                                              .internationalRoamingOff, .dataNotAllowed]

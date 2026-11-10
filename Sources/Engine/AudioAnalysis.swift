@@ -220,6 +220,94 @@ final class AudioAnalysisFrameSplitter {
     var remainder: [Float] { carry }
 }
 
+// MARK: - 話している間 BGM を下げるための声の区間
+
+/// 「話している間 BGM を下げる」のために、クリップの声の区間(HighlightAnalyzer.voiceRuns)を用意する。
+/// 解析はクリップごとに起動中 1 回だけ(読めなかったクリップも試し直さない)
+enum DuckingVoicePrep {
+    private static let lock = NSLock()
+    /// 解析を試したクリップ
+    private static var attempted: Set<UUID> = []
+    /// 裏で解析している間 true(重ねて始めない)
+    private static var running = false
+
+    /// 声の区間がまだ無い(声がありそうな)クリップ
+    private static func pendingClipIDs(in snapshot: ProjectSnapshot) -> [UUID] {
+        lock.lock()
+        defer { lock.unlock() }
+        return snapshot.clips.filter { clip in
+            clip.hasAudio && !clip.isStill && !clip.isMuted && clip.trimmedDuration > 0.3
+                && !attempted.contains(clip.id) && !HighlightAnalyzer.hasVoiceAnalysis(for: clip.id)
+        }.map(\.id)
+    }
+
+    private static func markAttempted(_ ids: [UUID]) {
+        lock.lock()
+        attempted.formUnion(ids)
+        lock.unlock()
+    }
+
+    private static func beginRunning() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if running { return false }
+        running = true
+        return true
+    }
+
+    private static func endRunning() {
+        lock.lock()
+        running = false
+        lock.unlock()
+    }
+
+    /// 書き出し用: 足りない声の区間を解析し終えるまで待つ
+    static func prepare(_ snapshot: ProjectSnapshot) async {
+        let pending = pendingClipIDs(in: snapshot)
+        guard !pending.isEmpty else { return }
+        do {
+            try await HighlightAnalyzer.ensureVoiceRuns(snapshot: snapshot, progress: nil)
+            markAttempted(pending)
+        } catch {
+            // キャンセル: 次の機会にまた試す
+        }
+    }
+
+    /// プレビュー用: 裏で解析し、できたら .compositionMaterialsDidChange でプレビューを作り直してもらう
+    static func prepareInBackground(_ snapshot: ProjectSnapshot) {
+        let pending = pendingClipIDs(in: snapshot)
+        guard !pending.isEmpty, beginRunning() else { return }
+        Task.detached(priority: .utility) {
+            var finished = false
+            do {
+                try await HighlightAnalyzer.ensureVoiceRuns(snapshot: snapshot, progress: nil)
+                finished = true
+            } catch {
+                // キャンセルなど: 次の機会にまた試す
+            }
+            if finished { DuckingVoicePrep.markAttempted(pending) }
+            DuckingVoicePrep.endRunning()
+            if finished {
+                NotificationCenter.default.post(name: .compositionMaterialsDidChange, object: nil)
+            }
+        }
+    }
+}
+
+// MARK: - 読み込める音声か
+
+enum AudioFileCheck {
+    /// BGM などに使える音声ファイルか(音声トラックがあり、0.5 秒より長く、保護されていない)。
+    /// MIDI や再生できない形式を選んでも、前はエラーにならず無音になっていた
+    static func isUsableAudio(_ url: URL) async -> Bool {
+        let asset = AVURLAsset(url: url)
+        guard let tracks = try? await asset.loadTracks(withMediaType: .audio), !tracks.isEmpty else { return false }
+        guard let loaded = try? await asset.load(.duration, .hasProtectedContent) else { return false }
+        let seconds = CMTimeGetSeconds(loaded.0)
+        return seconds.isFinite && seconds > 0.5 && !loaded.1
+    }
+}
+
 // MARK: - 解析
 
 enum AudioAnalysis {

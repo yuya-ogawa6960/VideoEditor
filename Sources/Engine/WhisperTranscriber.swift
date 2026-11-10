@@ -139,10 +139,28 @@ final class WhisperTranscriber {
             .appendingPathComponent(model, isDirectory: true)
     }
 
+    /// 各 .mlmodelc の中で、読み込みに要るファイル(どのモデルにもある)
+    private static let requiredModelFiles = ["coremldata.bin", "model.mil", "weights/weight.bin"]
+
+    /// モデルのファイルが全部そろっているか。
+    /// フォルダがあるだけでは見ない: ダウンロードを途中で止めると、.mlmodelc のフォルダは小さいファイルが落ちた時点でできるが、
+    /// 大きな weight.bin が無いまま残り、以後「ダウンロード済み」とみなして読み込みに失敗し続けていた。
+    /// 落とし途中のファイルは別の場所(.cache)にあり、ここに置かれるのは落とし終えたものだけなので、あるかどうかで判断できる
     func isModelDownloaded(_ model: String) -> Bool {
         let folder = Self.modelFolder(for: model)
-        let required = ["AudioEncoder.mlmodelc", "TextDecoder.mlmodelc", "MelSpectrogram.mlmodelc"]
-        return required.allSatisfy { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) }
+        let fm = FileManager.default
+        for component in ["AudioEncoder.mlmodelc", "TextDecoder.mlmodelc", "MelSpectrogram.mlmodelc"] {
+            let base = folder.appendingPathComponent(component, isDirectory: true)
+            for file in Self.requiredModelFiles {
+                let path = base.appendingPathComponent(file).path
+                guard fm.fileExists(atPath: path) else { return false }
+                if file.hasSuffix(".bin"),
+                   let size = (try? fm.attributesOfItem(atPath: path))?[.size] as? NSNumber, size.int64Value == 0 {
+                    return false
+                }
+            }
+        }
+        return true
     }
 
     /// ダウンロード済みのモデル名(設定画面の一覧に含まれるもの)
@@ -398,6 +416,8 @@ final class WhisperTranscriber {
                 return .success(kit)
             } catch {
                 self?.setPreparing(false)
+                // ここではモデルを消さない(オフラインでの初回読み込みやメモリ不足でも失敗するため)。
+                // 途中で止めたダウンロードは isModelDownloaded が「未ダウンロード」とみなし、次はダウンロードの確認から続きを落とす
                 return .failure(error)
             }
         }

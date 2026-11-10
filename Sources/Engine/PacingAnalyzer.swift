@@ -409,14 +409,29 @@ enum PacingAnalyzer {
         }
         if let c = current { chunks.append(c) }
         guard !chunks.isEmpty else { return false }
+        let batchSize = 12
 
+        // クラウドに送るときは、送る前の同意(初回だけ)と、ポイントで使うならおおよそのポイントを確かめる
+        if engine == .cloud {
+            guard await CloudAIGateway.ensureConsent() else { return false }
+            if CloudAIGateway.usesPoints {
+                let requests = (chunks.count + batchSize - 1) / batchSize
+                let cost = requests * AccountService.shared.price("chat", default: 20)
+                guard await CloudAIGateway.confirmPoints(cost, title: String(localized: "AI で話の中身も見る")) else { return false }
+            }
+        }
+
+        // クラウド(OpenAI)は JSON で返す設定(response_format: json_object)なので、JSON の形を指示する
+        // (指示に JSON の語が無いと OpenAI が断り、毎回失敗していた)。端末内 AI は 1 区間 1 行
+        let outputFormat = engine == .cloud
+            ? "出力は JSON だけにしてください: {\"scores\":[{\"n\":1,\"score\":4,\"note\":\"理由(15 文字以内)\"}]}"
+            : "出力は 1 区間 1 行、「番号: 点数 / 理由(15 文字以内)」の形だけにしてください。"
         let instructions = """
         あなたは YouTube 動画の編集者です。動画の字幕を区間ごとに読み、見ている人が飽きずに見続けられるかを判定します。
         各区間について、話の面白さ・情報量・テンポを 1〜5 で採点します(5 = 引きつけられる、1 = 退屈・同じ話の繰り返し・前置きが長い)。
-        出力は 1 区間 1 行、「番号: 点数 / 理由(15 文字以内)」の形だけにしてください。
+        \(outputFormat)\(ScriptWriter.replyLanguageNote)
         """
         var applied = false
-        let batchSize = 12
         var index = 0
         while index < chunks.count {
             if Task.isCancelled { break }
@@ -427,8 +442,8 @@ enum PacingAnalyzer {
             }
             if let reply = try? await ScriptWriter.generate(engine: engine, instructions: instructions, prompt: prompt,
                                                            apiKey: settings.cloudCredential, temperature: 0.2) {
-                for line in reply.components(separatedBy: .newlines) {
-                    guard let parsed = parseReviewLine(line), parsed.number >= 1, parsed.number <= chunks.count else { continue }
+                for parsed in parseReviewReply(reply) {
+                    guard parsed.number >= 1, parsed.number <= chunks.count else { continue }
                     let chunk = chunks[parsed.number - 1]
                     mark(&timeline, start: chunk.start, end: chunk.end) { second in
                         second.aiScore = parsed.score
@@ -441,6 +456,28 @@ enum PacingAnalyzer {
             progress(min(1, Double(index) / Double(chunks.count)))
         }
         return applied
+    }
+
+    /// AI の返事を読む。クラウドは JSON({"scores":[{"n":1,"score":4,"note":"…"}]})、端末内 AI は「3: 4 / 理由」の行
+    private static func parseReviewReply(_ reply: String) -> [(number: Int, score: Int, note: String)] {
+        if let data = reply.data(using: .utf8),
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let scores = root["scores"] as? [[String: Any]] {
+            var result: [(number: Int, score: Int, note: String)] = []
+            for item in scores {
+                guard let number = jsonInt(item["n"]), let score = jsonInt(item["score"]), (1...5).contains(score) else { continue }
+                result.append((number: number, score: score, note: (item["note"] as? String) ?? ""))
+            }
+            return result
+        }
+        return reply.components(separatedBy: .newlines).compactMap { parseReviewLine($0) }
+    }
+
+    /// JSON の数(数値でも文字でも)
+    private static func jsonInt(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let text = value as? String { return Int(text.trimmingCharacters(in: .whitespaces)) }
+        return nil
     }
 
     /// 「3: 4 / 理由」→ (3, 4, "理由")

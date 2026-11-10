@@ -55,6 +55,8 @@ final class PlayerController {
     /// いまの項目が再生できなくなったと知らされたか(途中で止まったときは item.status が .readyToPlay のままのことがある)
     @ObservationIgnored private var currentItemFailed = false
     @ObservationIgnored private var resetObserver: NSObjectProtocol?
+    /// 合成の材料(音声効果の処理済みファイル・声の区間・BGM の拍)が裏でできた知らせ
+    @ObservationIgnored private var materialsObserver: NSObjectProtocol?
     /// マルチカメラのアングルを合成に入れられなかったことを、起動中に 1 回だけ記録したか
     @ObservationIgnored private var reportedAngleInsertFailure = false
 
@@ -66,6 +68,11 @@ final class PlayerController {
         resetObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
                                                                object: nil, queue: .main) { [weak self] _ in
             self?.recreatePlayer()
+        }
+        // 音声効果の処理済みファイルなどが裏でできたら、同じ内容でも合成を作り直して音に入れる(CompositionBuilder が頼む)
+        materialsObserver = NotificationCenter.default.addObserver(forName: .compositionMaterialsDidChange,
+                                                                   object: nil, queue: .main) { [weak self] _ in
+            self?.rebuildFromLatestSnapshot()
         }
     }
 
@@ -79,6 +86,9 @@ final class PlayerController {
         }
         if let resetObserver {
             NotificationCenter.default.removeObserver(resetObserver)
+        }
+        if let materialsObserver {
+            NotificationCenter.default.removeObserver(materialsObserver)
         }
     }
 

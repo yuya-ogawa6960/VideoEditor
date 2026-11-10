@@ -108,7 +108,7 @@ struct AIWorkingCard: View {
         fraction = progress.fraction
         detail = nil
         note = BackgroundWorkNote.analysis
-        noteIcon = BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle"
+        noteIcon = BackgroundWorkNote.analysisIcon
         self.inlineAd = inlineAd
         showsScanning = true
         peekImage = nil
@@ -270,14 +270,19 @@ struct FloatingRobot: View {
 }
 
 /// 作業中のカードの上に、画面に空きがあれば大きめのネイティブ広告を出す。空きが無ければカードだけ(中に小さな広告)。
-/// 広告は届く前から同じ大きさの枠を取るので、どちらにするかの判定もカードの位置も途中で変わらない
+/// 広告は届く前から同じ大きさの枠を取るので、どちらにするかの判定もカードの位置も途中で変わらない。
+/// カードだけでも入りきらないとき(iPhone SE・大きな文字・切り替えボタンが出たときなど)は、スクロールできるカードにして
+/// 一番下の「キャンセル」まで届くようにする(ViewThatFits はどれも入らなければ最後の候補を使う)
 struct WorkingCardWithAd<Card: View>: View {
     @ViewBuilder let card: (_ inlineAd: Bool) -> Card
 
     var body: some View {
         // 有料プランでは広告の枠を置かない(PlanStore)
         if !PlanStore.shared.terms.showsAds {
-            card(false)
+            ViewThatFits(in: .vertical) {
+                card(false)
+                scrollable(card(false))
+            }
         } else {
             ViewThatFits(in: .vertical) {
                 VStack(spacing: 14) {
@@ -285,8 +290,19 @@ struct WorkingCardWithAd<Card: View>: View {
                     card(false)
                 }
                 card(true)
+                scrollable(card(true))
             }
         }
+    }
+
+    /// 入りきらないときのカード(縦にスクロールできる)
+    private func scrollable(_ content: Card) -> some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            content
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+        }
+        .scrollBounceBehavior(.basedOnSize)
     }
 }
 
@@ -533,7 +549,7 @@ struct TranscriptionWorkingOverlay: View {
                               fraction: fraction,
                               detail: status.isEmpty ? nil : status,
                               note: BackgroundWorkNote.transcription,
-                              noteIcon: BackgroundWorkNote.canContinueInBackground ? "lock.open" : "exclamationmark.triangle",
+                              noteIcon: BackgroundWorkNote.transcriptionIcon,
                               inlineAd: inlineAd,
                               peekImage: frame,
                               peekLabel: String(localized: "AI が聞いています"),

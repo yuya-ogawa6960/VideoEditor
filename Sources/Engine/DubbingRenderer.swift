@@ -124,6 +124,24 @@ enum DubbingRenderer {
         return AccountService.shared.speechPoints(forCharacters: chars)
     }
 
+    /// まだ作っていない行の分だけの目安のポイント(途中の失敗・キャンセルのあとに作れていた行は使い回すのでかからない)
+    static func estimatedSpeechPoints(lines: [DubbingLine], choice: TTSVoiceChoice, language: TranscriptionLanguage) -> Int {
+        let chars = lines.reduce(0) { total, line in
+            if choice.isCloud, let text = line.text,
+               TTSResumeCache.url(for: resumeKey(line, text: text, choice: choice, language: language)) != nil {
+                return total
+            }
+            return total + (line.text ?? line.source).count
+        }
+        return AccountService.shared.speechPoints(forCharacters: chars)
+    }
+
+    /// 作った声を覚えておくキー(TTSResumeCache)。速さは文字数と slot から決まるので、slot と言語で見分ける
+    static func resumeKey(_ line: DubbingLine, text: String, choice: TTSVoiceChoice, language: TranscriptionLanguage) -> String {
+        TTSResumeCache.key(choice: choice, text: text, rate: 0, pitch: 1,
+                           extra: "dub|" + language.rawValue + "|" + String(format: "%.2f", line.slot) + (line.isLast ? "|last" : ""))
+    }
+
     // MARK: - 声
 
     /// 端末の声で、その言語のいちばん品質の高い声(自分の声・おもしろ声は除く)
@@ -150,18 +168,26 @@ enum DubbingRenderer {
     /// 返す URL は「<UUID>_vmdub.<拡張子>」に名前を変えたもの
     static func speak(_ line: DubbingLine, text: String, choice: TTSVoiceChoice,
                       language: TranscriptionLanguage) async throws -> (url: URL, duration: Double) {
+        // クラウドの声で前に作った行(途中の失敗・キャンセルで止まった分)は、作り直さずに使う(ポイントを二重に使わない)
+        let cacheKey = resumeKey(line, text: text, choice: choice, language: language)
+        if choice.isCloud, let cached = TTSResumeCache.url(for: cacheKey) {
+            return (cached, await audioDuration(of: cached))
+        }
         var rate = fittedRate(text: text, language: language, slot: line.slot)
         var url = try await TextToSpeech.render(choice: choice, text: text, rate: rate, pitch: 1, instructions: nil)
         var duration = await audioDuration(of: url)
-        if !choice.isCloud, !line.isLast, duration > line.slot + 0.25, rate < 0.62 {
+        // 作り直すときの上限は、最初に使える上限(0.5 × 1.35)と同じにする(前は 0.62 で、それ以上なら作り直さなかった)
+        if !choice.isCloud, !line.isLast, duration > line.slot + 0.25, rate < 0.675 {
             try Task.checkCancellation()
-            rate = min(0.62, rate * Float(duration / max(line.slot, 0.4)))
+            rate = min(0.675, rate * Float(duration / max(line.slot, 0.4)))
             let retry = try await TextToSpeech.render(choice: choice, text: text, rate: rate, pitch: 1, instructions: nil)
             try? FileManager.default.removeItem(at: url)
             url = retry
             duration = await audioDuration(of: url)
         }
-        return (markAsDub(url), duration)
+        let marked = markAsDub(url)
+        if choice.isCloud { TTSResumeCache.store(marked, for: cacheKey) }
+        return (marked, duration)
     }
 
     private static func audioDuration(of url: URL) async -> Double {
@@ -217,6 +243,28 @@ enum DubbingRenderer {
                 project.clips[i].audio.volume = min(project.clips[i].audio.volume, loweredVolume)
             case .mute:
                 project.clips[i].isMuted = true
+            }
+        }
+        // リンク解除した音声(A1/A2…。マルチカメラの書き出しで分けたメインの音声も)とオーバーレイの音にも同じようにかける
+        // (前は V1 のクリップだけで、分けた元の声が吹き替えの下でそのまま鳴っていた)
+        for i in project.narration.indices where project.narration[i].track != nil {
+            switch originalAudio {
+            case .keep:
+                break
+            case .lower:
+                project.narration[i].volume = min(project.narration[i].volume, loweredVolume)
+            case .mute:
+                project.narration[i].volume = 0
+            }
+        }
+        for i in project.overlays.indices where project.overlays[i].volume > 0 {
+            switch originalAudio {
+            case .keep:
+                break
+            case .lower:
+                project.overlays[i].volume = min(project.overlays[i].volume, loweredVolume)
+            case .mute:
+                project.overlays[i].volume = 0
             }
         }
 

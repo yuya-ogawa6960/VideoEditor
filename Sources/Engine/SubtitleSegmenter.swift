@@ -51,6 +51,9 @@ struct SubtitleSegmenter {
         "まあ", "まぁ", "まー",
         "ええ", "あー", "あーー", "えっ", "ん",
     ]
+    /// japaneseFillers のうち普通の語にもなるもの(「あの人」「まあいい」「ええ、そうです」)。
+    /// 字幕からは今までどおり除くが、言いよどみカットの候補として時刻を残すのは、節の先頭で直後に間があるときだけ
+    private static let ambiguousJapaneseFillers: Set<String> = ["あの", "まあ", "まぁ", "まー", "ええ", "ん", "えっ", "あのさ", "あのね"]
     /// 日本語: 文頭で単独のときだけ削除(相づち)
     static let japaneseSentenceStartFillers: Set<String> = ["うん", "ううん"]
     /// 日本語: 文頭かつ直後に間(> 0.3 秒 or 読点)があるときだけ削除
@@ -398,6 +401,8 @@ struct SubtitleSegmenter {
                     // つなぐと別の語になるか ！？ で終わるので、先頭だけを捨てない(文頭・節頭・相づちの判定にも進ませない)
                 } else if splitCount == 0, japaneseFillers.contains(core), !endsWithExclamation(token.text) {
                     drop = true
+                    // 「えーと」「えっと」「うーん」なども、字幕からは除くが時刻は残す(言いよどみカットの候補。FillerDetector がもう一度ふるう)
+                    keepsTiming = !ambiguousJapaneseFillers.contains(core) || (clauseStart && pauseAfter)
                 } else if japaneseSentenceStartFillers.contains(core), sentenceStart {
                     drop = true
                 } else if japaneseSentenceStartPauseFillers.contains(core), sentenceStart, pauseAfter {
@@ -439,6 +444,8 @@ struct SubtitleSegmenter {
                 let nextCore = next.map { coreText($0.text, language: language) } ?? ""
                 if englishFillers.contains(core) {
                     drop = true
+                    // um / uh なども、字幕からは除くが時刻は残す(言いよどみカットの候補)
+                    keepsTiming = true
                 } else if core == "so", sentenceStart, endsWithClausePunctuation(token.text) {
                     drop = true
                 } else if core == "like" {

@@ -58,6 +58,8 @@ final class CameraRecorder {
     private(set) var startErrorCode: String?
     /// いま撮ると動画がどちら向きで保存されるか(端末の持ち方から決まる。90 / 270 なら縦、0 / 180 なら横)
     private(set) var captureRotationAngle: CGFloat = 90
+    /// マイクが許可されていない(または使えない)ので、撮った動画に音が入らない(撮影画面で知らせる)
+    private(set) var isMicrophoneUnavailable: Bool = false
 
     /// 縦向きに持っている(撮った動画が縦になる)
     var isPortraitCapture: Bool {
@@ -161,6 +163,9 @@ final class CameraRecorder {
         if AVAudioApplication.shared.recordPermission == .undetermined {
             _ = await AVAudioApplication.requestRecordPermission()
         }
+        // 断られていれば、音なしで録ることを撮影画面で知らせる(前は何も出ず、取り込んでから無音に気付いていた)
+        let micDenied = AVAudioApplication.shared.recordPermission == .denied
+        await MainActor.run { self.isMicrophoneUnavailable = micDenied }
         return true
     }
 
@@ -405,7 +410,8 @@ final class CameraRecorder {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ja_JP")
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        let url = Self.temporaryDirectory.appendingPathComponent("カメラ \(formatter.string(from: Date())).mov")
+        // 名前は端末の言語で(タイムラインの音声の帯やクリップ名に出る)
+        let url = Self.temporaryDirectory.appendingPathComponent(String(localized: "カメラ") + " \(formatter.string(from: Date())).mov")
         let angle = captureRotationAngle
         let output = self.movieOutput
         let proxy = self.delegateProxy
@@ -507,6 +513,11 @@ final class CameraRecorder {
            session.canAddInput(input) {
             session.addInput(input)
             audioInput = input
+        }
+        // 付けられなかったら、音なしで録ることを撮影画面で知らせる
+        let micMissing = audioInput == nil
+        DispatchQueue.main.async { [weak self] in
+            if micMissing { self?.isMicrophoneUnavailable = true }
         }
         guard session.canAddOutput(movieOutput) else {
             throw CameraRecorderError.sessionFailed(String(localized: "録画の出力を用意できません"))

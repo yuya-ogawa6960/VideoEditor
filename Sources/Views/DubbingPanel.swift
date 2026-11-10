@@ -68,9 +68,9 @@ struct EditorDubbingPanel: View {
         if translatesWithAI, aiEngine == .cloud, CloudAIGateway.usesPoints {
             total += SubtitlePolisher.estimatedPoints(lineCount: missingCount)
         }
-        // Google の声はポイントでだけ使える
+        // Google の声はポイントでだけ使える。前に途中まで作った行は使い回すので数えない
         if let cloudVoice, cloudVoice.isGoogle || CloudAIGateway.prefersPoints {
-            total += DubbingRenderer.estimatedSpeechPoints(lines: lines)
+            total += DubbingRenderer.estimatedSpeechPoints(lines: lines, choice: .cloud(cloudVoice), language: target)
         }
         return total
     }
@@ -375,6 +375,8 @@ struct EditorDubbingPanel: View {
             guard !speakable.isEmpty else { throw DubbingError.nothingToSpeak }
             var created: [NarrationClip] = []
             var failure: Error?
+            // 次のキャプションに収まらず、終わりを短くした数
+            var cutCount = 0
             for (i, line) in speakable.enumerated() {
                 do {
                     try Task.checkCancellation()
@@ -383,10 +385,23 @@ struct EditorDubbingPanel: View {
                     // 次のキャプションにかかる分は切る(最後はそのまま)
                     let duration = line.isLast ? spoken.duration : min(spoken.duration, line.slot)
                     let name = String(localized: "吹き替え: ") + String(text.prefix(12))
-                    created.append(NarrationClip(url: spoken.url, name: name, start: line.start, duration: duration))
+                    var clip = NarrationClip(url: spoken.url, name: name, start: line.start, duration: duration)
+                    if duration < spoken.duration - 0.05 {
+                        // 切るところはフェードアウトして、プツッという音を出さない
+                        clip.fadeOut = min(0.12, duration / 4)
+                        cutCount += 1
+                    }
+                    created.append(clip)
                 } catch {
                     if error is CancellationError || Task.isCancelled {
-                        for clip in created { try? FileManager.default.removeItem(at: clip.url) }
+                        if chosenChoice.isCloud {
+                            // クラウドの声で作った分は消さずに残す(もう一度作成すると続きから作り、作った分のポイントはかからない)
+                            if !created.isEmpty {
+                                resultText = String(localized: "キャンセルしました。作れた \(created.count) 件は残してあるので、もう一度「吹き替えを作成」を押すと続きから作ります。")
+                            }
+                        } else {
+                            for clip in created { try? FileManager.default.removeItem(at: clip.url) }
+                        }
                         throw CancellationError()
                     }
                     // 作れた分は残す(クラウドの声はポイントを使っているため)
@@ -406,6 +421,9 @@ struct EditorDubbingPanel: View {
             var message = String(localized: "\(created.count) 件の吹き替えを追加しました。")
             if replaced > 0 {
                 message += String(localized: "前の吹き替えは置き換えました。")
+            }
+            if cutCount > 0 {
+                message += String(localized: "\(cutCount) 件は次のキャプションまでに収まらないため、終わりを短くしました。")
             }
             resultText = message
             if let failure {

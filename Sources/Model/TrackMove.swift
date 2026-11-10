@@ -74,6 +74,25 @@ extension EditorProject {
         overlay.filter = clip.filter
         overlay.mask = clip.mask
         overlay.backgroundRemoval = clip.backgroundRemoval
+        // 写せる設定は写す: 写真の 3D ズーム、オートリフレーム(枠いっぱいで人物を枠の真ん中に)、
+        // キーフレーム(元素材の秒 → オーバーレイの先頭からの秒。枠は全面なので、位置・大きさ・回転はそのまま同じ意味)。
+        // 写せない設定(位置・クロップ・手ぶれ補正など)は、持ち上げる前の案内で知らせる(liftLossNames)
+        overlay.parallax = clip.parallax
+        if !clip.isStill, clip.reframe.isActive {
+            overlay.reframe = clip.reframe
+            overlay.fit = .fill
+            overlay.contentZoom = min(max(clip.reframe.zoom, 1), 4)
+        }
+        if !clip.keyframes.isEmpty {
+            let speed = max(clip.speed, 0.01)
+            let startTime = clip.startTime
+            overlay.keyframes = clip.keyframes.map { (key: Keyframe) -> Keyframe in
+                var k = key
+                k.id = UUID()
+                k.time = (key.time - startTime) / speed
+                return k
+            }.sorted { $0.time < $1.time }
+        }
         // V1 では全面に映っていたので、持ち上げても急に薄くならないようにフェードは付けない
         overlay.fadeIn = 0
         overlay.fadeOut = 0
@@ -98,6 +117,10 @@ extension EditorProject {
         let movedTexts = keptTexts.map { t -> TextClip in
             var r = t
             r.start += delta
+            // V1 の顔にかけていたモザイクは、持ち上げた素材(V2)の上にかける(V1 だけのままだと、持ち上げた映像の顔が見えてしまう)
+            if r.isMosaic {
+                r.mosaic?.coversOverlays = true
+            }
             return r
         }
         let textIDs = Set(movedTexts.map(\.id))
@@ -182,6 +205,19 @@ extension EditorProject {
         }
         sortOverlays()
         return overlay.id
+    }
+
+    /// V2 へ持ち上げると外れる設定の名前(「・」でつなぐ。無ければ空)。オーバーレイに入れ物が無いもの
+    static func liftLossNames(of clip: Clip) -> String {
+        var names: [String] = []
+        if !clip.geometry.isIdentity { names.append(String(localized: "位置・クロップ")) }
+        if clip.stabilization.isActive { names.append(String(localized: "手ぶれ補正")) }
+        if !clip.enhance.isIdentity { names.append(String(localized: "画質補正")) }
+        if !clip.retouch.isIdentity { names.append(String(localized: "レタッチ")) }
+        if clip.subjectFlash.isActive { names.append(String(localized: "被写体フラッシュ")) }
+        if clip.flowSlow.enabled { names.append(String(localized: "なめらかスロー")) }
+        if !clip.animation.isIdentity { names.append(String(localized: "アニメーション")) }
+        return names.joined(separator: "・")
     }
 
     /// オーバーレイの枠を素材の縦横比に合わせる(「全体が見える」のときだけ。「枠いっぱい」は枠で切り抜くので変えない)

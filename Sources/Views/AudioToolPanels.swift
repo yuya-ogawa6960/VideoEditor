@@ -54,6 +54,19 @@ struct AudioToolProgressOverlay: View {
     }
 }
 
+// MARK: - 閉じる前に片づける作業
+
+/// 編集画面を閉じる(「一覧」へ戻る)前に片づける音声の作業(メインスレッドでだけ触る)。
+/// 閉じたあとにできたナレーションはプロジェクトに保存されないので、ContentView.closeProject が保存の前に見る
+enum EditorPendingAudioWork {
+    /// 作成中の読み上げの数(0 より大きい間は閉じない)
+    static var renderingCount = 0
+    /// 録音中のパネルが置く「録音を止めてナレーションを足す」処理(録音していなければ nil)
+    static var finishRecording: (() -> Void)?
+
+    static var isRendering: Bool { renderingCount > 0 }
+}
+
 // MARK: - ナレーション録音
 
 struct EditorNarrationRecordPanel: View {
@@ -74,6 +87,8 @@ struct EditorNarrationRecordPanel: View {
     @State private var isMonitorMuted = false
     /// マイクの使用が拒否されている(設定アプリを開くボタンを出す)
     @State private var micDenied = false
+    /// 「録音しながら再生」で、録音の頭から切る秒(再生が始まるまでの時間と、AirPods などの出力の遅れ)
+    @State private var recordingLeadTrim: Double = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -149,6 +164,7 @@ struct EditorNarrationRecordPanel: View {
             // 自動ロックの抑止を必ず解除し、中断の通知も外す(録音機とパネルの循環参照を切る)
             IdleTimerGuard.set(false, for: "recording")
             recorder.onInterrupted = nil
+            EditorPendingAudioWork.finishRecording = nil
         }
     }
 
@@ -221,7 +237,13 @@ struct EditorNarrationRecordPanel: View {
             return
         }
         player.pause()
+        // 最後まで再生したあとに「録音しながら再生」で録ると、再生は頭から始まるので、開始位置も頭にする
+        // (前は作品の終わりに置かれ、プレビューにも書き出しにも入らなかった)
+        if playWhileRecording, player.duration > 0, player.currentTime >= player.duration - 0.05 {
+            player.seek(to: 0)
+        }
         playheadAtStart = max(0, player.currentTime)
+        recordingLeadTrim = 0
         // 電話・Siri・エラーなどで録音が止められたら、そこまでをナレーションとして追加する
         recorder.onInterrupted = { url in
             completeRecording(url: url, interrupted: true)
@@ -232,6 +254,9 @@ struct EditorNarrationRecordPanel: View {
             errorMessage = error.localizedDescription
             return
         }
+        let recordStartedAt = CACurrentMediaTime()
+        // 録音中に「一覧」へ戻られたら、閉じる前に止めてナレーションを足す(閉じたあとに足すと保存されない)
+        EditorPendingAudioWork.finishRecording = { finishRecording() }
         // 録音中は画面の自動ロックを止める(ロックでアプリが止まると録音も止まるため)
         IdleTimerGuard.set(true, for: "recording")
         if playWhileRecording {
@@ -239,6 +264,10 @@ struct EditorNarrationRecordPanel: View {
             isMonitorMuted = !VoiceRecorder.isHeadphoneConnected
             player.player.isMuted = isMonitorMuted
             player.play()
+            // 声は聞こえた映像に合わせて入るので、再生が始まるまでの時間と出力の遅れ(AirPods などで約 0.2 秒)の分だけ
+            // 録音の頭を切って映像に合わせる
+            let lead = (CACurrentMediaTime() - recordStartedAt) + AVAudioSession.sharedInstance().outputLatency
+            recordingLeadTrim = lead.isFinite ? min(max(lead, 0), 1.0) : 0
         }
     }
 
@@ -259,6 +288,7 @@ struct EditorNarrationRecordPanel: View {
     /// interrupted: 電話・Siri・エラーなどでシステム側に止められた(VoiceRecorder が stop() 済みで url を渡してくる)
     private func completeRecording(url: URL?, interrupted: Bool) {
         IdleTimerGuard.set(false, for: "recording")
+        EditorPendingAudioWork.finishRecording = nil
         let startedWithPlayback = playWhileRecording
         guard let url else {
             stopPlaybackAndRewind(startedWithPlayback: startedWithPlayback)
@@ -277,10 +307,13 @@ struct EditorNarrationRecordPanel: View {
         }
 
         history.record(project)
-        let clip = NarrationClip(url: url,
+        // 「録音しながら再生」では、出力の遅れなどの分だけ頭を切る(短い録音は 0.2 秒は残す)
+        let trim = startedWithPlayback ? min(recordingLeadTrim, max(0, duration - 0.2)) : 0
+        var clip = NarrationClip(url: url,
                                  name: MediaStore.displayName(for: url, fallback: String(localized: "ナレーション")),
                                  start: playheadAtStart,
-                                 duration: duration)
+                                 duration: duration - trim)
+        clip.sourceStart = trim
         project.narration.append(clip)
         project.sortNarration()
         if interrupted {

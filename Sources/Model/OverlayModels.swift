@@ -323,6 +323,72 @@ struct OverlayClip: Identifiable, Equatable {
             && lhs.contentCenter == rhs.contentCenter
             && lhs.contentZoom == rhs.contentZoom
             && lhs.reframe == rhs.reframe
+            // 段(重なり順)も変更として扱う(比べていないと、段だけ動かしたときにプレビュー・自動保存・元に戻すに入らなかった)
+            && lhs.lane == rhs.lane
+    }
+}
+
+// MARK: - 不透明度・位置とキーフレーム
+
+/// キーフレーム(トラッキングを含む)があると、描画は基本の不透明度・枠の中心ではなくキーの値を使う。
+/// スライダー・位置チップ・プリセットが基本の値だけを書くと、数字だけ変わって映像が変わらなかったので、キーにも同じ変更を入れる
+extension Keyframe {
+    /// 不透明度を old → new に変えたときのキーの列。全部のキーが同じ値なら new にそろえ、違えば同じ比率で直す
+    static func opacityChanged(_ keyframes: [Keyframe], from old: Double, to new: Double) -> [Keyframe] {
+        guard !keyframes.isEmpty else { return keyframes }
+        let target = min(max(new, 0), 1)
+        let first = keyframes[0].opacity
+        let uniform = keyframes.allSatisfy { abs($0.opacity - first) < 0.001 }
+        return keyframes.map { key in
+            var k = key
+            if uniform || old < 0.001 {
+                k.opacity = target
+            } else {
+                k.opacity = min(max(key.opacity * target / old, 0), 1)
+            }
+            return k
+        }
+    }
+}
+
+extension OverlayClip {
+    /// 不透明度(スライダー・リセット用)。キーフレームがあれば各キーの不透明度も直す
+    var keyedOpacity: Double {
+        get { opacity }
+        set {
+            let value = min(max(newValue, 0), 1)
+            keyframes = Keyframe.opacityChanged(keyframes, from: opacity, to: value)
+            opacity = value
+        }
+    }
+
+    /// 枠(位置チップ・プリセット用)。キーフレームがあれば、各キーの中心も枠の中心と同じだけ動かす
+    var keyedFrame: NormalizedRect {
+        get { frame }
+        set {
+            let dx = newValue.midX - frame.midX
+            let dy = newValue.midY - frame.midY
+            if !keyframes.isEmpty, abs(dx) > 0.000_001 || abs(dy) > 0.000_001 {
+                keyframes = keyframes.map { key in
+                    var k = key
+                    k.center = NormalizedPoint(x: key.center.x + dx, y: key.center.y + dy)
+                    return k
+                }
+            }
+            frame = newValue
+        }
+    }
+}
+
+extension TextClip {
+    /// 不透明度(スライダー・リセット用)。キーフレームがあれば各キーの不透明度も直す
+    var keyedOpacity: Double {
+        get { opacity }
+        set {
+            let value = min(max(newValue, 0), 1)
+            keyframes = Keyframe.opacityChanged(keyframes, from: opacity, to: value)
+            opacity = value
+        }
     }
 }
 

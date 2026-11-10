@@ -241,7 +241,10 @@ struct EditorOverlayPlacementPanel: View {
                                        isSelected: overlayRectsAlmostEqual(overlay.frame, presetFrame(preset, fit: .fit))) {
                                 var updated = overlay
                                 preset.apply(to: &updated)
-                                updated.frame = presetFrame(preset, fit: updated.fit)
+                                let target = presetFrame(preset, fit: updated.fit)
+                                // キーフレーム(トラッキング)があれば、キーの位置も枠と同じだけ動かす
+                                updated.frame = overlay.frame
+                                updated.keyedFrame = target
                                 overlay = updated
                             }
                         }
@@ -257,7 +260,8 @@ struct EditorOverlayPlacementPanel: View {
                         ForEach(Position.allCases) { position in
                             EditorChip(title: position.title,
                                        isSelected: isSelected(position)) {
-                                overlay.frame = frame(for: position)
+                                // キーフレーム(トラッキング)があれば、キーの位置も枠と同じだけ動かす
+                                overlay.keyedFrame = frame(for: position)
                             }
                         }
                     }
@@ -286,8 +290,9 @@ struct EditorOverlayPlacementPanel: View {
                 }
             }
 
+            // キーフレーム(トラッキング)があれば、各キーの不透明度も直す(描画はキーの値を使うため)
             EditorSliderRow(title: String(localized: "不透明度"),
-                            value: $overlay.opacity,
+                            value: $overlay.keyedOpacity,
                             range: 0...1,
                             display: overlayPercentText(overlay.opacity))
 
@@ -307,7 +312,7 @@ struct EditorOverlayPlacementPanel: View {
                             display: overlaySecondsText(overlay.fadeOut))
 
             OverlayResetRow {
-                overlay.opacity = 1
+                overlay.keyedOpacity = 1
                 overlay.cornerRadius = 0
                 overlay.fadeIn = 0.3
                 overlay.fadeOut = 0.3

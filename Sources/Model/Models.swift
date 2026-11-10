@@ -77,7 +77,7 @@ struct ColorAdjustments: Equatable {
     var exposure: Double = 0
     /// -1 ... 1 (0 = 変更なし、負で青く、正で暖かく)
     var temperature: Double = 0
-    /// -1 ... 1 (0 = 変更なし、負で明部を抑える)
+    /// -1 ... 1 (0 = 変更なし、負で明部を抑え、正で明部だけを持ち上げる)
     var highlights: Double = 0
     /// -1 ... 1 (0 = 変更なし、正で暗部を持ち上げる)
     var shadows: Double = 0
@@ -553,7 +553,8 @@ struct SubtitleCue: Identifiable, Equatable {
     var translatedText: String? = nil
     /// 単語ごとの時刻(カラオケ風字幕用)。空なら不明
     var words: [SubtitleWord] = []
-    /// 原文と訳を 2 行で出す(「英語＋日本語訳」などで作った字幕。全体の表示モードより優先)
+    /// 前の版の「＋訳」の印(原文と訳を 2 行で出す)。今は表示に使わない: 「表示」(原文 / 訳文 / 両方)の選択が優先。
+    /// 前に保存した印は、読み込むときに「両方」へ移して外す(ProjectStore.makeSnapshotHoldingUnresolved)
     var bilingual: Bool = false
     /// 音声認識の自信が低かった言葉(要確認。直して文から消えれば出なくなる。CaptionIssues.swift)
     var doubtfulWords: [String] = []
@@ -568,9 +569,7 @@ struct SubtitleCue: Identifiable, Equatable {
     func displayLines(mode: SubtitleDisplayMode) -> [String] {
         let original = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let translated = (translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if bilingual, !original.isEmpty, !translated.isEmpty {
-            return [original, translated]
-        }
+        // 「表示」の選択だけで決める(字幕ごとの印を先に見ていたので、「＋訳」の字幕は原文・訳文を選んでも 2 行のままだった)
         switch mode {
         case .original:
             return original.isEmpty ? [] : [original]
@@ -598,6 +597,8 @@ struct AudioSettings: Equatable {
     var bgmFadeOutSeconds: Double = 2
     /// 最初に BGM をフェードインする長さ(秒、0 = なし)
     var bgmFadeIn: Double = 0
+    /// 曲のどこから使うか(曲の中の秒、0 = 頭から)。くり返すときは 2 回目から曲の頭に戻る
+    var bgmSourceStart: Double = 0
 }
 
 // MARK: - 出力形式
@@ -908,12 +909,14 @@ final class EditorProject {
 
     func duplicateClip(id: UUID) {
         guard let i = index(of: id) else { return }
-        // 後ろの部品(オーバーレイ・字幕・オーディオなど)も、複製したぶん後ろへずらす
+        // 後ろの部品(オーバーレイ・字幕・オーディオなど)も、複製したぶん後ろへずらす。
+        // 後ろのクリップの頭がトランジションで重なっているときは、重なりの中から始まる後ろのクリップの部品もずらす
         let edge = outputRange(ofClip: id)?.end
+        let nextStart: Double? = i + 1 < clips.count ? outputRange(ofClip: clips[i + 1].id)?.start : nil
         let before = layoutDuration
         clips.insert(clips[i].duplicated(), at: i + 1)
         if let edge {
-            insertTimelineGap(at: edge, length: layoutDuration - before)
+            insertTimelineGap(at: edge, length: layoutDuration - before, overlapStart: nextStart)
         }
     }
 
@@ -1082,50 +1085,149 @@ extension EditorProject {
     }
 }
 
+extension SpeedCurve {
+    /// 再生(CompositionBuilder.speedPlan)と時刻の変換(Clip.outputOffset / sourceTime)で共通に使う等速区間。
+    /// カーブの点を必ず区間の境目にし、点と点の間は速さの比が 1.2 倍を超えないように分ける(速さの比が一定になる位置で切る)。
+    /// 各区間の速さは「区間の長さ ÷ ∫1/v」(直線で変わる速さなので対数平均)。
+    /// 前は 24 等分した区間の真ん中の速さを使っていたので、「一瞬だけ止まる」の 0.2x の谷が消えて全体が速送りになり、
+    /// マーカー・字幕の位置(256 区間で計算)とも合っていなかった。
+    /// trimmed はトリミング後の長さ(元素材の秒)。1 区間が元素材で 1/60 秒より短くならないようにする
+    func playbackSegments(trimmed: Double) -> [(fromPosition: Double, toPosition: Double, speed: Double)] {
+        guard enabled, points.count >= 2 else { return [(fromPosition: 0, toPosition: 1, speed: 1)] }
+        // 区間の境目(点の位置。0 と 1 を必ず含め、同じ位置の点は 1 つにする)
+        var stops: [Double] = [0]
+        for point in points {
+            let p = min(max(point.position, 0), 1)
+            if p > stops[stops.count - 1] + 1e-6 { stops.append(p) }
+        }
+        if stops[stops.count - 1] < 1 - 1e-6 {
+            stops.append(1)
+        } else {
+            stops[stops.count - 1] = 1
+        }
+        let minPiece: Double = trimmed > 0 ? (1.0 / 60.0) / trimmed : 1
+        var result: [(fromPosition: Double, toPosition: Double, speed: Double)] = []
+        for i in 1..<stops.count {
+            let a = stops[i - 1]
+            let b = stops[i]
+            // 点の上は前後どちらの直線かあいまいなので、少し内側の速さを使う
+            let inset = (b - a) * 1e-6
+            let va = speed(at: a + inset)
+            let vb = speed(at: b - inset)
+            let ratio = max(va, vb) / max(min(va, vb), 0.05)
+            var count = ratio > 1.0001 ? Int((log(ratio) / log(1.2)).rounded(.up)) : 1
+            count = max(1, min(count, 32, Int((b - a) / minPiece)))
+            var x0 = a
+            var v0 = va
+            for k in 1...count {
+                let x1: Double
+                let v1: Double
+                if k == count || abs(vb - va) < 1e-9 {
+                    x1 = b
+                    v1 = vb
+                } else {
+                    v1 = va * pow(vb / va, Double(k) / Double(count))
+                    x1 = a + (v1 - va) / (vb - va) * (b - a)
+                }
+                let mean = abs(v1 - v0) < 1e-9 ? v0 : (v1 - v0) / log(v1 / v0)
+                result.append((fromPosition: x0, toPosition: x1, speed: max(mean, 0.05)))
+                x0 = x1
+                v0 = v1
+                if x1 >= b { break }
+            }
+        }
+        return result
+    }
+}
+
 extension Clip {
-    /// クリップ先頭からの出力秒 → 元素材上の時刻(速度・速度カーブを考慮。ClipFXTimeline.outputOffset の逆)
+    /// 速度カーブを付けたクリップの区間ごとの(元素材の長さ, 出力の長さ)。CompositionBuilder.speedPlan と同じ区間で、
+    /// 合計が outputDuration になるよう比例配分する(実際の再生と、マーカー・字幕・キーフレームなどの位置を一致させる)
+    private func speedCurvePieces() -> [(source: Double, output: Double)] {
+        let trimmed = trimmedDuration
+        let segments = speedCurve.playbackSegments(trimmed: trimmed)
+        var pieces: [(source: Double, output: Double)] = []
+        pieces.reserveCapacity(segments.count)
+        var total = 0.0
+        for segment in segments {
+            let source = (segment.toPosition - segment.fromPosition) * trimmed
+            let output = source / max(segment.speed, 0.05)
+            pieces.append((source: source, output: output))
+            total += output
+        }
+        let target = outputDuration
+        guard total > 0, total.isFinite, target > 0 else { return pieces }
+        let factor = target / total
+        for i in pieces.indices {
+            pieces[i].output *= factor
+        }
+        return pieces
+    }
+
+    /// クリップ先頭からの出力秒 → 元素材上の時刻(速度・速度カーブを考慮。outputOffset(atSourceTime:) の逆)
     func sourceTime(atOutputOffset offset: Double) -> Double {
         let trimmed = trimmedDuration
         guard trimmed > 0 else { return startTime }
         if speedCurve.enabled {
-            let n = 256
-            let step = trimmed / Double(n)
+            var source = 0.0
             var total = 0.0
-            for i in 0..<n {
-                let p = (Double(i) + 0.5) / Double(n)
-                let d = step / max(speedCurve.speed(at: p), 0.01)
-                if total + d >= offset {
-                    let fraction = d > 0 ? (offset - total) / d : 0
-                    return startTime + (Double(i) + min(max(fraction, 0), 1)) * step
+            for piece in speedCurvePieces() {
+                if total + piece.output >= offset {
+                    let fraction = piece.output > 0 ? (offset - total) / piece.output : 0
+                    return startTime + source + min(max(fraction, 0), 1) * piece.source
                 }
-                total += d
+                total += piece.output
+                source += piece.source
             }
             return endTime
         }
         return startTime + min(max(offset, 0), outputDuration) * speed
     }
 
-    /// 元素材上の時刻 → クリップ先頭からの出力秒(sourceTime(atOutputOffset:) の逆。速度・速度カーブを考慮)
+    /// 元素材上の時刻 → クリップ先頭からの出力秒(sourceTime(atOutputOffset:) の逆。速度・速度カーブを考慮。
+    /// ClipFXTimeline.outputOffset もこれを使う)
     func outputOffset(atSourceTime source: Double) -> Double {
         let trimmed = trimmedDuration
         guard trimmed > 0 else { return 0 }
         let local = min(max(source - startTime, 0), trimmed)
         if speedCurve.enabled {
-            let n = 256
-            let step = trimmed / Double(n)
+            var start = 0.0
             var total = 0.0
-            for i in 0..<n {
-                let segmentStart = Double(i) * step
-                let p = (Double(i) + 0.5) / Double(n)
-                let d = step / max(speedCurve.speed(at: p), 0.01)
-                if local <= segmentStart + step {
-                    let fraction = step > 0 ? (local - segmentStart) / step : 0
-                    return total + min(max(fraction, 0), 1) * d
+            for piece in speedCurvePieces() {
+                if local <= start + piece.source {
+                    let fraction = piece.source > 0 ? (local - start) / piece.source : 0
+                    return total + min(max(fraction, 0), 1) * piece.output
                 }
-                total += d
+                start += piece.source
+                total += piece.output
             }
             return total
         }
         return local / max(speed, 0.01)
+    }
+
+    /// 被写体フラッシュの時刻(クリップの出力上の先頭からの秒)を、old で光っていたのと同じ元素材のコマで光るように直す
+    /// (頭のトリミング・速度・タイムリマップ・スリップを変えたとき。TimelineRipple の rippleTimelineItems とスリップから呼ぶ)。
+    /// 既定の「クリップの始まり」(0)は先頭のまま。そのコマが頭で切られたら新しい先頭で光らせ、終わりで切られたら光らせない
+    /// (分割の restrictToSource と同じ扱い)。変えたら true
+    @discardableResult
+    mutating func keepSubjectFlashSource(from old: Clip) -> Bool {
+        guard subjectFlash.enabled, old.subjectFlash.enabled, old.subjectFlash.time > 0.0005 else { return false }
+        // old の画面に出ていた元素材の秒(逆再生は鏡像)
+        var shown = old.sourceTime(atOutputOffset: old.subjectFlash.time)
+        if old.isReversed && old.reversedURL != nil {
+            shown = old.startTime + old.endTime - shown
+        }
+        // 新しいクリップの再生順の位置(逆再生は鏡像)
+        let position = (isReversed && reversedURL != nil) ? startTime + endTime - shown : shown
+        if position > endTime + 0.0005 {
+            subjectFlash.enabled = false
+            subjectFlash.time = 0
+            return true
+        }
+        let time = max(0, outputOffset(atSourceTime: position))
+        guard abs(time - subjectFlash.time) > 0.0005 else { return false }
+        subjectFlash.time = time
+        return true
     }
 }

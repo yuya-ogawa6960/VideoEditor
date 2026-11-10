@@ -150,7 +150,18 @@ enum FilterLUT {
         return data as NSData
     }
 
-    /// 1 画素の HSL 調整。帯の重みは隣と足して 1 になるコサイン窓(帯の境目で段差が出ない)
+    /// HSL の 8 つの帯の中心の色相(赤・オレンジ・黄・緑・水色・青・紫・マゼンタ。Lightroom に近い配置)。
+    /// 前は 0°, 45°, 90°… の等間隔で、「黄」の中心が黄緑(90°)になっていた(黄色い物は「オレンジ」でしか動かなかった)
+    static let hslBandCenters: [Double] = [0, 30, 60, 120, 180, 225, 270, 315]
+
+    /// 帯 k の中心の色相(帯の数が 8 でなければ等間隔)
+    static func hslBandCenter(_ k: Int, count: Int) -> Double {
+        if count == hslBandCenters.count, hslBandCenters.indices.contains(k) { return hslBandCenters[k] }
+        return Double(k) * 360.0 / Double(max(count, 1))
+    }
+
+    /// 1 画素の HSL 調整。帯の重みは隣と足して 1 になるコサイン窓(帯の境目で段差が出ない)。
+    /// 窓の幅は左右それぞれ隣の帯の中心まで(間隔が違っても、隣り合う 2 つの帯の重みの合計が 1 になる)
     static func hslGrade(_ inR: Double, _ inG: Double, _ inB: Double, _ bands: [HSLBand]) -> (r: Double, g: Double, b: Double) {
         let r = clamp01(inR), g = clamp01(inG), b = clamp01(inB)
         guard !bands.isEmpty else { return (r, g, b) }
@@ -159,14 +170,20 @@ enum FilterLUT {
         let gate = smoothstep(0.03, 0.18, hsv.s)
         guard gate > 0.0001 else { return (r, g, b) }
 
-        let spacing = 360.0 / Double(bands.count)
+        let count = bands.count
         var dh = 0.0
         var ds = 0.0
         var dl = 0.0
         for (k, band) in bands.enumerated() where !band.isIdentity {
-            let d = hueDistance(hsv.h, Double(k) * spacing)
-            if d < spacing {
-                let w = 0.5 * (1 + cos(Double.pi * d / spacing))
+            let center = hslBandCenter(k, count: count)
+            // 中心から見た色相の向き(+ なら次の帯の側)。窓の幅はその側の隣の中心まで
+            let signed = hueDelta(from: center, to: hsv.h)
+            let neighbor = hslBandCenter(signed >= 0 ? (k + 1) % count : (k + count - 1) % count, count: count)
+            var width = abs(hueDelta(from: center, to: neighbor))
+            if width < 0.001 { width = 360.0 / Double(max(count, 1)) }
+            let d = abs(signed)
+            if d < width {
+                let w = 0.5 * (1 + cos(Double.pi * d / width))
                 dh += w * band.hue * 30
                 ds += w * band.saturation
                 dl += w * band.luminance

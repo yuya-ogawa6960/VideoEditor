@@ -53,15 +53,29 @@ struct AccountPointsView: View {
             await account.refresh()
             await plans.refresh()
         }
-        .task { await account.refresh() }
+        .task {
+            await account.refresh()
+            // 購入の記録をサーバーに送れていなければ送り直す(毎月のポイントが付くように)
+            await plans.retrySyncIfNeeded()
+        }
         .sheet(isPresented: $showPlans) {
             PlanPaywallView()
         }
         .manageSubscriptionsSheet(isPresented: $showManageSubscriptions)
+        // サブスクリプションの管理を閉じたら、解約(自動更新のオフ)などを読み直す
+        .onChange(of: showManageSubscriptions) { _, isShown in
+            if !isShown {
+                Task { await plans.refresh() }
+            }
+        }
         .alert("アカウントを削除しました", isPresented: $showDeleted) {
             Button("OK") {}
         } message: {
-            Text("ポイントと記録はサーバーから消えました。")
+            if plans.isPaid {
+                Text("ポイントと記録はサーバーから消えました。有料プランは解約されていません。止めるときは「サブスクリプションを管理」から解約してください。")
+            } else {
+                Text("ポイントと記録はサーバーから消えました。")
+            }
         }
     }
 
@@ -75,9 +89,16 @@ struct AccountPointsView: View {
                     .foregroundStyle(plans.isPaid ? BrandStyle.coral : Color.primary)
                 Spacer()
                 if plans.isPaid, let date = plans.expiresAt {
-                    Text("次の更新 \(date.formatted(date: .abbreviated, time: .omitted))")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    // 自動更新をオフにした(解約した)ときは、更新しないことがわかるように「○月○日まで」と出す
+                    if plans.willAutoRenew {
+                        Text("次の更新 \(date.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(date.formatted(date: .abbreviated, time: .omitted)) まで(自動更新オフ)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             Button(plans.isPaid ? String(localized: "プランを変える") : String(localized: "プランを見る")) {
@@ -128,7 +149,7 @@ struct AccountPointsView: View {
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 12, trailing: 16))
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Text("名前やメールアドレスは受け取りません。クラウド AI を使うとき、音声と文章は OpenAI(Google の声は Google)に送られます。")
+                Text("名前やメールアドレスは受け取りません。クラウド AI を使うとき、音声と文章は米国の OpenAI に送られます(Google の声を選んだときは、文章を Google にも送ります)。")
                 Link("プライバシーポリシー", destination: CloudAIGateway.privacyPolicyURL)
             }
         }
@@ -287,9 +308,19 @@ struct AccountPointsView: View {
                         if deleted { showDeleted = true }
                     }
                 }
+                if plans.isPaid {
+                    Button("サブスクリプションを管理") {
+                        showManageSubscriptions = true
+                    }
+                }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("ポイントと利用の記録がサーバーから削除され、元に戻せません。プロジェクトや動画はこの iPhone に残ります。")
+                if plans.isPaid {
+                    // 有料プランは Apple の自動更新サブスクリプションなので、アカウントを消しても請求は止まらない
+                    Text("ポイントと利用の記録がサーバーから削除され、元に戻せません。プロジェクトや動画はこの iPhone に残ります。\n有料プランは解約されません。解約しない限り Apple からの請求が続きます。解約は「サブスクリプションを管理」から。")
+                } else {
+                    Text("ポイントと利用の記録がサーバーから削除され、元に戻せません。プロジェクトや動画はこの iPhone に残ります。")
+                }
             }
         }
     }
@@ -305,7 +336,8 @@ struct AccountPointsView: View {
     private func watchAd() {
         isWatchingAd = true
         Task { @MainActor in
-            let earned = await AdsManager.shared.showRewarded(userIdentifier: account.userID)
+            // Google に渡すのはリワード広告用の ID(アカウントの ID そのものは渡さない)
+            let earned = await AdsManager.shared.showRewarded(userIdentifier: account.adUserIdentifier)
             if earned {
                 await account.claimAdReward()
             }
@@ -331,6 +363,25 @@ struct AccountPointsSheet: View {
                 }
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+/// SwiftUI のシートを持たない場所(王冠の機能の試用の確認・ログインの期限切れの知らせ)から「アカウントとポイント」を出す。
+/// 閉じたときにサインインしていれば onSignedIn を呼ぶ(試用の確認に戻るため)
+@MainActor
+enum AccountPointsPresenter {
+    static func present(onSignedIn: (() -> Void)? = nil) {
+        guard let presenter = AdsManager.presentingViewController() else { return }
+        let sheet = AccountPointsSheet()
+            .onDisappear {
+                guard let onSignedIn, AccountService.shared.isSignedIn else { return }
+                // 閉じるアニメーションが終わってから次の確認を出す
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    onSignedIn()
+                }
+            }
+        presenter.present(UIHostingController(rootView: sheet), animated: true)
     }
 }
 

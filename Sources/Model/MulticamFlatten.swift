@@ -27,6 +27,20 @@ extension MulticamInfo {
     }
 }
 
+extension Clip {
+    /// 元素材上の秒 sourceTime に映っている別のカメラの動画と、その動画の上の秒
+    /// (マルチカメラで別のカメラに切り替えている所だけ。メインのカメラ・アングルの動画の外なら nil)
+    func angleFrame(atSourceTime sourceTime: Double) -> (url: URL, time: Double)? {
+        guard multicam.isActive else { return nil }
+        let index = multicam.angleIndex(at: sourceTime)
+        guard index > 0, index <= multicam.angles.count else { return nil }
+        let angle = multicam.angles[index - 1]
+        let time = angle.angleTime(atMain: sourceTime)
+        guard time >= 0, time <= angle.duration else { return nil }
+        return (url: angle.url, time: time)
+    }
+}
+
 extension EditorProject {
     /// 書き出せないマルチカメラのクリップの理由(書き出せるなら nil)
     static func multicamFlattenBlockReason(_ clip: Clip) -> String? {
@@ -162,6 +176,29 @@ extension EditorProject {
                 piece.filter = original.filter
                 piece.geometry = original.geometry
                 piece.animation = original.animation
+                // 書き出す前はどのアングルにも効いていた効果も写す(写さないと、アングルのカットだけ素の映像になっていた)。
+                // 手ぶれ補正・リフレームはメインのカメラで調べた値なので写さない
+                piece.mask = original.mask
+                piece.enhance = original.enhance
+                piece.backgroundRemoval = original.backgroundRemoval
+                piece.retouch = original.retouch
+                // キーフレームの時刻はメインの元素材の秒なので、アングルの動画の秒に直す
+                piece.keyframes = original.keyframes.map { key in
+                    var k = key
+                    k.id = UUID()
+                    k.time = angle.angleTime(atMain: key.time)
+                    return k
+                }
+                // 被写体フラッシュ(クリップの出力上の先頭からの秒): 光り始めがこのカットにあるときだけ、カットの先頭からの秒にする
+                if original.subjectFlash.enabled {
+                    let head = original.outputOffset(atSourceTime: cut.start)
+                    let tail = original.outputOffset(atSourceTime: cut.end)
+                    let flashTime = original.subjectFlash.time
+                    if flashTime >= head - 0.0005, flashTime < tail {
+                        piece.subjectFlash = original.subjectFlash
+                        piece.subjectFlash.time = max(0, flashTime - head)
+                    }
+                }
                 if !isFirst {
                     piece.animation.inType = .none
                 }

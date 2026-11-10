@@ -11,12 +11,15 @@ enum TextToSpeechError: LocalizedError {
     case emptyText
     case noAudioProduced
     case cannotWrite(String)
+    /// 声が途中で届かなくなり、文章の最後まで作れなかった
+    case incomplete
 
     var errorDescription: String? {
         switch self {
         case .emptyText: return String(localized: "読み上げる文章が空です")
         case .noAudioProduced: return String(localized: "音声を作成できませんでした(別の声を選んでお試しください)")
         case .cannotWrite(let detail): return String(localized: "音声ファイルを書き込めませんでした: \(detail)")
+        case .incomplete: return String(localized: "読み上げが途中で止まりました。文章を短く分けて、もう一度お試しください")
         }
     }
 }
@@ -97,13 +100,14 @@ enum CloudVoice: String, CaseIterable, Identifiable {
 
 enum TextToSpeech {
     /// 読み上げの声を 1 つの入口で作る(端末 / クラウド)。instructions はクラウドのときだけ(話し方の指示)
+    /// language は端末の声の「標準の声」に使う言語(BCP-47。nil なら日本語)
     static func render(choice: TTSVoiceChoice, text: String, rate: Float, pitch: Float,
-                       instructions: String?) async throws -> URL {
+                       instructions: String?, language: String? = nil) async throws -> URL {
         // 登録した読み方に置き換えてから声に渡す(家系ラーメン → いえけいラーメン など)
         let text = ReadingDictionary.apply(to: text)
         switch choice {
         case .device(let identifier):
-            return try await render(text: text, voiceIdentifier: identifier, rate: rate, pitch: pitch)
+            return try await render(text: text, voiceIdentifier: identifier, rate: rate, pitch: pitch, language: language)
         case .cloud(let voice):
             // 端末の rate(0.3...0.7、標準 0.5)→ クラウドの speed(0.6...1.4)
             let speed = Double(min(max(rate, 0.3), 0.7)) * 2
@@ -164,8 +168,25 @@ enum TextToSpeech {
         }
     }
 
-    /// 文章を読み上げて音声ファイルにし、その URL を返す。rate は 0...1(標準 0.5)、pitch は 0.5...2
-    static func render(text: String, voiceIdentifier: String?, rate: Float, pitch: Float) async throws -> URL {
+    /// 言語(BCP-47)のいちばん品質の高い端末の声(自分の声・おもしろ声は除く。地域まで同じ声を優先する)
+    static func defaultVoice(forLanguage language: String) -> AVSpeechSynthesisVoice? {
+        let lower = language.lowercased()
+        let short = String(lower.prefix(2))
+        let candidates = AVSpeechSynthesisVoice.speechVoices().filter { voice in
+            voice.language.lowercased().hasPrefix(short)
+                && !voice.voiceTraits.contains(.isPersonalVoice)
+                && !voice.voiceTraits.contains(.isNoveltyVoice)
+        }
+        let sameRegion = candidates.filter { $0.language.lowercased() == lower }
+        let pool = sameRegion.isEmpty ? candidates : sameRegion
+        if let best = pool.max(by: { $0.quality.rawValue < $1.quality.rawValue }) { return best }
+        return AVSpeechSynthesisVoice(language: language)
+    }
+
+    /// 文章を読み上げて音声ファイルにし、その URL を返す。rate は 0...1(標準 0.5)、pitch は 0.5...2。
+    /// voiceIdentifier が nil(標準の声)なら language の声で読む
+    static func render(text: String, voiceIdentifier: String?, rate: Float, pitch: Float,
+                       language: String? = nil) async throws -> URL {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw TextToSpeechError.emptyText }
 
@@ -173,7 +194,8 @@ enum TextToSpeech {
         if let voiceIdentifier, let voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier) {
             utterance.voice = voice
         } else {
-            utterance.voice = AVSpeechSynthesisVoice(language: "ja-JP")
+            // 「標準の声」は選んだ言語の声で読む(English を選んだのに日本語の声で英文を読んでいた)
+            utterance.voice = defaultVoice(forLanguage: language ?? "ja-JP")
         }
         utterance.rate = min(max(rate, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
         utterance.pitchMultiplier = min(max(pitch, 0.5), 2.0)
@@ -182,6 +204,68 @@ enum TextToSpeech {
         let destination = MediaStore.uniqueDestination(forFileName: String(localized: "読み上げ.caf"))
         let session = TextToSpeechWriteSession(destination: destination)
         return try await session.run(utterance)
+    }
+}
+
+// MARK: - 端末の声の言語
+
+/// 端末の声の読み上げで選べる言語(BCP-47)。チップの名前はその言語での呼び方(日本語だけ訳す)
+enum TTSLanguage {
+    static let codes = ["ja-JP", "en-US", "es-MX", "pt-BR"]
+
+    static func displayName(_ code: String) -> String {
+        switch code {
+        case "ja-JP": return String(localized: "日本語")
+        case "en-US": return "English"
+        case "es-MX": return "Español"
+        case "pt-BR": return "Português"
+        default: return code
+        }
+    }
+
+    /// 最初に選ぶ言語(端末の言語に合わせる。日本語・スペイン語・ポルトガル語以外は英語)
+    static var deviceDefault: String {
+        let preferred = (Locale.preferredLanguages.first ?? "ja").lowercased()
+        if preferred.hasPrefix("ja") { return "ja-JP" }
+        if preferred.hasPrefix("es") { return "es-MX" }
+        if preferred.hasPrefix("pt") { return "pt-BR" }
+        return "en-US"
+    }
+}
+
+// MARK: - 作った声の使い回し(途中の失敗・キャンセルのあとの続き)
+
+/// クラウドの声で作った音声を、声・速さ・文章ごとに覚えておく(アプリを終了するまで)。
+/// 台本のナレーションや吹き替えが途中の失敗やキャンセルで止まったあと、もう一度作るときに
+/// できていた分は作り直さずに使う(ポイントを二重に使わないため)。ファイルが消えていれば使わない
+enum TTSResumeCache {
+    private static let lock = NSLock()
+    private static var urls: [String: URL] = [:]
+
+    static func key(choice: TTSVoiceChoice, text: String, rate: Float, pitch: Float, extra: String = "") -> String {
+        let voice: String
+        switch choice {
+        case .device(let identifier): voice = "device:" + (identifier ?? "")
+        case .cloud(let cloud): voice = "cloud:" + cloud.rawValue
+        }
+        return [voice, String(format: "%.3f", rate), String(format: "%.3f", pitch), extra, text].joined(separator: "|")
+    }
+
+    static func url(for key: String) -> URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let url = urls[key] else { return nil }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            urls[key] = nil
+            return nil
+        }
+        return url
+    }
+
+    static func store(_ url: URL, for key: String) {
+        lock.lock()
+        urls[key] = url
+        lock.unlock()
     }
 }
 
@@ -296,6 +380,8 @@ private final class TextToSpeechWriteSession {
     private var file: AVAudioFile?
     private var framesWritten: AVAudioFramePosition = 0
     private var finished = false
+    /// 最後に声(バッファ)が届いた時刻。長い文章でも届き続けている間は待つ
+    private var lastActivity = Date()
     private var continuation: CheckedContinuation<URL, Error>?
 
     init(destination: URL) {
@@ -316,13 +402,14 @@ private final class TextToSpeechWriteSession {
             continuation = cont
             lock.unlock()
             DispatchQueue.main.async { [self] in
+                self.lock.lock()
+                self.lastActivity = Date()
+                self.lock.unlock()
                 self.synthesizer.write(utterance) { [weak self] buffer in
                     self?.handle(buffer)
                 }
-                // 何も返ってこない場合の保険(60 秒)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
-                    self?.timeout()
-                }
+                // 声が届かなくなったときの保険(前は開始から 60 秒で必ず打ち切り、長い文章が途中で切れていた)
+                self.scheduleWatchdog()
             }
         }
     }
@@ -331,6 +418,7 @@ private final class TextToSpeechWriteSession {
         lock.lock()
         defer { lock.unlock() }
         if finished { return }
+        lastActivity = Date()
         guard let pcm = buffer as? AVAudioPCMBuffer else { return }
         if pcm.frameLength == 0 {
             if framesWritten > 0 {
@@ -378,13 +466,38 @@ private final class TextToSpeechWriteSession {
         }
     }
 
+    /// 声が届いているかを 5 秒ごとに確かめる(メインスレッド)
+    private func scheduleWatchdog() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            self?.checkStalled()
+        }
+    }
+
+    /// 最初の声が 60 秒、途中で 20 秒届かなければ打ち切る
+    private func checkStalled() {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        let idle = Date().timeIntervalSince(lastActivity)
+        let limit: TimeInterval = framesWritten > 0 ? 20 : 60
+        lock.unlock()
+        if idle > limit {
+            timeout()
+        } else {
+            scheduleWatchdog()
+        }
+    }
+
     private func timeout() {
         lock.lock()
         defer { lock.unlock() }
         if finished { return }
         _ = synthesizer.stopSpeaking(at: .immediate)
+        // 途中までの音声を成功として追加しない(文章の後半が無いナレーションになり、入力も消えていた)
         if framesWritten > 0 {
-            finishLocked(error: nil)
+            finishLocked(error: TextToSpeechError.incomplete)
         } else {
             finishLocked(error: TextToSpeechError.noAudioProduced)
         }

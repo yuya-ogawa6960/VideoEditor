@@ -13,6 +13,12 @@ struct SubtitleWord: Equatable {
     var end: Double
 }
 
+struct RemovedSubtitleFillers: Equatable {
+    var words: [SubtitleWord]
+    var cueStart: Double
+    var cueEnd: Double
+}
+
 struct SubtitleCue: Identifiable, Equatable {
     var id = UUID()
     var start: Double
@@ -23,6 +29,7 @@ struct SubtitleCue: Identifiable, Equatable {
     var bilingual: Bool = false
     var doubtfulWords: [String] = []
     var issueDismissed: Bool = false
+    var removedFillers: RemovedSubtitleFillers? = nil
 
     var duration: Double { max(0, end - start) }
 }

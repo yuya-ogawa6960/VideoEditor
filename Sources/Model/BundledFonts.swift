@@ -12,7 +12,18 @@ enum BundledFonts {
     struct Entry {
         /// PostScript 名(UIFont(name:) で使う名前)
         let name: String
-        let label: String
+        /// 一覧に出す名前の翻訳のキー(日本語の名前。英語の名前はそのまま)
+        let labelKey: String
+
+        init(name: String, label: String) {
+            self.name = name
+            self.labelKey = label
+        }
+
+        /// 一覧に出す名前(端末の言語。前は英語などの画面でも日本語のまま出ていた)
+        var label: String {
+            String(localized: String.LocalizationValue(labelKey))
+        }
     }
 
     /// 日本語(かわいい・ポップ・手書き)

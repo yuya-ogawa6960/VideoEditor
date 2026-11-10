@@ -47,6 +47,8 @@ final class ContinuedProcessingHandle: @unchecked Sendable {
     let identifier: String
     /// システム UI に出すタイトル
     let title: String
+    /// submit した時刻(システムがまだ開始していない要求を、いつまで「続けられる見込み」とみなすかに使う)
+    fileprivate let createdAt = CFAbsoluteTimeGetCurrent()
 
     /// task.progress の totalUnitCount
     static let unitCount: Int64 = 1000
@@ -384,6 +386,25 @@ enum ContinuedProcessing {
         let value = diagnostic
         lock.unlock()
         return value ?? preflightDiagnostic()
+    }
+
+    /// その種類の継続処理が、いまロック中・バックグラウンドでも続けられる見込みか(作業中のカードの「ロックしても続きます」に使う)。
+    /// submit を受け付けてもらえていて、止められても終わってもいないときだけ true。
+    /// システムがまだ開始していない要求は、受け付けてから少しの間(launchTimeout + 1 秒)だけ true とみなす
+    /// (それを過ぎても開始されないときは、約 30 秒で止まる beginBackgroundTask だけになるため false)。
+    /// どのスレッドから呼んでもよい
+    static func hasLiveHandle(kind: ContinuedProcessingKind) -> Bool {
+        lock.lock()
+        let handles = activeHandles.values.filter { $0.kind == kind }
+        lock.unlock()
+        // ハンドルのロックは ContinuedProcessing のロックを放してから取る(ロックの順序: ハンドル → ContinuedProcessing)
+        let now = CFAbsoluteTimeGetCurrent()
+        return handles.contains { handle in
+            if handle.wasExpired { return false }
+            if handle.isActive { return true }
+            if handle.hasLaunchedOrFinished { return false }
+            return now - handle.createdAt < launchTimeout + 1
+        }
     }
 
     /// Info.plist の BGTaskSchedulerPermittedIdentifiers

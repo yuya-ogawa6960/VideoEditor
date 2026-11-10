@@ -43,6 +43,9 @@ struct MosaicStyle: Equatable {
     var strength: Double = 0.5
     /// 高さ(画面の高さに対する比率)。幅は TextClip.widthRatio
     var heightRatio: Double = 0.22
+    /// 重ねた素材(B ロール・ワイプ・写真など V2 以上)の上にもかける。false なら V1 の映像だけ(オーバーレイの下)。
+    /// 新しく置くモザイクは true(V2 に映った顔も隠れるように)。前の版で作ったモザイク(保存に無い)は false のまま
+    var coversOverlays: Bool = true
 }
 
 extension TextClip {
@@ -108,5 +111,103 @@ extension TextClip {
         clip.widthRatio = 0.3
         clip.mosaic = MosaicStyle()
         return clip
+    }
+}
+
+// MARK: - 比率・収め方を変えたときの置き直し
+
+/// モザイクは画面(キャンバス)に対する割合で位置と大きさを持つので、作品の比率・収め方を変えたり、
+/// 「SNS パック」で別の向きの 1 本を作ったりすると、映像だけが動いてモザイクが顔から外れていた。
+/// 変える前と後で、その時刻に映っている V1 のクリップの同じ点に来るように置き直す(ClipCanvasMapping)。
+/// 重ねた素材の上にかけるモザイクで、重ねた素材の枠の中にあるものは、重ねた素材と同じく画面に対する位置のままにする
+enum MosaicRemap {
+    static func remapped(_ clips: [TextClip], from before: ProjectSnapshot, to after: ProjectSnapshot) -> [TextClip] {
+        guard clips.contains(where: { $0.isMosaic }), !before.clips.isEmpty else { return clips }
+        let oldSize = CompositionBuilder.renderSize(for: before, purpose: .preview)
+        let newSize = CompositionBuilder.renderSize(for: after, purpose: .preview)
+        guard oldSize.width > 1, oldSize.height > 1, newSize.width > 1, newSize.height > 1 else { return clips }
+        let oldAspect = Double(oldSize.width / oldSize.height)
+        let newAspect = Double(newSize.width / newSize.height)
+        if abs(oldAspect - newAspect) < 0.001, before.canvas.scaling == after.canvas.scaling { return clips }
+        let layout = CompositionBuilder.timelineLayout(for: before)
+        let context = Context(snapshot: before, layout: layout, oldSize: oldSize, newSize: newSize,
+                              newScaling: after.canvas.scaling)
+        return clips.map { clip in
+            guard clip.isMosaic else { return clip }
+            return remapped(clip, context: context)
+        }
+    }
+
+    private struct Context {
+        let snapshot: ProjectSnapshot
+        let layout: [ClipPlacement]
+        let oldSize: CGSize
+        let newSize: CGSize
+        let newScaling: ScalingMode
+    }
+
+    private static func remapped(_ clip: TextClip, context: Context) -> TextClip {
+        let baseTime = clip.start + min(0.05, max(0, clip.duration) / 2)
+        if clip.mosaic?.coversOverlays ?? false,
+           liesOnOverlay(clip.center, time: baseTime, overlays: context.snapshot.overlays) {
+            return clip
+        }
+        guard let base = mapping(at: baseTime, context: context) else { return clip }
+        let baseSX = Double(hypot(base.a, base.b))
+        let baseSY = Double(hypot(base.c, base.d))
+        guard baseSX > 0.0001, baseSY > 0.0001 else { return clip }
+        var out = clip
+        out.center = apply(base, to: clip.center)
+        out.widthRatio = clip.widthRatio * baseSX
+        out.mosaic?.heightRatio = (clip.mosaic?.heightRatio ?? 0.22) * baseSY
+        out.keyframes = clip.keyframes.map { key in
+            var k = key
+            let m = mapping(at: clip.start + key.time, context: context) ?? base
+            k.center = apply(m, to: key.center)
+            // 幅・高さは基準の時刻の倍率で直したので、キーの大きさは基準との比だけ掛ける
+            k.scale = key.scale * Double(hypot(m.a, m.b)) / baseSX
+            return k
+        }
+        return out
+    }
+
+    /// time に映っている V1 のクリップで、古いキャンバス → 元の絵 → 新しいキャンバス の変換(クリップが無ければ nil)
+    private static func mapping(at time: Double, context: Context) -> CGAffineTransform? {
+        var found: Int?
+        for (i, placement) in context.layout.enumerated() where time >= placement.start - 0.0005 && time < placement.end {
+            found = i
+        }
+        guard let i = found, i < context.snapshot.clips.count else { return nil }
+        let clip = context.snapshot.clips[i]
+        let source = clip.sourceTime(atOutputOffset: max(0, time - context.layout[i].start))
+        let old = ClipCanvasMapping.transform(clip: clip, sourceTime: source, canvasSize: context.oldSize,
+                                              scaling: context.snapshot.canvas.scaling)
+        let new = ClipCanvasMapping.transform(clip: clip, sourceTime: source, canvasSize: context.newSize,
+                                              scaling: context.newScaling)
+        return old.inverted().concatenating(new)
+    }
+
+    private static func apply(_ t: CGAffineTransform, to p: NormalizedPoint) -> NormalizedPoint {
+        let q = CGPoint(x: CGFloat(p.x), y: CGFloat(p.y)).applying(t)
+        return NormalizedPoint(x: min(max(Double(q.x), -1), 2), y: min(max(Double(q.y), -1), 2))
+    }
+
+    /// time に見えている重ねた素材の枠の中か
+    private static func liesOnOverlay(_ p: NormalizedPoint, time: Double, overlays: [OverlayClip]) -> Bool {
+        overlays.contains { overlay in
+            guard overlay.contains(timelineTime: time) else { return false }
+            let f = overlay.frame
+            return p.x >= f.minX && p.x <= f.maxX && p.y >= f.minY && p.y <= f.maxY
+        }
+    }
+}
+
+extension EditorProject {
+    /// 作品の比率・収め方を変えたあとに呼ぶ: モザイクを映像に合わせて置き直す(before は変える前の状態)
+    func remapMosaics(from before: ProjectSnapshot) {
+        let remapped = MosaicRemap.remapped(textClips, from: before, to: snapshot())
+        if remapped != textClips {
+            textClips = remapped
+        }
     }
 }

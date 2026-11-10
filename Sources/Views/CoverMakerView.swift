@@ -292,7 +292,7 @@ struct CoverMakerView: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         let p = min(max(Double(value.location.x / width), 0), 1)
-                        project.cover.frameTime = p * duration
+                        setFrameTime(p * duration)
                     }
             )
         }
@@ -300,20 +300,38 @@ struct CoverMakerView: View {
         .clipShape(RoundedRectangle(cornerRadius: BrandStyle.Radius.chip, style: .continuous))
         .accessibilityElement()
         .accessibilityLabel("コマ")
-        .accessibilityValue(MediaTimeText.precise(project.cover.frameTime))
+        .accessibilityValue(MediaTimeText.precise(currentFrameTime))
         .accessibilityAdjustableAction { direction in
             let step = duration / Double(stripCount)
             switch direction {
-            case .increment: project.cover.frameTime = min(duration, project.cover.frameTime + step)
-            case .decrement: project.cover.frameTime = max(0, project.cover.frameTime - step)
+            case .increment: setFrameTime(min(duration, currentFrameTime + step))
+            case .decrement: setFrameTime(max(0, currentFrameTime - step))
             @unknown default: break
             }
         }
     }
 
+    /// いま背景にしているコマの時刻(あとの編集でずれないよう、選んだクリップと元素材の秒から求める)
+    private var currentFrameTime: Double {
+        CoverRenderer.resolvedFrameTime(cover: project.cover, snapshot: project.snapshot())
+    }
+
+    /// 背景のコマを選ぶ。作品の秒と一緒に、そのときのクリップと元素材の秒も覚える(CoverRenderer.resolvedFrameTime)
+    private func setFrameTime(_ time: Double) {
+        let t = min(max(time, 0), max(duration, 0))
+        project.cover.frameTime = t
+        if let location = project.locate(timelineTime: t), location.index < project.clips.count {
+            project.cover.frameClipID = project.clips[location.index].id
+            project.cover.frameSourceTime = location.sourceTime
+        } else {
+            project.cover.frameClipID = nil
+            project.cover.frameSourceTime = nil
+        }
+    }
+
     private func indicatorX(width: CGFloat) -> CGFloat {
         guard duration > 0 else { return 0 }
-        let p = min(max(project.cover.frameTime / duration, 0), 1)
+        let p = min(max(currentFrameTime / duration, 0), 1)
         return CGFloat(p) * width
     }
 
@@ -505,7 +523,8 @@ struct CoverMakerView: View {
             }
             if Task.isCancelled { return }
             do {
-                let image = try await CoverRenderer.render(snapshot: snapshot, cover: cover, size: size)
+                // 画面の見本は小さく見せるだけなので、プレビュー用の大きさのコマで速く描く(保存・共有は大きいコマ)
+                let image = try await CoverRenderer.render(snapshot: snapshot, cover: cover, size: size, purpose: .preview)
                 if Task.isCancelled || generation != renderGeneration { return }
                 preview = image
                 renderError = nil

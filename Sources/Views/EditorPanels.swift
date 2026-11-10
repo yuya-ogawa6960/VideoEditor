@@ -528,6 +528,8 @@ struct EditorChip: View {
                 .padding(.vertical, -7)
         }
         .buttonStyle(.plain)
+        // VoiceOver でも、どのチップを選んでいるかを読む(見た目の白い塗りと同じ)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -653,15 +655,70 @@ struct EditorSliderRow<Value: BinaryFloatingPoint>: View where Value.Stride: Bin
             }
             Slider(value: $value, in: range, onEditingChanged: onEditingChanged)
                 .tint(.white)
+                // VoiceOver: スライダー自身に名前と、画面に出ている値(「-3 dB」など)を読ませる
+                .accessibilityLabel(Text(title))
+                .accessibilityValue(Text(display))
         }
     }
 }
 
 // MARK: - 速度
 
+/// 速度・タイムリマップのパネルで、値を変えるたびに「最初に変える直前の状態」から計算し直すための控え。
+/// 前は値を変えるたびに直前の状態から字幕などを動かしていたので、試しに 4x にしてから 1x に戻すと、
+/// 途中の速さで 0.2 秒より短くなった字幕・ステッカーなどが消えたまま戻らなかった
+/// (タイムラインのトリミングで、つかんだときの配置から動かし直すのと同じ考え方)
+struct SpeedTrialBase {
+    /// 最初に変える直前の状態と、そのときのクリップの配置
+    let snapshot: ProjectSnapshot
+    let layout: ClipLayoutSnapshot
+    /// 最後に書き込んだ直後の状態(今と違えば、元に戻す・タイムラインの編集などが入ったので控えを取り直す)
+    var last: ProjectSnapshot
+
+    /// クリップ clipID を、控えの状態から change で変えた状態にする。字幕・テキスト・オーバーレイなどは控えの状態から動かし直し、
+    /// ナレーション・効果音は長さを保って位置だけ動かす。戻り値を呼び出し側の @State に入れ直す
+    static func apply(_ base: SpeedTrialBase?, project: EditorProject, clipID: UUID,
+                      change: (inout Clip) -> Void) -> SpeedTrialBase? {
+        guard let i = project.index(of: clipID) else { return base }
+        let current = project.snapshot()
+        var trial: SpeedTrialBase
+        if let existing = base, existing.last == current {
+            trial = existing
+            project.restoreTimelineItems(from: existing.snapshot)
+        } else {
+            trial = SpeedTrialBase(snapshot: current, layout: project.captureClipLayout(), last: current)
+        }
+        var updated = trial.snapshot.clips.first(where: { $0.id == clipID }) ?? project.clips[i]
+        change(&updated)
+        project.clips[i] = updated
+        project.rippleTimelineItems(from: trial.layout, keepingAudioLength: true)
+        trial.last = project.snapshot()
+        return trial
+    }
+}
+
+extension EditorProject {
+    /// rippleTimelineItems が動かす部品(字幕・章タイトル・テロップ・テキスト・手書き・映像エフェクト・マーカー・
+    /// オーバーレイ・ナレーション)だけを snapshot の状態に戻す(クリップはそのまま。変わっていないものは書かない)
+    func restoreTimelineItems(from snapshot: ProjectSnapshot) {
+        if subtitles != snapshot.subtitles { subtitles = snapshot.subtitles }
+        if titleCards != snapshot.titleCards { titleCards = snapshot.titleCards }
+        if lowerThirds != snapshot.lowerThirds { lowerThirds = snapshot.lowerThirds }
+        if textClips != snapshot.textClips { textClips = snapshot.textClips }
+        if drawings != snapshot.drawings { drawings = snapshot.drawings }
+        if videoEffects != snapshot.videoEffects { videoEffects = snapshot.videoEffects }
+        if markers != snapshot.markers { markers = snapshot.markers }
+        if overlays != snapshot.overlays { overlays = snapshot.overlays }
+        if narration != snapshot.narration { narration = snapshot.narration }
+    }
+}
+
 struct EditorSpeedPanel: View {
     let project: EditorProject
     @Binding var clip: Clip
+
+    /// 速さを試している間の控え(SpeedTrialBase)
+    @State private var trial: SpeedTrialBase? = nil
 
     private let presets: [Double] = [0.25, 0.5, 1, 1.5, 2, 3, 4]
 
@@ -674,11 +731,21 @@ struct EditorSpeedPanel: View {
         }
     }
 
-    /// 速度を変えるとクリップの長さが変わるので、後ろの字幕・テキスト・オーバーレイなども同じ素材の位置に付いたまま動かす
+    /// 速度を変えるとクリップの長さが変わるので、後ろの字幕・テキスト・オーバーレイなども同じ素材の位置に付いたまま動かす。
+    /// 毎回、このパネルで最初に変える直前の状態から計算し直す(途中の速さで消えた短い部品も、速さを戻せば戻る)
     private func setSpeed(_ speed: Double) {
-        let layout = project.captureClipLayout()
-        clip.speed = min(max(speed, 0.25), 4)
-        project.rippleTimelineItems(from: layout)
+        let value = min(max(speed, 0.25), 4)
+        // 控えのクリップから作り直すので、このパネルで切ったタイムリマップは切ったままにする(戻すとまた速度が効かなくなる)
+        let curveEnabled = clip.speedCurve.enabled
+        trial = SpeedTrialBase.apply(trial, project: project, clipID: clip.id) {
+            $0.speed = value
+            $0.speedCurve.enabled = curveEnabled
+        }
+    }
+
+    /// タイムリマップを切って、ここの速度を使えるようにする(どちらか一方しか使えない)
+    private func turnOffSpeedCurve() {
+        trial = SpeedTrialBase.apply(trial, project: project, clipID: clip.id) { $0.speedCurve.enabled = false }
     }
 
     /// log2(速度) を -2 ... 2 で操作する(0.25x ... 4x)
@@ -694,17 +761,34 @@ struct EditorSpeedPanel: View {
     }
 
     var body: some View {
+        // タイムリマップ(速度カーブ)を使っている間は、ここの一定の速度は使われない(どちらか一方だけ)
+        let curveActive = clip.speedCurve.enabled
         VStack(alignment: .leading, spacing: 14) {
+            if curveActive {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("タイムリマップを使用中です。速度を変えるにはタイムリマップを切ってください")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    EditorChip(title: String(localized: "タイムリマップを切る"), isSelected: false) {
+                        turnOffSpeedCurve()
+                    }
+                }
+            }
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(presets, id: \.self) { preset in
                         EditorChip(title: label(for: preset),
-                                   isSelected: abs(clip.speed - preset) < 0.001) {
+                                   isSelected: !curveActive && abs(clip.speed - preset) < 0.001) {
                             setSpeed(preset)
                         }
                     }
                 }
             }
+            .disabled(curveActive)
+            .opacity(curveActive ? 0.4 : 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
@@ -728,6 +812,8 @@ struct EditorSpeedPanel: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             }
+            .disabled(curveActive)
+            .opacity(curveActive ? 0.4 : 1)
 
             Text("長さ \(MediaTimeText.precise(clip.trimmedDuration)) → \(MediaTimeText.precise(clip.outputDuration))")
                 .font(.caption)
@@ -996,6 +1082,17 @@ struct EditorTextEditPanel: View {
     /// 入力中の欄(見出しの右の「完了」でキーボードを閉じる)
     @FocusState private var focusedField: Field?
 
+    /// 本文。直したら単語ごとの時刻(カラオケ・ポップ・マーカー・タイプ)も新しい本文に合わせ直す
+    /// (古い単語のままだと、プレビューと書き出しに直す前の言葉が出ていた)
+    private var textBinding: Binding<String> {
+        Binding<String>(
+            get: { cue.text },
+            set: { newValue in
+                cue = SubtitleWordTiming.retexted(cue, newText: newValue)
+            }
+        )
+    }
+
     private var translatedBinding: Binding<String> {
         Binding<String>(
             get: { cue.translatedText ?? "" },
@@ -1014,7 +1111,7 @@ struct EditorTextEditPanel: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 fieldHeader(String(localized: "テキスト"), field: .text)
-                TextField("字幕を入力", text: $cue.text, axis: .vertical)
+                TextField("字幕を入力", text: textBinding, axis: .vertical)
                     .lineLimit(1...3)
                     .focused($focusedField, equals: .text)
                     .textFieldStyle(.plain)
@@ -1202,7 +1299,10 @@ struct EditorAspectPanel: View {
                 HStack(spacing: 6) {
                     ForEach(ScalingMode.allCases) { mode in
                         EditorVisualTile(title: Self.scalingName(mode), isSelected: project.canvas.scaling == mode) {
+                            let before = project.snapshot()
                             project.canvas.scaling = mode
+                            // モザイクは映像に合わせて置き直す(画面に対する位置のままだと顔から外れる)
+                            project.remapMosaics(from: before)
                         } preview: {
                             ScalingModePreview(mode: mode)
                         }
@@ -1225,7 +1325,10 @@ struct EditorAspectPanel: View {
         let height: CGFloat = boxWidth / ratio
         return Button {
             EditorHaptics.tap()
+            let before = project.snapshot()
             project.canvas.aspect = aspect
+            // モザイクは映像に合わせて置き直す(画面に対する位置のままだと顔から外れる)
+            project.remapMosaics(from: before)
         } label: {
             VStack(spacing: 6) {
                 ZStack {
@@ -1308,7 +1411,7 @@ struct EditorBGMVolumePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(project.audio.bgmName ?? "BGM", systemImage: "music.note")
+            Label(project.audio.bgmName.map { BGMTrack.displayName(forStoredName: $0) } ?? "BGM", systemImage: "music.note")
                 .font(.subheadline)
                 .lineLimit(1)
 
@@ -1317,9 +1420,16 @@ struct EditorBGMVolumePanel: View {
                             range: 0...1,
                             display: "\(Int((project.audio.bgmVolume * 100).rounded()))%")
 
-            Toggle("最後の 2 秒でフェードアウト", isOn: $project.audio.bgmFadeOut)
-                .font(.subheadline)
-                .tint(.accentColor)
+            // 最後のフェードアウトの秒数(「BGM・音量」と同じ。0 = しない)。
+            // 前は「最後の 2 秒」と出ていたが、実際は「BGM・音量」で決めた秒数でフェードしていた
+            AudioFadeSliderRow(title: String(localized: "フェードアウト"),
+                               value: Binding(
+                                   get: { project.audio.bgmFadeOut ? project.audio.bgmFadeOutSeconds : 0 },
+                                   set: { newValue in
+                                       project.audio.bgmFadeOut = newValue > 0.05
+                                       if newValue > 0.05 { project.audio.bgmFadeOutSeconds = newValue }
+                                   }),
+                               range: 0...5)
         }
         .padding(.top, 6)
     }

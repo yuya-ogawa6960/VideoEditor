@@ -147,20 +147,28 @@ enum HighlightAnalyzer {
     // MARK: - 話している区間(切ってはいけない所)
 
     private static let voiceLock = NSLock()
-    private static var voiceCache: [UUID: [ClosedRange<Double>]] = [:]
+    /// 声の区間と、そのとき解析した素材と範囲(元素材上の秒)。
+    /// 解析したあとでトリミングを広げたクリップは、広げた所が「声なし」に見えないよう解析し直す
+    private struct VoiceEntry {
+        var runs: [ClosedRange<Double>]
+        var url: URL
+        var lower: Double
+        var upper: Double
+    }
+    private static var voiceCache: [UUID: VoiceEntry] = [:]
 
     /// 最後の解析で見つけた、クリップの中で声が続いている区間(元素材上の秒)。未解析なら空
     static func voiceRuns(for clipID: UUID) -> [ClosedRange<Double>] {
         voiceLock.lock()
         defer { voiceLock.unlock() }
-        return voiceCache[clipID] ?? []
+        return voiceCache[clipID]?.runs ?? []
     }
 
     /// SpeechGuard のために、声の区間がまだ無いクリップだけ音声を解析する
     /// (「見どころを探す」を先に済ませて解析を飛ばすとき、アプリを開き直したあとなど)
     static func ensureVoiceRuns(snapshot: ProjectSnapshot, progress: ((Double) -> Void)?) async throws {
         let pending = snapshot.clips.filter {
-            $0.hasAudio && !$0.isStill && $0.trimmedDuration > 0.3 && !hasVoiceAnalysis(for: $0.id)
+            $0.hasAudio && !$0.isStill && $0.trimmedDuration > 0.3 && !hasVoiceAnalysis(for: $0)
         }
         guard !pending.isEmpty else { return }
         for (i, clip) in pending.enumerated() {
@@ -177,9 +185,10 @@ enum HighlightAnalyzer {
         }
     }
 
-    private static func storeVoiceRuns(_ runs: [ClosedRange<Double>], for clipID: UUID) {
+    /// clip: 解析したときのクリップ(素材と startTime〜endTime を一緒に覚える)
+    private static func storeVoiceRuns(_ runs: [ClosedRange<Double>], for clip: Clip) {
         voiceLock.lock()
-        voiceCache[clipID] = runs
+        voiceCache[clip.id] = VoiceEntry(runs: runs, url: clip.url, lower: clip.startTime, upper: clip.endTime)
         voiceLock.unlock()
     }
 
@@ -188,6 +197,17 @@ enum HighlightAnalyzer {
         voiceLock.lock()
         defer { voiceLock.unlock() }
         return voiceCache[clipID] != nil
+    }
+
+    /// いまのクリップの範囲(startTime〜endTime)を、同じ素材で解析済みか。
+    /// 解析したあとでトリミングを広げた・素材が変わったときは false(解析し直す)
+    static func hasVoiceAnalysis(for clip: Clip) -> Bool {
+        voiceLock.lock()
+        defer { voiceLock.unlock() }
+        guard let entry = voiceCache[clip.id] else { return false }
+        return entry.url == clip.url
+            && entry.lower <= clip.startTime + 0.05
+            && entry.upper >= clip.endTime - 0.05
     }
 
     private static func analyzeAudio(clip: Clip, seconds: Int,
@@ -309,7 +329,7 @@ enum HighlightAnalyzer {
                 return overlap >= min(0.4, length * 0.3)
             }
         }
-        storeVoiceRuns(runs, for: clip.id)
+        storeVoiceRuns(runs, for: clip)
 
         for s in 0..<n {
             let lo = Int(Double(s) * windowsPerSecond)

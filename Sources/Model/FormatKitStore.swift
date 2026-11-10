@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import UIKit
+import AVFoundation
 
 // =====================================================================
 // フォーマット(オープニング・クロージング・ディバイダー)の保管庫。
@@ -9,6 +10,21 @@ import UIKit
 // 単色 PNG は Caches に作る(black.png など。消えても作り直す。ProjectStore が復元時に解決する)。
 // 呼び出しはメインスレッドから(EditorProject を触るため)。
 // =====================================================================
+
+/// パーツに保存した動画の素材の使い方。元のプロジェクトに同じ素材のクリップが無くても、
+/// 保存したときと同じ範囲・速度・音量でクリップを組み立てられるようにする
+struct FormatMediaInfo: Codable, Equatable {
+    /// 素材全体の長さ(秒)
+    var sourceDuration: Double
+    var naturalSize: CGSize
+    var preferredTransform: CGAffineTransform
+    var hasAudio: Bool
+    /// 使う範囲(素材の秒)
+    var startTime: Double
+    var endTime: Double
+    var speed: Double = 1
+    var volume: Float = 1
+}
 
 private struct StoredFormatBlock: Codable {
     var id: UUID
@@ -21,6 +37,8 @@ private struct StoredFormatBlock: Codable {
     /// 素材のファイル名(mediaDirectory 内)または生成した単色 PNG の名前
     var mediaFile: String?
     var transitionOut: StoredTransition
+    /// 動画の素材の使い方(古いファイルには無い)
+    var mediaInfo: FormatMediaInfo?
 
     init(_ b: FormatBlock) {
         id = b.id
@@ -32,6 +50,7 @@ private struct StoredFormatBlock: Codable {
         textClips = b.textClips.map { StoredTextClip($0) }
         mediaFile = b.mediaURL?.lastPathComponent
         transitionOut = StoredTransition(b.transitionOut)
+        mediaInfo = b.mediaInfo
     }
 
     var value: FormatBlock {
@@ -47,6 +66,7 @@ private struct StoredFormatBlock: Codable {
             b.backgroundColorHex = "#000000"
         }
         b.transitionOut = transitionOut.value
+        b.mediaInfo = b.mediaURL == nil ? nil : mediaInfo
         return b
     }
 }
@@ -101,13 +121,38 @@ final class FormatKitStore {
         return makeSolidStill(fileName: "solid_\(hex.dropFirst()).png", color: color)
     }
 
+    /// 任意の色・大きさの PNG(Caches/solid_RRGGBB_幅x高さ.png)。パーツの背景は作品の大きさで作る
+    /// (1920×1080 だけだと、比率が「元のまま」の作品の先頭に入れたとき、作品全体が 16:9 の横長になっていた)
+    static func solidStillURL(colorHex: String, size: CGSize) -> URL {
+        let width = Int(size.width.rounded())
+        let height = Int(size.height.rounded())
+        guard width >= 16, height >= 16, width <= 8192, height <= 8192,
+              !(width == Int(generatedStillSize.width) && height == Int(generatedStillSize.height)) else {
+            return solidStillURL(colorHex: colorHex)
+        }
+        let color = UIColor(hex: colorHex) ?? .black
+        let hex = color.hexString
+        return makeSolidStill(fileName: "solid_\(hex.dropFirst())_\(width)x\(height).png", color: color,
+                              size: CGSize(width: width, height: height))
+    }
+
     /// 生成した単色 PNG の名前なら(消えていれば作り直して)URL を返す。それ以外の名前は nil
     static func generatedStillURL(fileName: String) -> URL? {
         if fileName == blackStillFileName { return blackStillURL() }
         guard fileName.hasPrefix("solid_"), fileName.hasSuffix(".png") else { return nil }
-        let hex = String(fileName.dropFirst(6).dropLast(4))
-        guard hex.count == 6, let color = UIColor(hex: "#" + hex) else { return nil }
-        return makeSolidStill(fileName: fileName, color: color)
+        let body = String(fileName.dropFirst(6).dropLast(4))
+        // "RRGGBB"(1920×1080)または "RRGGBB_幅x高さ"
+        let parts = body.split(separator: "_")
+        guard parts.count == 1 || parts.count == 2, let hexPart = parts.first, hexPart.count == 6,
+              let color = UIColor(hex: "#" + String(hexPart)) else { return nil }
+        var size = generatedStillSize
+        if parts.count == 2 {
+            let dims = parts[1].split(separator: "x")
+            guard dims.count == 2, let w = Int(dims[0]), let h = Int(dims[1]),
+                  w >= 16, h >= 16, w <= 8192, h <= 8192 else { return nil }
+            size = CGSize(width: w, height: h)
+        }
+        return makeSolidStill(fileName: fileName, color: color, size: size)
     }
 
     /// この URL が生成した単色 PNG か
@@ -116,12 +161,12 @@ final class FormatKitStore {
         return name == blackStillFileName || (name.hasPrefix("solid_") && name.hasSuffix(".png"))
     }
 
-    private static func makeSolidStill(fileName: String, color: UIColor) -> URL {
+    private static func makeSolidStill(fileName: String, color: UIColor,
+                                       size: CGSize = FormatKitStore.generatedStillSize) -> URL {
         let url = generatedStillDirectory.appendingPathComponent(fileName)
         stillLock.lock()
         defer { stillLock.unlock() }
         if FileManager.default.fileExists(atPath: url.path) { return url }
-        let size = generatedStillSize
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -219,6 +264,41 @@ final class FormatKitStore {
             blocks.append(block)
         }
         write()
+        exportUsedRange(of: block)
+    }
+
+    /// パーツに保存した動画の使っている範囲を、別のファイル(Media フォルダ)に書き出してパーツの素材にする。
+    /// 元の動画が写真ライブラリの一時ファイルなどで後から読めなくなっても、どのプロジェクトでも同じ映像が入るように。
+    /// 書き出しが終わるまでと、書き出せなかったときは、元の動画の同じ範囲を使う(FormatMediaInfo)
+    private func exportUsedRange(of block: FormatBlock) {
+        // 長すぎる範囲(2 分超)は書き出さない(時間と容量がかかる。元の動画の範囲を使う)
+        guard let source = block.mediaURL, let info = block.mediaInfo, !MediaStore.isImageFile(source),
+              FileManager.default.fileExists(atPath: source.path), info.endTime > info.startTime + 0.05,
+              info.endTime - info.startTime <= 120 else { return }
+        let blockID = block.id
+        Task { @MainActor [weak self] in
+            let destination = MediaStore.uniqueDestination(forFileName: "part.mov")
+            do {
+                let asset = AVURLAsset(url: source)
+                guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else { return }
+                session.timeRange = CMTimeRange(start: CMTime(seconds: info.startTime, preferredTimescale: 600),
+                                                end: CMTime(seconds: info.endTime, preferredTimescale: 600))
+                try await session.export(to: destination, as: .mov)
+                let exported = try await MediaStore.makeClip(from: destination)
+                guard let self, var current = self.block(id: blockID), current.mediaURL == source else {
+                    try? FileManager.default.removeItem(at: destination)
+                    return
+                }
+                current.mediaURL = destination
+                current.mediaInfo = FormatMediaInfo(sourceDuration: exported.duration, naturalSize: exported.naturalSize,
+                                                    preferredTransform: exported.preferredTransform,
+                                                    hasAudio: exported.hasAudio, startTime: 0, endTime: exported.duration,
+                                                    speed: info.speed, volume: info.volume)
+                self.update(current)
+            } catch {
+                try? FileManager.default.removeItem(at: destination)
+            }
+        }
     }
 
     func update(_ block: FormatBlock) {
@@ -297,6 +377,20 @@ final class FormatKitStore {
                     block.backgroundColorHex = "#000000"
                 } else {
                     block.mediaURL = media
+                    // 動画は使っている範囲・速度・音量も残す(前は素材の URL だけだったので、挿入すると元の動画の先頭が入り、
+                    // 別のプロジェクトでは同じ素材のクリップが無くて黒い画面になっていた)。逆再生のクリップは前の扱いのまま
+                    if !clip.isStill, !(clip.isReversed && clip.reversedURL != nil) {
+                        let lowerSource = clip.sourceTime(atOutputOffset: max(0, lower - clipStart))
+                        let upperSource = clip.sourceTime(atOutputOffset: min(clip.outputDuration, upper - clipStart))
+                        if upperSource > lowerSource + 0.05 {
+                            let speed = (upperSource - lowerSource) / max(0.1, min(upper, clipEnd) - max(lower, clipStart))
+                            block.mediaInfo = FormatMediaInfo(sourceDuration: clip.duration, naturalSize: clip.naturalSize,
+                                                              preferredTransform: clip.preferredTransform,
+                                                              hasAudio: clip.hasAudio, startTime: lowerSource,
+                                                              endTime: upperSource, speed: min(max(speed, 0.25), 4),
+                                                              volume: clip.audio.volume)
+                        }
+                    }
                 }
                 break
             }
@@ -309,14 +403,14 @@ final class FormatKitStore {
     /// ブロックをタイムライン上の timelineTime に挿入する。
     /// - 背景色または素材があるブロック: その位置(クリップの途中なら分割してから)に block.duration の
     ///   静止画クリップ(生成した単色 PNG、または画像素材)を入れ、それ以降の字幕・テキスト・オーバーレイなどを
-    ///   block.duration だけ後ろへずらす。挿入したクリップのトランジションは block.transitionOut、
+    ///   実際に伸びた長さ(トランジションの重なりを引いた長さ)だけ後ろへずらす。挿入したクリップのトランジションは block.transitionOut、
     ///   直前のクリップにトランジションが無ければ同じものを付ける。
     /// - 背景色も素材も無いブロック: クリップは入れず、章タイトルとテキストだけを timelineTime から重ねる。
     /// 元に戻す用の記録(EditorHistory.record)は呼び出し側で行う
     func insert(_ block: FormatBlock, into project: EditorProject, at timelineTime: Double) {
         let insertsClip = block.mediaURL != nil || block.backgroundColorHex != nil
         let requested = timelineTime.isFinite ? max(0, timelineTime) : 0
-        var insertTime: Double = min(requested, project.totalDuration)
+        var insertTime: Double = min(requested, project.layoutDuration)
 
         if insertsClip {
             var index = Self.insertionIndex(in: project, at: requested)
@@ -338,14 +432,36 @@ final class FormatKitStore {
                 }
             }
             let startsNow = project.clipStartTimes()
-            insertTime = index < startsNow.count ? startsNow[index] : project.totalDuration
+            // 差し込む前の、後ろのクリップの頭(末尾に足すときは nil)
+            let rippleTime: Double? = index < startsNow.count ? startsNow[index] : nil
+            let durationBefore = project.layoutDuration
             let clip = makeBlockClip(block, project: project)
-            let shift = clip.outputDuration
-            Self.shiftItems(in: project, from: insertTime, by: shift)
             if index > 0, project.clips[index - 1].transition.type == .none {
                 project.clips[index - 1].transition = block.transitionOut
             }
             project.clips.insert(clip, at: min(index, project.clips.count))
+            // 後ろの部品は、実際に伸びた長さ(トランジションの重なりを引いた長さ)だけずらす
+            // (前はパーツの長さだけずらしたので、後ろの字幕・ナレーションが重なりの分 0.4〜1.2 秒遅れていた)
+            let grown = project.layoutDuration - durationBefore
+            if let rippleTime {
+                project.insertTimelineGap(at: rippleTime, length: grown)
+            } else {
+                project.extendChapterLabelsAfterAppend(previousDuration: durationBefore)
+            }
+            // 章タイトル・テキストは、入れたクリップの実際の開始(前のクリップとのトランジションの重なりを含む)から置く
+            insertTime = project.outputRange(ofClip: clip.id)?.start ?? (rippleTime ?? durationBefore)
+            // 同じ素材のクリップが無いプロジェクトに動画のパーツを入れたときは、サムネイルを後から読む
+            if clip.thumbnail == nil, !clip.isStill {
+                let clipID = clip.id
+                let url = clip.url
+                let at = clip.startTime + 0.05
+                Task { @MainActor in
+                    let image = await MediaStore.thumbnail(for: url, at: at, maxPixel: 320)
+                    if let image, let i = project.index(of: clipID) {
+                        project.clips[i].thumbnail = image
+                    }
+                }
+            }
         }
 
         for card in block.titleCards {
@@ -417,27 +533,44 @@ final class FormatKitStore {
         }
     }
 
-    /// ブロックのクリップを作る。素材が動画ならプロジェクト内の同じ素材から情報を借りる(無ければ背景色の静止画)
+    /// ブロックのクリップを作る。素材が動画なら、保存したときの素材の情報(FormatMediaInfo)から作る。
+    /// 古いパーツはプロジェクト内の同じ素材から情報を借りる(無ければ背景色の静止画)
     private func makeBlockClip(_ block: FormatBlock, project: EditorProject) -> Clip {
         let duration = max(0.5, block.duration)
         let fm = FileManager.default
 
-        if let media = block.mediaURL, !MediaStore.isImageFile(media), fm.fileExists(atPath: media.path),
-           let source = project.clips.first(where: { $0.url == media && !$0.isStill }) {
-            var clip = Clip(url: media, duration: source.duration, naturalSize: source.naturalSize,
-                            preferredTransform: source.preferredTransform, hasAudio: source.hasAudio,
-                            thumbnail: source.thumbnail, name: block.name)
-            clip.startTime = 0
-            clip.endTime = min(source.duration, duration)
-            clip.transition = block.transitionOut
-            return clip
+        if let media = block.mediaURL, !MediaStore.isImageFile(media), fm.fileExists(atPath: media.path) {
+            let source = project.clips.first(where: { $0.url == media && !$0.isStill })
+            if let info = block.mediaInfo, info.sourceDuration > 0.1 {
+                // 保存したときの範囲・速度・音量で作る(同じ素材のクリップがプロジェクトに無くてもよい)
+                var clip = Clip(url: media, duration: info.sourceDuration, naturalSize: info.naturalSize,
+                                preferredTransform: info.preferredTransform, hasAudio: info.hasAudio,
+                                thumbnail: source?.thumbnail, name: block.name)
+                clip.startTime = min(max(0, info.startTime), info.sourceDuration - 0.1)
+                clip.endTime = min(info.sourceDuration, max(clip.startTime + 0.1, info.endTime))
+                clip.speed = min(max(info.speed, 0.25), 4)
+                clip.audio.volume = info.volume
+                clip.transition = block.transitionOut
+                return clip
+            }
+            if let source {
+                var clip = Clip(url: media, duration: source.duration, naturalSize: source.naturalSize,
+                                preferredTransform: source.preferredTransform, hasAudio: source.hasAudio,
+                                thumbnail: source.thumbnail, name: block.name)
+                clip.startTime = 0
+                clip.endTime = min(source.duration, duration)
+                clip.transition = block.transitionOut
+                return clip
+            }
         }
 
         var imageURL: URL? = nil
         if let media = block.mediaURL, MediaStore.isImageFile(media), fm.fileExists(atPath: media.path) {
             imageURL = media
         }
-        let url = imageURL ?? Self.solidStillURL(colorHex: block.backgroundColorHex ?? "#000000")
+        // 単色の背景は作品の大きさで作る(比率が「元のまま」の作品の先頭に入れても、作品の比率が変わらないように)
+        let url = imageURL ?? Self.solidStillURL(colorHex: block.backgroundColorHex ?? "#000000",
+                                                 size: CompositionBuilder.renderSize(for: project.snapshot(), purpose: .export))
         let size = MediaStore.imagePixelSize(of: url) ?? Self.generatedStillSize
         let thumbnail = MediaStore.makeImageClipThumbnail(url: url, maxPixel: 320)
         var clip = Clip(url: url, duration: Self.stillSourceDuration, naturalSize: size,

@@ -22,7 +22,12 @@ struct AdPrivacySection: View {
         } header: {
             Text("プライバシーと広告")
         } footer: {
-            Text("使った機能を端末ごとのランダムな ID で送ります。動画・文章・名前は送りません。")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("使った機能・動作の重さ・異常終了の情報を、機種・OS・言語とともに、端末ごとのランダムな ID で送ります。動画・文章・名前は送りません。")
+                // 送った統計の削除を頼むときに使う(問い合わせフォームに書いてもらう)
+                Text("端末 ID(削除の依頼に使います): \(Analytics.shared.installID)")
+                    .textSelection(.enabled)
+            }
         }
     }
 }

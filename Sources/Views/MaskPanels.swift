@@ -13,7 +13,7 @@ import Observation
 //   - EditorEnhancePanel         : 画質(ノイズ除去・美肌・簡易高画質化)
 //   - EditorParallaxControls     : 3D ズーム(DepthParallaxRenderer.hasDepth で奥行きの有無を表示)
 //   - EditorClipParallaxPanel / EditorOverlayParallaxPanel
-//   - EditorTrackingController   : プレビューで囲んだ四角 → MotionTracker.track → キーフレーム
+//   - EditorTrackingController   : プレビューで囲んだ四角 → MotionTracker.trackComposited(見えている映像で追う)→ キーフレーム
 //   - EditorTrackingPanel        : トラッキングの説明と結果
 // マスクの中心・大きさ・角度はプレビュー上(PreviewGestureOverlay の maskTarget)でも操作できる。
 // =====================================================================
@@ -365,6 +365,23 @@ struct EditorAutoReframePanel: View {
         return abs(canvasAspect - imageAspect) / imageAspect > 0.02
     }
 
+    /// 映す範囲(クロップ)を作品と同じ比率に決めてあり、リフレームの窓が切り抜いた絵の全体になって動かないか
+    /// (プレビューのドラッグや「位置・クロップ」のプリセットで決めたとき。「拡大」にしても動かない)
+    private var isLockedByCrop: Bool {
+        guard !clip.geometry.crop.isFull, clip.reframe.zoom <= 1.001, clip.geometry.canvasFrame.isFull else { return false }
+        let canvas = CompositionBuilder.renderSize(for: project.snapshot(), purpose: .preview)
+        var size = clip.displaySize
+        if clip.geometry.rotationQuarterTurns % 2 == 1 {
+            size = CGSize(width: size.height, height: size.width)
+        }
+        size.width *= CGFloat(clip.geometry.crop.width)
+        size.height *= CGFloat(clip.geometry.crop.height)
+        guard size.width > 0, size.height > 0, canvas.width > 0, canvas.height > 0 else { return false }
+        let canvasAspect = canvas.width / canvas.height
+        let imageAspect = size.width / size.height
+        return abs(canvasAspect - imageAspect) / imageAspect <= 0.02
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
 
@@ -394,7 +411,25 @@ struct EditorAutoReframePanel: View {
                     }
                 }
 
-                if !isEffective {
+                if isLockedByCrop {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Text("映す範囲を決めてあるため動きません")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        // 回転・反転・並べた枠はそのまま、切り抜きとズームだけ戻す
+                        EditorChip(title: String(localized: "範囲を戻す"), isSelected: false) {
+                            clip.geometry.crop = .full
+                            clip.geometry.zoom = 1
+                            clip.geometry.offsetX = 0
+                            clip.geometry.offsetY = 0
+                        }
+                    }
+                } else if !isEffective {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.circle")
                             .font(.caption)
@@ -406,10 +441,21 @@ struct EditorAutoReframePanel: View {
                         // 元のままの比率なら縦にして拡大、比率を決めてあれば拡大だけ
                         EditorChip(title: project.canvas.aspect == .original ? String(localized: "縦にする") : String(localized: "拡大にする"),
                                    isSelected: false) {
+                            let before = project.snapshot()
                             if project.canvas.aspect == .original { project.canvas.aspect = .portrait9x16 }
                             project.canvas.scaling = .fill
+                            // モザイクは映像に合わせて置き直す(顔から外れないように)
+                            project.remapMosaics(from: before)
                         }
                     }
+                }
+
+                if clip.multicam.isActive {
+                    // 人物の位置はメインのカメラで調べるので、別のカメラに切り替えた区間では切り抜かない(VideoCompositor)
+                    Text("マルチカメラの別のカメラの区間にはかかりません")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if hasTrack {
@@ -499,6 +545,14 @@ struct EditorStabilizePanel: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if clip.multicam.isActive {
+                // 揺れはメインのカメラで調べるので、別のカメラに切り替えた区間にはかけない(VideoCompositor)
+                Text("マルチカメラの別のカメラの区間にはかかりません")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if clip.isStill {
                 Text("静止画クリップでは使えません。")
@@ -707,13 +761,13 @@ struct EditorParallaxControls: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 EditorSectionTitle(title: String(localized: "動きの向き"))
-                HStack(spacing: 8) {
+                // 長い訳(pt など)でも画面からはみ出さないよう折り返す(EditorChipFlow は TextPanels.swift)
+                EditorChipFlow {
                     ForEach(ParallaxDirection.allCases) { direction in
                         EditorChip(title: direction.displayName, isSelected: parallax.direction == direction) {
                             parallax.direction = direction
                         }
                     }
-                    Spacer()
                 }
             }
             .disabled(!parallax.enabled)
@@ -809,6 +863,7 @@ enum EditorTrackingTarget: Equatable {
 
 /// プレビュー(キャンバス)座標と、メインクリップの映像座標の相互変換。
 /// 収める / 埋める の単純な近似で、切り抜き・回転・自動リフレーム・手ぶれ補正は考慮しない。
+/// (トラッキングと顔モザイクは、いまは合成後のコマ(CompositedFrameReader)で探して追うので、これは使っていない)
 enum PreviewTrackingMath {
     /// クリップがキャンバスに描かれる矩形(キャンバス画素)
     static func clipRect(clipSize: CGSize, canvasSize: CGSize, scaling: ScalingMode) -> CGRect {
@@ -915,41 +970,24 @@ final class EditorTrackingController {
             errorText = String(localized: "再生位置(中央の白い線)を、この部品が表示されている範囲に合わせてから囲んでください。")
             return
         }
-        guard let location = project.locate(timelineTime: t), location.index < project.clips.count else {
-            errorText = String(localized: "再生位置にクリップがありません。")
-            return
-        }
-        let clip = project.clips[location.index]
-        if clip.isStill {
-            errorText = String(localized: "静止画クリップの上では動きを追跡できません。")
-            return
-        }
-        if clip.isReversed {
-            errorText = String(localized: "逆再生中のクリップでは追跡できません。いったん逆再生を解除してください。")
-            return
-        }
-
-        let sourceStart = min(max(location.sourceTime, clip.startTime), clip.endTime)
-        let remainingOutput = max(0, itemEnd - t)
-        let averageSpeed: Double
-        if clip.outputDuration > 0 {
-            averageSpeed = clip.trimmedDuration / clip.outputDuration
-        } else {
-            averageSpeed = max(clip.speed, 0.01)
-        }
-        let sourceEnd = min(clip.endTime, sourceStart + remainingOutput * averageSpeed)
-        guard sourceEnd - sourceStart >= 0.2 else {
+        guard itemEnd - t >= 0.2 else {
             errorText = String(localized: "追跡できる長さが短すぎます(部品の残り時間が 0.2 秒以上必要です)。")
             return
         }
 
-        let snapshot = project.snapshot()
-        let canvasSize = CompositionBuilder.renderSize(for: snapshot, purpose: .preview)
-        let scaling: ScalingMode = (snapshot.canvas.aspect == .original) ? .fit : snapshot.canvas.scaling
-        let clipRect = PreviewTrackingMath.clipRect(clipSize: clip.displaySize, canvasSize: canvasSize, scaling: scaling)
-        let sourceRect = PreviewTrackingMath.sourceRect(fromCanvas: rect, clipRect: clipRect, canvasSize: canvasSize)
-        guard sourceRect.width > 0.005, sourceRect.height > 0.005 else {
-            errorText = String(localized: "囲んだ範囲が映像の外です。映像の上で対象を囲んでください。")
+        // 見えているとおりの映像(合成後のコマ)で追う。クリップの拡大・切り抜き・反転・リフレーム・キーフレーム・
+        // マルチカメラのアングル・重ねた素材(V2 以上)もそのまま追える(元の素材の座標から置き直すとずれていた)。
+        // 追いかける部品そのものと文字・字幕は外す(自分を追ってしまわないように)
+        var analysisSnapshot = project.snapshot()
+        switch target {
+        case .text(let id):
+            analysisSnapshot.textClips.removeAll { $0.id == id }
+        case .overlay(let id):
+            analysisSnapshot.overlays.removeAll { $0.id == id }
+        }
+        let snapshotForAnalysis = CompositedFrameReader.videoOnly(analysisSnapshot)
+        guard !snapshotForAnalysis.clips.isEmpty else {
+            errorText = String(localized: "再生位置にクリップがありません。")
             return
         }
 
@@ -957,32 +995,25 @@ final class EditorTrackingController {
         let offsetX = itemCenter.x - rect.midX
         let offsetY = itemCenter.y - rect.midY
         let itemOffset = max(0, t - itemStart)
-        let baseOutput = ClipFXTimeline.outputOffset(sourceTime: sourceStart, clip: clip)
-        let url = clip.url
+        let trackEnd = itemEnd
 
         analysis.run(title: String(localized: "動きを追いかけています")) { [weak self] report in
-            let tracked = try await MotionTracker.track(url: url,
-                                                        start: sourceStart,
-                                                        end: sourceEnd,
-                                                        initialRect: sourceRect,
-                                                        fps: 15,
-                                                        progress: report)
+            let built = try await CompositedFrameReader.build(snapshotForAnalysis)
+            let result = try await MotionTracker.trackComposited(built: built, start: t, end: trackEnd,
+                                                                initialRect: rect, fps: 15, redetectFaces: false,
+                                                                progress: report)
             if Task.isCancelled { return }
             guard let self else { return }
-            guard !tracked.isEmpty else {
+            guard result.keyframes.count >= 2 else {
                 self.statusText = String(localized: "対象を追跡できませんでした。もう一度、対象をぴったり囲んでみてください。")
                 return
             }
             var keyframes: [Keyframe] = []
-            keyframes.reserveCapacity(tracked.count)
-            for tracker in tracked {
-                let out = ClipFXTimeline.outputOffset(sourceTime: sourceStart + tracker.time, clip: clip) - baseOutput
-                let canvas = PreviewTrackingMath.canvasPoint(fromSource: tracker.center,
-                                                             clipRect: clipRect,
-                                                             canvasSize: canvasSize)
-                let cx = min(max(canvas.x + offsetX, -0.25), 1.25)
-                let cy = min(max(canvas.y + offsetY, -0.25), 1.25)
-                let keyframe = Keyframe(time: itemOffset + max(0, out),
+            keyframes.reserveCapacity(result.keyframes.count)
+            for tracker in result.keyframes {
+                let cx = min(max(tracker.center.x + offsetX, -0.25), 1.25)
+                let cy = min(max(tracker.center.y + offsetY, -0.25), 1.25)
+                let keyframe = Keyframe(time: itemOffset + max(0, tracker.time),
                                         center: NormalizedPoint(x: cx, y: cy),
                                         scale: itemScale,
                                         rotation: itemRotation,
@@ -993,18 +1024,27 @@ final class EditorTrackingController {
             keyframes.sort { $0.time < $1.time }
 
             history.record(project)
+            // 追い始めた時刻より前のキーは残す(途中で見失った所から追い直しても、それまでの動きが消えないように)
             switch target {
             case .text(let id):
                 if let i = project.textClips.firstIndex(where: { $0.id == id }) {
-                    project.textClips[i].keyframes = keyframes
+                    let kept = project.textClips[i].keyframes.filter { $0.time < itemOffset - 0.001 }
+                    project.textClips[i].keyframes = kept + keyframes
                 }
             case .overlay(let id):
                 if let i = project.overlays.firstIndex(where: { $0.id == id }) {
-                    project.overlays[i].keyframes = keyframes
+                    let kept = project.overlays[i].keyframes.filter { $0.time < itemOffset - 0.001 }
+                    project.overlays[i].keyframes = kept + keyframes
                 }
             }
-            let seconds = String(format: "%.1f", sourceEnd - sourceStart)
-            self.statusText = String(localized: "\(seconds) 秒分を追従させました(キーフレーム \(keyframes.count) 個)")
+            // 頼んだ範囲の長さではなく、実際に追えた長さ。途中で見失ったら、その時刻も出す
+            let seconds = String(format: "%.1f", max(0, result.lastTrackedTime))
+            if result.lostRanges.isEmpty {
+                self.statusText = String(localized: "\(seconds) 秒分を追従させました(キーフレーム \(keyframes.count) 個)")
+            } else {
+                let lostAt = MediaTimeText.precise(t + result.lastTrackedTime)
+                self.statusText = String(localized: "\(lostAt) で見失ったため、\(seconds) 秒分だけ追従させました(キーフレーム \(keyframes.count) 個)。そこから先は止まったままなので、見失った所から囲み直してください")
+            }
         } onError: { [weak self] error in
             self?.errorText = String(localized: "追跡できませんでした: \(error.localizedDescription)")
         }
@@ -1100,7 +1140,7 @@ struct EditorTrackingPanel: View {
                 .opacity(keyframeCount == 0 ? 0.4 : 1)
             }
 
-            Text("クロップ・回転・オートリフレーム中のクリップではずれることがあります")
+            Text("見えている映像のとおりに追いかけます。途中で見失ったら、その所から囲み直してください")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

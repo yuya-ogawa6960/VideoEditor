@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 import UniformTypeIdentifiers
+import AVFoundation
 
 struct AudioSettingsView: View {
     @Bindable var project: EditorProject
@@ -10,6 +11,10 @@ struct AudioSettingsView: View {
     @State private var isImporterPresented = false
     @State private var isImporting = false
     @State private var errorMessage: String?
+    /// 「用意された曲」の試聴(シートを閉じたときに止める)
+    @State private var bgmPreview = BGMPreviewPlayer()
+    /// いまの BGM の長さ(秒。曲の開始位置のスライダーに使う)
+    @State private var bgmDuration: Double = 0
 
     private static let audioTypes: [UTType] = [.audio, .mp3, .mpeg4Audio, .wav, .aiff]
 
@@ -17,10 +22,15 @@ struct AudioSettingsView: View {
         NavigationStack {
             Form {
                 bgmSection
-                // アプリが作る曲(BGMLibrarySection.swift)
-                BGMLibrarySection(project: project)
+                // 音量は曲の一覧の上に置く(前は 183 曲の一覧の下で、長くスクロールしないと出てこなかった)
                 volumeSection
+                // アプリが作る曲(BGMLibrarySection.swift)
+                BGMLibrarySection(project: project, player: bgmPreview)
             }
+            // 曲の一覧の読み込みと試聴の停止は、行ごとではなく画面全体で(BGMLibrarySection.swift)
+            .task { await BGMTrackStore.shared.loadCatalog() }
+            .task(id: project.audio.bgmURL) { await loadBGMDuration() }
+            .onDisappear { bgmPreview.stop() }
             .navigationTitle("BGM・音量")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -52,7 +62,7 @@ struct AudioSettingsView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "music.note")
                         .foregroundStyle(Color.accentColor)
-                    Text(name)
+                    Text(BGMTrack.displayName(forStoredName: name))
                         .lineLimit(2)
                     Spacer()
                     Button(role: .destructive) {
@@ -98,6 +108,10 @@ struct AudioSettingsView: View {
             }
 
             if project.audio.bgmURL != nil {
+                // 曲のどこから使うか(長いクラシックの有名な部分から始めるなど。0 = 頭から)
+                if bgmDuration > 3 {
+                    bgmStartRow
+                }
                 // 最初のフェードインと最後のフェードアウト(0 = しない。AudioFadePanels.swift)
                 AudioFadeSliderRow(title: String(localized: "フェードイン"),
                                    value: $project.audio.bgmFadeIn,
@@ -113,6 +127,35 @@ struct AudioSettingsView: View {
         } footer: {
             Text("Apple Music の曲は使えません")
         }
+    }
+
+    /// 曲の開始位置(曲の中の秒)。動画が曲より長いときは、2 回目から曲の頭に戻ってくり返す
+    private var bgmStartRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("曲の開始位置")
+                Spacer()
+                Text(Self.timeText(min(project.audio.bgmSourceStart, max(0, bgmDuration - 1))))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: $project.audio.bgmSourceStart, in: 0...max(1, bgmDuration - 1), step: 1)
+        }
+    }
+
+    private static func timeText(_ seconds: Double) -> String {
+        let total = Int(max(0, seconds).rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private func loadBGMDuration() async {
+        guard let url = project.audio.bgmURL else {
+            bgmDuration = 0
+            return
+        }
+        let loaded = try? await AVURLAsset(url: url).load(.duration)
+        let seconds = loaded.map { CMTimeGetSeconds($0) } ?? 0
+        bgmDuration = (seconds.isFinite && seconds > 0) ? seconds : 0
     }
 
     /// フェードアウトの秒数(0 = しない)。bgmFadeOut のオン/オフはそのまま残す
@@ -176,8 +219,21 @@ struct AudioSettingsView: View {
             }
             do {
                 let localURL = try MediaStore.importExternalFile(url)
-                project.audio.bgmURL = localURL
-                project.audio.bgmName = url.deletingPathExtension().lastPathComponent
+                let name = url.deletingPathExtension().lastPathComponent
+                // 読み込めない形式(MIDI・保護された曲・壊れたファイルなど)は使わずに知らせる(前はエラーにならず無音になった)
+                Task { @MainActor in
+                    isImporting = true
+                    let usable = await AudioFileCheck.isUsableAudio(localURL)
+                    isImporting = false
+                    if usable {
+                        project.audio.bgmURL = localURL
+                        project.audio.bgmName = name
+                        project.audio.bgmSourceStart = 0
+                    } else {
+                        try? FileManager.default.removeItem(at: localURL)
+                        errorMessage = String(localized: "この形式の音声は BGM に使えません。MP3・M4A・WAV などの曲を選んでください。")
+                    }
+                }
             } catch {
                 errorMessage = String(localized: "空き容量を確かめて、もう一度選んでください。Apple Music の曲は使えません。\n\n詳細: ") + error.localizedDescription
             }
@@ -187,5 +243,6 @@ struct AudioSettingsView: View {
     private func removeBGM() {
         project.audio.bgmURL = nil
         project.audio.bgmName = nil
+        project.audio.bgmSourceStart = 0
     }
 }

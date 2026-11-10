@@ -58,11 +58,27 @@ struct ExportRecord: Identifiable, Equatable, Codable {
     let duration: Double
     /// 例: 「16:9 横 1080p 30fps」
     let canvasDescription: String
+    /// 書き出したプロジェクト(ProjectLibrary の ID)。以前のバージョンの履歴と、書き出し画面の外から始めたものは nil
+    var projectID: UUID? = nil
 
     var url: URL {
         let directory = (try? ExportManager.exportsDirectory()) ?? FileManager.default.temporaryDirectory
         return directory.appendingPathComponent(fileName)
     }
+
+    /// 動画か(音声だけの m4a は false。「前回と比較」の相手にしない)
+    var isVideo: Bool {
+        ["mp4", "mov", "m4v"].contains((fileName as NSString).pathExtension.lowercased())
+    }
+}
+
+/// 書き出しを始めたプロジェクトと、そのときの中身(書き出し画面が渡す)。
+/// 履歴のプロジェクト分けと、書き出し画面の結果を別のプロジェクトや編集したあとに出さないために使う
+struct ExportSource: Equatable {
+    /// ProjectLibrary の ID(分からなければ nil)
+    let projectID: UUID?
+    /// 始めたときのプロジェクトの中身(縦横同時・SNS パックで比率を変える前のもの)
+    let snapshot: ProjectSnapshot
 }
 
 /// 書き出しが失敗した理由の種類。失敗を作る場所で決める(翻訳された文言では判定できないので)。
@@ -121,6 +137,11 @@ final class ExportManager {
         }
     }
     private(set) var lastOutputURL: URL?
+    /// 今回の書き出しでできたファイル(縦横同時は 2 本。書き出しを始めるたびに空にする)。
+    /// 完了画面の「共有」・写真への保存と、SNS パックの「ファイルを送る」に使う
+    private(set) var lastRunOutputURLs: [URL] = []
+    /// いちばん最近始めた書き出しの元(書き出し画面が渡したもの)。結果を出してよいプロジェクトかを書き出し画面が確かめる
+    private(set) var resultSource: ExportSource?
     private(set) var savedToPhotos: Bool = false
     /// 「写真アプリにも保存」で保存できなかったときの理由(縦横同時は 1 本目の分も残す)。保存できたら nil
     private(set) var photoSaveError: String?
@@ -177,11 +198,12 @@ final class ExportManager {
 
     // MARK: - Public API
 
-    func start(snapshot: ProjectSnapshot, saveToPhotos: Bool) {
+    func start(snapshot: ProjectSnapshot, saveToPhotos: Bool, source: ExportSource? = nil) {
         Analytics.shared.track("export_start", Self.analyticsParams(snapshot, dual: false, saveToPhotos: saveToPhotos)
             .merging(Analytics.shared.exportTiming()) { current, _ in current })
         exportOnMain { [weak self] in
             guard let self, !self.isRunning else { return }
+            self.resultSource = source
             self.queuedJobs = []
             self.jobLabel = ""
             self.jobsCompleted = 0
@@ -190,19 +212,39 @@ final class ExportManager {
         }
     }
 
-    /// 横 16:9 → 縦 9:16(ぼかし背景)の順に 2 本続けて書き出す
-    func startDual(snapshot: ProjectSnapshot, saveToPhotos: Bool = false) {
+    /// 横 16:9 → 縦 9:16(作品が 9:16 でなければぼかし背景)の順に 2 本続けて書き出す
+    func startDual(snapshot: ProjectSnapshot, saveToPhotos: Bool = false, source: ExportSource? = nil) {
         Analytics.shared.track("export_start", Self.analyticsParams(snapshot, dual: true, saveToPhotos: saveToPhotos)
             .merging(Analytics.shared.exportTiming()) { current, _ in current })
         exportOnMain { [weak self] in
-            self?.startDualOnMain(snapshot: snapshot, saveToPhotos: saveToPhotos)
+            self?.startDualOnMain(snapshot: snapshot, saveToPhotos: saveToPhotos, source: source)
         }
     }
 
     /// 音声だけを m4a に書き出す
-    func startAudioOnly(snapshot: ProjectSnapshot) {
+    func startAudioOnly(snapshot: ProjectSnapshot, source: ExportSource? = nil) {
         exportOnMain { [weak self] in
-            self?.startAudioOnlyOnMain(snapshot: snapshot)
+            self?.startAudioOnlyOnMain(snapshot: snapshot, source: source)
+        }
+    }
+
+    /// 書き出し画面の結果(完了・失敗・中止)を片付けて待機中に戻す。書き出し中は何もしない。
+    /// 別のプロジェクトや、書き出したあとに編集したプロジェクトで書き出し画面を開いたときに呼ぶ
+    /// (前の動画を大きな「共有」「TikTok に投稿」で送らせない。前の書き出しは履歴から共有できる)
+    func clearResult() {
+        exportOnMain { [weak self] in
+            guard let self, !self.isRunning else { return }
+            self.state = .idle
+            self.failureKind = .other
+            self.progress = 0
+            self.lastOutputURL = nil
+            self.lastRunOutputURLs = []
+            self.resultSource = nil
+            self.savedToPhotos = false
+            self.photoSaveError = nil
+            self.photoSaveNeedsPermission = false
+            self.photoSaveFailedURLs = []
+            self.statusText = String(localized: "待機中")
         }
     }
 
@@ -215,6 +257,7 @@ final class ExportManager {
             if let last = self.lastOutputURL, last.path == record.url.path {
                 self.lastOutputURL = nil
             }
+            self.lastRunOutputURLs.removeAll { $0.path == record.url.path }
             // 写真に保存できなかった動画を消したら、保存し直しの案内も片付ける
             if !self.photoSaveFailedURLs.isEmpty {
                 self.photoSaveFailedURLs.removeAll { $0.path == record.url.path }
@@ -233,9 +276,10 @@ final class ExportManager {
         }
     }
 
-    func saveLastOutputToPhotos() async throws {
+    /// onlyLast: 最後の 1 本だけを保存する(TikTok に送るとき)。false なら、縦横同時でできた 2 本とも保存する
+    func saveLastOutputToPhotos(onlyLast: Bool = false) async throws {
         // 書き出し時に写真に保存できなかった分があればそれを保存し直す(縦横同時で 1 本だけ失敗したとき、
-        // 保存できた方を二重に保存しない)。無ければ最後に書き出した動画を保存する
+        // 保存できた方を二重に保存しない)。無ければ今回書き出した動画(縦横同時は 2 本)を保存する
         let urls: [URL] = await MainActor.run {
             let pending = self.photoSaveFailedURLs
             if !pending.isEmpty {
@@ -247,6 +291,10 @@ final class ExportManager {
                     self.photoSaveNeedsPermission = false
                 }
                 return existing
+            }
+            if !onlyLast {
+                let all = self.lastRunOutputURLs.filter { FileManager.default.fileExists(atPath: $0.path) }
+                if !all.isEmpty { return all }
             }
             if let last = self.lastOutputURL, FileManager.default.fileExists(atPath: last.path) { return [last] }
             return []
@@ -319,6 +367,7 @@ final class ExportManager {
             photoSaveError = nil
             photoSaveNeedsPermission = false
             photoSaveFailedURLs = []
+            lastRunOutputURLs = []
         }
         lastOutputURL = nil
         statusText = jobLabel + String(localized: "書き出しの準備中…")
@@ -346,8 +395,9 @@ final class ExportManager {
     }
 
     @MainActor
-    private func startDualOnMain(snapshot: ProjectSnapshot, saveToPhotos: Bool) {
+    private func startDualOnMain(snapshot: ProjectSnapshot, saveToPhotos: Bool, source: ExportSource?) {
         guard !isRunning else { return }
+        resultSource = source
         guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
             let message = String(localized: "書き出すクリップがありません")
             failBeforeStart(message, kind: .noClips)
@@ -357,7 +407,15 @@ final class ExportManager {
         landscape.canvas.aspect = .landscape16x9
         var portrait = snapshot
         portrait.canvas.aspect = .portrait9x16
-        portrait.canvas.scaling = .fitBlur
+        // 作品がもともと 9:16 なら収め方(「拡大」など)はそのまま(編集画面と同じ画にする)。
+        // ほかの比率から作るときだけ、ぼかし背景で全体を見せる(ExportView.packSnapshot と同じ)
+        if snapshot.canvas.aspect != .portrait9x16 {
+            portrait.canvas.scaling = .fitBlur
+        }
+        // モザイクは画面に対する位置で持っているので、向きを変えた 1 本では映像に合わせて置き直す
+        // (そのままだと、プレビューで見ない方の 1 本で顔から外れていた)
+        landscape.textClips = MosaicRemap.remapped(snapshot.textClips, from: snapshot, to: landscape)
+        portrait.textClips = MosaicRemap.remapped(snapshot.textClips, from: snapshot, to: portrait)
 
         // 空き容量は 2 本分で確認する(作業用マージンは 1 回分)
         let first = StorageEstimator.estimate(for: landscape)
@@ -382,8 +440,9 @@ final class ExportManager {
     }
 
     @MainActor
-    private func startAudioOnlyOnMain(snapshot: ProjectSnapshot) {
+    private func startAudioOnlyOnMain(snapshot: ProjectSnapshot, source: ExportSource?) {
         guard !isRunning else { return }
+        resultSource = source
         guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
             let message = String(localized: "書き出すクリップがありません")
             failBeforeStart(message, kind: .noClips)
@@ -400,6 +459,7 @@ final class ExportManager {
         photoSaveError = nil
         photoSaveNeedsPermission = false
         photoSaveFailedURLs = []
+        lastRunOutputURLs = []
         lastOutputURL = nil
         statusText = String(localized: "音声の書き出しを準備中…")
         cancelRequested = false
@@ -417,6 +477,12 @@ final class ExportManager {
         Task.detached(priority: .userInitiated) { [weak self] in
             await self?.runAudioExport(snapshot: snapshot)
         }
+    }
+
+    /// 利用者が「キャンセル」「止める」を押したか(バックグラウンドの時間切れ・システムの停止は含めない)
+    @MainActor
+    private var userCancelRequested: Bool {
+        cancelRequested && !expiredInBackground && !continuedTaskExpired
     }
 
     @MainActor
@@ -459,7 +525,9 @@ final class ExportManager {
 
         let built: BuiltComposition
         do {
-            built = try await CompositionBuilder.build(buildSnapshot, purpose: .export)
+            // 字幕を焼き込まなくても、話している間 BGM を下げる区間には元の字幕を使う
+            built = try await CompositionBuilder.build(buildSnapshot, purpose: .export,
+                                                       duckingCaptions: canvas.burnInSubtitles ? nil : snapshot.subtitles)
         } catch {
             let message = String(localized: "映像の構成に失敗しました: \(error.localizedDescription)")
             let kind = ExportFailureKind(error: error)
@@ -505,9 +573,22 @@ final class ExportManager {
         case .completed:
             let fellBackToSDR = pipeline.didFallBackToSDR
 
+            // 仕上げ(ファイルの書き終わり)の間に「キャンセル」を押していたら、保存しないで止める
+            // (時間切れ・システムの停止のときは、できあがった動画を残す)
+            let cancelledWhileFinishing: Bool = await MainActor.run { self.userCancelRequested }
+            if cancelledWhileFinishing {
+                await MainActor.run { self.finishCancelled(outputURL: outputURL) }
+                return
+            }
+
             // 書き出したファイルを開き直して検証(長さ・映像トラック)。通らなければ作業ファイルは消す
             if let problem = await Self.verifyOutput(outputURL, expectedDuration: built.duration.seconds) {
                 await MainActor.run { self.finishVerificationFailed(problem, outputURL: outputURL) }
+                return
+            }
+            let cancelledWhileVerifying: Bool = await MainActor.run { self.userCancelRequested }
+            if cancelledWhileVerifying {
+                await MainActor.run { self.finishCancelled(outputURL: outputURL) }
                 return
             }
 
@@ -518,6 +599,12 @@ final class ExportManager {
                 let message = String(localized: "書き出した動画を保存先に移せませんでした: \(error.localizedDescription)")
                 let kind = ExportFailureKind(error: error)
                 await MainActor.run { self.finishFailed(message, outputURL: outputURL, kind: kind) }
+                return
+            }
+            // 写真に保存する前にもう一度だけ確かめる(押していたら、移したファイルも消して止める)
+            let cancelledBeforePhotos: Bool = await MainActor.run { self.userCancelRequested }
+            if cancelledBeforePhotos {
+                await MainActor.run { self.finishCancelled(outputURL: finalURL) }
                 return
             }
 
@@ -569,7 +656,10 @@ final class ExportManager {
 
         let built: BuiltComposition
         do {
-            built = try await CompositionBuilder.build(snapshot, purpose: .preview)
+            // 音声だけの書き出しも、音声効果の処理済みファイルや声の区間ができるのを待ってから作る
+            built = try await CompositionBuilder.$waitsForAudioMaterials.withValue(true) {
+                try await CompositionBuilder.build(snapshot, purpose: .preview)
+            }
         } catch {
             let message = String(localized: "音声の構成に失敗しました: \(error.localizedDescription)")
             let kind = ExportFailureKind(error: error)
@@ -696,7 +786,8 @@ final class ExportManager {
                                   fileName: url.lastPathComponent,
                                   date: Date(),
                                   duration: duration.isFinite ? max(0, duration) : 0,
-                                  canvasDescription: canvasDescription)
+                                  canvasDescription: canvasDescription,
+                                  projectID: resultSource?.projectID)
         var updated = history.filter { $0.fileName != record.fileName && FileManager.default.fileExists(atPath: $0.url.path) }
         updated.insert(record, at: 0)
         if updated.count > Self.historyLimit {
@@ -769,6 +860,7 @@ final class ExportManager {
         currentPipeline = nil
         currentAudioSession = nil
         lastOutputURL = outputURL
+        lastRunOutputURLs.append(outputURL)
         // この起動中に書き出したものは「古いものをまとめて削除」や自動削除で消さない
         ExportFileStore.noteExported(outputURL)
         appendHistory(url: outputURL, duration: duration, canvasDescription: canvasDescription)
@@ -1129,10 +1221,19 @@ final class ExportManager {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyyMMdd_HHmmss"
         let ext = fileExtension.isEmpty ? "mp4" : fileExtension
-        let fileName = "VideoEditor_\(formatter.string(from: Date())).\(ext)"
-        let finalURL = try exportsDirectory().appendingPathComponent(fileName)
+        let stamp = formatter.string(from: Date())
+        let directory = try exportsDirectory()
         let workDirectory = workDirectoryURL
         try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+        // 同じ秒のうちに続けて書き出すと(とても短い動画の縦横同時など)名前が重なり、前の動画を上書きしてしまう。
+        // そのときは番号を付けて別の名前にする
+        var fileName = "VideoEditor_\(stamp).\(ext)"
+        var number = 2
+        while FileManager.default.fileExists(atPath: directory.appendingPathComponent(fileName).path) {
+            fileName = "VideoEditor_\(stamp)_\(number).\(ext)"
+            number += 1
+        }
+        let finalURL = directory.appendingPathComponent(fileName)
         let workURL = workDirectory.appendingPathComponent(fileName)
         if FileManager.default.fileExists(atPath: workURL.path) {
             try FileManager.default.removeItem(at: workURL)
