@@ -1,0 +1,62 @@
+# 公式ページ(site/)を Cloudflare Pages に公開する。App Store の「マーケティング URL」に使い、
+# AdMob が https://<このページ>/app-ads.txt を読んでアプリを確認する(転送なしでそのまま返す)。
+# 必要な Secrets: CLOUDFLARE_API_TOKEN(「Cloudflare Pages を編集」の権限も必要)、CLOUDFLARE_ACCOUNT_ID
+name: Deploy site
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ "site/**", ".github/workflows/deploy-site.yml" ]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PROJECT: videomania
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clean up pasted values
+        run: |
+          # 貼り付けたときに入った改行や空白を取り除く(deploy-server.yml と同じ)
+          TOKEN=$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')
+          EXTRACTED=$(printf '%s' "$TOKEN" | grep -o 'cfut_[A-Za-z0-9_-]*' | head -n 1 || true)
+          if [ -n "$EXTRACTED" ]; then TOKEN="$EXTRACTED"; fi
+          test -n "$TOKEN"
+          echo "::add-mask::$TOKEN"
+          ACCOUNT=$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')
+          FOUND=$(curl -s -H "Authorization: Bearer $TOKEN" "https://api.cloudflare.com/client/v4/accounts" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const r=JSON.parse(s).result||[];process.stdout.write(r.length?r[0].id:"")}catch(e){}})')
+          if [ -n "$FOUND" ]; then ACCOUNT="$FOUND"; fi
+          echo "::add-mask::$ACCOUNT"
+          {
+            echo "CLOUDFLARE_API_TOKEN=$TOKEN"
+            echo "CLOUDFLARE_ACCOUNT_ID=$ACCOUNT"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Create the Pages project (first time only)
+        run: |
+          npm install --no-save --silent wrangler@4
+          if npx wrangler pages project list 2>&1 | grep -qw "$PROJECT"; then
+            echo "project: exists"
+          else
+            npx wrangler pages project create "$PROJECT" --production-branch main
+          fi
+
+      - name: Deploy
+        run: npx wrangler pages deploy site --project-name "$PROJECT" --branch main --commit-dirty=true
+
+      - name: Show URL
+        run: |
+          npx wrangler pages project list 2>&1 | grep -w "$PROJECT" || true
