@@ -21,20 +21,26 @@ struct TranscriptEditView: View {
     let onOpenCaptions: () -> Void
     /// 閉じたときに、この画面で消した数と合計秒を知らせる(何も消していなければ呼ばない)
     let onFinished: (_ count: Int, _ seconds: Double) -> Void
+    /// 出す字幕(クリップを選んで開いたときは、そのクリップの持ち分の字幕だけ。nil なら全部)
+    let onlyCueIDs: Set<UUID>?
 
     @Environment(\.dismiss) private var dismiss
 
     @State private var lines: [TranscriptEditor.Line]
 
     init(project: EditorProject, player: PlayerController,
+         onlyCueIDs: Set<UUID>? = nil,
          onOpenCaptions: @escaping () -> Void = {},
          onFinished: @escaping (_ count: Int, _ seconds: Double) -> Void = { _, _ in }) {
         self.project = project
         self.player = player
+        self.onlyCueIDs = onlyCueIDs
         self.onOpenCaptions = onOpenCaptions
         self.onFinished = onFinished
-        // 開いた瞬間から一覧を出す(onAppear で作ると「キャプションがありません」が一瞬見える)
-        _lines = State(initialValue: TranscriptEditor.lines(from: project.subtitles))
+        // 開いた瞬間から一覧を出す(onAppear で作ると「キャプションがありません」が一瞬見える)。
+        // 消すときは字幕の ID と時刻で消すので、一部だけ出しても全体の字幕と食い違わない
+        let cues = onlyCueIDs.map { ids in project.subtitles.filter { ids.contains($0.id) } } ?? project.subtitles
+        _lines = State(initialValue: TranscriptEditor.lines(from: cues))
     }
     /// 選んでいる単位(単語か行)の id
     @State private var selected: Set<UUID> = []
@@ -73,7 +79,7 @@ struct TranscriptEditView: View {
                     transcript
                 }
             }
-            .navigationTitle("文字起こし編集")
+            .navigationTitle(onlyCueIDs == nil ? String(localized: "文字起こし編集") : String(localized: "このクリップの文字起こし"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

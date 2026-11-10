@@ -12,6 +12,8 @@ struct EditorDubbingPanel: View {
     let player: PlayerController
     let history: EditorHistory
     let analysis: EditorAnalysisRunner
+    /// クリップを選んで開いたときは、そのクリップの持ち分の字幕だけを吹き替える(nil なら全体)
+    var onlyClipID: UUID? = nil
 
     @State private var target: TranscriptionLanguage = .english
     /// クラウドの声(nil なら端末の声)
@@ -36,8 +38,17 @@ struct EditorDubbingPanel: View {
         target == .english ? .japanese : .english
     }
 
+    /// 吹き替える字幕(クリップだけのときはその持ち分の字幕)
+    private var scopedCues: [SubtitleCue] {
+        onlyClipID.map { project.subtitles(inClip: $0) } ?? project.subtitles
+    }
+
     private var lines: [DubbingLine] {
-        DubbingRenderer.plan(cues: project.subtitles, target: target)
+        // 読み上げの長さの上限(次の字幕まで)は全体の字幕で決めてから、クリップの分だけ残す
+        let all = DubbingRenderer.plan(cues: project.subtitles, target: target)
+        guard onlyClipID != nil else { return all }
+        let ids = Set(scopedCues.map { $0.id })
+        return all.filter { ids.contains($0.cueID) }
     }
 
     private var missingCount: Int {
@@ -102,11 +113,17 @@ struct EditorDubbingPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if project.subtitles.isEmpty {
-                Text("先に「自動字幕」で字幕を作ってください")
+            if scopedCues.isEmpty {
+                Text(onlyClipID == nil ? String(localized: "先に「自動字幕」で字幕を作ってください")
+                                       : String(localized: "このクリップに字幕がありません。先に「自動字幕」で作ってください"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
+                if onlyClipID != nil {
+                    Label("選んだクリップの字幕だけ吹き替えます", systemImage: "film")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 languageSection
                 voiceSection
                 originalAudioSection
@@ -331,6 +348,7 @@ struct EditorDubbingPanel: View {
         let withAI = translatesWithAI
         let chosenAudio = originalAudio
         let chosenShowTranslation = showTranslation
+        let chosenClipID = onlyClipID
         let translator = self.translator
 
         analysis.run(title: String(localized: "吹き替えを作成中")) { report in
@@ -416,7 +434,9 @@ struct EditorDubbingPanel: View {
             history.record(project)
             let replaced = DubbingRenderer.apply(clips: created, translations: translations,
                                                  originalAudio: chosenAudio, showTranslation: chosenShowTranslation,
-                                                 to: project)
+                                                 to: project,
+                                                 onlyClipID: chosenClipID,
+                                                 onlyRange: chosenClipID.flatMap { project.ownOutputRange(ofClip: $0) })
             player.seek(to: 0)
             var message = String(localized: "\(created.count) 件の吹き替えを追加しました。")
             if replaced > 0 {

@@ -1233,7 +1233,7 @@ struct SubtitleEditorView: View {
                     Label(selectedLanguage == .english ? String(localized: "日本語に翻訳") : String(localized: "英語に翻訳"),
                           systemImage: useAITranslation && canUseAITranslation ? "sparkles" : "globe")
                 }
-                .disabled(project.subtitles.isEmpty || isTranscribing)
+                .disabled(translationCues.isEmpty || isTranscribing)
                 // 訳文があるときは、訳文の無い分だけ訳すか、すべて訳し直すかを選ぶ(手で直した訳文を黙って上書きしない)
                 .confirmationDialog(String(localized: "訳文のあるキャプションが \(translatedCueCount) 件あります"),
                                     isPresented: $isRetranslateChoicePresented,
@@ -1250,6 +1250,12 @@ struct SubtitleEditorView: View {
                     Button("キャンセル", role: .cancel) { }
                 } message: {
                     Text("すべて訳し直すと、手で直した訳文も上書きされます。")
+                }
+
+                if translationClipID != nil {
+                    Text("選んだクリップの字幕だけ訳します")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 // AI が使えるときだけ。ポイントを使うときは目安を添える
@@ -1272,20 +1278,32 @@ struct SubtitleEditorView: View {
         aiTranslationEngine != .none
     }
 
+    /// 訳すときに「選んだクリップだけ」にするクリップ(字幕の範囲を「選んだクリップだけ」にしているとき)
+    private var translationClipID: UUID? {
+        guard captionScope == .clip, let focusClip else { return nil }
+        return focusClip.id
+    }
+
+    /// 訳す対象のキャプション(「選んだクリップだけ」のときはそのクリップの持ち分の字幕)
+    private var translationCues: [SubtitleCue] {
+        translationClipID.map { project.subtitles(inClip: $0) } ?? project.subtitles
+    }
+
     /// AI 翻訳でポイントを使うときの目安(ポイントを使わないときは nil)
     private var aiTranslationPoints: Int? {
-        guard CloudAIGateway.usesPoints, aiTranslationEngine == .cloud, !project.subtitles.isEmpty else { return nil }
-        return SubtitlePolisher.estimatedPoints(lineCount: project.subtitles.count)
+        let cues = translationCues
+        guard CloudAIGateway.usesPoints, aiTranslationEngine == .cloud, !cues.isEmpty else { return nil }
+        return SubtitlePolisher.estimatedPoints(lineCount: cues.count)
     }
 
     /// 訳文のあるキャプションの数
     private var translatedCueCount: Int {
-        project.subtitles.filter { !($0.translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        translationCues.filter { !($0.translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
     }
 
     /// 訳文の無い(本文のある)キャプション
     private var missingTranslationIDs: Set<UUID> {
-        Set(project.subtitles.filter { cue in
+        Set(translationCues.filter { cue in
             !cue.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && (cue.translatedText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }.map { $0.id })
@@ -1303,7 +1321,10 @@ struct SubtitleEditorView: View {
 
     /// 「AIで自然に」がオンなら AI、オフなら端末の翻訳。onlyMissing なら訳文の無いキャプションだけ訳す
     private func runTranslation(onlyMissing: Bool) {
-        let targets: Set<UUID>? = onlyMissing ? missingTranslationIDs : nil
+        // 「選んだクリップだけ」のときは、そのクリップの字幕だけを送る(ほかの訳文には触らない)
+        let targets: Set<UUID>? = onlyMissing
+            ? missingTranslationIDs
+            : translationClipID.map { _ in Set(translationCues.map { $0.id }) }
         if useAITranslation, canUseAITranslation {
             requestAITranslation(only: targets)
         } else {

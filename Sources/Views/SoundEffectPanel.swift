@@ -3,19 +3,23 @@ import AVFoundation
 
 // =====================================================================
 // 効果音パネル(ルートのオーディオ › 効果音)。
-// 上のチップで「場面(SoundScene)」か「分類(SoundEffectCategory)」を選び、一覧を出す。
+// 同梱の効果音(SFXCatalog)を分類のチップで選ぶか、名前で探して並べる。
+// 同梱の音がアプリに入っていないとき(作る前のビルド)だけ、前の合成の効果音を出す:
+// 上のチップで「場面(SoundScene)」か「分類(SoundEffectCategory)」を選び、
 // 場面を選ぶと、その場面のレシピ(SoundRecipe)と、合う内蔵の効果音(SoundEffectKind)を並べる。
 // ▶︎ で試聴、「追加」で再生位置にナレーションとして入れる。
 // 追加しても選択は変えない(選択が変わるとパネルが閉じ、続けて追加できなくなるため)
 // =====================================================================
 
-/// 一覧の 1 行(内蔵の効果音か、レシピ)
+/// 一覧の 1 行(同梱の効果音、内蔵の合成の効果音、レシピ)
 enum SoundEffectItem: Identifiable {
+    case bundled(SFXItem)
     case kind(SoundEffectKind)
     case recipe(SoundRecipe)
 
     var id: String {
         switch self {
+        case .bundled(let s): return "se." + s.id
         case .kind(let k): return "kind." + k.rawValue
         case .recipe(let r): return "recipe." + r.id
         }
@@ -23,14 +27,16 @@ enum SoundEffectItem: Identifiable {
 
     var name: String {
         switch self {
+        case .bundled(let s): return s.name
         case .kind(let k): return k.name
         case .recipe(let r): return String(localized: String.LocalizationValue(r.name))
         }
     }
 
-    /// 音のファイル(なければ合成する。失敗したら nil)
+    /// 音のファイル(合成の音はなければ作る。失敗したら nil)
     func url() -> URL? {
         switch self {
+        case .bundled(let s): return SFXLibrary.url(for: s)
         case .kind(let k): return SoundEffectLibrary.url(for: k)
         case .recipe(let r): return SoundEffectLibrary.url(forRecipe: r)
         }
@@ -42,8 +48,9 @@ enum SoundEffectItem: Identifiable {
     }
 }
 
-/// チップの選択(場面か分類)
+/// チップの選択(同梱の効果音の分類。前の合成の効果音では場面か分類)
 enum SoundEffectBrowse: Hashable {
+    case bundled(SFXCategory)
     case scene(SoundScene)
     case category(SoundEffectCategory)
 }
@@ -53,13 +60,31 @@ struct EditorSoundEffectsPanel: View {
     let player: PlayerController
     let history: EditorHistory
 
-    @State private var browse: SoundEffectBrowse = .scene(.ui)
+    @State private var browse: SoundEffectBrowse = SFXLibrary.available.isEmpty ? .scene(.ui) : .bundled(.transition)
+    @State private var query = ""
     @State private var preview = SoundEffectPreviewPlayer()
     @State private var resultText: String?
     @State private var errorText: String?
 
+    /// 同梱の効果音を使うか(アプリに入っていないときは前の合成の効果音)
+    private var usesBundled: Bool { !SFXLibrary.available.isEmpty }
+
+    /// 同梱の音がある分類だけ(空のチップは出さない)
+    private var bundledCategories: [SFXCategory] {
+        SFXCategory.allCases.filter { c in SFXLibrary.available.contains { $0.category == c } }
+    }
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var items: [SoundEffectItem] {
+        if usesBundled, !trimmedQuery.isEmpty {
+            return SFXLibrary.search(trimmedQuery).map { SoundEffectItem.bundled($0) }
+        }
         switch browse {
+        case .bundled(let category):
+            return SFXLibrary.items(in: category).map { SoundEffectItem.bundled($0) }
         case .scene(let scene):
             // 先にレシピ、そのあと合う内蔵の効果音(同じ音が 2 回出ないように)
             let sceneRecipes: [SoundRecipe] = SoundRecipe.recipes(in: scene)
@@ -82,19 +107,31 @@ struct EditorSoundEffectsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // 場面と分類のチップ(多いので横に流す)
+            if usesBundled {
+                searchField
+            }
+            // 分類のチップ(多いので横に流す)。名前で探しているあいだは、どのチップも選んでいない表示にする
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(SoundScene.allCases) { s in
-                        EditorChip(title: s.title, isSelected: browse == .scene(s)) {
-                            browse = .scene(s)
+                    if usesBundled {
+                        ForEach(bundledCategories) { c in
+                            EditorChip(title: c.title, isSelected: trimmedQuery.isEmpty && browse == .bundled(c)) {
+                                query = ""
+                                browse = .bundled(c)
+                            }
                         }
-                    }
-                    Divider()
-                        .frame(height: 20)
-                    ForEach(SoundEffectCategory.allCases) { c in
-                        EditorChip(title: c.title, isSelected: browse == .category(c)) {
-                            browse = .category(c)
+                    } else {
+                        ForEach(SoundScene.allCases) { s in
+                            EditorChip(title: s.title, isSelected: browse == .scene(s)) {
+                                browse = .scene(s)
+                            }
+                        }
+                        Divider()
+                            .frame(height: 20)
+                        ForEach(SoundEffectCategory.allCases) { c in
+                            EditorChip(title: c.title, isSelected: browse == .category(c)) {
+                                browse = .category(c)
+                            }
                         }
                     }
                 }
@@ -105,6 +142,12 @@ struct EditorSoundEffectsPanel: View {
                 VStack(spacing: 6) {
                     ForEach(items) { item in
                         row(item)
+                    }
+                    if items.isEmpty && !trimmedQuery.isEmpty {
+                        Text("合う効果音はありません")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 48)
                     }
                 }
             }
@@ -125,9 +168,12 @@ struct EditorSoundEffectsPanel: View {
         }
         .padding(.top, 6)
         .onAppear {
-            // まだ作っていない効果音を先に作っておく(試聴・追加ですぐ鳴るように)
-            Task.detached(priority: .utility) {
-                SoundEffectLibrary.prepareAll()
+            // 前の合成の効果音を出すときは、まだ作っていない音を先に作っておく(試聴・追加ですぐ鳴るように)。
+            // 同梱の音はファイルがあるので作らない
+            if !usesBundled {
+                Task.detached(priority: .utility) {
+                    SoundEffectLibrary.prepareAll()
+                }
             }
             prepareScene()
         }
@@ -138,6 +184,37 @@ struct EditorSoundEffectsPanel: View {
             preview.stop()
             prepareScene()
         }
+        .onChange(of: trimmedQuery) {
+            preview.stop()
+        }
+    }
+
+    /// 名前で探す欄
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("効果音を探す", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("クリア"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 40)
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
     /// 選んだ場面のレシピをまとめて作っておく

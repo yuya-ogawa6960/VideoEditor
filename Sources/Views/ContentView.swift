@@ -126,7 +126,17 @@ struct ContentView: View {
     @State private var pendingClipDelete: (() -> Void)? = nil
     /// 無音カットのテンポを選ぶ
     @State private var showSilenceCutConfirm = false
+    /// 無音カットをかけるクリップ(nil なら全クリップ)。確認を出すときに決める
+    @State private var silenceCutClipID: UUID?
     @State private var showPunchInDialog = false
+    /// 「スピーチを強調」を全クリップにかけるときの強さを選ぶ(何も選んでいないときの AI)
+    @State private var showSpeechAllDialog = false
+    /// 「オートリフレーム」を全クリップにかける確認(何も選んでいないときの AI)
+    @State private var showReframeAllDialog = false
+    /// おまかせ編集をかけるクリップ(nil なら全体)。シートを開くときに決める
+    @State private var autoEditClipID: UUID?
+    /// 文字起こし編集で出すクリップ(nil なら全体)
+    @State private var transcriptEditClipID: UUID?
     /// 「調整を全クリップに適用」の確認(元になるクリップ。LookClipboard.swift)
     @State private var showLookApplyAllConfirm = false
     @State private var lookApplyAllClipID: UUID?
@@ -432,6 +442,7 @@ struct ContentView: View {
         // 文字起こしで編集(開くときに履歴を記録し、何も消さずに閉じたらその記録を捨てる)
         .sheet(isPresented: $showTranscriptEdit, onDismiss: { history.discardLastIfUnchanged(project) }) {
             TranscriptEditView(project: project, player: player,
+                               onlyCueIDs: transcriptEditClipID.map { id in Set(project.subtitles(inClip: id).map { $0.id }) },
                                onOpenCaptions: { history.record(project); activeSheet = .subtitles },
                                onFinished: { count, seconds in
                                    showToast(String(localized: "文字起こしで \(count) か所・\(String(format: "%.1f", seconds)) 秒を削除しました"), undo: true)
@@ -1894,16 +1905,41 @@ struct ContentView: View {
             Button("1.15 倍・4 秒ごと") { applyPunchIn(zoom: 1.15, interval: 4) }
             Button("キャンセル", role: .cancel) {}
         }
-        // 全クリップの無音を詰める。テンポだけ選んでもらい、結果はトーストの「元に戻す」で戻せる
-        .confirmationDialog("無音カット",
+        // 無音を詰める(全クリップ、またはクリップを選んで開いたときはそのクリップだけ)。
+        // テンポだけ選んでもらい、結果はトーストの「元に戻す」で戻せる
+        .confirmationDialog(silenceCutClipID == nil ? String(localized: "無音カット") : String(localized: "このクリップの無音カット"),
                             isPresented: $showSilenceCutConfirm,
                             titleVisibility: .visible) {
             ForEach(SilenceCutPace.allCases) { pace in
                 Button(pace.title) {
-                    startSilenceCut(pace: pace)
+                    startSilenceCut(pace: pace, onlyClip: silenceCutClipID)
                 }
             }
             Button("キャンセル", role: .cancel) {}
+        }
+        // 全クリップのスピーチを強調(声以外の雑音を減らす)。クリップごとに変えるときはクリップの AI から
+        .confirmationDialog("すべてのクリップのスピーチを強調",
+                            isPresented: $showSpeechAllDialog,
+                            titleVisibility: .visible) {
+            Button("強め") { applySpeechEnhanceToAll(0.8) }
+            Button("ふつう") { applySpeechEnhanceToAll(0.5) }
+            Button("弱め") { applySpeechEnhanceToAll(0.25) }
+            Button("オフにする") { applySpeechEnhanceToAll(0) }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("声以外の雑音を減らします。クリップごとに変えるときは、クリップを選んで「AI」の「スピーチを強調」から調整できます。")
+        }
+        // 全クリップを人物に合わせる(クリップごとに映す範囲を動かす)
+        .confirmationDialog("すべてのクリップを人物に合わせる",
+                            isPresented: $showReframeAllDialog,
+                            titleVisibility: .visible) {
+            if project.canvas.aspect == .original {
+                Button("縦(9:16)にして合わせる") { reframeAllClips(makeVertical: true) }
+            }
+            Button("今の画面の比率で合わせる") { reframeAllClips(makeVertical: false) }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("動画の中の人物が画面に収まるよう、クリップごとに映す範囲を動かします。画面と動画の比率が同じときは動きません。")
         }
         // このクリップの調整をほかの全クリップに写す(各クリップの HSL・LUT も置き換わる。トーストの「元に戻す」で戻せる)
         .confirmationDialog("すべてのクリップに調整を適用しますか?",
@@ -2478,10 +2514,12 @@ struct ContentView: View {
                                     player: player,
                                     history: history)
         case .dubbing:
+            // クリップを選んで開いたときは、そのクリップの字幕だけ吹き替える
             EditorDubbingPanel(project: project,
                                player: player,
                                history: history,
-                               analysis: analysis)
+                               analysis: analysis,
+                               onlyClipID: selection?.clipID)
         case .videoEffectAdd:
             EditorVideoEffectAddPanel { type in
                 addVideoEffect(type)
@@ -2860,21 +2898,23 @@ struct ContentView: View {
                                     enabled: !running, disabledReason: Self.analysisBusyReason) {
             player.pause()
             activePanel = nil
+            autoEditClipID = nil
             activeSheet = .autoEdit
         })
         items.append(EditorToolItem(String(localized: "無音カット"), systemImage: "waveform.slash", id: "ai-silence",
                                     enabled: hasAudioClips,
                                     disabledReason: String(localized: "音声のあるクリップがありません")) {
+            silenceCutClipID = nil
             showSilenceCutConfirm = true
         })
         items.append(EditorToolItem(String(localized: "言いよどみカット"), systemImage: "scissors.badge.ellipsis", id: "ai-fillers",
                                     enabled: !project.subtitles.isEmpty,
                                     disabledReason: needCaptions) {
-            cutFillers()
+            cutFillers(onlyClip: nil)
         })
         items.append(EditorToolItem(String(localized: "文字起こし編集"), systemImage: "text.quote", id: "ai-transcript-edit",
                                     enabled: !noClips, disabledReason: needClips) {
-            openTranscriptEdit()
+            openTranscriptEdit(onlyClip: nil)
         })
         items.append(EditorToolItem(String(localized: "冒頭フック"), systemImage: "bolt.fill", id: "ai-coldopen",
                                     enabled: !running && !noClips, disabledReason: noClips ? needClips : Self.analysisBusyReason) {
@@ -2889,17 +2929,17 @@ struct ContentView: View {
                                     disabledReason: noClips ? needClips : Self.analysisBusyReason) {
             runPacingCheck()
         })
+        // 何も選んでいないときは全クリップにかける(クリップごとに変えるときはクリップの AI から)
         items.append(EditorToolItem(String(localized: "スピーチを強調"), systemImage: "person.wave.2", id: "ai-speech",
-                                    enabled: !noClips, disabledReason: needClips) {
-            withClipAtPlayhead { clipID in
-                openPanel(.audioEffects(clipID))
-            }
+                                    enabled: hasAudioClips,
+                                    disabledReason: noClips ? needClips : String(localized: "音声のあるクリップがありません")) {
+            showSpeechAllDialog = true
         })
+        let hasMovingClips = project.clips.contains { !$0.isStill }
         items.append(EditorToolItem(String(localized: "オートリフレーム"), systemImage: "person.crop.rectangle", id: "ai-reframe",
-                                    enabled: !noClips, disabledReason: needClips) {
-            withClipAtPlayhead { clipID in
-                openPanel(.autoReframe(clipID))
-            }
+                                    enabled: hasMovingClips && !running,
+                                    disabledReason: !hasMovingClips ? needClips : Self.analysisBusyReason) {
+            showReframeAllDialog = true
         })
         items.append(EditorToolItem(String(localized: "字幕を翻訳"), systemImage: "character.book.closed", id: "ai-translate",
                                     enabled: !project.subtitles.isEmpty,
@@ -3040,6 +3080,9 @@ struct ContentView: View {
                                         enabled: detachReason == nil, disabledReason: detachReason) {
                 detachAudio(clipID: clipID)
             })
+            // オーディオ(音声効果・J/Lカット・ビート合わせ)。前は「その他」の中にあって見つけにくかった
+            items.append(EditorToolItem.group(String(localized: "オーディオ"), systemImage: "waveform", id: "group-clip-audio",
+                                              items: clipAudioItems(clipID, hasAudio: hasAudio)))
             var speedItems: [EditorToolItem] = []
             speedItems.append(EditorToolItem(String(localized: "速度"), systemImage: "speedometer") {
                 openPanel(.speed(clipID))
@@ -3068,7 +3111,7 @@ struct ContentView: View {
         }
         items.append(EditorToolItem.group(String(localized: "カラー"), systemImage: "circle.lefthalf.filled", id: "group-color",
                                           items: colorGroupItems(clipID)))
-        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "move.3d", id: "group-motion",
+        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "crop.rotate", id: "group-motion",
                                           items: clipMotionItems(clipID, isStill: isStill)))
         items.append(EditorToolItem(String(localized: "トランジション"), systemImage: "arrow.left.arrow.right.square") {
             openPanel(.transition(clipID))
@@ -3092,24 +3135,141 @@ struct ContentView: View {
         more.append(EditorToolItem.replaceMedia(String(localized: "置き換え"), systemImage: "arrow.triangle.2.circlepath",
                                                 enabled: !(isImporting || busy),
                                                 disabledReason: Self.busyReason))
-        if !isStill {
-            more.append(EditorToolItem.group(String(localized: "オーディオ"), systemImage: "waveform", id: "group-clip-audio",
-                                             items: clipAudioItems(clipID, hasAudio: hasAudio)))
-        }
         more.append(contentsOf: clipMoreItems(clipID, clip: clip, isStill: isStill,
                                               hasAudio: hasAudio, busy: busy))
         items.append(EditorToolItem.more(more))
         return items
     }
 
-    /// クリップの「AI」: 画質補正 だけ(レタッチ(小顔・メイク・体型)は外した。美肌は画質補正にある)。
-    /// スピーチを強調はオーディオの音声効果、自動補正はカラー、オートリフレーム・自動字幕・顔モザイクは root(AI / テキスト / エフェクト)にある
+    /// クリップの「AI」: 何も選んでいないときの AI と同じツールを、このクリップだけにかける
+    /// (おまかせ編集 / 無音カット / 言いよどみカット / 文字起こし編集 / オートパンチイン / スピーチを強調 / オートリフレーム /
+    /// 字幕を翻訳 / 吹き替え)と、画質補正。自動補正はカラー、自動字幕・顔モザイクは root(テキスト / エフェクト)にある
     private func clipAIItems(_ clipID: UUID, isStill: Bool, hasAudio: Bool) -> [EditorToolItem] {
+        let clip = project.clips.first(where: { $0.id == clipID })
+        let running = analysis.isRunning
+        let isReversed = clip.map { $0.isReversed && $0.reversedURL != nil } ?? false
+        let hasCaptions = !project.subtitles(inClip: clipID).isEmpty
+        let needCaptions = String(localized: "このクリップに字幕がありません。先に「自動字幕」で作ってください")
+        let stillReason = String(localized: "写真のクリップでは使えません")
+        let reversedReason = String(localized: "逆再生中のクリップでは使えません")
         var items: [EditorToolItem] = []
+        items.append(EditorToolItem(String(localized: "おまかせ編集"), systemImage: "sparkles.rectangle.stack.fill", id: "clip-ai-autoedit",
+                                    enabled: !isStill && !isReversed && !running,
+                                    disabledReason: isStill ? stillReason : (isReversed ? reversedReason : Self.analysisBusyReason)) {
+            player.pause()
+            activePanel = nil
+            autoEditClipID = clipID
+            activeSheet = .autoEdit
+        })
+        // 逆再生・タイムリマップのクリップは無音カットできない(全体の無音カットと同じ条件)
+        let silenceBlocked = isReversed || (clip?.speedCurve.enabled ?? false)
+        items.append(EditorToolItem(String(localized: "無音カット"), systemImage: "waveform.slash", id: "ai-silence",
+                                    enabled: hasAudio && !silenceBlocked,
+                                    disabledReason: !hasAudio ? Self.noAudioClipReason
+                                        : String(localized: "逆再生・タイムリマップのクリップでは使えません")) {
+            silenceCutClipID = clipID
+            showSilenceCutConfirm = true
+        })
+        items.append(EditorToolItem(String(localized: "言いよどみカット"), systemImage: "scissors.badge.ellipsis", id: "ai-fillers",
+                                    enabled: hasCaptions, disabledReason: needCaptions) {
+            cutFillers(onlyClip: clipID)
+        })
+        // 字幕が無ければ、字幕のシート(このクリップだけ作る)を開く
+        items.append(EditorToolItem(String(localized: "文字起こし編集"), systemImage: "text.quote", id: "ai-transcript-edit") {
+            openTranscriptEdit(onlyClip: clipID)
+        })
+        items.append(EditorToolItem(String(localized: "オートパンチイン"), systemImage: "plus.magnifyingglass", id: "ai-punchin",
+                                    enabled: !isStill && !isReversed && !running,
+                                    disabledReason: isStill ? stillReason : (isReversed ? reversedReason : Self.analysisBusyReason)) {
+            // 選んでいるクリップだけに入れる(applyPunchIn は選択中のクリップを見る)
+            showPunchInDialog = true
+        })
+        items.append(EditorToolItem(String(localized: "スピーチを強調"), systemImage: "person.wave.2", id: "ai-speech",
+                                    enabled: hasAudio, disabledReason: Self.noAudioClipReason) {
+            openPanel(.audioEffects(clipID))
+        })
+        items.append(EditorToolItem(String(localized: "オートリフレーム"), systemImage: "person.crop.rectangle", id: "ai-reframe",
+                                    enabled: !isStill, disabledReason: stillReason) {
+            openPanel(.autoReframe(clipID))
+        })
+        items.append(EditorToolItem(String(localized: "字幕を翻訳"), systemImage: "character.book.closed", id: "ai-translate",
+                                    enabled: hasCaptions, disabledReason: needCaptions) {
+            history.record(project)
+            // 字幕のシートを「翻訳」を開いた状態で出す(クリップを選んで開くと「選んだクリップだけ」になり、その字幕だけ訳す)
+            subtitleSheetSection = .translate
+            activeSheet = .subtitles
+        })
+        items.append(EditorToolItem(String(localized: "吹き替え"), systemImage: "person.wave.2.fill", id: "ai-dubbing",
+                                    enabled: hasCaptions && !running,
+                                    disabledReason: hasCaptions ? Self.analysisBusyReason : needCaptions) {
+            openPanel(.dubbing)
+        })
         items.append(EditorToolItem(String(localized: "画質補正"), systemImage: "sparkles.tv", id: "clip-ai-quality") {
             openPanel(.enhance(clipID))
-        }.freeToAdjust(!(project.clips.first(where: { $0.id == clipID })?.enhance.isIdentity ?? true)))
+        }.freeToAdjust(!(clip?.enhance.isIdentity ?? true)))
         return items
+    }
+
+    /// 全クリップ(音声のある動画)のスピーチを強調する(0 でオフ)。クリップごとの調整は音声効果のパネルで
+    private func applySpeechEnhanceToAll(_ amount: Double) {
+        let targets = project.clips.indices.filter { project.clips[$0].hasAudio && !project.clips[$0].isStill }
+        guard !targets.isEmpty else {
+            showToast(String(localized: "音声のあるクリップがありません"), style: .warning)
+            return
+        }
+        history.record(project)
+        for i in targets {
+            project.clips[i].audio.effects.noiseReduction = amount
+        }
+        if amount > 0 {
+            showToast(String(localized: "\(targets.count) 本のクリップのスピーチを強調しました"), undo: true)
+        } else {
+            showToast(String(localized: "\(targets.count) 本のクリップのスピーチ強調をオフにしました"), undo: true)
+        }
+    }
+
+    /// 全クリップ(写真を除く)の人物を探して、映す範囲を人物に合わせる。makeVertical なら先に縦(9:16)・埋めるにする
+    private func reframeAllClips(makeVertical: Bool) {
+        player.pause()
+        let targets = project.clips.filter { !$0.isStill }
+        guard !targets.isEmpty else { return }
+        let total = Double(targets.count)
+        analysis.run(title: String(localized: "人物を探しています")) { report in
+            var tracks: [UUID: ReframeTrack] = [:]
+            for (k, clip) in targets.enumerated() {
+                try Task.checkCancellation()
+                let track = try await VisionReframe.analyze(clip: clip, step: 0.25) { fraction in
+                    report((Double(k) + fraction) / total)
+                }
+                tracks[clip.id] = track
+            }
+            if Task.isCancelled { return }
+            history.record(project)
+            if makeVertical {
+                let before = project.snapshot()
+                project.canvas.aspect = .portrait9x16
+                project.canvas.scaling = .fill
+                // モザイクは映像に合わせて置き直す(顔から外れないように)
+                project.remapMosaics(from: before)
+            }
+            var found = 0
+            for (id, track) in tracks {
+                guard let i = project.index(of: id) else { continue }
+                var merged = track
+                merged.enabled = true
+                merged.smoothing = project.clips[i].reframe.smoothing
+                merged.zoom = project.clips[i].reframe.zoom
+                project.clips[i].reframe = merged
+                if track.samples.count >= 2 { found += 1 }
+            }
+            if found == 0 {
+                showToast(String(localized: "人物が見つかりませんでした"), style: .warning)
+            } else {
+                showToast(String(localized: "\(found) 本のクリップを人物に合わせました"), undo: true)
+            }
+        } onError: { error in
+            showToast(String(localized: "調べられませんでした(\(error.localizedDescription))"), style: .warning)
+        }
     }
 
     /// クリップの「モーション」: 位置・クロップ / アニメーション / キーフレーム / スタビライザー / マスク / 背景を消す / クロマキー / 被写体フラッシュ / 3Dズーム
@@ -3157,7 +3317,7 @@ struct ContentView: View {
         return items
     }
 
-    /// クリップの「オーディオ」(その他の中): 音声効果(スピーチを強調もここ) / J/Lカット / ビート合わせ
+    /// クリップの「オーディオ」(リンク解除の右): 音声効果(スピーチを強調もここ) / J/Lカット / ビート合わせ
     private func clipAudioItems(_ clipID: UUID, hasAudio: Bool) -> [EditorToolItem] {
         var items: [EditorToolItem] = []
         items.append(EditorToolItem(String(localized: "音声効果"), systemImage: "waveform.and.magnifyingglass", id: "clip-audio-effects",
@@ -3333,7 +3493,7 @@ struct ContentView: View {
                 openPanel(.overlayParallax(overlayID))
             })
         }
-        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "move.3d", id: "group-motion", items: motion))
+        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "crop.rotate", id: "group-motion", items: motion))
         var color: [EditorToolItem] = []
         color.append(EditorToolItem(String(localized: "カラープリセット"), systemImage: "paintpalette") {
             openPanel(.overlayFilter(overlayID))
@@ -3479,7 +3639,7 @@ struct ContentView: View {
         motion.append(EditorToolItem(String(localized: "トラッキング"), systemImage: "scope") {
             openPanel(.textTracking(textID))
         })
-        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "move.3d", id: "group-motion", items: motion))
+        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "crop.rotate", id: "group-motion", items: motion))
         items.append(EditorToolItem(String(localized: "アニメーション"), systemImage: "sparkles.rectangle.stack") {
             openPanel(.textAnimation(textID))
         })
@@ -3519,7 +3679,7 @@ struct ContentView: View {
         motion.append(EditorToolItem(String(localized: "キーフレーム"), systemImage: "diamond") {
             openPanel(.textKeyframes(textID))
         })
-        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "move.3d", id: "group-motion", items: motion))
+        items.append(EditorToolItem.group(String(localized: "モーション"), systemImage: "crop.rotate", id: "group-motion", items: motion))
         items.append(textDuplicateItem(textID))
         items.append(textDeleteItem(textID))
         return items
@@ -3672,9 +3832,11 @@ struct ContentView: View {
         }
     }
 
-    /// 「文字起こしで編集」(TranscriptEditView)。キャプションが無ければ先に作ってもらう(字幕のシートを開く)
-    private func openTranscriptEdit() {
-        guard !project.subtitles.isEmpty else {
+    /// 「文字起こしで編集」(TranscriptEditView)。キャプションが無ければ先に作ってもらう(字幕のシートを開く。
+    /// クリップを選んでいれば「選んだクリップだけ」で開く)。onlyClip を渡すとそのクリップの字幕だけを出す
+    private func openTranscriptEdit(onlyClip clipID: UUID?) {
+        let hasCaptions = clipID.map { !project.subtitles(inClip: $0).isEmpty } ?? !project.subtitles.isEmpty
+        guard hasCaptions else {
             history.record(project)
             activeSheet = .subtitles
             return
@@ -3682,18 +3844,29 @@ struct ContentView: View {
         player.pause()
         activePanel = nil
         history.record(project)
+        transcriptEditClipID = clipID
         showTranscriptEdit = true
     }
 
-    /// 字幕の言葉から「えー」「あのー」などを見つけて、その部分だけ詰める
-    private func cutFillers() {
-        let cues = project.subtitles
+    /// 字幕の言葉から「えー」「あのー」などを見つけて、その部分だけ詰める。onlyClip を渡すとそのクリップの持ち分だけ
+    private func cutFillers(onlyClip clipID: UUID?) {
+        let cues = clipID.map { project.subtitles(inClip: $0) } ?? project.subtitles
         guard !cues.isEmpty else {
             PlanTrial.refund(.fillerCut)
-            showToast(String(localized: "先に「自動字幕」で字幕を作ってください"), style: .warning)
+            showToast(clipID == nil ? String(localized: "先に「自動字幕」で字幕を作ってください")
+                                    : String(localized: "このクリップに字幕がありません。先に「自動字幕」で作ってください"),
+                      style: .warning)
             return
         }
-        let spans = FillerDetector.spans(in: cues)
+        var spans = FillerDetector.spans(in: cues)
+        // クリップだけのときは、持ち分の中にある言いよどみだけ(境の字幕から隣のクリップの所を切らない)
+        let clipRange = clipID.flatMap { project.ownOutputRange(ofClip: $0) }
+        if let clipRange {
+            spans = spans.filter { span in
+                let middle = (span.start + span.end) / 2
+                return middle >= clipRange.start && middle < clipRange.end
+            }
+        }
         guard !spans.isEmpty else {
             // 無料プランの試用で払ったポイントは返す(何も切っていないので)
             if PlanTrial.refund(.fillerCut) {
@@ -3706,7 +3879,15 @@ struct ContentView: View {
         PlanTrial.commit(.fillerCut)
         player.pause()
         history.record(project)
-        let removed = project.removeOutputRanges(spans.map { (start: max(0, $0.start - 0.03), end: $0.end + 0.03) })
+        let removed = project.removeOutputRanges(spans.map { span in
+            var start = max(0, span.start - 0.03)
+            var end = span.end + 0.03
+            if let clipRange {
+                start = max(start, clipRange.start)
+                end = min(end, clipRange.end)
+            }
+            return (start: start, end: end)
+        })
         showToast(String(localized: "\(spans.count) か所・\(String(format: "%.1f", removed)) 秒の言いよどみを詰めました"), undo: true)
     }
 
@@ -4240,6 +4421,7 @@ struct ContentView: View {
             AutoEditSheetView(project: project,
                               player: player,
                               history: history,
+                              onlyClipID: autoEditClipID,
                               onApplied: { note in afterProjectReplaced(note: note) })
         case .slideshow:
             SlideshowSheetView(images: slideshowImages,
@@ -5395,24 +5577,28 @@ struct ContentView: View {
 
     // MARK: 無音カット
 
-    private func startSilenceCut(pace: SilenceCutPace) {
+    private func startSilenceCut(pace: SilenceCutPace, onlyClip clipID: UUID?) {
         audioToolTask?.cancel()
         audioToolTask = Task { @MainActor in
-            await runSilenceCut(pace: pace)
+            await runSilenceCut(pace: pace, onlyClip: clipID)
             audioToolTask = nil
         }
     }
 
-    /// 音声のある(ミュートでない)全クリップから無音部分を取り除き、残す範囲ごとにクリップを分割する
+    /// 音声のある(ミュートでない)全クリップ(onlyClip を渡したときはそのクリップだけ)から無音部分を取り除き、
+    /// 残す範囲ごとにクリップを分割する
     @MainActor
-    private func runSilenceCut(pace: SilenceCutPace) async {
+    private func runSilenceCut(pace: SilenceCutPace, onlyClip clipID: UUID?) async {
         // 逆再生・速度カーブ(タイムリマップ)のクリップは外す。切れ端の並び・速さが元と変わり、
         // 字幕などを正しく詰められないため(ReelFinisher の無音カットと同じ)
         let targets = project.clips.filter {
             $0.hasAudio && !$0.isMuted && !$0.isStill && !$0.isReversed && !$0.speedCurve.enabled
+                && (clipID == nil || $0.id == clipID)
         }
         guard !targets.isEmpty else {
-            alertMessage = String(localized: "音声のあるクリップがありません。")
+            alertMessage = clipID == nil
+                ? String(localized: "音声のあるクリップがありません。")
+                : String(localized: "このクリップでは無音カットを使えません(音声が無い・ミュート中・逆再生・タイムリマップのクリップ)。")
             return
         }
         player.pause()

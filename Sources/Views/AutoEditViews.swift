@@ -33,6 +33,9 @@ struct AutoEditSheetView: View {
     @Bindable var project: EditorProject
     let player: PlayerController
     let history: EditorHistory
+    /// クリップを選んで開いたときは、このクリップだけを編集する(見どころを残してほかを詰める。BGM・タイトル・色は変えない)。
+    /// nil ならプロジェクト全体を作り直す
+    var onlyClipID: UUID? = nil
     /// 置き換えが終わった後に呼ぶ(サムネイルの読み直しなど)。話の整理をした結果の一言があれば渡す
     let onApplied: (String?) -> Void
 
@@ -69,7 +72,12 @@ struct AutoEditSheetView: View {
     /// 入力欄に見せている入力例の番号(数秒ごとに進む)
     @State private var exampleIndex = 0
 
-    private var sourceTotal: Double { project.totalDuration }
+    /// このクリップだけを編集するときのクリップ(まだプロジェクトにあれば)
+    private var onlyClip: Clip? {
+        onlyClipID.flatMap { id in project.clips.first { $0.id == id } }
+    }
+
+    private var sourceTotal: Double { onlyClip?.outputDuration ?? project.totalDuration }
 
     /// 縦の作品か(書き出しの大きさで見る)
     private var isVerticalProject: Bool {
@@ -91,7 +99,10 @@ struct AutoEditSheetView: View {
                         orderSection
                         styleSection
                         lengthSection
-                        bgmSection
+                        // このクリップだけのときは BGM を変えないので出さない
+                        if onlyClipID == nil {
+                            bgmSection
+                        }
                         abilitiesSection
                         highlightsSection
                     }
@@ -110,7 +121,7 @@ struct AutoEditSheetView: View {
                     }
                 }
             }
-            .navigationTitle("おまかせ編集")
+            .navigationTitle(onlyClipID == nil ? String(localized: "おまかせ編集") : String(localized: "このクリップをおまかせ編集"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -136,15 +147,17 @@ struct AutoEditSheetView: View {
                     bgmURLBeforePicker = project.audio.bgmURL
                 }
             }
-            .confirmationDialog("いまのプロジェクトを作り直しますか?",
+            .confirmationDialog(onlyClipID == nil ? String(localized: "いまのプロジェクトを作り直しますか?")
+                                                  : String(localized: "このクリップを編集しますか?"),
                                 isPresented: $showBuildConfirm,
                                 titleVisibility: .visible) {
-                Button("動画を作る") {
+                Button(onlyClipID == nil ? String(localized: "動画を作る") : String(localized: "このクリップを編集")) {
                     build()
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text(buildConfirmMessage)
+                Text(onlyClipID == nil ? buildConfirmMessage
+                                       : String(localized: "このクリップの見どころを残して、ほかの所を詰めます。ほかのクリップ・BGM・タイトルは変えません。「元に戻す」で戻せます。"))
             }
             .alert("お知らせ", isPresented: errorIsPresented) {
                 Button("OK", role: .cancel) {}
@@ -188,7 +201,9 @@ struct AutoEditSheetView: View {
             Text("AI におまかせ")
                 .font(.title2.weight(.bold))
                 .foregroundStyle(.white)
-            Text("スタイルと長さを選ぶだけ。見どころ探しからカット・BGM 合わせまで AI が仕上げます")
+            Text(onlyClipID == nil
+                 ? String(localized: "スタイルと長さを選ぶだけ。見どころ探しからカット・BGM 合わせまで AI が仕上げます")
+                 : String(localized: "選んだクリップの見どころを AI が探して、ほかの所を詰めます。ほかのクリップ・BGM・タイトルはそのままです"))
                 .font(.subheadline)
                 .foregroundStyle(Color.white.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
@@ -584,7 +599,8 @@ struct AutoEditSheetView: View {
                         Image(systemName: "wand.and.stars")
                             .symbolEffect(.pulse, options: .repeating, isActive: !project.isEmpty && !analysis.isRunning)
                     }
-                    Text(isReadingOrder ? String(localized: "オーダーを読み取り中") : String(localized: "動画を作る"))
+                    Text(isReadingOrder ? String(localized: "オーダーを読み取り中")
+                         : (onlyClipID == nil ? String(localized: "動画を作る") : String(localized: "このクリップを編集")))
                 }
                 .font(.headline)
                 .frame(maxWidth: .infinity, minHeight: 50)
@@ -677,7 +693,14 @@ struct AutoEditSheetView: View {
     }
 
     private func analyzeHighlights() {
-        let snapshot = project.snapshot()
+        // このクリップだけのときは、そのクリップだけのプロジェクトで見どころを探す
+        let snapshot: ProjectSnapshot
+        if let onlyClipID {
+            guard let reduced = clipOnlySnapshot(onlyClipID) else { return }
+            snapshot = reduced
+        } else {
+            snapshot = project.snapshot()
+        }
         let current = settings
         analysis.run(title: String(localized: "見どころを探しています")) { report in
             let found = try await HighlightAnalyzer.analyze(snapshot: snapshot, settings: current, progress: report)
@@ -688,7 +711,91 @@ struct AutoEditSheetView: View {
         }
     }
 
+    /// このクリップだけのときに解析・作成に渡す、そのクリップだけのプロジェクト
+    /// (字幕はクリップの先頭からの時刻に直す。重ねた素材・テキストなどは入れない)
+    private func clipOnlySnapshot(_ id: UUID) -> ProjectSnapshot? {
+        var snapshot = project.snapshot()
+        guard var clip = snapshot.clips.first(where: { $0.id == id }),
+              let range = project.outputRange(ofClip: id) else { return nil }
+        clip.transition = ClipTransition()
+        snapshot.clips = [clip]
+        snapshot.subtitles = project.subtitles(inClip: id).map { cue in
+            var shifted = cue
+            shifted.start = max(0, cue.start - range.start)
+            shifted.end = max(shifted.start, cue.end - range.start)
+            return shifted
+        }
+        snapshot.titleCards = []
+        snapshot.lowerThirds = []
+        snapshot.overlays = []
+        snapshot.narration = []
+        snapshot.textClips = []
+        snapshot.drawings = []
+        snapshot.markers = []
+        snapshot.videoEffects = []
+        return snapshot
+    }
+
+    /// このクリップだけを編集する: おまかせ編集が選んだ見どころ(このクリップの素材の区間)を残し、
+    /// それ以外を出力タイムラインから詰める(字幕・テキストなどもクリップを詰めたときと同じように動く)
+    private func buildClip(_ id: UUID) {
+        guard let reduced = clipOnlySnapshot(id) else { return }
+        let current = settings
+        let chosen = highlights
+        player.pause()
+        analysis.run(title: String(localized: "自動編集を作成中")) { report in
+            let result = try await AutoEditor.build(snapshot: reduced, settings: current, highlights: chosen,
+                                                    progress: { fraction in report(fraction) })
+            if Task.isCancelled { return }
+            guard let original = project.clips.first(where: { $0.id == id }),
+                  let placement = project.outputRange(ofClip: id) else { return }
+            // 残す元の動画の区間(できあがりの切れ端のうち、このクリップの素材のもの。重なりはまとめる)
+            let pieces: [(start: Double, end: Double)] = result.clips
+                .filter { $0.url == original.url }
+                .map { (start: max($0.startTime, original.startTime), end: min($0.endTime, original.endTime)) }
+                .filter { $0.end > $0.start + 0.05 }
+                .sorted { $0.start < $1.start }
+            var kept: [(start: Double, end: Double)] = []
+            for piece in pieces {
+                if let last = kept.last, piece.start <= last.end + 0.02 {
+                    kept[kept.count - 1].end = max(last.end, piece.end)
+                } else {
+                    kept.append(piece)
+                }
+            }
+            guard !kept.isEmpty else {
+                errorText = String(localized: "このクリップから残す所を選べませんでした。長さを変えてお試しください。")
+                return
+            }
+            // 残さない区間を出力タイムラインの秒に直す(速度・速度カーブを考慮)
+            func output(_ source: Double) -> Double { placement.start + original.outputOffset(atSourceTime: source) }
+            var removed: [(start: Double, end: Double)] = []
+            var cursor = original.startTime
+            for range in kept {
+                if range.start > cursor + 0.05 { removed.append((start: output(cursor), end: output(range.start))) }
+                cursor = max(cursor, range.end)
+            }
+            if original.endTime > cursor + 0.05 { removed.append((start: output(cursor), end: output(original.endTime))) }
+            guard !removed.isEmpty else {
+                dismiss()
+                onApplied(String(localized: "このクリップには詰める所がありませんでした"))
+                return
+            }
+            history.record(project)
+            let seconds = project.removeOutputRanges(removed)
+            player.seek(to: placement.start)
+            dismiss()
+            onApplied(String(localized: "このクリップの \(String(format: "%.1f", seconds)) 秒を詰めて、見どころだけにしました"))
+        } onError: { error in
+            errorText = String(localized: "もう一度「このクリップを編集」を押してください。続くときは、長さを変えてお試しください。\n\n詳細: ") + error.localizedDescription
+        }
+    }
+
     private func build() {
+        if let onlyClipID {
+            buildClip(onlyClipID)
+            return
+        }
         let snapshot = project.snapshot()
         let current = settings
         let chosen = highlights

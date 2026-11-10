@@ -216,11 +216,24 @@ enum DubbingRenderer {
     // MARK: - 反映
 
     /// 作った声と訳をプロジェクトに入れる(呼ぶ側で履歴を 1 回記録してから呼ぶ)。前の吹き替えは置き換える。
+    /// onlyClipID・onlyRange: クリップを選んで作ったときは、その区間の前の吹き替えだけを置き換え、元の音声もその範囲だけ下げる。
     /// 戻り値は置き換えた前の吹き替えの数
     @discardableResult
     static func apply(clips newClips: [NarrationClip], translations: [UUID: String],
                       originalAudio: DubbingOriginalAudio, showTranslation: Bool,
-                      to project: EditorProject) -> Int {
+                      to project: EditorProject,
+                      onlyClipID: UUID? = nil,
+                      onlyRange: (start: Double, end: Double)? = nil) -> Int {
+        /// 区間(クリップだけのとき)に始まりがあるか。全体のときはいつも true
+        func startsInRange(_ start: Double) -> Bool {
+            guard let onlyRange else { return true }
+            return start >= onlyRange.start - 0.01 && start < onlyRange.end
+        }
+        /// 区間(クリップだけのとき)に重なるか。全体のときはいつも true
+        func overlapsRange(_ start: Double, _ end: Double) -> Bool {
+            guard let onlyRange else { return true }
+            return end > onlyRange.start && start < onlyRange.end
+        }
         // 訳(訳が無かったキャプションだけに入れる)
         for i in project.subtitles.indices {
             if let text = translations[project.subtitles[i].id], !text.isEmpty {
@@ -229,13 +242,14 @@ enum DubbingRenderer {
         }
         // 前の吹き替えを外して、新しいものを置く
         let before = project.narration.count
-        project.narration.removeAll { isDubbing($0) }
+        project.narration.removeAll { isDubbing($0) && startsInRange($0.start) }
         let replaced = before - project.narration.count
         project.narration.append(contentsOf: newClips)
         project.sortNarration()
 
         // 元の音声
-        for i in project.clips.indices where project.clips[i].hasAudio {
+        for i in project.clips.indices where project.clips[i].hasAudio
+            && (onlyClipID == nil || project.clips[i].id == onlyClipID) {
             switch originalAudio {
             case .keep:
                 break
@@ -247,7 +261,8 @@ enum DubbingRenderer {
         }
         // リンク解除した音声(A1/A2…。マルチカメラの書き出しで分けたメインの音声も)とオーバーレイの音にも同じようにかける
         // (前は V1 のクリップだけで、分けた元の声が吹き替えの下でそのまま鳴っていた)
-        for i in project.narration.indices where project.narration[i].track != nil {
+        for i in project.narration.indices where project.narration[i].track != nil
+            && overlapsRange(project.narration[i].start, project.narration[i].end) {
             switch originalAudio {
             case .keep:
                 break
@@ -257,7 +272,8 @@ enum DubbingRenderer {
                 project.narration[i].volume = 0
             }
         }
-        for i in project.overlays.indices where project.overlays[i].volume > 0 {
+        for i in project.overlays.indices where project.overlays[i].volume > 0
+            && overlapsRange(project.overlays[i].start, project.overlays[i].start + project.overlays[i].duration) {
             switch originalAudio {
             case .keep:
                 break

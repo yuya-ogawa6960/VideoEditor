@@ -2,6 +2,9 @@ import Foundation
 import AVFoundation
 
 // =====================================================================
+// 1.12.105 から、パネルに出すのは同梱の効果音(SFXCatalog / SFXLibrary。Stable Audio で作った音)。
+// ここの合成の効果音とレシピは、前に保存したプロジェクトを開き直すために残している(パネルには、同梱の音が
+// アプリに入っていないときだけ出る)。
 // 内蔵の効果音(SE)。素材ファイルは使わず、すべてコードで合成する(SoundEffectSynth.swift)。
 // 合成した音は Caches/SoundEffects/sfx_<種類>_v1.caf に 1 回だけ書き出して使い回す。
 // タイムラインにはナレーション(NarrationClip)として置くので、移動・トリム・音量・書き出しはそのまま効く。
@@ -302,8 +305,10 @@ enum SoundEffectLibrary {
         }
     }
 
-    /// 生成した効果音の名前なら(消えていれば作り直して)URL を返す。それ以外の名前は nil
+    /// 生成した効果音の名前なら(消えていれば作り直して)URL を返す。それ以外の名前は nil。
+    /// 同梱の効果音(se_<id>.m4a)はアプリの中のファイルを返す
     static func generatedURL(fileName: String) -> URL? {
+        if let bundled = SFXLibrary.url(forFileName: fileName) { return bundled }
         // 古い版の名前でも今の版で作り直す。作れなかったときは、残っている古いファイルを使う
         if let kind = kind(forFileName: fileName) { return url(for: kind) ?? existingFile(named: fileName) }
         if let recipeID = recipeID(forFileName: fileName) {
@@ -383,8 +388,9 @@ enum SoundEffectLibrary {
     /// この URL が生成した効果音か
     static func isGenerated(_ url: URL) -> Bool {
         let fileName = url.lastPathComponent
-        // 内蔵効果音(sfx_)とレシピ(sfxr_)のどちらも生成ファイルとして扱う
+        // 内蔵効果音(sfx_)・レシピ(sfxr_)・同梱の効果音(se_)を効果音として扱う
         return kind(forFileName: fileName) != nil || recipeID(forFileName: fileName) != nil
+            || SFXLibrary.isBundledName(fileName)
     }
 
     /// ファイルの長さ(秒)

@@ -9,6 +9,9 @@ import Vision
 // トランジションの「白飛びフラッシュ」の明るく飛ばす処理。
 // 切り抜きは光っている間のコマだけ Vision で作る(人物: 人物の切り抜き、被写体: 前景の切り抜き)。
 // VideoCompositor の描画キューから同期で呼ばれる。切り抜けなかったときは元の画像のまま返す。
+// プレビューでは縮めた絵で切り抜き(速くする)、作った切り抜きはコマごとに覚えておく
+// (前は毎コマ原寸で作り直していて、光る区間でプレビューが止まっていた。パネルの繰り返し再生では 2 周目から計算しない)。
+// 書き出しは原寸のきれいな切り抜き。
 // =====================================================================
 
 enum SubjectFlashRenderer {
@@ -26,11 +29,21 @@ enum SubjectFlashRenderer {
             ])
     }
 
-    /// placed(キャンバス大、余白は透明)の被写体だけを amount(0 ... 1)だけ光らせる
-    static func apply(_ flash: SubjectFlash, amount: Double, to placed: CIImage, canvasSize: CGSize) -> CIImage {
+    /// 作った切り抜き(コマ・対象・大きさごと)。光る長さは最大 1 秒なので、60fps でも 1 回分が入る数にする
+    private static let maskCache: NSCache<NSString, CIImage> = {
+        let c = NSCache<NSString, CIImage>()
+        c.countLimit = 72
+        return c
+    }()
+
+    /// placed(キャンバス大、余白は透明)の被写体だけを amount(0 ... 1)だけ光らせる。
+    /// cacheKey: コマを区別する文字列(クリップの ID と時刻)。accurate: 書き出し(原寸のきれいな切り抜き)
+    static func apply(_ flash: SubjectFlash, amount: Double, to placed: CIImage, canvasSize: CGSize,
+                      cacheKey: String, accurate: Bool) -> CIImage {
         let canvas = CGRect(origin: .zero, size: canvasSize)
         guard amount > 0.001, canvas.width >= 2, canvas.height >= 2,
-              let mask = subjectMask(for: flash, image: placed, canvas: canvas) else { return placed }
+              let mask = cachedMask(for: flash, image: placed, canvas: canvas,
+                                    cacheKey: cacheKey, accurate: accurate) else { return placed }
 
         // 被写体を明るく飛ばす
         let bright = overexposed(placed, strength: amount).cropped(to: canvas)
@@ -66,19 +79,32 @@ enum SubjectFlashRenderer {
 
     // MARK: - 切り抜き
 
+    /// 覚えている切り抜きがあればそれを、なければ作って覚える(見つからなかったコマは覚えない)
+    private static func cachedMask(for flash: SubjectFlash, image: CIImage, canvas: CGRect,
+                                   cacheKey: String, accurate: Bool) -> CIImage? {
+        let point = flash.target == .tapped
+            ? "\(Int((flash.point.x * 1000).rounded())),\(Int((flash.point.y * 1000).rounded()))" : "-"
+        let key = "\(cacheKey)|\(flash.target.rawValue)|\(point)|\(accurate ? 1 : 0)|\(Int(canvas.width))x\(Int(canvas.height))" as NSString
+        if let cached = maskCache.object(forKey: key) { return cached }
+        guard let mask = subjectMask(for: flash, image: image, canvas: canvas, accurate: accurate) else { return nil }
+        maskCache.setObject(mask, forKey: key)
+        return mask
+    }
+
     /// 光らせる部分(キャンバス大、白 = 被写体)。見つからなければ nil(切り抜きは SegmentationMasks.swift)
-    private static func subjectMask(for flash: SubjectFlash, image: CIImage, canvas: CGRect) -> CIImage? {
+    private static func subjectMask(for flash: SubjectFlash, image: CIImage, canvas: CGRect, accurate: Bool) -> CIImage? {
         // 透明な余白は黒にしてから渡す
         let input = image.composited(over: CIImage(color: CIColor.black).cropped(to: canvas)).cropped(to: canvas)
         let kind: SegmentationMasks.Kind
         switch flash.target {
         case .person:
-            kind = .person(accurate: false)
+            kind = .person(accurate: accurate)
         case .subject:
             kind = .foreground(point: nil)
         case .tapped:
             kind = .foreground(point: flash.point)
         }
-        return SegmentationMasks.mask(for: input, in: canvas, kind: kind)
+        // プレビューは長辺 512 に縮めて切り抜く(光る一瞬なので、ふちの細かさより止まらないことを優先)
+        return SegmentationMasks.mask(for: input, in: canvas, kind: kind, maxInputSide: accurate ? nil : 512)
     }
 }

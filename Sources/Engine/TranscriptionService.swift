@@ -1157,7 +1157,7 @@ final class TranscriptionService {
 
     /// ナレーションの段の声のジョブ。録音したナレーション・読み上げ・取り出した音声・リンクを解除した音声
     /// (マルチカメラの「V1 に書き出す」で分けたメインの音声も)を、V1 のクリップと同じように文字起こしする。
-    /// 効果音(soundRecipeID がある)と吹き替えは除く。リンクを解除したあとクリップのミュートを戻していて、
+    /// 効果音(soundRecipeID がある・効果音のファイル)と吹き替えは除く。リンクを解除したあとクリップのミュートを戻していて、
     /// 同じ素材の音がクリップでも鳴っているところは二重にしない。
     /// clipIDs を渡したとき(選んだクリップだけ)は、そのクリップの範囲に重なる部分だけ
     private static func makeNarrationJobs(for snapshot: ProjectSnapshot, clipIDs: Set<UUID>?) -> [ClipJob] {
@@ -1180,7 +1180,8 @@ final class TranscriptionService {
         for item in snapshot.narration {
             // 吹き替えの音声はファイル名の終わりに「_vmdub」が付く(DubbingRenderer.isDubbing と同じ判定。あちらは MainActor なので呼ばない)
             let isDubbing = item.url.deletingPathExtension().lastPathComponent.hasSuffix("_vmdub")
-            guard item.soundRecipeID == nil, !isDubbing, item.duration >= 0.3 else { continue }
+            guard item.soundRecipeID == nil, !SoundEffectLibrary.isGenerated(item.url),
+                  !isDubbing, item.duration >= 0.3 else { continue }
             let middle = (item.start + item.end) / 2
             if audibleClips.contains(where: { $0.url == item.url && middle >= $0.start && middle < $0.end }) { continue }
             var ranges: [(start: Double, end: Double)] = []

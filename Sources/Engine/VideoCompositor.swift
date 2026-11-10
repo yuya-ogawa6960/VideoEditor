@@ -913,7 +913,9 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
         // 被写体フラッシュ(人物・被写体だけ光らせる。光っている間だけ切り抜きを作る)
         let flashAmount = bypassLook ? 0 : layer.subjectFlash.intensity(atLocalTime: time - layer.start)
         if flashAmount > 0.01 {
-            placed = SubjectFlashRenderer.apply(layer.subjectFlash, amount: flashAmount, to: placed, canvasSize: size)
+            placed = SubjectFlashRenderer.apply(layer.subjectFlash, amount: flashAmount, to: placed, canvasSize: size,
+                                                cacheKey: "flash-\(layer.clipID.uuidString)-\(Int((time * 1000).rounded()))",
+                                                accurate: scene.postsFrames)
         }
 
         // マスク(形の外は透明 → 背景の黒が見える)
