@@ -883,9 +883,9 @@ struct ExportView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Label("書き出せませんでした", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(Color.red)
-                Text(failureAction(for: message))
+                Text(failureAction(for: exporter.failureKind))
                     .font(.subheadline)
-                Text("詳細: " + message)
+                Text(String(localized: "詳細: ") + message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -939,18 +939,16 @@ struct ExportView: View {
         }
     }
 
-    /// 失敗理由から「次にすること」を先に伝える
-    private func failureAction(for message: String) -> String {
-        if message.contains("空き容量") {
+    /// 失敗の種類から「次にすること」を先に伝える(写真の許可がないときは失敗にならず、完了の画面で「設定を開く」を出す)
+    private func failureAction(for kind: ExportFailureKind) -> String {
+        switch kind {
+        case .disk:
             return String(localized: "不要な写真・動画・アプリを削除して空きを増やすか、画質を下げてから、もう一度「書き出す」を押してください。")
-        }
-        if message.contains("写真") {
-            return String(localized: "設定アプリでこのアプリの「写真」を許可してから、もう一度お試しください。")
-        }
-        if message.contains("クリップがありません") {
+        case .noClips:
             return String(localized: "編集画面で動画を追加してから書き出してください。")
+        case .hdr, .other:
+            return String(localized: "もう一度「書き出す」を押してください。続くときは、解像度や画質を下げるか、アプリを開き直してからお試しください。")
         }
-        return String(localized: "もう一度「書き出す」を押してください。続くときは、解像度や画質を下げるか、アプリを開き直してからお試しください。")
     }
 
     // MARK: 処理
@@ -1089,7 +1087,7 @@ struct ExportView: View {
     private var gifRangeText: String {
         guard let range = gifRange else { return String(localized: "開始と終了を 0.1 秒以上あけて入力してください") }
         let length = range.end - range.start
-        var text = "\(exportDurationString(range.start)) 〜 \(exportDurationString(range.end))(\(String(format: "%.1f", length)) 秒)"
+        var text = String(localized: "\(exportDurationString(range.start)) 〜 \(exportDurationString(range.end))(\(String(format: "%.1f", length)) 秒)")
         if length > 15 {
             text += String(localized: " ・ 長いとファイルが大きくなります")
         }

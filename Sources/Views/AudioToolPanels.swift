@@ -286,7 +286,7 @@ struct EditorNarrationRecordPanel: View {
         if interrupted {
             resultText = String(localized: "録音が中断されたため、ここまでを追加しました。")
         } else {
-            resultText = "\(MediaTimeText.precise(playheadAtStart)) に \(String(format: "%.1f", duration)) 秒のナレーションを追加しました。"
+            resultText = String(localized: "\(MediaTimeText.precise(playheadAtStart)) に \(String(format: "%.1f", duration)) 秒のナレーションを追加しました。")
         }
         onRecorded(clip.id)
     }

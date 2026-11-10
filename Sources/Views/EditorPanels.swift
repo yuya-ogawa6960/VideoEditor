@@ -873,7 +873,7 @@ struct EditorJLCutPanel: View {
     @Binding var clip: Clip
 
     private func seconds(_ value: Double) -> String {
-        String(format: "%.1f 秒", value)
+        String(localized: "\(String(format: "%.1f", value)) 秒")
     }
 
     /// 元素材の先頭より前の音は取れないため、J カットで実際に使える最大秒数

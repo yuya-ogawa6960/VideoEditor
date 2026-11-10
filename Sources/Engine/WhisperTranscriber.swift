@@ -294,6 +294,10 @@ final class WhisperTranscriber {
 
     // MARK: - ダウンロード・読み込み
 
+    private static func modelDownloadText(percent: Int) -> String {
+        String(localized: "Whisperモデルをダウンロード中 \(percent)%")
+    }
+
     /// モデルをダウンロードする(読み込みはしない)。progress は (0...1, 状態文)
     func download(model: String, progress: @escaping (Double, String) -> Void) async throws {
         #if canImport(WhisperKit)
@@ -306,7 +310,7 @@ final class WhisperTranscriber {
             return
         }
 
-        progress(0, "Whisperモデルをダウンロード中 0%")
+        progress(0, Self.modelDownloadText(percent: 0))
         let reporter = WhisperProgressThrottle()
         do {
             _ = try await WhisperKit.download(variant: model,
@@ -314,7 +318,7 @@ final class WhisperTranscriber {
                                               progressCallback: { downloadProgress in
                                                   let fraction = min(max(downloadProgress.fractionCompleted, 0), 1)
                                                   if reporter.shouldReport(fraction) {
-                                                      progress(fraction, "Whisperモデルをダウンロード中 \(Int(fraction * 100))%")
+                                                      progress(fraction, Self.modelDownloadText(percent: Int(fraction * 100)))
                                                   }
                                               })
         } catch {
@@ -435,10 +439,10 @@ final class WhisperTranscriber {
     static func elapsedText(_ seconds: TimeInterval) -> String {
         let total = max(0, Int(seconds))
         if total >= 3600 {
-            return "\(total / 3600)時間\((total % 3600) / 60)分"
+            return String(localized: "\(total / 3600)時間\((total % 3600) / 60)分")
         }
         if total >= 60 {
-            return "\(total / 60)分\(total % 60)秒"
+            return String(localized: "\(total / 60)分\(total % 60)秒")
         }
         return String(localized: "\(total)秒")
     }

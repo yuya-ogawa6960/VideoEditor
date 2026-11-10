@@ -21,9 +21,15 @@ struct PlanPaywallView: View {
             .subscriptionStorePolicyDestination(url: CloudAIGateway.termsURL, for: .termsOfService)
             .subscriptionStorePolicyDestination(url: CloudAIGateway.privacyPolicyURL, for: .privacyPolicy)
             .onInAppPurchaseCompletion { _, result in
+                // 承認待ち(Ask to Buy など)は、承認されると Transaction.updates で届く。この端末で買ったことを Meta の計測のために覚えておく
+                if case .success(.pending) = result {
+                    MetaAds.notePendingPurchase()
+                }
                 guard case .success(.success(let verification)) = result else { return }
                 if case .verified(let transaction) = verification {
                     await transaction.finish()
+                    // Meta への購入の送信は、買った端末のここからだけ(PlanStore.refresh は別の端末の購入や起動でも動くので使わない)
+                    await MainActor.run { MetaAds.logFirstPurchase(transaction) }
                 }
                 await PlanStore.shared.refresh()
                 dismiss()

@@ -148,7 +148,9 @@ struct SafeZonePreviewLayer: View {
             SafeZoneOverlay(guide: guide, renderSize: renderSize)
             if showsButton {
                 SafeZoneGuideButton(guide: $guide,
-                                    hiddenTextCount: guide.hiddenTextCount(in: project.textClips))
+                                    hiddenTextCount: guide.hiddenTextCount(in: project.textClips,
+                                                                           canvasSize: renderSize,
+                                                                           documentary: project.documentary))
             }
         }
         // ガイドを出していないときもプレビュー全体に広げる(ボタンを左上に置くため)

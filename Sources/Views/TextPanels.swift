@@ -112,7 +112,7 @@ private func textPanelPercent(_ value: Double) -> String {
 }
 
 private func textPanelSeconds(_ value: Double) -> String {
-    String(format: "%.1f 秒", value)
+    String(localized: "\(String(format: "%.1f", value)) 秒")
 }
 
 // MARK: - フォント選択
@@ -148,7 +148,7 @@ struct EditorFontPickerRow: View {
     }
 
     private var currentLabel: String {
-        guard let fontName else { return "システム(標準)" }
+        guard let fontName else { return String(localized: "システム(標準)") }
         if let hit = Self.builtIn.first(where: { $0.name == fontName }) { return hit.label }
         if let hit = BundledFonts.all.first(where: { $0.name == fontName }) { return hit.label }
         return fontName
@@ -410,9 +410,16 @@ struct EditorTextStylePanel: View {
     }
 
     @State private var tab: Tab = .text
-    /// 端に寄せている位置(文字や大きさが変わっても端に揃え続ける。指で動かしたら終わる)
-    @State private var edgeAnchor: TextEdgeAnchor? = nil
-    @State private var edgeCenter: NormalizedPoint? = nil
+    /// デザインが見た目以外に動かしたものを、別のデザインへ移るときに戻すための控え
+    private struct TemplateEffects {
+        var before: TextClip
+        var after: TextClip
+        /// このデザインが自動で端に置いた(チップで置き直したら false)
+        var placedEdge: Bool
+    }
+    @State private var templateEffects: TemplateEffects? = nil
+    /// 表示時間のスライダーの上限。動かしている間は変えない(章ラベルは 30 秒より長くなることがある)
+    @State private var durationLimit: Double = 30
     /// 文字の入力中(「完了」でキーボードを閉じる)
     @FocusState private var textFocused: Bool
 
@@ -481,15 +488,26 @@ struct EditorTextStylePanel: View {
 
                 TextPanelResetRow(title: String(localized: "スタイルをリセット")) {
                     text.style = TextStyle.preset(text.template)
+                    // 端に置いているなら、端の都合の縦書き・行ぞろえは残す
+                    if let anchor = text.edgeAnchor { placeOnEdge(anchor) }
                 }
             }
         }
         .padding(.top, 6)
-        .onChange(of: text.text) { _, _ in fitToEdge() }
-        .onChange(of: text.style) { _, _ in fitToEdge() }
-        .onChange(of: text.scale) { _, _ in fitToEdge() }
-        .onChange(of: text.widthRatio) { _, _ in fitToEdge() }
+        .onChange(of: text.text) { oldText, newText in
+            // 左右の端: 打ち直して日本語の有無が変わったら縦書き・横書きも合わせ直す(変わらない間は「縦書き」スイッチの選択を残す)
+            if let anchor = text.edgeAnchor, text.keyframes.isEmpty,
+               anchor.usesVerticalText(for: oldText) != anchor.usesVerticalText(for: newText) {
+                text.style.vertical = anchor.usesVerticalText(for: newText)
+            }
+            syncEdgeCenter()
+        }
+        .onChange(of: text.style) { _, _ in syncEdgeCenter() }
+        .onChange(of: text.scale) { _, _ in syncEdgeCenter() }
+        .onChange(of: text.widthRatio) { _, _ in syncEdgeCenter() }
         .onAppear {
+            durationLimit = max(30, text.duration)
+            syncEdgeCenter()
             // 追加したばかり(文字が初期の「テキスト」のまま)のときだけ、すぐ打てるように入力欄を選ぶ。
             // 既存のテキストを開いたときは、キーボードで画面を隠さない
             guard !text.isSticker, tab == .text, text.text == String(localized: "テキスト") else { return }
@@ -507,6 +525,22 @@ struct EditorTextStylePanel: View {
             HStack {
                 EditorSectionTitle(title: title)
                 Spacer()
+                if text.style.accentColorHex != nil, !text.isSticker {
+                    // 【】を打てないキーボードでも囲めるように
+                    Button {
+                        insertAccentBracket()
+                    } label: {
+                        Text(verbatim: "【】")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                            .padding(.vertical, -14)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(localized: "【】を入れる"))
+                }
                 if textFocused {
                     Button {
                         textFocused = false
@@ -547,8 +581,15 @@ struct EditorTextStylePanel: View {
     private var durationRow: some View {
         EditorSliderRow(title: String(localized: "表示時間"),
                         value: $text.duration,
-                        range: 0.5...30,
+                        range: 0.5...durationLimit,
                         display: textPanelSeconds(text.duration))
+    }
+
+    /// 開いていなければ【を、開いていれば】を末尾に足す
+    private func insertAccentBracket() {
+        let opened = text.text.filter { $0 == "【" }.count
+        let closed = text.text.filter { $0 == "】" }.count
+        text.text += opened > closed ? "】" : "【"
     }
 
     /// テキスト: 文字・デザイン・表示時間
@@ -591,10 +632,14 @@ struct EditorTextStylePanel: View {
             if text.keyframes.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     EditorSectionTitle(title: String(localized: "端に置く"))
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
-                        ForEach(TextEdgeAnchor.allCases) { anchor in
-                            EditorChip(title: anchor.title, isSelected: edgeAnchor == anchor) {
-                                placeOnEdge(anchor)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(TextEdgeAnchor.allCases) { anchor in
+                                EditorChip(title: anchor.title, isSelected: text.edgeAnchor == anchor) {
+                                    placeOnEdge(anchor)
+                                    // 自分で選んだ端は、別のデザインへ移っても外さない
+                                    templateEffects?.placedEdge = false
+                                }
                             }
                         }
                     }
@@ -612,7 +657,7 @@ struct EditorTextStylePanel: View {
     /// フォント: 書体・太字・斜体・文字サイズ
     private var fontTab: some View {
         VStack(alignment: .leading, spacing: 14) {
-            EditorFontPickerRow(title: "フォント", fontName: $text.style.fontName)
+            EditorFontPickerRow(title: String(localized: "フォント"), fontName: $text.style.fontName)
 
             HStack(spacing: 8) {
                 EditorChip(title: String(localized: "太字"), isSelected: text.style.bold) {
@@ -650,7 +695,7 @@ struct EditorTextStylePanel: View {
     private var accentEnabled: Binding<Bool> {
         Binding<Bool>(
             get: { text.style.accentColorHex != nil },
-            set: { text.style.accentColorHex = $0 ? "#FF8A00" : nil }
+            set: { text.style.accentColorHex = $0 ? (TextStyle.preset(text.template).accentColorHex ?? "#FF8A00") : nil }
         )
     }
 
@@ -664,22 +709,65 @@ struct EditorTextStylePanel: View {
     /// デザインを選ぶ。端のタイトルは端に、締めの帯は下に傾けて置く
     private func applyTemplate(_ template: TextTemplate) {
         let wasBand = text.template == .closingBand
+        // 端のデザインのまま手で動かしたテキストは、別の端のデザインに替えても位置と角度をそのままにする
+        // (undoTemplateEffects が動かすので、その前に控える)
+        let handPlaced: TextClip? = text.template.isEdgeTitle && template.isEdgeTitle && text.edgeAnchor == nil ? text : nil
+        let restored = undoTemplateEffects()
+        if let handPlaced {
+            text.center = handPlaced.center
+            text.rotation = handPlaced.rotation
+        }
+        // 帯の傾きは控えを取る前に外す(控えると、次のデザインへ移るときに -4° が戻る)
+        if wasBand && template != .closingBand && (!restored || text.rotation == -4) { text.rotation = 0 }
+        let before = text
         text.template = template
         text.style = TextStyle.preset(template)
-        if wasBand && template != .closingBand { text.rotation = 0 }
         if template == .chapterLabel { applyChapterText() }
+        var placedEdge = false
         if template == .closingBand, text.keyframes.isEmpty {
-            edgeAnchor = nil
-            edgeCenter = nil
+            text.edgeAnchor = nil
             text.rotation = -4
-            text.center = NormalizedPoint(x: 0.5, y: 0.78)
-            return
-        }
-        if template.isEdgeTitle, edgeAnchor == nil {
+            // 黒帯があるときは映像の部分の 78% の高さに置く(黒帯の裏に隠れないように)
+            let bar = DocumentaryRenderer.letterboxBarHeight(canvasSize: canvasSize, style: project?.documentary ?? DocumentaryStyle())
+            let picture = max(canvasSize.height - bar * 2, 1)
+            text.center = NormalizedPoint(x: 0.5, y: Double((bar + picture * 0.78) / max(canvasSize.height, 1)))
+        } else if template.isEdgeTitle, text.edgeAnchor == nil, handPlaced == nil {
             placeOnEdge(.topLeft)
-        } else if let edgeAnchor {
-            placeOnEdge(edgeAnchor)
+            placedEdge = text.edgeAnchor != nil
+        } else if let anchor = text.edgeAnchor {
+            placeOnEdge(anchor)
         }
+        let after = text
+        let changed = placedEdge || after.center != before.center || after.rotation != before.rotation
+            || after.text != before.text || after.start != before.start || after.duration != before.duration
+        templateEffects = changed ? TemplateEffects(before: before, after: after, placedEdge: placedEdge) : nil
+    }
+
+    /// 前のデザインが動かしたものを戻す(そのあと利用者が変えたものには触らない)
+    private func undoTemplateEffects() -> Bool {
+        guard let effects = templateEffects else { return false }
+        templateEffects = nil
+        let before = effects.before
+        let after = effects.after
+        if effects.placedEdge, text.edgeAnchor != nil {
+            text.edgeAnchor = before.edgeAnchor
+            text.center = before.center
+        } else if text.edgeAnchor == nil, text.center == after.center {
+            text.center = before.center
+        }
+        if text.edgeAnchor == nil, text.rotation == after.rotation { text.rotation = before.rotation }
+        // 締めの帯が外した端への固定は、位置と傾きが帯の前に戻ったときだけ一緒に戻す
+        if after.edgeAnchor == nil, text.edgeAnchor == nil, text.center == before.center, text.rotation == before.rotation {
+            text.edgeAnchor = before.edgeAnchor
+        }
+        if text.text == after.text { text.text = before.text }
+        if text.start == after.start, text.duration == after.duration,
+           before.start != after.start || before.duration != after.duration {
+            text.start = before.start
+            text.duration = before.duration
+            project?.sortTextClips()
+        }
+        return true
     }
 
     /// 章ラベル: 章の区切りから「● 01 / 03 POINT」と章の名前を入れ、表示時間を章の長さに合わせる
@@ -691,41 +779,43 @@ struct EditorTextStylePanel: View {
             text.text = "● POINT"
             return
         }
-        let index = chapters.lastIndex { $0.time <= text.start + 0.01 } ?? 0
+        // テキストの開始はコマに切り下げてあるので、章の頭で足したものが前の章にならないよう 1 コマ余裕を見る
+        let fps = Double(min(max(project.canvas.frameRate, 1), 120))
+        guard let index = chapters.lastIndex(where: { $0.time <= text.start + 1 / fps + 0.001 }) else {
+            // 最初の章より前: 番号を付けず、位置も動かさない
+            text.text = "● POINT"
+            return
+        }
         let label = String(format: "● %02d / %02d  POINT", index + 1, chapters.count)
         text.text = chapters[index].name.isEmpty ? label : label + "\n" + chapters[index].name
-        let end = index + 1 < chapters.count ? chapters[index + 1].time : project.totalDuration
-        if end - chapters[index].time >= 0.5 {
-            text.start = chapters[index].time
-            text.duration = end - chapters[index].time
+        let chapterStart = (chapters[index].time * fps).rounded(.down) / fps
+        // 次の章の頭も同じ計算でコマに揃える(揃えないと、境目の 1 コマで前後のラベルが重なる)
+        let end = index + 1 < chapters.count ? (chapters[index + 1].time * fps).rounded(.down) / fps : project.layoutDuration
+        if end - chapterStart >= 0.5 {
+            text.start = chapterStart
+            // start + duration が丸めで次の章の頭をわずかに超えないようにする
+            let length = end - chapterStart
+            text.duration = chapterStart + length > end ? length.nextDown : length
+            project.sortTextClips()
+            durationLimit = max(30, text.duration)
         }
     }
 
     private func placeOnEdge(_ anchor: TextEdgeAnchor) {
         guard text.keyframes.isEmpty else { return }
         text.rotation = 0
-        if text.style.vertical != anchor.usesVerticalText { text.style.vertical = anchor.usesVerticalText }
+        let vertical = anchor.usesVerticalText(for: text.text)
+        if text.style.vertical != vertical { text.style.vertical = vertical }
         if text.style.alignment != anchor.alignment { text.style.alignment = anchor.alignment }
-        edgeAnchor = anchor
-        moveToEdge(anchor)
+        text.edgeAnchor = anchor
+        syncEdgeCenter()
     }
 
-    /// 文字や大きさが変わったら端に揃え直す。指で動かしたあとは揃えない
-    private func fitToEdge() {
-        guard let edgeAnchor else { return }
-        guard text.keyframes.isEmpty, text.center == edgeCenter else {
-            self.edgeAnchor = nil
-            edgeCenter = nil
-            return
-        }
-        moveToEdge(edgeAnchor)
-    }
-
-    private func moveToEdge(_ anchor: TextEdgeAnchor) {
-        guard let image = TextRenderer.image(for: text, canvasSize: canvasSize) else { return }
-        let size = CGSize(width: image.extent.width * CGFloat(text.scale), height: image.extent.height * CGFloat(text.scale))
-        let center = anchor.center(for: size, canvas: canvasSize)
-        edgeCenter = center
+    /// 端に置いているテキストの center を書いておく(描画は TextRenderer.placedCenter がその都度求める)
+    private func syncEdgeCenter() {
+        guard text.edgeAnchor != nil else { return }
+        let center = TextRenderer.placedCenter(for: text, canvasSize: canvasSize,
+                                               documentary: project?.documentary ?? DocumentaryStyle())
         if text.center != center { text.center = center }
     }
 
@@ -908,6 +998,8 @@ struct EditorTextPlacementPanel: View {
     @Binding var text: TextClip
     /// 再生位置を知るのに使う(キーフレームのあるテキストは、基本の値ではなく再生位置のキーに書くため)。無ければ先頭(0 秒)のキーに書く
     var player: PlayerController? = nil
+    /// 端に置いたテキストの位置を、黒帯も含めて求めるのに使う
+    var project: EditorProject? = nil
 
     private enum Anchor: String, CaseIterable, Identifiable {
         case center, top, bottom, left, right
@@ -1022,6 +1114,17 @@ struct EditorTextPlacementPanel: View {
             }
         }
         .padding(.top, 6)
+        .onAppear { syncEdgeCenter() }
+        .onChange(of: text.scale) { _, _ in syncEdgeCenter() }
+        .onChange(of: text.widthRatio) { _, _ in syncEdgeCenter() }
+    }
+
+    /// 端に置いているテキストは、いまの大きさで求めた位置をスライダーに見せる
+    private func syncEdgeCenter() {
+        guard text.edgeAnchor != nil, let canvas = player?.renderSize else { return }
+        let center = TextRenderer.placedCenter(for: text, canvasSize: canvas,
+                                               documentary: project?.documentary ?? DocumentaryStyle())
+        if text.center != center { text.center = center }
     }
 
     /// 配置の 1 成分(横位置・縦位置・大きさ・回転)のスライダー用 Binding。見せる値は shownValue、書き込みは updatePlacement
@@ -1039,6 +1142,8 @@ struct EditorTextPlacementPanel: View {
         var value = start
         change(&value)
         guard isKeyed else {
+            // 位置や角度を手で変えたら端への固定は終わり(大きさだけなら端に揃え続ける)
+            if value.center != start.center || value.rotation != start.rotation { text.edgeAnchor = nil }
             text.center = value.center
             text.scale = value.scale
             text.rotation = value.rotation
@@ -2341,7 +2446,7 @@ struct EditorCaptionTemplatePanel: View {
 
             EditorColorRow(title: String(localized: "強調色"), color: EditorColorHex.binding($project.subtitleStyle.highlightColorHex))
 
-            EditorFontPickerRow(title: "フォント", fontName: $project.subtitleStyle.fontName)
+            EditorFontPickerRow(title: String(localized: "フォント"), fontName: $project.subtitleStyle.fontName)
         }
         .padding(.top, 6)
     }
@@ -2388,8 +2493,13 @@ struct TextTemplatePreview: View {
         let stroke = style.strokeColorHex.map { EditorColorHex.color($0, fallback: .black) }
         let fontSize: CGFloat = template == .bigImpact ? 20 : (style.sizeRatio >= 0.07 ? 17 : 14)
         ZStack {
-            LinearGradient(colors: [Color(red: 0.32, green: 0.42, blue: 0.55), Color(red: 0.16, green: 0.2, blue: 0.26)],
-                           startPoint: .top, endPoint: .bottom)
+            if template == .slideHeading {
+                // 暗い文字色のデザインなので、方眼紙に近い色の上で見せる
+                Color(red: 0.975, green: 0.955, blue: 0.895)
+            } else {
+                LinearGradient(colors: [Color(red: 0.32, green: 0.42, blue: 0.55), Color(red: 0.16, green: 0.2, blue: 0.26)],
+                               startPoint: .top, endPoint: .bottom)
+            }
             Text("Aa")
                 .font(previewFont(style, size: fontSize))
                 .foregroundStyle(fill)

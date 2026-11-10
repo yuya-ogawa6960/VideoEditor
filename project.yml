@@ -13,7 +13,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     # アプリと共有用の拡張機能で同じ番号にする(App Store の決まり)。上げるときはここだけ
-    MARKETING_VERSION: "1.12.102"
+    MARKETING_VERSION: "1.12.103"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: ""
@@ -108,7 +108,9 @@ targets:
         FacebookAppID: "$(META_APP_ID)"
         FacebookClientToken: "$(META_CLIENT_TOKEN)"
         FacebookDisplayName: Video Mania
-        # 自動で送らせない(送るのは MetaAds.swift の 2 つだけ)
+        # 送るのは起動(初回はインストールの通知)・前回の利用時間・初めての購入(MetaAds.swift)。
+        # SDK 18 では、この false より Meta のダッシュボードの設定が優先される。自動ログを止めるには、
+        # オーナーがダッシュボードの「アプリイベントの自動ログ」と「アプリ内購入の自動ログ」の 2 つをオフにする
         FacebookAutoLogAppEventsEnabled: false
         # <<< meta-sdk
         # >>> tiktok-url-scheme(TIKTOK_CLIENT_KEY が空のとき、CI はこの印のあいだを消す。空の URL スキームを入れないように)
@@ -149,7 +151,7 @@ targets:
         # <<< osmo-live
         # 広告(AdMob)
         GADApplicationIdentifier: ca-app-pub-5816286661245536~3399107309
-        NSUserTrackingUsageDescription: あなたに合った広告を表示するために使用します。許可しなくてもアプリはすべて使えます。
+        NSUserTrackingUsageDescription: あなたに合った広告を表示し、広告の効果を測るために使用します。許可しなくてもアプリはすべて使えます。
         SKAdNetworkItems:
           - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
           - SKAdNetworkIdentifier: 4fzdc2evr5.skadnetwork

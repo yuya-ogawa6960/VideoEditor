@@ -188,6 +188,8 @@ extension EditorProject {
     func insertTimelineGap(at time: Double, length: Double) {
         guard length > 0.001 else { return }
         let edge = time - 0.001
+        // クリップはもう入っているので、差し込む前の長さは length を引いて求める
+        extendChapterLabels(forInsertionAt: time, length: length, oldVideoEnd: layoutDuration - length)
 
         subtitles = subtitles.map { cue in
             guard cue.start >= edge else { return cue }
@@ -216,7 +218,7 @@ extension EditorProject {
         }
         // キーフレームは部品の先頭からの秒なので、start だけずらせばよい
         textClips = textClips.map { item in
-            guard item.start >= edge else { return item }
+            guard item.start >= edge || chapterLabelFollowsMarker(item, threshold: edge) else { return item }
             var result = item
             result.start += length
             return result
@@ -251,6 +253,48 @@ extension EditorProject {
             result.start += length
             return result
         }
+    }
+
+    /// 章ラベルの開始は、章の頭をコマの頭へ切り下げた値(applyChapterText)。
+    /// その章マーカーが差し込みでずれる(threshold 以降)なら、ラベルも差し込み点から始まる部品として一緒にずらす。マーカーをずらす前に呼ぶ
+    func chapterLabelFollowsMarker(_ label: TextClip, threshold: Double) -> Bool {
+        guard label.template == .chapterLabel, label.start < threshold else { return false }
+        let frame = 1 / Double(min(max(canvas.frameRate, 1), 120))
+        return markers.contains { marker in
+            marker.kind == .chapter && marker.time >= threshold && marker.time < label.start + frame + 0.001
+        }
+    }
+
+    /// 章ラベル(TextTemplate.chapterLabel)を、クリップを差し込んだあとも章の終わりまで届かせる。
+    /// マーカーをずらす前に呼ぶ(time と oldVideoEnd は差し込む前の出力タイムラインの秒)。
+    /// 伸ばすのは、差し込み点をまたいでいて、次の章マーカーか動画の終わりに届いているラベルだけ(短くしたラベルはそのまま)。
+    /// 動画の末尾に足したときは、動画の終わりに届いているラベルを伸ばす
+    func extendChapterLabels(forInsertionAt time: Double, length: Double, oldVideoEnd: Double) {
+        let tolerance = 0.05
+        let chapterTimes: [Double] = markers.filter { $0.kind == .chapter }.map(\.time)
+        for i in textClips.indices where textClips[i].template == .chapterLabel && textClips[i].start < time - 0.001 {
+            // 章の頭に差し込むときは、マーカーと一緒に後ろへずれるので伸ばさない
+            if chapterLabelFollowsMarker(textClips[i], threshold: time - 0.001) { continue }
+            let label = textClips[i]
+            // 適用時の長さは totalDuration(トランジションの重なりを含まない)なので、動画の終わりより先まであっても届いているとみなす
+            let reachesVideoEnd = label.end >= oldVideoEnd - tolerance
+            let extends: Bool
+            if time >= oldVideoEnd - tolerance {
+                extends = reachesVideoEnd
+            } else {
+                let nextChapter = chapterTimes.filter { $0 > label.start + tolerance }.min()
+                let reachesNextChapter = nextChapter.map { abs($0 - label.end) <= tolerance } ?? false
+                extends = label.end > time + tolerance && (reachesVideoEnd || reachesNextChapter)
+            }
+            if extends { textClips[i].duration += length }
+        }
+    }
+
+    /// クリップを動画の末尾に足したあとに呼ぶ(insertTimelineGap を通らない経路。previousDuration は足す前の layoutDuration)
+    func extendChapterLabelsAfterAppend(previousDuration: Double) {
+        let length = layoutDuration - previousDuration
+        guard length > 0.001 else { return }
+        extendChapterLabels(forInsertionAt: previousDuration, length: length, oldVideoEnd: previousDuration)
     }
 
     /// 出力タイムライン全体の長さ(トランジションの重なりを考慮)

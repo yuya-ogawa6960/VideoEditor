@@ -20,7 +20,14 @@ struct TextLook: Equatable {
     var animOutDuration: Double
 
     init(from clip: TextClip) {
-        style = clip.style
+        var copied = clip.style
+        // 端に置いたことで決まった縦書き・行ぞろえは「位置」の一部なので、スタイルとしては写さない
+        if clip.edgeAnchor != nil {
+            let preset = TextStyle.preset(clip.template)
+            copied.vertical = preset.vertical
+            copied.alignment = preset.alignment
+        }
+        style = copied
         template = clip.template
         animIn = clip.animIn
         animInDuration = clip.animInDuration
@@ -40,7 +47,13 @@ struct TextLook: Equatable {
 
     /// 文字・位置・時間・キーフレームはそのままに、見た目だけを写す
     func apply(to clip: inout TextClip) {
-        clip.style = style
+        var applied = style
+        // 写す先が端に置いてあるなら、縦書き・行ぞろえは端の都合のまま
+        if clip.edgeAnchor != nil {
+            applied.vertical = clip.style.vertical
+            applied.alignment = clip.style.alignment
+        }
+        clip.style = applied
         clip.template = template
         clip.animIn = animIn
         clip.animInDuration = animInDuration

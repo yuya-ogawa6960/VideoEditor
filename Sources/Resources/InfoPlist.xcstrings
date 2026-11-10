@@ -152,25 +152,25 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "あなたに合った広告を表示するために使用します。許可しなくてもアプリはすべて使えます。"
+            "value": "あなたに合った広告を表示し、広告の効果を測るために使用します。許可しなくてもアプリはすべて使えます。"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Used to show ads that suit you. Every feature of the app works even if you don’t allow it."
+            "value": "Used to show ads that suit you and to measure how well they work. Every feature of the app works even if you don’t allow it."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se usa para mostrarte anuncios adecuados para ti. Todas las funciones de la app funcionan aunque no lo permitas."
+            "value": "Se usa para mostrarte anuncios adecuados para ti y medir su efectividad. Todas las funciones de la app funcionan aunque no lo permitas."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usado para mostrar anúncios adequados a você. Todos os recursos do app funcionam mesmo se você não permitir."
+            "value": "Usado para mostrar anúncios adequados a você e medir a eficácia deles. Todos os recursos do app funcionam mesmo se você não permitir."
           }
         }
       }

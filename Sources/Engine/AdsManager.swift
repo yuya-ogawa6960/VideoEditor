@@ -7,7 +7,8 @@ import UserMessagingPlatform
 
 // =====================================================================
 // 広告(Google AdMob)
-//   - インタースティシャル(全画面): 書き出し開始・書き出し完了・AI の解析の開始と完了・プロジェクトを閉じたとき。
+//   - インタースティシャル(全画面): 待ち時間だけ(書き出しの開始・AI の解析の開始。処理は広告の間も続く)。
+//     完了時やプロジェクトを閉じたときは出さない(AdPlacement.isWaitingTime。2026-11-09 に減らした)。
 //     出しすぎないよう、前の広告から minimumInterval 秒あける。
 //     書き出しの開始・完了は書き出し画面(ExportView)だけが出す(裏で終わった書き出しや、許可の確認の上に重ねない)
 //   - ネイティブ: NativeAdCard(処理中の画面・AI 処理中のカード・書き出し完了画面)
@@ -19,6 +20,15 @@ import UserMessagingPlatform
 
 enum AdPlacement: String {
     case exportStart, exportFinished, analysisStart, analysisFinished, projectClosed
+
+    /// 利用者が待っているだけの場面か(書き出し中・解析中)。全画面広告はこの場面でしか出さない。
+    /// 完了時やプロジェクトを閉じたときは、作業の区切りをさえぎるので出さない
+    var isWaitingTime: Bool {
+        switch self {
+        case .exportStart, .analysisStart: return true
+        case .exportFinished, .analysisFinished, .projectClosed: return false
+        }
+    }
 }
 
 @MainActor
@@ -74,6 +84,8 @@ final class AdsManager: NSObject {
     @ObservationIgnored private var isStarting = false
     @ObservationIgnored private var isObservingActivation = false
     @ObservationIgnored private var isRequestingTracking = false
+    /// Meta の SDK を始める予備のタイマーを予約したか(scheduleMetaFallback)
+    @ObservationIgnored private var isMetaFallbackScheduled = false
     @ObservationIgnored private var isLoadingInterstitial = false
     @ObservationIgnored private var isLoadingRewarded = false
     /// 続けて読み込みに失敗した回数(読み込み直すまでの間隔に使う)
@@ -109,7 +121,7 @@ final class AdsManager: NSObject {
         @unknown default: att = String(localized: "不明")
         }
         let ready = String(localized: "準備済み")
-        return [
+        var lines: [String] = [
             String(localized: "広告の準備: ") + (isStarted ? String(localized: "完了") : startStatus),
             String(localized: "テスト広告: ") + (Self.usesTestAds ? yes : no),
             String(localized: "広告の同意: ") + (consent.canRequestAds ? String(localized: "読み込める") : String(localized: "読み込めない"))
@@ -119,7 +131,13 @@ final class AdsManager: NSObject {
             String(localized: "リワード広告: ") + (rewarded != nil ? ready : rewardedStatus),
             String(localized: "ネイティブ広告: ") + NativeAdProvider.shared.diagnostic,
             String(localized: "バナー広告: ") + (BannerAds.isAvailable ? BannerAds.lastStatus : String(localized: "本番用の広告ユニットなし")),
-        ].joined(separator: "\n")
+        ]
+        #if canImport(FacebookCore)
+        // Meta の自動ログの実際の値(SDK 18 では Meta のダッシュボードの設定が Info.plist より優先される)
+        let metaAutoLog = MetaAds.autoLogEnabled.map { $0 ? yes : no } ?? String(localized: "未完了")
+        lines.append(String(localized: "Meta の自動ログ: ") + metaAutoLog)
+        #endif
+        return lines.joined(separator: "\n")
     }
 
     /// バナー広告などに渡す、いま前面にある画面
@@ -128,9 +146,11 @@ final class AdsManager: NSObject {
     }
 
     /// 起動後、画面が出てから呼ぶ(トラッキングの許可を聞いてから SDK を始める)。
-    /// 同意情報が取れず SDK を始められなかったときは、次に前面に来たとき(appDidBecomeActive)にやり直す
+    /// 同意情報が取れず SDK を始められなかったときは、次に前面に来たとき(appDidBecomeActive)にやり直す。
+    /// Meta の SDK も、同意とトラッキングの確認が終わったここから始める(広告を出さない有料プランもここを通る)
     func start() async {
         observeActivationIfNeeded()
+        scheduleMetaFallback()
         guard !isStarted, !isStarting else { return }
         isStarting = true
         defer { isStarting = false }
@@ -149,13 +169,17 @@ final class AdsManager: NSObject {
         }
         // 2) トラッキングの確認
         if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
+            // 答えが出るまで、予備のタイマーが Meta の SDK を始めないようにする(scheduleMetaFallback)
+            isRequestingTracking = true
+            defer { isRequestingTracking = false }
             // 確認はアプリが .active(前面で操作できる状態)のときしか出ないので、そうなるまで待つ
             await waitUntilActive()
             // 取り消されたときは、ここでやめる(次に前面に来たとき appDidBecomeActive からやり直す)
             guard !Task.isCancelled else { return }
             _ = await ATTrackingManager.requestTrackingAuthorization()
-            MetaAds.syncTrackingPermission()
         }
+        // 同意とトラッキングの答えが出たので、Meta の SDK を始める(GDPR の対象地域では始めない)
+        MetaAds.startAfterConsent()
         // 年齢制限 4+ に合わせて、広告は全年齢向け(G)だけにする
         MobileAds.shared.requestConfiguration.maxAdContentRating = .general
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -166,6 +190,22 @@ final class AdsManager: NSObject {
         loadInterstitial()
         loadRewarded()
         NativeAdProvider.shared.preload()
+    }
+
+    /// 同意やトラッキングの確認がいつまでも終わらないときの予備(UMP の通信が返らない・同意情報を取れない など)。
+    /// start() の最初の呼び出しから 30 秒たったら Meta の SDK を始める(何度呼んでも予約は 1 回)。
+    /// 同意の画面やトラッキングの確認が出ているあいだは始めない(答えが出たら start() が始める)。
+    /// ヨーロッパ・イギリスの端末では、同意の答えが取れないまま始めない
+    private func scheduleMetaFallback() {
+        guard !isMetaFallbackScheduled else { return }
+        isMetaFallbackScheduled = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard let self, !self.isRequestingTracking,
+                  ConsentInformation.shared.consentStatus != .required,
+                  !MetaAds.isInConsentRegion else { return }
+            MetaAds.startAfterConsent()
+        }
     }
 
     /// アプリが .active になるまで待つ(すでに .active ならすぐ戻る)
@@ -204,7 +244,6 @@ final class AdsManager: NSObject {
             isRequestingTracking = true
             Task {
                 _ = await ATTrackingManager.requestTrackingAuthorization()
-                MetaAds.syncTrackingPermission()
                 self.isRequestingTracking = false
             }
         }
@@ -250,6 +289,8 @@ final class AdsManager: NSObject {
 
     /// その場面で全画面広告を出す(準備できていない・前の広告から間がない・トラッキングの確認が出ているときは何もしない)
     func showInterstitial(_ placement: AdPlacement) {
+        // 待ち時間(書き出し中・解析中)以外では出さない
+        guard placement.isWaitingTime else { return }
         // 有料プラン(Standard・Pro)では全画面広告を出さない(PlanStore)
         guard PlanStore.shared.terms.showsFullScreenAds else { return }
         guard isStarted, !isShowing, !isRequestingTracking, let ad = interstitial else { return }

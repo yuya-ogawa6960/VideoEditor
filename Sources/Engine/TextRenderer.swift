@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import CoreImage
+import CoreText
 
 // =====================================================================
 // TextRenderer: 自由配置テキスト(TextClip)とステッカーを CIImage に描く
@@ -347,11 +348,18 @@ enum TextRenderer {
         return c
     }()
 
+    /// 文字のかたまりの大きさ(blockSize)のキャッシュ。画像より軽いので多めに持つ
+    private static let sizeCache: NSCache<NSString, NSValue> = {
+        let c = NSCache<NSString, NSValue>()
+        c.countLimit = 500
+        return c
+    }()
+
     // MARK: 公開 API
 
     /// 時刻 time のテキストレイヤーをキャンバスに配置した画像(キーフレーム・アニメーション込み、左下原点)。
     /// 表示中でなければ nil
-    static func layer(for clip: TextClip, time: Double, canvasSize: CGSize) -> CIImage? {
+    static func layer(for clip: TextClip, time: Double, canvasSize: CGSize, documentary: DocumentaryStyle) -> CIImage? {
         guard !clip.isMosaic, clip.duration > 0, clip.contains(timelineTime: time),
               canvasSize.width >= 2, canvasSize.height >= 2 else { return nil }
         let canvas = CGRect(origin: .zero, size: canvasSize)
@@ -360,7 +368,7 @@ enum TextRenderer {
         let shortSide = Double(min(canvasSize.width, canvasSize.height))
 
         // 位置・大きさ・回転・不透明度(キーフレームがあればそちら)
-        var center = clip.center
+        var center = placedCenter(for: clip, canvasSize: canvasSize, documentary: documentary)
         var scale = clip.scale
         var rotation = clip.rotation
         var opacity = clip.opacity
@@ -399,8 +407,7 @@ enum TextRenderer {
             case .fade:
                 alphaMul = u
             case .typewriter:
-                let count = clip.text.count
-                visibleUnits = Int(ceil(u * Double(count)))
+                visibleUnits = Int(ceil(u * Double(visibleText(of: clip).count)))
                 unitIsWord = false
             case .pop:
                 scaleMul = max(0.01, GeometryMath.easeOutBack(u))
@@ -420,7 +427,7 @@ enum TextRenderer {
             case .wordByWord:
                 let words = wordUnits(clip.text)
                 if words.count <= 1 {
-                    visibleUnits = Int(ceil(u * Double(clip.text.count)))
+                    visibleUnits = Int(ceil(u * Double(visibleText(of: clip).count)))
                     unitIsWord = false
                 } else {
                     visibleUnits = Int(ceil(u * Double(words.count)))
@@ -432,7 +439,7 @@ enum TextRenderer {
         if clip.vectorSticker != nil { visibleUnits = nil }
         if let v = visibleUnits {
             if v <= 0 { return nil }
-            let total = unitIsWord ? wordUnits(clip.text).count : clip.text.count
+            let total = unitIsWord ? wordUnits(clip.text).count : visibleText(of: clip).count
             if v >= total { visibleUnits = nil }
         }
 
@@ -445,6 +452,22 @@ enum TextRenderer {
         }
         guard var textImage = baseImage else {
             return nil
+        }
+        // 端に置いたテキストのタイプライターは、書き始めの位置(行頭と 1 行目)を全文のときと揃える
+        if visibleUnits != nil, clip.edgeAnchor != nil, clip.keyframes.isEmpty,
+           let full = Self.image(for: clip, canvasSize: canvasSize) {
+            let s = CGFloat(max(0.01, scale * scaleMul))
+            let dx = (full.extent.width - textImage.extent.width) / 2 * s
+            let dy = (full.extent.height - textImage.extent.height) / 2 * s
+            if clip.style.vertical {
+                // 縦書きは右の列から増える
+                offset.x += dx
+            } else if clip.style.alignment == .left {
+                offset.x -= dx
+            } else if clip.style.alignment == .right {
+                offset.x += dx
+            }
+            offset.y += dy
         }
         if blur > 0.3 {
             textImage = GeometryMath.blurred(textImage, sigma: blur)
@@ -464,6 +487,8 @@ enum TextRenderer {
         if let v = visibleUnits {
             if unitIsWord {
                 text = wordUnits(text).prefix(max(0, v)).joined(separator: " ")
+            } else if clip.style.accentColorHex != nil, !clip.isSticker {
+                text = visiblePrefix(of: text, units: max(0, v))
             } else {
                 text = String(text.prefix(max(0, v)))
             }
@@ -490,15 +515,46 @@ enum TextRenderer {
         let key = cacheKey(text: trimmed, style: style, canvasSize: canvasSize, widthRatio: widthRatio, isSticker: isSticker)
         if let cached = cache.object(forKey: key) { return cached }
 
-        let shortSide = min(canvasSize.width, canvasSize.height)
-        let ratio = CGFloat(GeometryMath.clamp(style.sizeRatio, 0.01, 0.6))
-        let fontSize = max(6, (ratio * shortSide).rounded())
-        let maxWidth = max(fontSize * 2, (CGFloat(GeometryMath.clamp(widthRatio, 0.1, 1)) * canvasSize.width).rounded())
-        let spec = Spec(text: trimmed, style: style, fontSize: fontSize, maxWidth: maxWidth,
-                        shortSide: shortSide, isSticker: isSticker)
+        let spec = makeSpec(text: trimmed, style: style, canvasSize: canvasSize, widthRatio: widthRatio, isSticker: isSticker)
         guard let rendered = render(spec) else { return nil }
         cache.setObject(rendered, forKey: key)
         return rendered
+    }
+
+    /// テキストの中心(左上原点の 0...1)。端に置いたテキストは、文字の大きさ・キャンバス・黒帯からその都度求める
+    /// (比率を変えた書き出しや、あとから黒帯を付けたときも端に揃う)。文字が空なら clip.center のまま
+    static func placedCenter(for clip: TextClip, canvasSize: CGSize, documentary: DocumentaryStyle) -> NormalizedPoint {
+        guard let anchor = clip.edgeAnchor, clip.keyframes.isEmpty,
+              let block = blockSize(for: clip, canvasSize: canvasSize) else { return clip.center }
+        let scale = CGFloat(max(0.01, clip.scale))
+        let letterbox = DocumentaryRenderer.letterboxBarHeight(canvasSize: canvasSize, style: documentary)
+        return anchor.center(for: CGSize(width: block.width * scale, height: block.height * scale),
+                             canvas: canvasSize, letterbox: letterbox)
+    }
+
+    /// 文字のかたまりの大きさ(縁取り・背景の板まで。影の透明な余白は含めない)。
+    /// 端に揃えるための値で、スライダーの 1 刻みごとに呼ばれるので画像は作らない。文字が空なら nil
+    static func blockSize(for clip: TextClip, canvasSize: CGSize) -> CGSize? {
+        guard !clip.isMosaic, !clip.isSticker else { return nil }
+        let trimmed = clip.text.trimmingCharacters(in: .newlines)
+        guard !trimmed.trimmingCharacters(in: .whitespaces).isEmpty,
+              canvasSize.width >= 2, canvasSize.height >= 2 else { return nil }
+        let key = cacheKey(text: trimmed, style: clip.style, canvasSize: canvasSize, widthRatio: clip.widthRatio, isSticker: false)
+        if let cached = sizeCache.object(forKey: key) { return cached.cgSizeValue }
+        let base = makeSpec(text: trimmed, style: clip.style, canvasSize: canvasSize, widthRatio: clip.widthRatio, isSticker: false)
+        guard let spec = resolvingAccent(base) else { return nil }
+        let prepared = prepare(spec)
+        guard let textSize = textBlockSize(spec, prepared) else { return nil }
+        let outer = (prepared.backgroundPadding + prepared.strokeOutside) * 2
+        let size = CGSize(width: textSize.width + outer, height: textSize.height + outer)
+        sizeCache.setObject(NSValue(cgSize: size), forKey: key)
+        return size
+    }
+
+    /// 画面に出る文字(【】の印を除く)
+    static func visibleText(of clip: TextClip) -> String {
+        guard clip.style.accentColorHex != nil, !clip.isSticker else { return clip.text }
+        return parseAccent(clip.text).plain
     }
 
     /// スタイルに合うフォント(登録済みのカスタムフォント名にも対応)
@@ -516,7 +572,24 @@ enum TextRenderer {
            let descriptor = base.fontDescriptor.withSymbolicTraits(base.fontDescriptor.symbolicTraits.union(traits)) {
             base = UIFont(descriptor: descriptor, size: size)
         }
+        // 日本語の字形を持たない欧文書体には、雰囲気の近い日本語書体を足す
+        if let name = style.fontName, let cascade = japaneseCascade(for: name, size: size) {
+            base = UIFont(descriptor: base.fontDescriptor.addingAttributes([.cascadeList: [cascade]]), size: size)
+        }
         return base
+    }
+
+    private static func japaneseCascade(for fontName: String, size: CGFloat) -> UIFontDescriptor? {
+        switch fontName {
+        case "Georgia-Bold":
+            return UIFontDescriptor(name: "HiraMinProN-W6", size: size)
+        case "AvenirNext-HeavyItalic":
+            // 斜体の書体に合わせて、日本語も少し傾ける
+            return UIFontDescriptor(name: "HiraginoSans-W6", size: size)
+                .withMatrix(CGAffineTransform(a: 1, b: 0, c: 0.2, d: 1, tx: 0, ty: 0))
+        default:
+            return nil
+        }
     }
 
     /// 単語に分ける(空白・改行区切り)
@@ -551,6 +624,41 @@ enum TextRenderer {
             count += 1
         }
         return (plain, indices)
+    }
+
+    /// 【】を数えずに、先頭から units 文字ぶんを切り出す(タイプライターの拍が【】で止まらないように)
+    private static func visiblePrefix(of text: String, units: Int) -> String {
+        var result = ""
+        var shown = 0
+        for ch in text {
+            if ch == "【" || ch == "】" {
+                result.append(ch)
+                continue
+            }
+            if shown == units { break }
+            result.append(ch)
+            shown += 1
+        }
+        return result
+    }
+
+    private static func makeSpec(text: String, style: TextStyle, canvasSize: CGSize, widthRatio: Double, isSticker: Bool) -> Spec {
+        let shortSide = min(canvasSize.width, canvasSize.height)
+        let ratio = CGFloat(GeometryMath.clamp(style.sizeRatio, 0.01, 0.6))
+        // 整数に丸めない(プレビューと書き出しで文字の大きさの比が変わると、改行位置と端の余白がずれる)
+        let fontSize = max(6, ratio * shortSide)
+        let maxWidth = max(fontSize * 2, (CGFloat(GeometryMath.clamp(widthRatio, 0.1, 1)) * canvasSize.width).rounded())
+        return Spec(text: text, style: style, fontSize: fontSize, maxWidth: maxWidth,
+                    shortSide: shortSide, isSticker: isSticker)
+    }
+
+    /// 強調があるなら【】を取り除いた文字列に置き換える。何も残らなければ nil
+    private static func resolvingAccent(_ spec: Spec) -> Spec? {
+        guard !spec.isSticker, spec.style.accentColorHex != nil else { return spec }
+        let parsed = parseAccent(spec.text)
+        guard !parsed.plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return Spec(text: parsed.plain, style: spec.style, fontSize: spec.fontSize, maxWidth: spec.maxWidth,
+                    shortSide: spec.shortSide, isSticker: spec.isSticker, accentIndices: parsed.indices)
     }
 
     private static func cacheKey(text: String, style: TextStyle, canvasSize: CGSize, widthRatio: Double, isSticker: Bool) -> NSString {
@@ -590,6 +698,8 @@ enum TextRenderer {
         let kern: CGFloat
         /// 影と縁取りがはみ出す分の余白
         let margin: CGFloat
+        /// 見える縁取りの外側の太さ(margin のうち、端に揃えるときに数える分)
+        let strokeOutside: CGFloat
         let backgroundColor: UIColor?
         let backgroundPadding: CGFloat
         let backgroundCorner: CGFloat
@@ -666,19 +776,14 @@ enum TextRenderer {
                         strokeAttributes: stroke,
                         kern: kern,
                         margin: strokeOutside + shadowExtent + 2,
+                        strokeOutside: strokeOutside,
                         backgroundColor: backgroundColor,
                         backgroundPadding: backgroundPadding,
                         backgroundCorner: backgroundCorner)
     }
 
     private static func render(_ original: Spec) -> CIImage? {
-        var spec = original
-        if !spec.isSticker, spec.style.accentColorHex != nil {
-            let parsed = parseAccent(spec.text)
-            guard !parsed.plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-            spec = Spec(text: parsed.plain, style: spec.style, fontSize: spec.fontSize, maxWidth: spec.maxWidth,
-                        shortSide: spec.shortSide, isSticker: spec.isSticker, accentIndices: parsed.indices)
-        }
+        guard let spec = resolvingAccent(original) else { return nil }
         let prepared = prepare(spec)
         if spec.style.vertical && !spec.isSticker {
             return renderVertical(spec, prepared)
@@ -697,8 +802,10 @@ enum TextRenderer {
         let pad = prepared.backgroundPadding
         let width = ceil(textSize.width + pad * 2 + margin * 2)
         let height = ceil(textSize.height + pad * 2 + margin * 2)
-        guard width >= 1, height >= 1, width <= 8192, height <= 8192 else { return nil }
-        let imageSize = CGSize(width: width, height: height)
+        guard width >= 1, height >= 1 else { return nil }
+        // とても長い縦書きなどは上限の大きさで描き、本来の大きさに拡大して返す(書き出しだけ消えないように)
+        let shrink = min(1, 8192 / max(width, height))
+        let imageSize = CGSize(width: ceil(width * shrink), height: ceil(height * shrink))
         let textRect = CGRect(x: margin + pad, y: margin + pad, width: textSize.width, height: textSize.height)
 
         let format = UIGraphicsImageRendererFormat()
@@ -706,6 +813,7 @@ enum TextRenderer {
         format.opaque = false
         let renderer = UIGraphicsImageRenderer(size: imageSize, format: format)
         let uiImage = renderer.image { context in
+            if shrink < 1 { context.cgContext.scaleBy(x: shrink, y: shrink) }
             if let bg = prepared.backgroundColor {
                 let box = CGRect(x: margin, y: margin, width: textSize.width + pad * 2, height: textSize.height + pad * 2)
                 let path = UIBezierPath(roundedRect: box, cornerRadius: prepared.backgroundCorner)
@@ -715,7 +823,8 @@ enum TextRenderer {
             draw(context.cgContext, textRect)
         }
         guard let cg = uiImage.cgImage else { return nil }
-        return CIImage(cgImage: cg)
+        let image = CIImage(cgImage: cg)
+        return shrink < 1 ? image.transformed(by: CGAffineTransform(scaleX: 1 / shrink, y: 1 / shrink)) : image
     }
 
     private static func measure(_ s: NSAttributedString, maxWidth: CGFloat) -> CGSize {
@@ -724,8 +833,30 @@ enum TextRenderer {
         return CGSize(width: ceil(r.width), height: ceil(r.height))
     }
 
+    /// 描かずに、文字のかたまり(背景と余白を除く)の大きさだけを求める
+    private static func textBlockSize(_ spec: Spec, _ prepared: Prepared) -> CGSize? {
+        if spec.style.vertical && !spec.isSticker {
+            let columns = verticalColumns(spec)
+            guard !columns.isEmpty else { return nil }
+            return verticalMetrics(columns, spec, prepared).textSize
+        }
+        if spec.style.curveRadius > 0.001 && !spec.isSticker {
+            return arcLayout(spec, prepared)?.textSize
+        }
+        return straightLayout(spec, prepared)?.textSize
+    }
+
     // 横書き(通常)
-    private static func renderStraight(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
+    private struct StraightLayout {
+        let fillString: NSAttributedString
+        let textSize: CGSize
+        /// 行末の文字の後ろの字間(見た目の幅には数えない。右寄せ・中央揃えがずれるので)
+        let trailingKern: CGFloat
+        /// 1 行目の上に足される行間(見た目の高さには数えない。文字が板の下に寄るので)
+        let topExtra: CGFloat
+    }
+
+    private static func straightLayout(_ spec: Spec, _ prepared: Prepared) -> StraightLayout? {
         let fillString = NSMutableAttributedString(string: spec.text, attributes: prepared.fillAttributes)
         if !spec.accentIndices.isEmpty, let accent = spec.style.accentColorHex.flatMap({ UIColor(hex: $0) }) {
             for (offset, index) in spec.text.indices.enumerated() where spec.accentIndices.contains(offset) {
@@ -733,20 +864,34 @@ enum TextRenderer {
                 fillString.addAttribute(.foregroundColor, value: accent, range: range)
             }
         }
-        let strokeString = prepared.strokeAttributes.map { NSAttributedString(string: spec.text, attributes: $0) }
         let measured = measure(fillString, maxWidth: spec.maxWidth)
-        let textSize = CGSize(width: min(spec.maxWidth, measured.width), height: measured.height)
-        guard textSize.width >= 1, textSize.height >= 1 else { return nil }
-        return makeImage(textSize: textSize, prepared: prepared) { _, rect in
+        guard measured.width >= 1, measured.height >= 1 else { return nil }
+        let trailingKern = spec.isSticker ? 0 : max(0, prepared.kern)
+        let multiple = CGFloat(GeometryMath.clamp(spec.style.lineSpacing, 0.6, 3))
+        let topExtra = (!spec.isSticker && multiple > 1) ? (multiple - 1) * prepared.font.lineHeight : 0
+        let textSize = CGSize(width: max(1, min(spec.maxWidth, measured.width) - trailingKern),
+                              height: max(1, measured.height - topExtra))
+        return StraightLayout(fillString: fillString, textSize: textSize, trailingKern: trailingKern, topExtra: topExtra)
+    }
+
+    private static func renderStraight(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
+        guard let layout = straightLayout(spec, prepared) else { return nil }
+        let strokeString = prepared.strokeAttributes.map { NSAttributedString(string: spec.text, attributes: $0) }
+        return makeImage(textSize: layout.textSize, prepared: prepared) { _, rect in
             let options: NSStringDrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
-            strokeString?.draw(with: rect, options: options, context: nil)
-            fillString.draw(with: rect, options: options, context: nil)
+            // 大きさから除いた行末の字間と 1 行目の上の行間のぶん、描く範囲を広げる
+            let drawRect = CGRect(x: rect.minX, y: rect.minY - layout.topExtra,
+                                  width: rect.width + layout.trailingKern, height: rect.height + layout.topExtra)
+            strokeString?.draw(with: drawRect, options: options, context: nil)
+            layout.fillString.draw(with: drawRect, options: options, context: nil)
         }
     }
 
     // 縦書き: 改行ごとに列、右から左へ。1 文字ずつ積む
-    private static func renderVertical(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
-        var splitColumns: [[(ch: Character, accent: Bool)]] = [[]]
+    private typealias VerticalColumn = [(ch: Character, accent: Bool)]
+
+    private static func verticalColumns(_ spec: Spec) -> [VerticalColumn] {
+        var splitColumns: [VerticalColumn] = [[]]
         for (offset, ch) in spec.text.enumerated() {
             if ch.isNewline {
                 splitColumns.append([])
@@ -754,14 +899,39 @@ enum TextRenderer {
                 splitColumns[splitColumns.count - 1].append((ch, spec.accentIndices.contains(offset)))
             }
         }
-        let columns = splitColumns.filter { !$0.isEmpty }
-        guard !columns.isEmpty else { return nil }
-        let accentColor = spec.style.accentColorHex.flatMap { UIColor(hex: $0) }
+        return splitColumns.filter { !$0.isEmpty }
+    }
+
+    private static func verticalMetrics(_ columns: [VerticalColumn], _ spec: Spec,
+                                        _ prepared: Prepared) -> (textSize: CGSize, pitchX: CGFloat, pitchY: CGFloat) {
         let fontSize = spec.fontSize
         let pitchY = fontSize * CGFloat(GeometryMath.clamp(spec.style.lineSpacing, 0.8, 3)) + prepared.kern
         let pitchX = fontSize * 1.2
         let maxChars = columns.map { $0.count }.max() ?? 1
         let textSize = CGSize(width: ceil(pitchX * CGFloat(columns.count)), height: ceil(pitchY * CGFloat(maxChars)))
+        return (textSize, pitchX, pitchY)
+    }
+
+    /// 縦書きでの字形の扱い
+    private enum VerticalForm {
+        case upright, rotated, punctuation
+    }
+
+    private static func verticalForm(_ ch: Character) -> VerticalForm {
+        if "、。，．".contains(ch) { return .punctuation }
+        if "ー—―‐−–-〜～…‥＝=「」『』（）()【】〔〕［］[]｛｝{}〈〉《》＜＞<>".contains(ch) { return .rotated }
+        return .upright
+    }
+
+    private static func renderVertical(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
+        let columns = verticalColumns(spec)
+        guard !columns.isEmpty else { return nil }
+        let accentColor = spec.style.accentColorHex.flatMap { UIColor(hex: $0) }
+        let fontSize = spec.fontSize
+        let metrics = verticalMetrics(columns, spec, prepared)
+        let textSize = metrics.textSize
+        let pitchX = metrics.pitchX
+        let pitchY = metrics.pitchY
         guard textSize.width >= 1, textSize.height >= 1 else { return nil }
 
         // 段落スタイルの字間・配置は 1 文字描画では使わない
@@ -772,7 +942,7 @@ enum TextRenderer {
         stroke?[.kern] = nil
         stroke?[.paragraphStyle] = nil
 
-        return makeImage(textSize: textSize, prepared: prepared) { _, rect in
+        return makeImage(textSize: textSize, prepared: prepared) { context, rect in
             for (columnIndex, column) in columns.enumerated() {
                 let x = rect.minX + CGFloat(columns.count - 1 - columnIndex) * pitchX
                 for (charIndex, item) in column.enumerated() {
@@ -782,18 +952,54 @@ enum TextRenderer {
                     let fillString = NSAttributedString(string: s, attributes: charFill)
                     let size = fillString.size()
                     let cell = CGRect(x: x, y: rect.minY + CGFloat(charIndex) * pitchY, width: pitchX, height: pitchY)
-                    let origin = CGPoint(x: cell.midX - size.width / 2, y: cell.midY - size.height / 2)
+                    var origin = CGPoint(x: cell.midX - size.width / 2, y: cell.midY - size.height / 2)
+                    context.saveGState()
+                    switch Self.verticalForm(item.ch) {
+                    case .upright:
+                        break
+                    case .rotated:
+                        // 長音・かっこ類は、マスの中心で 90° 回す
+                        context.translateBy(x: cell.midX, y: cell.midY)
+                        context.rotate(by: CGFloat(Double.pi / 2))
+                        origin = CGPoint(x: -size.width / 2, y: -size.height / 2)
+                        if "…‥".contains(item.ch) {
+                            // 点の高さは書体で違う(欧文はベースライン上、和文の多くは全角の中央)ので、点そのものを列の中央に合わせる
+                            let line = CTLineCreateWithAttributedString(fillString as CFAttributedString)
+                            let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+                            if !ink.isEmpty {
+                                var ascent: CGFloat = 0
+                                _ = CTLineGetTypographicBounds(line, &ascent, nil, nil)
+                                origin.y = ink.midY - ascent
+                            }
+                        }
+                    case .punctuation:
+                        // 句読点はマスの右上に寄せる
+                        origin.x += fontSize * 0.6
+                        origin.y -= fontSize * 0.6
+                    }
                     if let stroke {
                         NSAttributedString(string: s, attributes: stroke).draw(at: origin)
                     }
                     fillString.draw(at: origin)
+                    context.restoreGState()
                 }
             }
         }
     }
 
     // 弧に沿った配置: 1 文字ずつ接線方向に回して置く
-    private static func renderArc(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
+    private struct ArcLayout {
+        let chars: [Character]
+        let strings: [NSAttributedString]
+        let sizes: [CGSize]
+        let advances: [CGFloat]
+        let radius: CGFloat
+        let half: CGFloat
+        let textSize: CGSize
+        let stroke: [NSAttributedString.Key: Any]?
+    }
+
+    private static func arcLayout(_ spec: Spec, _ prepared: Prepared) -> ArcLayout? {
         let flat = spec.text.replacingOccurrences(of: "\n", with: " ")
         let chars = Array(flat)
         guard !chars.isEmpty else { return nil }
@@ -806,7 +1012,12 @@ enum TextRenderer {
         stroke?[.paragraphStyle] = nil
         stroke?[.kern] = nil
 
-        let strings = chars.map { NSAttributedString(string: String($0), attributes: fill) }
+        let accentColor = spec.style.accentColorHex.flatMap { UIColor(hex: $0) }
+        let strings = chars.enumerated().map { index, ch -> NSAttributedString in
+            var attributes = fill
+            if spec.accentIndices.contains(index), let accentColor { attributes[.foregroundColor] = accentColor }
+            return NSAttributedString(string: String(ch), attributes: attributes)
+        }
         let sizes = strings.map { $0.size() }
         let advances = sizes.map { $0.width + prepared.kern }
         let totalLength = advances.reduce(0, +)
@@ -824,8 +1035,22 @@ enum TextRenderer {
         let heightSpan: CGFloat = half <= CGFloat(Double.pi) ? radius * (1 - cos(half)) : 2 * radius
         let textSize = CGSize(width: ceil(widthSpan + fontSize * 1.2), height: ceil(heightSpan + fontSize * 1.4))
         guard textSize.width >= 1, textSize.height >= 1 else { return nil }
+        return ArcLayout(chars: chars, strings: strings, sizes: sizes, advances: advances,
+                         radius: radius, half: half, textSize: textSize, stroke: stroke)
+    }
 
-        return makeImage(textSize: textSize, prepared: prepared) { context, rect in
+    private static func renderArc(_ spec: Spec, _ prepared: Prepared) -> CIImage? {
+        guard let layout = arcLayout(spec, prepared) else { return nil }
+        let chars = layout.chars
+        let strings = layout.strings
+        let sizes = layout.sizes
+        let advances = layout.advances
+        let radius = layout.radius
+        let half = layout.half
+        let stroke = layout.stroke
+        let fontSize = spec.fontSize
+
+        return makeImage(textSize: layout.textSize, prepared: prepared) { context, rect in
             let center = CGPoint(x: rect.midX, y: rect.minY + fontSize * 0.7 + radius)
             var cursor: CGFloat = 0
             for i in 0..<chars.count {

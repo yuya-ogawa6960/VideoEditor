@@ -324,9 +324,13 @@ enum AutoEditor {
         }
         var textClips: [TextClip] = []
         for item in snapshot.textClips {
-            guard let time = mapper.map(item.start) else { continue }
+            // 長さも移す(章の全長のテキストが、縮んだ章の次の章へはみ出さないように)
+            guard let time = mapper.map(item.start),
+                  let end = mapper.mapEnd(start: item.start, end: item.end),
+                  end - time >= 0.2 else { continue }
             var moved = item
             moved.start = time
+            moved.duration = end - time
             textClips.append(moved)
         }
         var drawings: [DrawingClip] = []
@@ -857,8 +861,10 @@ enum AutoEditor {
         let text = settings.titleText.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = text.isEmpty ? defaultTitle(for: settings.style) : text
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "yyyy年M月d日"
+        // 動画に焼き込まれるので端末の言語の書き方にする(暦は端末の設定によらず西暦)
+        formatter.locale = .current
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.setLocalizedDateFormatFromTemplate("yMMMd")
         let heading = formatter.string(from: Date())
         var card = TitleCard(start: 0, heading: heading, title: title)
         switch settings.style {
@@ -951,6 +957,24 @@ enum AutoEditor {
                 }
             }
             return nil
+        }
+
+        /// 区間の終わりの移し替え。終わりの瞬間が切られていたら、start〜end の中で残っている
+        /// 最後の区間の終わりに合わせる(mapRange は最初の区間の終わりで止まる。pieces は元の順に並んでいる)
+        func mapEnd(start: Double, end: Double) -> Double? {
+            if let mapped = map(max(start, end - 0.001)) { return mapped }
+            var last: Double? = nil
+            for piece in pieces where piece.clipIndex < originals.count {
+                let clip = originals[piece.clipIndex]
+                let speed = max(clip.speed, 0.01)
+                let origin = originalStarts[piece.clipIndex]
+                let pieceStart = origin + (piece.start - clip.startTime) / speed
+                let pieceEnd = origin + (piece.end - clip.startTime) / speed
+                if pieceStart < end && pieceEnd > start {
+                    last = piece.timelineStart + piece.outputDuration
+                }
+            }
+            return last
         }
     }
 }

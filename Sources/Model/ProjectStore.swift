@@ -1059,6 +1059,8 @@ struct StoredTextClip: Codable {
     var mosaic: StoredMosaic?
     /// 動くステッカーの種類(後から追加したので省略可能)
     var vectorSticker: String?
+    /// 端に固定している位置(後から追加したので省略可能)
+    var edgeAnchor: String?
 
     init(_ t: TextClip) {
         id = t.id
@@ -1080,6 +1082,7 @@ struct StoredTextClip: Codable {
         isSticker = t.isSticker
         mosaic = t.mosaic.map { StoredMosaic($0) }
         vectorSticker = t.vectorSticker?.rawValue
+        edgeAnchor = t.edgeAnchor?.rawValue
     }
 
     var value: TextClip {
@@ -1102,6 +1105,7 @@ struct StoredTextClip: Codable {
         t.mosaic = mosaic?.value
         t.vectorSticker = vectorSticker.flatMap { VectorStickerKind(rawValue: $0) }
         if t.vectorSticker != nil { t.isSticker = true }
+        t.edgeAnchor = edgeAnchor.flatMap { TextEdgeAnchor(rawValue: $0) }
         return t
     }
 }

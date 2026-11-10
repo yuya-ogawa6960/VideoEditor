@@ -60,23 +60,63 @@ struct SubtitleSegmenter {
     /// 日本語: 単独かつ直後に間(> 0.3 秒 or 読点)があるときだけ削除(「その、」)
     static let japanesePauseFillers: Set<String> = ["その", "この", "まあその"]
     /// 日本語: 音を伸ばした言いよどみの元の形(「うーんとー」→ うんと、「あれーのー」→ あれの、「えーー」→ え)。
-    /// backchannelKey にして「ー」を除いた形がこれで、しかも「ー」で伸ばしているときだけ言いよどみとみなす
+    /// stretchedFillerKey にして「ー」を除いた形がこれで、しかも「ー」で伸ばしているときだけ言いよどみとみなす
     static let japaneseStretchedFillerStems: Set<String> = [
-        "え", "えと", "えっと", "ええと", "あの", "あのね", "あれの", "あれ", "うん", "うんと", "んと", "ん",
+        "え", "えと", "えっと", "ええと", "あの", "あのね", "あれの", "あれ", "うん", "うんと", "んと", "んっと", "ん",
         "その", "そのね", "まあ", "ま", "なんか", "あ",
     ]
+    /// 上の語幹の先頭の 1 文字(割れて届いた言いよどみを探す前のふるい分け)
+    private static let japaneseStretchedStemInitials: Set<Character> = Set(japaneseStretchedFillerStems.compactMap { $0.first })
 
-    /// 音を伸ばしただけの言いよどみか(「うーんとー」「あれーのー」「えーー」)。「ー、」のように伸ばす音だけのものも含む
-    static func isStretchedFiller(_ text: String) -> Bool {
-        isStretchedFillerKey(backchannelKey(text))
+    /// stretchedFillerKey が、音を伸ばした言いよどみの語幹になっているか(文脈は見ない)。
+    /// 「ー」で始まるキー(ーン・ーマなど語の後ろ半分)は語幹と比べず、前につないだ形で判定する(splitFillerCount)
+    private static func isStretchedFillerKey(_ key: String) -> Bool {
+        guard key.contains("ー"), key.first != "ー" else { return false }
+        return japaneseStretchedFillerStems.contains(key.replacingOccurrences(of: "ー", with: ""))
     }
 
-    private static func isStretchedFillerKey(_ key: String) -> Bool {
-        guard !key.isEmpty, key.contains("ー") else { return false }
-        if key.allSatisfy({ $0 == "ー" }) { return true }
-        // 「あれー」だけは驚きの声のこともあるので、ほかの言いよどみと並んだとき(字幕全体の判定)に任せる
-        let stem = key.replacingOccurrences(of: "ー", with: "")
-        return japaneseStretchedFillerStems.contains(stem)
+    /// 音を伸ばした言いよどみとして捨ててよいか。text は 1 トークン、または割れて届いたトークンをつないだもの(isSplit)。
+    /// clauseStart は先頭のトークン、pauseAfter は最後のトークンの状態
+    private static func isDroppableStretchedFiller(_ text: String, isSplit: Bool, clauseStart: Bool, pauseAfter: Bool,
+                                                   afterFragment: Bool = false) -> Bool {
+        let key = stretchedFillerKey(text)
+        // 「え〜！？」「えぇ！？」のように ！？ で終わるものは驚きの声や問いかけ
+        guard isStretchedFillerKey(key), !endsWithExclamation(text) else { return false }
+        // カタカナは普通の語のことが多い(アーカイブの「アー」、マーカーの「マー」、エー型の「エー」)
+        if containsKatakana(text), !(clauseStart && pauseAfter) { return false }
+        switch key.replacingOccurrences(of: "ー", with: "") {
+        case "あれ":
+            // 「あれー」は驚きの声のこともあるので、トークン単位では捨てない(字幕全体がこれだけで ！？ が無ければ isBackchannelOnlyText が捨てる)
+            return false
+        case "ん", "ま", "あ", "え":
+            // 1 音は語の切れ端のこともある(「いい」+「え」+「ー」「じゃ」+「あ」+「ー」)。割れて届いたものと、
+            // 2 文字以下のトークンの直後のもの(クラウドは「へ」+「え〜、」「さ」+「ま〜」で届く)は節の先頭だけ
+            return (isSplit || afterFragment) ? clauseStart : (clauseStart || pauseAfter)
+        case "えと":
+            // 語末の「え」+助詞の「とー」(「答」+「え」+「と」+「ー」)と同じ形になるので、割れて届いて「え」の直後が伸びていないものは節の先頭だけ
+            return !isSplit || clauseStart || key.hasPrefix("えー")
+        case "うん":
+            // 途中を伸ばした「う〜ん」は言いよどみ。語末だけ伸ばした「うんー」「うん〜」は語の切れ端(「ふ」+「うん〜、」)のことがあるので節の先頭だけ
+            return key.hasPrefix("うー") || clauseStart
+        case "んと", "んっと":
+            // 「ん」で始まる語は無いので、節の先頭でなければ語の後ろ半分(「ほ」+「んとー」)
+            return clauseStart
+        case "なんか":
+            // 語末まで伸ばした「なんかー」は、伸ばさない「なんか」と同じく節の先頭だけ(節の途中は「俺なんかー、」「そうなんかー。」のような普通の語)。
+            // 途中だけ伸ばした「なーんか」は普通の語の強調のこともあるので、直後に間があるときだけ
+            return key.hasSuffix("ー") ? clauseStart : pauseAfter
+        case "うんと":
+            // 語末まで伸ばした「うーんとー」は節の先頭か直後に間があるとき。
+            // 途中だけ伸ばした「うーんと昔」は普通の語の強調のこともあるので、直後に間があるときだけ
+            return key.hasSuffix("ー") ? (clauseStart || pauseAfter) : pauseAfter
+        case "あの", "その", "あれの", "まあ":
+            // 語末だけ伸ばした「あれのー」は指示語+助詞の普通の語(あれのー続編)なので、節の先頭かつ直後に間があるときだけ
+            if key == "あれのー" { return clauseStart && pauseAfter }
+            // 途中だけ伸ばした「あーの人」「そーの話」「まーあそこ」は普通の語や次の語の頭なので、直後に間があるときだけ
+            return key.hasSuffix("ー") || pauseAfter
+        default:
+            return true
+        }
     }
 
     /// 日本語: 相づち・感動詞。単独の発話(節の先頭かつ直後に間 or 句読点)のトークンなら削除。
@@ -168,8 +208,9 @@ struct SubtitleSegmenter {
 
     func segment(_ rawTokens: [TimedToken]) -> [SubtitleCue] {
         var tokens = Self.normalize(rawTokens)
+        var removedStretched: [TimedToken] = []
         if removeFillers {
-            tokens = Self.removeFillerTokens(tokens, language: language)
+            tokens = Self.removeFillerTokens(tokens, language: language, removed: &removedStretched)
         }
         guard !tokens.isEmpty else { return [] }
 
@@ -211,7 +252,19 @@ struct SubtitleSegmenter {
         }
         cues.sort { $0.start < $1.start }
         adjustTiming(&cues)
+        Self.attachRemovedFillers(removedStretched, to: &cues)
         return cues
+    }
+
+    /// 字幕から取り除いた言いよどみの時刻を、それ以降で終わる最初の字幕に持たせる(言いよどみカットの候補。FillerDetector.spans)
+    private static func attachRemovedFillers(_ fillers: [TimedToken], to cues: inout [SubtitleCue]) {
+        for filler in fillers {
+            guard let index = cues.firstIndex(where: { $0.end >= filler.end }) else { continue }
+            var record = cues[index].removedFillers
+                ?? RemovedSubtitleFillers(words: [], cueStart: cues[index].start, cueEnd: cues[index].end)
+            record.words.append(SubtitleWord(text: filler.text, start: filler.start, end: filler.end))
+            cues[index].removedFillers = record
+        }
     }
 
     // MARK: - 単語タイミング(カラオケ風テンプレート用)
@@ -285,7 +338,9 @@ struct SubtitleSegmenter {
 
     // MARK: - フィラー除去
 
-    static func removeFillerTokens(_ input: [TimedToken], language: TranscriptionLanguage) -> [TimedToken] {
+    /// removed には、音を伸ばした言いよどみ・割れて届いた言いよどみとして捨てた区間を入れる(言いよどみカットの候補)
+    static func removeFillerTokens(_ input: [TimedToken], language: TranscriptionLanguage,
+                                   removed: inout [TimedToken]) -> [TimedToken] {
         // トークン内の吃音("わ、わたし" → "わたし")
         var tokens: [TimedToken] = []
         for raw in normalize(input) {
@@ -295,7 +350,7 @@ struct SubtitleSegmenter {
         }
 
         var kept: [TimedToken] = []
-        /// 直前に捨てたトークンの位置(「え」+「ー、」のように伸ばす音だけが残るのを一緒に捨てる)
+        /// 直前に捨てたトークンの位置(「あの」+「ー、」のように伸ばす音だけが残るのを一緒に捨てる)
         var lastDroppedIndex = -2
         var i = 0
         while i < tokens.count {
@@ -306,6 +361,12 @@ struct SubtitleSegmenter {
 
             // 句読点だけのトークンは直前に付ける
             if core.isEmpty {
+                // ただし言いよどみの続きの「〜」「～」は一緒に捨てる(「3時」+「〜」+「5時」の 〜 は間があっても残す)
+                if language == .japanese, lastDroppedIndex == i - 1, stretchedFillerKey(token.text) == "ー" {
+                    lastDroppedIndex = i
+                    i += 1
+                    continue
+                }
                 if !kept.isEmpty {
                     kept[kept.count - 1].text += token.text
                     kept[kept.count - 1].end = max(kept[kept.count - 1].end, token.end)
@@ -315,19 +376,27 @@ struct SubtitleSegmenter {
             }
 
             let gapBefore: Double = prev.map { token.start - $0.end } ?? .infinity
-            let gapAfter: Double = next.map { $0.start - token.end } ?? .infinity
             let prevText = prev?.text ?? ""
             let sentenceStart = prev == nil || endsWithSentencePunctuation(prevText) || gapBefore > 0.6
             let clauseStart = sentenceStart || endsWithClausePunctuation(prevText) || gapBefore > 0.3
-            let pauseAfter = next == nil || gapAfter > 0.3
-                || endsWithClausePunctuation(token.text) || endsWithSentencePunctuation(token.text)
+            let pauseAfter = hasPauseAfter(tokens, i)
 
             var drop = false
             var consumed = 1
+            /// 字幕には残さないが、言いよどみカットの候補として時刻を残すもの
+            var keepsTiming = false
 
             switch language {
             case .japanese:
-                if japaneseFillers.contains(core) {
+                // 割れて届いた言いよどみは、つないだ形で判定して全部捨てる(先頭だけ捨ててはいけないときは -1)
+                let splitCount = splitFillerCount(tokens, from: i, clauseStart: clauseStart)
+                if splitCount > 0 {
+                    drop = true
+                    consumed = splitCount
+                    keepsTiming = true
+                } else if splitCount < 0 {
+                    // つなぐと別の語になるか ！？ で終わるので、先頭だけを捨てない(文頭・節頭・相づちの判定にも進ませない)
+                } else if splitCount == 0, japaneseFillers.contains(core), !endsWithExclamation(token.text) {
                     drop = true
                 } else if japaneseSentenceStartFillers.contains(core), sentenceStart {
                     drop = true
@@ -348,9 +417,12 @@ struct SubtitleSegmenter {
                         i += 1
                         continue
                     }
-                } else if isStretchedFiller(token.text), backchannelKey(token.text).replacingOccurrences(of: "ー", with: "") != "あれ" {
+                } else if splitCount == 0, !wordContinues(after: i, in: tokens, filler: token.text),
+                          isDroppableStretchedFiller(token.text, isSplit: false, clauseStart: clauseStart, pauseAfter: pauseAfter,
+                                                     afterFragment: coreText(prevText, language: language).count <= 2) {
                     // 音を伸ばした言いよどみ(「うーんとー」「えーー」「あのー」の表記ゆれ)
                     drop = true
+                    keepsTiming = true
                 } else {
                     let key = backchannelKey(token.text)
                     if clauseStart, pauseAfter, isComposed(of: japaneseBackchannelKeys, key) {
@@ -389,6 +461,10 @@ struct SubtitleSegmenter {
             }
 
             if drop {
+                if keepsTiming {
+                    let pieces = tokens[i..<(i + consumed)]
+                    removed.append(TimedToken(text: pieces.map(\.text).joined(), start: token.start, end: tokens[i + consumed - 1].end))
+                }
                 lastDroppedIndex = i + consumed - 1
                 i += consumed
                 continue
@@ -420,6 +496,98 @@ struct SubtitleSegmenter {
             i += 1
         }
         return kept
+    }
+
+    /// tokens[index] の直後に間(> 0.3 秒 or 読点・句点)があるか
+    private static func hasPauseAfter(_ tokens: [TimedToken], _ index: Int) -> Bool {
+        guard index + 1 < tokens.count else { return true }
+        return tokens[index + 1].start - tokens[index].end > 0.3
+            || endsWithClausePunctuation(tokens[index].text) || endsWithSentencePunctuation(tokens[index].text)
+    }
+
+    /// 割れて届いた言いよどみ(う+ーん、/ う+ーん+と+ー / え〜+と、/ あれ+ー+の+ー)を tokens[start] から探す。
+    /// 語幹に一致するいちばん長いつなぎ方で判定し、捨てるトークン数を返す。言いよどみの形でなければ 0。
+    /// つなぐと別の語になる(あ〜+の+人)か ！？ で終わる(え+ー+？)ために、先頭だけを捨ててはいけないときは -1
+    private static func splitFillerCount(_ tokens: [TimedToken], from start: Int, clauseStart: Bool) -> Int {
+        let headKey = stretchedFillerKey(tokens[start].text)
+        guard let initial = headKey.first, japaneseStretchedStemInitials.contains(initial) else { return 0 }
+        let headStem = headKey.replacingOccurrences(of: "ー", with: "")
+        var joined = tokens[start].text
+        var last = start
+        var result = 0
+        while last + 1 < tokens.count, last + 1 - start < 6 {
+            let previous = tokens[last]
+            let piece = tokens[last + 1]
+            // 読点の後や間があいた後は別の語(伸ばす音だけのトークンは少し間があいても続きとみなす)
+            guard !endsWithClausePunctuation(previous.text), !endsWithSentencePunctuation(previous.text) else { break }
+            let gap = piece.start - previous.end
+            guard gap <= 0.3 || (gap <= 0.6 && stretchedFillerKey(piece.text) == "ー") else { break }
+            joined += piece.text
+            last += 1
+            let key = stretchedFillerKey(joined)
+            guard isStretchedFillerKey(key) else { continue }
+            // 最後のかけら(と・ね・あ)が次の語の頭なら、そこまではつながない(えー+と+り+あ+え+ず は「えー」だけ捨てる)
+            if startsNextWord(tokens, last) { continue }
+            if isDroppableStretchedFiller(joined, isSplit: true, clauseStart: clauseStart, pauseAfter: hasPauseAfter(tokens, last)) {
+                result = wordContinues(after: last, in: tokens, filler: joined) ? -1 : last - start + 1
+            } else if !endsWithExclamation(joined), containsKatakana(piece.text), !containsKatakana(tokens[start].text),
+                      stretchedFillerKey(piece.text).first != "ー" {
+                // ひらがなの言いよどみの後で始まるカタカナは次の語の頭(えー+ト+ップ・あの+〜+ネ+ット)。つないだ形とみなさず、ここまでの結果で終える
+                break
+            } else if endsWithExclamation(joined) || key.replacingOccurrences(of: "ー", with: "") != headStem {
+                result = -1
+            } else {
+                result = 0
+            }
+        }
+        return result
+    }
+
+    /// tokens[index] の「と」「ね」「あ」が、言いよどみの語尾ではなく次の語の頭か。Whisper は「とりあえず」を と+り+あ+え+ず、
+    /// 「とっても」を と+って+も、「ねこ」を ね+こ、「あなた」を あ+なた に割って返す。直後に間があれば語尾とみなす
+    private static func startsNextWord(_ tokens: [TimedToken], _ index: Int) -> Bool {
+        let text = tokens[index].text
+        guard text == "と" || text == "ね" || text == "あ", !hasPauseAfter(tokens, index) else { return false }
+        let next = Array(coreText(tokens[index + 1].text, language: .japanese).unicodeScalars)
+        guard let first = next.first else { return false }
+        // 「まーあ」は語末まで伸ばした形ではない。「っ」「ん」で始まる語は無いので「と」の続き(と+って+も)
+        if text == "あ" || first == "っ" || first == "ん" { return true }
+        // 「えー」+「と」+「今日は」「この」「ね、」のように続くときは「えーと」として捨てる。1 文字のひらがなを語の切れ端とみなすのは、
+        // 「ね」の続き(ね+こ)と、「と」に続けて語になるもの(と+り+あ+え+ず・と+て+も・と+に+か+く)だけ
+        guard next.count == 1, first.value >= 0x3041, first.value <= 0x3096 else { return false }
+        return text == "ね" || "りてに".unicodeScalars.contains(first)
+    }
+
+    /// tokens[last] までを言いよどみとして捨てると語が壊れるか。間なしで語の続きが来ているときに true
+    /// (まー+た・ま〜+だ・えーー+っ！・そのねー+ちゃん・うーん+まい・うーん+と思)。
+    /// 「あのー」「そのー」は、次の語の頭が 1 かなで割れて届いても語の続きにならない
+    private static func wordContinues(after last: Int, in tokens: [TimedToken], filler: String) -> Bool {
+        guard !hasPauseAfter(tokens, last) else { return false }
+        let next = stretchedFillerKey(tokens[last + 1].text).replacingOccurrences(of: "ー", with: "")
+        // 「っ」「と思」で始まる語は無い
+        if next.hasPrefix("っ") || next.hasPrefix("と思") { return true }
+        let isNameSuffix = ["ちゃん", "くん", "さん"].contains(next)
+        switch stretchedFillerKey(filler).replacingOccurrences(of: "ー", with: "") {
+        case "ま":
+            // まーた・まーだ・まーるい。それ以外の 1 かなは次の語の頭(ま〜+で+も・ま〜+そ+う)
+            return ["た", "だ", "る"].contains(next) || isNameSuffix
+        case "え":
+            // えーい。それ以外の 1 かなは次の語の頭(え〜+こ+の・え〜+と+り+あ+え+ず)
+            return next == "い" || isNameSuffix
+        case "あ":
+            // あーちゃん
+            return isNameSuffix
+        case "あのね", "そのね":
+            // ねーちゃん・ねーさん。「ね」を伸ばしていない「そのーね」にひらがなが続くなら、「ね」は次の語の頭のことがある(そのーね+らい)
+            let nextStartsHiragana = coreText(tokens[last + 1].text, language: .japanese).unicodeScalars.first
+                .map { $0.value >= 0x3041 && $0.value <= 0x3096 } ?? false
+            return isNameSuffix || (nextStartsHiragana && !stretchedFillerKey(filler).hasSuffix("ー"))
+        case "うん":
+            // うーんまい(う〜ん+ま+ず は次の語の頭)
+            return next == "ま" && last + 2 < tokens.count && tokens[last + 2].text.hasPrefix("い")
+        default:
+            return false
+        }
     }
 
     /// "わ、わたし" → "わたし"、"I-I" → "I"
@@ -477,13 +645,40 @@ struct SubtitleSegmenter {
     /// 相づち照合用の正規化キー: 全角/半角の統一(NFKC)・カタカナ→ひらがな・小文字化・
     /// 長音(ー ～ 〜 ~ と小書き母音)を「ー」1 つに統一・前後の句読点と空白を除去
     static func backchannelKey(_ text: String) -> String {
+        normalizedKey(text, foldsAllSmallVowels: true)
+    }
+
+    /// 言いよどみ判定用のキー。backchannelKey と違い、小書き母音は語末で直前のかなと同じ母音のとき(そのぉ・なんかぁ・えぇ)だけ
+    /// 「ー」に畳む。語の途中や語頭の小書き母音(ウィーン・ウォン・単独の ィ)はそのまま残す
+    private static func stretchedFillerKey(_ text: String) -> String {
+        normalizedKey(text, foldsAllSmallVowels: false)
+    }
+
+    /// 言いよどみの語幹の終わりのかな → それを伸ばす小書き母音
+    private static let stretchingSmallVowels: [Unicode.Scalar: Unicode.Scalar] = [
+        "あ": "ぁ", "か": "ぁ", "ま": "ぁ", "え": "ぇ", "ね": "ぇ", "れ": "ぇ", "の": "ぉ", "と": "ぉ",
+    ]
+
+    private static func normalizedKey(_ text: String, foldsAllSmallVowels: Bool) -> String {
         var s = text.precomposedStringWithCompatibilityMapping
         s = s.applyingTransform(.hiraganaToKatakana, reverse: true) ?? s
         s = s.lowercased()
         let longMarks: Set<Unicode.Scalar> = ["ー", "～", "〜", "~", "〰", "ｰ", "ぁ", "ぃ", "ぅ", "ぇ", "ぉ"]
+        let smallVowels: Set<Unicode.Scalar> = ["ぁ", "ぃ", "ぅ", "ぇ", "ぉ"]
+        let source = Array(s.unicodeScalars)
         var view = String.UnicodeScalarView()
-        for scalar in s.unicodeScalars {
-            if longMarks.contains(scalar) {
+        for (index, scalar) in source.enumerated() {
+            var isLongMark = longMarks.contains(scalar)
+            if isLongMark, !foldsAllSmallVowels, smallVowels.contains(scalar) {
+                // この後が長音と句読点だけなら語末。それ以外は語の途中
+                var rest = index + 1
+                while rest < source.count, longMarks.contains(source[rest]) { rest += 1 }
+                // 「えぇぇ」の 2 つ目以降は、直前の同じ小書き母音がもう「ー」に畳まれている
+                let followsSameVowel = index > 0 && (stretchingSmallVowels[source[index - 1]] == scalar
+                    || (source[index - 1] == scalar && view.last == "ー"))
+                isLongMark = followsSameVowel && (rest == source.count || isPunctuationOrSpace(source[rest]))
+            }
+            if isLongMark {
                 if view.last != "ー" { view.append("ー") }
             } else {
                 view.append(scalar)
@@ -497,6 +692,11 @@ struct SubtitleSegmenter {
         var core = String.UnicodeScalarView()
         core.append(contentsOf: scalars[lo..<hi])
         return String(core)
+    }
+
+    /// カタカナを含むか(半角も含む。長音記号は数えない)
+    private static func containsKatakana(_ text: String) -> Bool {
+        text.precomposedStringWithCompatibilityMapping.unicodeScalars.contains(where: { $0.value >= 0x30A1 && $0.value <= 0x30FA })
     }
 
     /// key が辞書の語の繰り返し・連結だけでできているか(「うんうん」「はいはい」「ああ」)。
@@ -533,7 +733,7 @@ struct SubtitleSegmenter {
     /// 字幕本文が相づち(日本語)/フィラー(英語)だけでできているか。句読点・空白は無視
     static func isBackchannelOnlyText(_ text: String, language: TranscriptionLanguage) -> Bool {
         // 長音記号(〜 ～)が区切り扱いにならないよう、先に正規化してから区切る
-        let normalized = language == .japanese ? backchannelKey(text) : text.lowercased()
+        let normalized = language == .japanese ? stretchedFillerKey(text) : text.lowercased()
         var pieces: [String] = []
         var current = String.UnicodeScalarView()
         for scalar in normalized.unicodeScalars {
@@ -548,9 +748,12 @@ struct SubtitleSegmenter {
         guard !pieces.isEmpty else { return true }
         switch language {
         case .japanese:
+            // 「！」「？」で終わる字幕は驚きの声や問いかけなので、音を伸ばした言いよどみとみなさない(え〜！？・あれー？)
+            let exclaimed = endsWithExclamation(text)
             return pieces.allSatisfy { piece in
-                japaneseLatinInterjectionKeys.contains(piece) || isComposed(of: japaneseCueBackchannelKeys, piece)
-                    || isStretchedFillerKey(piece)
+                let key = backchannelKey(piece)
+                return japaneseLatinInterjectionKeys.contains(key) || isComposed(of: japaneseCueBackchannelKeys, key)
+                    || (!exclaimed && (piece.allSatisfy { $0 == "ー" } || isStretchedFillerKey(piece)))
             }
         case .english:
             return pieces.allSatisfy { englishFillers.contains($0) }
@@ -572,6 +775,8 @@ struct SubtitleSegmenter {
     static let sentenceEnders: Set<Unicode.Scalar> = ["。", "！", "？", "!", "?", ".", "…", "‼", "⁉"]
     /// 読点類(分割候補・末尾からは除去)
     static let clauseEnders: Set<Unicode.Scalar> = ["、", "，", ",", ";", "；", ":", "："]
+    /// 驚きの声や問いかけの文末記号
+    private static let exclamationEnders: Set<Unicode.Scalar> = ["！", "？", "!", "?", "‼", "⁉"]
     /// 文末記号に続けて取り込む閉じ記号
     private static let trailingClosers: Set<Unicode.Scalar> = ["」", "』", "）", ")", "\"", "”", "’", "'", "】", "〕"]
 
@@ -587,6 +792,16 @@ struct SubtitleSegmenter {
     static func endsWithClausePunctuation(_ text: String) -> Bool {
         guard let last = text.unicodeScalars.last else { return false }
         return clauseEnders.contains(last)
+    }
+
+    /// 「！」「？」で終わるか(閉じ記号は無視)。驚きの声や問いかけは言いよどみにしない
+    static func endsWithExclamation(_ text: String) -> Bool {
+        var scalars = Array(text.unicodeScalars)
+        while let last = scalars.last, trailingClosers.contains(last) || last.properties.isWhitespace {
+            scalars.removeLast()
+        }
+        guard let last = scalars.last else { return false }
+        return exclamationEnders.contains(last)
     }
 
     // MARK: - レイアウト(全文と文字ごとの時刻)
@@ -807,12 +1022,16 @@ struct SubtitleSegmenter {
     /// i(含む)までで日本語の文が終わっているか(句点がないとき)。nextText は次のトークン
     private func endsJapaneseSentence(layout: Layout, through i: Int, from lo: Int, pause: Double,
                                       nextText: String) -> Bool {
-        let next = nextText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 「よねー。」「ねー、」「よ〜」も同じ続きの言葉として見る(句読点を除いてから、末尾の伸ばす音を除く)
+        let folded = Self.droppingTrailingLongMarks(Self.coreText(nextText, language: language))
+        // 「さ」「わ」は感動詞にもなる(さー、次に / わー、すごい)ので、句読点や長音の付かないそのままの形のときだけ続きとみなす
+        let next = (folded == "さ" || folded == "わ") ? nextText.trimmingCharacters(in: .whitespacesAndNewlines) : folded
         if Self.japaneseContinuations.contains(next)
             || Self.japaneseContinuationPrefixes.contains(where: { next.hasPrefix($0) }) {
             return false
         }
-        let tail = layout.text(of: max(lo, i - 7)..<(i + 1)).trimmingCharacters(in: .whitespaces)
+        // 「ですー」「ますねー」も文末(読点が付いた「ですー、」は「です、」と同じで文末にしない)
+        let tail = Self.droppingTrailingLongMarks(layout.text(of: max(lo, i - 7)..<(i + 1)).trimmingCharacters(in: .whitespaces))
         for ending in Self.japaneseStrongEndings {
             if tail.hasSuffix(ending) { return true }
             for particle in Self.japaneseEndingParticles where tail.hasSuffix(ending + particle) {
@@ -823,6 +1042,13 @@ struct SubtitleSegmenter {
             return true
         }
         return false
+    }
+
+    /// 末尾の伸ばす音(ー 〜 ～)を除く
+    private static func droppingTrailingLongMarks(_ text: String) -> String {
+        var result = text
+        while let last = result.last, "ー〜～".contains(last) { result.removeLast() }
+        return result
     }
 
     /// "Mr." "Dr." "U.S." のような略語か(直前が 3 文字以下の大文字始まりの英字)

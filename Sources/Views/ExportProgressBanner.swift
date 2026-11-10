@@ -63,7 +63,7 @@ struct ExportProgressBanner: View {
                         .foregroundStyle(Color.accentColor)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Text(verbatim: "書き出し中 \(Int((progress * 100).rounded()))%")
+                            Text("書き出し中 \(Int((progress * 100).rounded()))%")
                                 .font(.caption.weight(.semibold).monospacedDigit())
                             if let remaining {
                                 Text(remaining)

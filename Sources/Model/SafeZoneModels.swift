@@ -106,10 +106,11 @@ enum SafeZoneGuide: String, CaseIterable, Identifiable {
     }
 
     /// 中心が隠れる範囲にあるテキスト・ステッカーの数(モザイクは数えない。キーフレームの動きは見ない)
-    func hiddenTextCount(in clips: [TextClip]) -> Int {
+    func hiddenTextCount(in clips: [TextClip], canvasSize: CGSize, documentary: DocumentaryStyle) -> Int {
         guard isOn else { return 0 }
         var count = 0
-        for clip in clips where !clip.isMosaic && covers(clip.center) {
+        // 端に固定したテキストの center は控えなので、描画と同じ位置で判定する
+        for clip in clips where !clip.isMosaic && covers(TextRenderer.placedCenter(for: clip, canvasSize: canvasSize, documentary: documentary)) {
             count += 1
         }
         return count

@@ -55,7 +55,9 @@ enum FillerDetector {
     static func isFiller(_ word: String) -> Bool {
         let n = normalize(word)
         guard !n.isEmpty else { return false }
-        return japaneseWords.contains(n) || english.contains(n)
+        // 「えー！」「んー？」は驚きの声や問いかけ。字幕に残すものを言いよどみとして切らない(SubtitleSegmenter と同じ判定)
+        if japaneseWords.contains(n) { return !SubtitleSegmenter.endsWithExclamation(word) }
+        return english.contains(n)
     }
 
     /// 言いよどみの区間(出力タイムラインの秒)。単語タイミングがあればそれを、無ければ文字数から推定する
@@ -63,6 +65,13 @@ enum FillerDetector {
         var result: [Span] = []
         for cue in cues.sorted(by: { $0.start < $1.start }) {
             let duration = max(0.05, cue.end - cue.start)
+            // 字幕から取り除いた言いよどみ(「え〜」など)も候補にする。字幕の時刻が作ったときのままのときだけ
+            // (タイムラインを編集すると元の時刻は使えない)
+            if let removed = cue.removedFillers, removed.cueStart == cue.start, removed.cueEnd == cue.end {
+                for word in removed.words where isFiller(word.text) && word.end > word.start {
+                    result.append(Span(start: word.start, end: word.end, text: word.text))
+                }
+            }
             if !cue.words.isEmpty {
                 for word in cue.words where isFiller(word.text) && word.end > word.start {
                     result.append(Span(start: word.start, end: word.end, text: word.text))
@@ -191,7 +200,13 @@ extension EditorProject {
             }
             return c
         }
-        for i in textClips.indices { textClips[i].start = shifted(textClips[i].start) }
+        // テキストは長さも詰める(章の全長のテキストが、詰めたあとの次の章へはみ出さないように)。全部切られたものは字幕と同じく外す
+        textClips = textClips.compactMap { item in
+            var moved = item
+            moved.start = shifted(item.start)
+            moved.duration = shifted(item.end) - moved.start
+            return moved.duration >= 0.1 ? moved : nil
+        }
         for i in narration.indices { narration[i].start = shifted(narration[i].start) }
         for i in overlays.indices { overlays[i].start = shifted(overlays[i].start) }
         for i in drawings.indices { drawings[i].start = shifted(drawings[i].start) }

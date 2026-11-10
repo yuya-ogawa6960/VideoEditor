@@ -256,6 +256,8 @@ final class PlanStore {
         updatesTask = Task { [weak self] in
             for await update in Transaction.updates {
                 if case .verified(let transaction) = update {
+                    // 承認待ちだった購入(Ask to Buy など)は、購入画面を通らずここに届く
+                    MetaAds.logApprovedPurchase(transaction)
                     await transaction.finish()
                 }
                 await self?.refresh()
@@ -275,7 +277,6 @@ final class PlanStore {
                   let plan = Self.tier(forProductID: transaction.productID) else { continue }
             if let expiration = transaction.expirationDate, expiration < Date() { continue }
             signed.append(result.jwsRepresentation)
-            MetaAds.logFirstPurchase(transaction)
             if plan > best || (plan == best && expiry == nil) {
                 best = plan
                 expiry = transaction.expirationDate

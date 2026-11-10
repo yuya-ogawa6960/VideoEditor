@@ -77,7 +77,7 @@
   - だから空白のない「A/B」(Position/Size)にはしないで、「A & B」(en)・「A y B」(es)・「A e B」(pt-BR)にする。後ろに空白がある名前(Logo/marca de agua)は折れるのでそのままでよい。短くしても、いちばん長い行の幅が変わらなければ意味がない(Reenquadramento automático は「Reenquadramento / automático」になり、Reenquadramento だけにしても幅は同じ)。
   - 2 行目のほうが長くなりすぎないよう、最初の空白の位置にも気をつける(Move tools back to bottom は「Move / tools back to bottom」になる)。
   - 日本語の名前の折る位置は `EditorToolLabel.breaks` で決めている。この辞書のキーは訳さない日本語の文字列なので、訳が重なっても関係ない。
-- 同じ言語の中で、2 つのツールを同じ訳にしない。`EditorToolSearch.swift` の別名辞書 `EditorToolSearchIndex.synonyms` は `String(localized: "…")` をキーにした辞書リテラルなので、**2 つのキーの訳が同じになると、起動したときにアプリが落ちる**。名前を変えたら、この辞書のキーどうし(いまはツールバーにない「ファイルから追加」も入っている)と、同じ列に並ぶ名前どうしが、en・es・pt-BR のどれでも重ならないことを確かめる。辞書の値(別名)は重なってもよい。
+- 同じ言語の中で、2 つのツールを同じ訳にしない。`EditorToolSearch.swift` の別名辞書 `EditorToolSearchIndex.synonyms` は `String(localized: "…")` をキーにした辞書リテラルなので、**2 つのキーの訳が同じになると、起動したときにアプリが落ちる**。名前を変えたら、この辞書のキーどうし(タップで開くメニューの項目「ファイル」「カメラで撮る」「方眼紙の背景」も入っている)と、同じ列に並ぶ名前どうしが、en・es・pt-BR のどれでも重ならないことを確かめる。辞書の値(別名)は重なってもよい。
 - 前の名前(1.12.78 で名前を変える前の「キャプションを作成」「調整をコピー」など)は、もうツールバーには出ない。別名辞書の値として残っているだけで、前の言葉で探しても見つかるようにするためのもの(下の表)。訳は検索に使うだけなので小文字でもよく、ほかのツールの名前と同じ訳になってもかまわない。
 
 ### いまの名前
@@ -86,6 +86,9 @@
 
 | 場所 | ja | en | es | pt-BR |
 |---|---|---|---|---|
+| 最上段 › 追加(メニュー) | 動画を選ぶ | Choose Videos | Elegir videos | Escolher vídeos |
+| 最上段 › 追加(メニュー) | 写真を選ぶ(キーは「写真を選ぶ(複数)」。ja の表示はカタログの ja の値。表紙の 1 枚選択の「写真を選ぶ」= Choose photo とは別のキー) | Choose Photos | Elegir fotos | Escolher fotos |
+| 最上段 › 追加(メニュー) | 方眼紙の背景 | Grid Paper Background | Fondo cuadriculado | Fundo quadriculado |
 | 最上段 › 追加(メニュー) | ファイル | Files | Archivos | Arquivos |
 | 最上段 › 追加(メニュー) | カメラで撮る | Record with Camera | Grabar con la cámara | Gravar com a câmera |
 | 最上段 › 追加(メニュー) | Osmo Pocket で撮る(実験) | Shoot with Osmo Pocket (Experimental) | Grabar con Osmo Pocket (experimental) | Gravar com Osmo Pocket (experimental) |
@@ -240,4 +243,4 @@
 | 調整を全クリップに適用 | 全体に適用 |
 | ビートに合わせる | ビート合わせ |
 | 中だるみ・編集チェック | 編集チェック |
-| 動画・写真を追加 | 追加(空の画面とタイムラインの「+」には今もこの名前で出る) |
+| 動画・写真を追加 | 追加(タイムラインの「+」には今もこの名前で出る。空の画面は「動画を追加」に変わった) |

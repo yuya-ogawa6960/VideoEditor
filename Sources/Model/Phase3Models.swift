@@ -417,7 +417,7 @@ enum TextTemplate: String, CaseIterable, Identifiable {
         case .edgeWhiteTag: return String(localized: "白タグ")
         case .edgeOrange: return String(localized: "オレンジ")
         case .edgeMarker: return String(localized: "マーカー")
-        case .edgeMincho: return String(localized: "明朝")
+        case .edgeMincho: return String(localized: "明朝体")
         case .edgeMagazine: return String(localized: "雑誌")
         case .edgePop: return String(localized: "ポップ")
         case .edgeNeonPink: return String(localized: "ピンクネオン")
@@ -449,8 +449,15 @@ enum TextEdgeAnchor: String, CaseIterable, Identifiable {
         case .bottomRight: return String(localized: "右下")
         }
     }
-    /// 左右の真ん中は縦書きにする
-    var usesVerticalText: Bool { self == .left || self == .right }
+    /// 左右の真ん中は縦書きにする。日本語の文字が無いときは、1 文字ずつ積むと読みにくいので横書きのまま
+    func usesVerticalText(for text: String) -> Bool {
+        guard self == .left || self == .right else { return false }
+        return text.unicodeScalars.contains { scalar in
+            (0x3040...0x30FF).contains(scalar.value)
+                || (0x3400...0x9FFF).contains(scalar.value)
+                || (0xF900...0xFAFF).contains(scalar.value)
+        }
+    }
     var alignment: TextAlignment2 {
         switch self {
         case .topLeft, .bottomLeft, .left: return .left
@@ -459,22 +466,26 @@ enum TextEdgeAnchor: String, CaseIterable, Identifiable {
         }
     }
 
-    /// 大きさ size のものを、端から少し離して置いたときの中心(左上原点の 0...1)
-    func center(for size: CGSize, canvas: CGSize) -> NormalizedPoint {
+    /// 大きさ size のものを、端から少し離して置いたときの中心(左上原点の 0...1)。
+    /// letterbox は上下の黒帯の高さ(黒帯の裏に隠れないように、映像の部分の中で測る)
+    func center(for size: CGSize, canvas: CGSize, letterbox: CGFloat = 0) -> NormalizedPoint {
         let margin = min(canvas.width, canvas.height) * 0.04
         let minX = (margin + size.width / 2) / canvas.width
-        let minY = (margin + size.height / 2) / canvas.height
+        let minY = (letterbox + margin + size.height / 2) / canvas.height
+        // 画面より長い文字は、真ん中に置くと頭も切れるので、頭を余白に揃える
+        let fitsWidth = size.width <= canvas.width - margin * 2
+        let fitsHeight = size.height <= canvas.height - letterbox * 2 - margin * 2
         let x: CGFloat
         switch self {
         case .topLeft, .left, .bottomLeft: x = minX
         case .topRight, .right, .bottomRight: x = 1 - minX
-        case .top, .bottom: x = 0.5
+        case .top, .bottom: x = fitsWidth ? 0.5 : minX
         }
         let y: CGFloat
         switch self {
         case .topLeft, .top, .topRight: y = minY
         case .bottomLeft, .bottom, .bottomRight: y = 1 - minY
-        case .left, .right: y = 0.5
+        case .left, .right: y = fitsHeight ? 0.5 : minY
         }
         return NormalizedPoint(x: Double(x), y: Double(y))
     }
@@ -495,6 +506,10 @@ struct TextClip: Identifiable, Equatable {
     var opacity: Double = 1
     var style = TextStyle()
     var template: TextTemplate = .plain
+    /// 画面の端に固定しているときの位置(nil = 固定していない)。
+    /// 固定している間は、文字の大きさ・画面の比率・黒帯が変わるたびに描画側で位置を求め直す(TextRenderer.placedCenter)。
+    /// 指で動かすか、位置を直すと nil に戻る。キーフレームがあるときは使わない
+    var edgeAnchor: TextEdgeAnchor? = nil
     var animIn: TextAnimationType = .none
     var animInDuration: Double = 0.5
     var animOut: TextAnimationType = .none

@@ -893,7 +893,8 @@ final class EditorTrackingController {
             }
             itemStart = text.start
             itemEnd = text.end
-            itemCenter = text.center
+            // 端に固定しているテキストの center は控えなので、見えている位置から追従を始める
+            itemCenter = TextRenderer.placedCenter(for: text, canvasSize: player.renderSize, documentary: project.documentary)
             itemScale = text.scale
             itemRotation = text.rotation
             itemOpacity = text.opacity

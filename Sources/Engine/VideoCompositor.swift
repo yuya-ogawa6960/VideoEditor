@@ -693,7 +693,7 @@ final class VideoCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
 
             // 5. テキストレイヤー / ステッカー
             for textClip in scene.textClips where !textClip.isMosaic && textClip.contains(timelineTime: seconds) {
-                if let layer = TextRenderer.layer(for: textClip, time: seconds, canvasSize: size) {
+                if let layer = TextRenderer.layer(for: textClip, time: seconds, canvasSize: size, documentary: documentary.style) {
                     frame = layer.composited(over: frame)
                 }
             }

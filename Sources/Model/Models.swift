@@ -536,6 +536,14 @@ struct SubtitleStyle: Equatable {
     }()
 }
 
+/// 自動字幕が本文から取り除いた言いよどみ(出力タイムライン上の秒)。
+/// cueStart / cueEnd は作ったときの字幕の時刻で、字幕が動いていたら words の時刻はもう使えない
+struct RemovedSubtitleFillers: Equatable {
+    var words: [SubtitleWord]
+    var cueStart: Double
+    var cueEnd: Double
+}
+
 /// 字幕1件(出力タイムライン上の秒)
 struct SubtitleCue: Identifiable, Equatable {
     var id = UUID()
@@ -551,6 +559,8 @@ struct SubtitleCue: Identifiable, Equatable {
     var doubtfulWords: [String] = []
     /// 要確認の印を「問題なし」で消した
     var issueDismissed: Bool = false
+    /// 自動字幕が本文から取り除いた言いよどみの時刻(言いよどみカットの候補。プロジェクトには保存しない)
+    var removedFillers: RemovedSubtitleFillers? = nil
 
     var duration: Double { max(0, end - start) }
 

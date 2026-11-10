@@ -196,9 +196,9 @@ enum FilterLUT {
 
         var errorDescription: String? {
             switch self {
-            case .unreadable: return "LUT ファイルを読み込めませんでした"
-            case .invalidFormat: return "LUT ファイルの形式が正しくありません(.cube の 3D LUT に対応)"
-            case .unsupported(let what): return "この LUT は対応していません(\(what))"
+            case .unreadable: return String(localized: "LUT ファイルを読み込めませんでした")
+            case .invalidFormat: return String(localized: "LUT ファイルの形式が正しくありません(.cube の 3D LUT に対応)")
+            case .unsupported(let what): return String(localized: "この LUT は対応していません(\(what))")
             }
         }
     }

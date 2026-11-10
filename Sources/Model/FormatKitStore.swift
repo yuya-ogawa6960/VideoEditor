@@ -379,6 +379,8 @@ final class FormatKitStore {
     /// time 以降に始まる部品(字幕・章タイトル・テロップ・オーバーレイ・ナレーション・テキスト・手書き・マーカー)を delta 秒ずらす
     private static func shiftItems(in project: EditorProject, from time: Double, by delta: Double) {
         guard delta > 0 else { return }
+        // クリップはまだ入っていないので、いまの長さが差し込む前の長さ
+        project.extendChapterLabels(forInsertionAt: time, length: delta, oldVideoEnd: project.layoutDuration)
         let threshold = time - 1e-6
         for i in project.subtitles.indices where project.subtitles[i].start >= threshold {
             project.subtitles[i].start += delta
@@ -400,7 +402,8 @@ final class FormatKitStore {
         for i in project.narration.indices where project.narration[i].start >= threshold {
             project.narration[i].start += delta
         }
-        for i in project.textClips.indices where project.textClips[i].start >= threshold {
+        for i in project.textClips.indices
+        where project.textClips[i].start >= threshold || project.chapterLabelFollowsMarker(project.textClips[i], threshold: threshold) {
             project.textClips[i].start += delta
         }
         for i in project.drawings.indices where project.drawings[i].start >= threshold {

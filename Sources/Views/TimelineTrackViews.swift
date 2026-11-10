@@ -1246,7 +1246,7 @@ struct TimelineTransitionRange: View {
 
                 // 長さ(帯が広いときだけ)
                 if geo.size.width >= 34 {
-                    Text(String(format: "%.1f秒", seconds))
+                    Text("\(String(format: "%.1f", seconds))秒")
                         .font(.system(size: 9, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(Color.white)

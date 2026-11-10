@@ -135,7 +135,7 @@ private func percentText(_ value: Double) -> String {
 }
 
 private func secondsText(_ value: Double) -> String {
-    String(format: "%.1f 秒", value)
+    String(localized: "\(String(format: "%.1f", value)) 秒")
 }
 
 // MARK: - ドキュメンタリー(全体演出)

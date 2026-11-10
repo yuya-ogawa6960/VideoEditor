@@ -753,34 +753,60 @@ struct ContentView: View {
             .buttonStyle(.plain)
             .disabled(isImporting)
 
-            // 写真ライブラリ以外の取り込み元は小さく並べる
-            HStack(spacing: 20) {
-                emptyStateSourceButton(String(localized: "写真"), systemImage: "photo") {
-                    requestMediaAdd(appendAtEnd: false, kind: .photos)
+            // 写真ライブラリ以外の取り込み元は小さく並べる。1 行に入らないときは 2 段に、それでも入らないときは縦に並べる
+            // (文字の途中で折り返さない)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 20) {
+                    emptyStateDeviceSources
+                    emptyStateMadeSources
                 }
-                emptyStateSourceButton(String(localized: "ファイル"), systemImage: "folder") {
-                    requestFileAdd(appendAtEnd: false)
+                VStack(spacing: 0) {
+                    HStack(spacing: 20) { emptyStateDeviceSources }
+                    HStack(spacing: 20) { emptyStateMadeSources }
                 }
-                emptyStateSourceButton(String(localized: "カメラ"), systemImage: "camera") {
-                    requestCameraAdd(appendAtEnd: false)
-                }
-                // 空の画面には下のパネルが無いので、黒 3 秒をそのまま入れる(入ってから編集画面で色や長さを変えられる)
-                emptyStateSourceButton(String(localized: "カラー"), systemImage: "rectangle.fill") {
-                    guard !isImporting else { return }
-                    history.record(project)
-                    importAppendsAtEnd = true
-                    insertColorScreen(hex: "#000000", seconds: 3)
-                }
-                if GoogleOAuth.isConfigured {
-                    emptyStateSourceButton(String(localized: "Google フォト"), systemImage: "photo.on.rectangle.angled") {
-                        requestGooglePhotosAdd(appendAtEnd: false)
-                    }
+                VStack(alignment: .leading, spacing: 0) {
+                    emptyStateDeviceSources
+                    emptyStateMadeSources
                 }
             }
             .disabled(isImporting)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
+    }
+
+    /// 空の画面の取り込み元(端末にあるもの)
+    @ViewBuilder
+    private var emptyStateDeviceSources: some View {
+        emptyStateSourceButton(String(localized: "写真"), systemImage: "photo") {
+            requestMediaAdd(appendAtEnd: false, kind: .photos)
+        }
+        emptyStateSourceButton(String(localized: "ファイル"), systemImage: "folder") {
+            requestFileAdd(appendAtEnd: false)
+        }
+        emptyStateSourceButton(String(localized: "カメラ"), systemImage: "camera") {
+            requestCameraAdd(appendAtEnd: false)
+        }
+    }
+
+    /// 空の画面の取り込み元(その場で作る背景と Google フォト)
+    @ViewBuilder
+    private var emptyStateMadeSources: some View {
+        // 空の画面には下のパネルが無いので、黒 3 秒をそのまま入れる(入ってから編集画面で色や長さを変えられる)
+        emptyStateSourceButton(String(localized: "カラー"), systemImage: "rectangle.fill") {
+            guard !isImporting else { return }
+            history.record(project)
+            importAppendsAtEnd = true
+            insertColorScreen(hex: "#000000", seconds: 3)
+        }
+        emptyStateSourceButton(String(localized: "方眼紙"), systemImage: "squareshape.split.3x3") {
+            addGridPaperBackground()
+        }
+        if GoogleOAuth.isConfigured {
+            emptyStateSourceButton(String(localized: "Google フォト"), systemImage: "photo.on.rectangle.angled") {
+                requestGooglePhotosAdd(appendAtEnd: false)
+            }
+        }
     }
 
     private func emptyStateSourceButton(_ title: String, systemImage: String,
@@ -791,6 +817,7 @@ struct ContentView: View {
         } label: {
             Label(title, systemImage: systemImage)
                 .font(.subheadline.weight(.medium))
+                .lineLimit(1)
                 .foregroundStyle(Color.white.opacity(0.75))
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
@@ -1052,13 +1079,18 @@ struct ContentView: View {
             // プレビューは残りの高さをすべて使う(タイムラインとツールバーの間に隙間を作らない。
             // iPhone Duo を開いた横持ちなど、高さに余裕がある画面ではそのぶん大きく映る)
             let previewMax: CGFloat = fullHeight
+            // 横持ちかどうかは、キーボードで縮まない高さ(この画面の上端から画面の下端まで)で決める。
+            // geo の高さで決めると、iPhone Duo のたて持ちでキーボードが出ただけで列の分け方が変わり、
+            // パネルが作り直されて入力欄のフォーカスが切れ、キーボードが閉じてしまう
+            let keyboardFreeHeight: CGFloat = max(geo.size.height, UIScreen.main.bounds.height - geo.frame(in: .global).minY)
+            let isWideLayout: Bool = isLargeWindow && geo.size.width > keyboardFreeHeight
             // パネルの高さ: ふだんは画面の 38%。iPhone Duo を開いた横持ち(広い画面の横長)は高さに余裕がないので、
             // 上部バーとタイムラインの分だけ残してあとはパネルに使う(38% では中身が切れる)
-            let panelMax: CGFloat = (isLargeWindow && geo.size.width > geo.size.height)
+            let panelMax: CGFloat = isWideLayout
                 ? max(160, fullHeight - 44 - 100)
                 : max(160, fullHeight * 0.38)
             // 縦長(9:16・4:5)の作品を広い画面の横持ちで開いたときは、左にプレビューを縦いっぱい、右にタイムラインとツールを置く
-            let splitPortrait: Bool = isLargeWindow && geo.size.width > geo.size.height && portraitPreviewRatio != nil
+            let splitPortrait: Bool = isWideLayout && portraitPreviewRatio != nil
             // ツールを右の列へ: iPhone Duo を開いたとき、または閉じていても右端に時刻・電池が縦に並ぶ列(広いセーフエリア)がある画面
             // (パネルを開いている間は下にパネルが出るので、列は出さない)
             let sideColumn: Bool = geo.safeAreaInsets.trailing >= Self.sideColumnMinInset
@@ -1360,21 +1392,58 @@ struct ContentView: View {
     @ViewBuilder
     private func mediaKindActions(_ question: MediaKindQuestion) -> some View {
         Button("動画を選ぶ") { answerMediaKind(question, .videos) }
-        Button("写真を選ぶ") { answerMediaKind(question, .photos) }
+        Button(choosePhotosTitle) { answerMediaKind(question, .photos) }
         Button("キャンセル", role: .cancel) {}
     }
 
-    /// 解説スライド用の方眼紙を、写真と同じように再生位置の後ろへ足す
+    /// 写真ライブラリを複数選択で開く項目の名前(確認・「追加」「オーバーレイ」のメニュー)。日本語は「写真を選ぶ」のまま。
+    /// 1 枚だけ選ぶ表紙の「写真を選ぶ」とはキーを分ける(en などはこちらだけ複数形)
+    private var choosePhotosTitle: String {
+        String(localized: "写真を選ぶ(複数)", defaultValue: "写真を選ぶ")
+    }
+
+    /// 解説スライド用の方眼紙を、写真と同じように再生位置の後ろへ足す。
+    /// 足せたら名前を付けて、カラーの画面と同じように差し込んだ所を見せる(続けて置く文字が方眼紙に載るように)
     private func addGridPaperBackground() {
-        guard !isImporting, let url = GridPaperBackground.makeFile(canvasSize: player.renderSize) else { return }
+        guard !isImporting else { return }
+        player.pause()
         importAppendsAtEnd = false
-        Task { await importLocalFiles([url], securityScoped: false, deleteSourcesAfter: true) }
+        let canvasSize = player.renderSize
+        // 画像を作っている間にもう一度押されないよう、先に読み込み中にする
+        isImporting = true
+        importTotal = 1
+        importDone = 0
+        importFraction = nil
+        importIsDownloading = false
+        importTask = Task { @MainActor in
+            // 短辺 1080 の PNG を作るので、メインスレッドを止めない
+            let file = await Task.detached(priority: .userInitiated) {
+                GridPaperBackground.makeFile(canvasSize: canvasSize)
+            }.value
+            guard let file else {
+                isImporting = false
+                importTask = nil
+                alertMessage = String(localized: "方眼紙を作れませんでした。")
+                return
+            }
+            let existingIDs = Set(project.clips.map(\.id))
+            importSourceOverride = "grid_paper"
+            await importLocalFiles([file], securityScoped: false, deleteSourcesAfter: true)
+            // キャンセルや読み込みの失敗でクリップが増えなかったときは何もしない
+            guard let index = project.clips.firstIndex(where: { !existingIDs.contains($0.id) }) else { return }
+            project.clips[index].name = String(localized: "方眼紙")
+            if let range = project.outputRange(ofClip: project.clips[index].id) {
+                player.seek(to: range.start + 0.02)
+            }
+        }
     }
 
     /// 「動画を選ぶ / 写真を選ぶ」の答え。確認が閉じきってから写真ライブラリを開く
     private func answerMediaKind(_ question: MediaKindQuestion, _ kind: MediaPickKind) {
         mediaKindQuestion = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            // 待っている間に別の確認や写真ライブラリが開いていたら、重ねて出さない
+            guard mediaKindQuestion == nil, !showMediaPicker, !showOverlayPicker else { return }
             if question.overlay {
                 requestOverlayAdd(kind)
             } else {
@@ -1459,6 +1528,8 @@ struct ContentView: View {
             }
             if let rippleTime {
                 project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
+            } else {
+                project.extendChapterLabelsAfterAppend(previousDuration: durationBefore)
             }
             trackMediaAdd(target: "clip", source: "color", count: 1)
             activePanel = nil
@@ -1849,6 +1920,7 @@ struct ContentView: View {
         case .textStyle(let textID):
             if let text = project.textClipBinding(id: textID) {
                 EditorTextStylePanel(text: text, canvasSize: player.renderSize, project: project, history: history)
+                    .id(textID)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1860,7 +1932,7 @@ struct ContentView: View {
             }
         case .textPlacement(let textID):
             if let text = project.textClipBinding(id: textID) {
-                EditorTextPlacementPanel(text: text, player: player)
+                EditorTextPlacementPanel(text: text, player: player, project: project)
             } else {
                 EditorMissingPanelContent()
             }
@@ -1870,7 +1942,7 @@ struct ContentView: View {
                 EditorKeyedKeyframePanel(player: player,
                                          start: current.start,
                                          duration: current.duration,
-                                         base: KeyframeInterpolator.Value(center: current.center,
+                                         base: KeyframeInterpolator.Value(center: TextRenderer.placedCenter(for: current, canvasSize: player.renderSize, documentary: project.documentary),
                                                                           scale: current.scale,
                                                                           rotation: current.rotation,
                                                                           opacity: current.opacity),
@@ -2329,7 +2401,7 @@ struct ContentView: View {
         sourceMenu.append(EditorToolMenuEntry(String(localized: "動画を選ぶ"), systemImage: "video") {
             requestMediaAdd(appendAtEnd: false, kind: .videos)
         })
-        sourceMenu.append(EditorToolMenuEntry(String(localized: "写真を選ぶ"), systemImage: "photo") {
+        sourceMenu.append(EditorToolMenuEntry(choosePhotosTitle, systemImage: "photo") {
             requestMediaAdd(appendAtEnd: false, kind: .photos)
         })
         sourceMenu.append(EditorToolMenuEntry(String(localized: "方眼紙の背景"), systemImage: "squareshape.split.3x3") {
@@ -2383,7 +2455,7 @@ struct ContentView: View {
             EditorToolMenuEntry(String(localized: "動画を選ぶ"), systemImage: "video") {
                 requestOverlayAdd(.videos)
             },
-            EditorToolMenuEntry(String(localized: "写真を選ぶ"), systemImage: "photo") {
+            EditorToolMenuEntry(choosePhotosTitle, systemImage: "photo") {
                 requestOverlayAdd(.photos)
             },
         ]
@@ -5487,6 +5559,8 @@ struct ContentView: View {
         trackMediaAdd(target: "clip", source: "photos", count: added)
         if added > 0, let rippleTime {
             project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
+        } else if added > 0 {
+            project.extendChapterLabelsAfterAppend(previousDuration: durationBefore)
         }
         let cancelled = Task.isCancelled
         isImporting = false
@@ -5713,6 +5787,8 @@ struct ContentView: View {
                       count: added)
         if added > 0, let rippleTime {
             project.insertTimelineGap(at: rippleTime, length: project.layoutDuration - durationBefore)
+        } else if added > 0 {
+            project.extendChapterLabelsAfterAppend(previousDuration: durationBefore)
         }
         let cancelled = Task.isCancelled
         // キャンセルで取り込まなかった共有のファイルは IncomingMediaCenter に返す。

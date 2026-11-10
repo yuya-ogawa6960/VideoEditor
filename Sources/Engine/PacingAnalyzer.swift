@@ -321,7 +321,8 @@ enum PacingAnalyzer {
         for cue in snapshot.subtitles {
             mark(&timeline, start: cue.start, end: cue.end) { $0.speech = max($0.speech, 0.7) }
         }
-        for text in snapshot.textClips where !text.isMosaic {
+        // 章の間ずっと出る端のタイトル(章ラベルなど)は小さな目印なので、画面の変化として数えない。短いタイトルは普通のテキストと同じ
+        for text in snapshot.textClips where !text.isMosaic && !(text.template.isEdgeTitle && text.duration > 10) {
             mark(&timeline, start: text.start, end: text.end) { $0.decorated = true }
         }
         for overlay in snapshot.overlays {
@@ -686,7 +687,7 @@ enum PacingAnalyzer {
 
         // 6. 縦動画の安全な範囲(下や右のボタン・説明文に隠れる)
         if vertical {
-            let unsafe = snapshot.textClips.filter { !$0.isMosaic && VerticalSafeArea.isUnsafe($0.center) }
+            let unsafe = snapshot.textClips.filter { !$0.isMosaic && VerticalSafeArea.isUnsafe(TextRenderer.placedCenter(for: $0, canvasSize: size, documentary: snapshot.documentary)) }
             if let firstUnsafe = unsafe.min(by: { $0.start < $1.start }) {
                 checks.append(EditingCheck(level: .loose, title: String(localized: "縦動画の安全な範囲"),
                                            detail: String(localized: "\(unsafe.count) 個のテキストが画面の端にあり、TikTok・リール・ショートのボタンや説明文に隠れる可能性があります。少し内側に寄せましょう。"),

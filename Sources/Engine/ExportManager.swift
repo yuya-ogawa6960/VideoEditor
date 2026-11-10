@@ -65,6 +65,36 @@ struct ExportRecord: Identifiable, Equatable, Codable {
     }
 }
 
+/// 書き出しが失敗した理由の種類。失敗を作る場所で決める(翻訳された文言では判定できないので)。
+/// 書き出し画面の「次にすること」と、統計の kind(rawValue)に使う
+enum ExportFailureKind: String {
+    case disk
+    case hdr
+    case noClips
+    case other
+
+    /// 書き出しの途中で起きたエラーの種類(エラーの文言は端末の言語で変わるので、エラーそのもので見分ける)
+    init(error: Error) {
+        if let pipelineError = error as? ExportPipelineError, case .hdrUnavailable = pipelineError {
+            self = .hdr
+        } else if ExportFailureKind.isOutOfSpace(error) {
+            self = .disk
+        } else {
+            self = .other
+        }
+    }
+
+    private static func isOutOfSpace(_ error: Error) -> Bool {
+        if (error as? AVError)?.code == .diskFull { return true }
+        if (error as? CocoaError)?.code == .fileWriteOutOfSpace { return true }
+        if (error as? POSIXError)?.code == .ENOSPC { return true }
+        if let underlying = (error as NSError).userInfo[NSUnderlyingErrorKey] as? Error {
+            return isOutOfSpace(underlying)
+        }
+        return false
+    }
+}
+
 @Observable
 final class ExportManager {
     static let shared = ExportManager()
@@ -76,6 +106,8 @@ final class ExportManager {
     /// 書き出し完了の全画面広告はここでは出さない(書き出し画面が見えているときだけ ExportView が出す。
     /// 画面を閉じて編集やナレーションの録音に戻ったあとで、裏で終わった書き出しの広告が重ならないように)
     private(set) var state: State = .idle
+    /// state が .failed になった理由の種類(書き出し画面の「次にすること」に使う)
+    private(set) var failureKind: ExportFailureKind = .other
     /// 0...1
     private(set) var progress: Double = 0
     private(set) var isRunning: Bool = false {
@@ -252,14 +284,21 @@ final class ExportManager {
         }
     }
 
+    /// 始める前に止めた(クリップが無い・空き容量が足りない)
+    @MainActor
+    private func failBeforeStart(_ message: String, kind: ExportFailureKind) {
+        failureKind = kind
+        state = .failed(message)
+        statusText = message
+    }
+
     @MainActor
     private func startOnMain(snapshot: ProjectSnapshot, saveToPhotos: Bool) {
         guard !isRunning else { return }
 
         guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
             let message = String(localized: "書き出すクリップがありません")
-            state = .failed(message)
-            statusText = message
+            failBeforeStart(message, kind: .noClips)
             return
         }
 
@@ -267,8 +306,7 @@ final class ExportManager {
         let estimate = StorageEstimator.estimate(for: snapshot)
         guard estimate.canExport else {
             let message = String(localized: "空き容量が不足しています(必要: \(StorageEstimator.formatBytes(estimate.requiredBytes)) / 空き: \(StorageEstimator.formatBytes(estimate.availableBytes)))")
-            state = .failed(message)
-            statusText = message
+            failBeforeStart(message, kind: .disk)
             return
         }
 
@@ -312,8 +350,7 @@ final class ExportManager {
         guard !isRunning else { return }
         guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
             let message = String(localized: "書き出すクリップがありません")
-            state = .failed(message)
-            statusText = message
+            failBeforeStart(message, kind: .noClips)
             return
         }
         var landscape = snapshot
@@ -328,8 +365,7 @@ final class ExportManager {
         let required = first.requiredBytes + second.estimatedOutputBytes
         guard first.availableBytes >= required else {
             let message = String(localized: "空き容量が不足しています(2 本分で必要: \(StorageEstimator.formatBytes(required)) / 空き: \(StorageEstimator.formatBytes(first.availableBytes)))")
-            state = .failed(message)
-            statusText = message
+            failBeforeStart(message, kind: .disk)
             return
         }
 
@@ -350,8 +386,7 @@ final class ExportManager {
         guard !isRunning else { return }
         guard !snapshot.isEmpty, snapshot.totalDuration > 0 else {
             let message = String(localized: "書き出すクリップがありません")
-            state = .failed(message)
-            statusText = message
+            failBeforeStart(message, kind: .noClips)
             return
         }
         queuedJobs = []
@@ -411,7 +446,8 @@ final class ExportManager {
             finalURL = urls.destination
         } catch {
             let message = String(localized: "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)")
-            await MainActor.run { self.finishFailed(message, outputURL: nil) }
+            let kind = ExportFailureKind(error: error)
+            await MainActor.run { self.finishFailed(message, outputURL: nil, kind: kind) }
             return
         }
 
@@ -426,11 +462,12 @@ final class ExportManager {
             built = try await CompositionBuilder.build(buildSnapshot, purpose: .export)
         } catch {
             let message = String(localized: "映像の構成に失敗しました: \(error.localizedDescription)")
+            let kind = ExportFailureKind(error: error)
             await MainActor.run {
                 if self.cancelRequested {
                     self.finishCancelled(outputURL: outputURL)
                 } else {
-                    self.finishFailed(message, outputURL: outputURL)
+                    self.finishFailed(message, outputURL: outputURL, kind: kind)
                 }
             }
             return
@@ -454,7 +491,7 @@ final class ExportManager {
             if self.cancelRequested { return false }
             self.currentPipeline = pipeline
             self.state = .exporting
-            self.statusText = self.jobLabel + "書き出し中… 0%"
+            self.statusText = self.exportingStatusText(percent: 0)
             return true
         }
         guard proceed else {
@@ -479,7 +516,8 @@ final class ExportManager {
                 try Self.moveToExports(outputURL, to: finalURL)
             } catch {
                 let message = String(localized: "書き出した動画を保存先に移せませんでした: \(error.localizedDescription)")
-                await MainActor.run { self.finishFailed(message, outputURL: outputURL) }
+                let kind = ExportFailureKind(error: error)
+                await MainActor.run { self.finishFailed(message, outputURL: outputURL, kind: kind) }
                 return
             }
 
@@ -507,7 +545,8 @@ final class ExportManager {
             await MainActor.run { self.finishCancelled(outputURL: outputURL) }
         case .failed(let error):
             let message = String(localized: "書き出しに失敗しました: \(error.localizedDescription)")
-            await MainActor.run { self.finishFailed(message, outputURL: outputURL) }
+            let kind = ExportFailureKind(error: error)
+            await MainActor.run { self.finishFailed(message, outputURL: outputURL, kind: kind) }
         }
     }
 
@@ -523,7 +562,8 @@ final class ExportManager {
             finalURL = urls.destination
         } catch {
             let message = String(localized: "書き出し先フォルダを作成できませんでした: \(error.localizedDescription)")
-            await MainActor.run { self.finishFailed(message, outputURL: nil) }
+            let kind = ExportFailureKind(error: error)
+            await MainActor.run { self.finishFailed(message, outputURL: nil, kind: kind) }
             return
         }
 
@@ -532,11 +572,12 @@ final class ExportManager {
             built = try await CompositionBuilder.build(snapshot, purpose: .preview)
         } catch {
             let message = String(localized: "音声の構成に失敗しました: \(error.localizedDescription)")
+            let kind = ExportFailureKind(error: error)
             await MainActor.run {
                 if self.cancelRequested {
                     self.finishCancelled(outputURL: outputURL)
                 } else {
-                    self.finishFailed(message, outputURL: outputURL)
+                    self.finishFailed(message, outputURL: outputURL, kind: kind)
                 }
             }
             return
@@ -557,7 +598,7 @@ final class ExportManager {
             if self.cancelRequested { return false }
             self.currentAudioSession = session
             self.state = .exporting
-            self.statusText = "音声を書き出し中… 0%"
+            self.statusText = self.exportingStatusText(percent: 0)
             return true
         }
         guard proceed else {
@@ -590,7 +631,8 @@ final class ExportManager {
                                              duration: durationSeconds, canvasDescription: String(localized: "音声のみ(m4a)"),
                                              audioOnly: true)
                     } catch {
-                        self.finishFailed(String(localized: "音声の書き出しに失敗しました: \(error.localizedDescription)"), outputURL: outputURL)
+                        self.finishFailed(String(localized: "音声の書き出しに失敗しました: \(error.localizedDescription)"), outputURL: outputURL,
+                                          kind: ExportFailureKind(error: error))
                     }
                 }
             }
@@ -602,7 +644,8 @@ final class ExportManager {
                 if self.cancelRequested || cancelled {
                     self.finishCancelled(outputURL: outputURL)
                 } else {
-                    self.finishFailed(String(localized: "音声の書き出しに失敗しました: \(error.localizedDescription)"), outputURL: outputURL)
+                    self.finishFailed(String(localized: "音声の書き出しに失敗しました: \(error.localizedDescription)"), outputURL: outputURL,
+                                      kind: ExportFailureKind(error: error))
                 }
             }
         }
@@ -680,7 +723,7 @@ final class ExportManager {
                 return String(localized: "書き出した動画の長さを読み取れませんでした")
             }
             if expectedDuration.isFinite, expectedDuration > 0, abs(actual - expectedDuration) > 0.5 {
-                return String(format: "書き出した動画の長さが一致しません(出力 %.1f 秒 / 想定 %.1f 秒)", actual, expectedDuration)
+                return String(localized: "書き出した動画の長さが一致しません(出力 \(String(format: "%.1f", actual)) 秒 / 想定 \(String(format: "%.1f", expectedDuration)) 秒)")
             }
             return nil
         } catch {
@@ -837,6 +880,7 @@ final class ExportManager {
         jobLabel = ""
         try? FileManager.default.removeItem(at: outputURL)
         isRunning = false
+        failureKind = .other
         state = .failed(message)
         statusText = message
         if AppLifecycle.shared.isInBackground {
@@ -858,6 +902,7 @@ final class ExportManager {
         }
         isRunning = false
         if expiredInBackground {
+            failureKind = .other
             state = .failed(Self.backgroundLimitMessage)
             statusText = Self.backgroundLimitMessage
             if AppLifecycle.shared.isInBackground {
@@ -876,10 +921,9 @@ final class ExportManager {
     }
 
     @MainActor
-    private func finishFailed(_ message: String, outputURL: URL?) {
+    private func finishFailed(_ message: String, outputURL: URL?, kind: ExportFailureKind = .other) {
         // 失敗の内容は固定の分類だけ送る(メッセージ本文は送らない)
-        let kind = message.contains("空き容量") ? "disk" : (message.contains("HDR") ? "hdr" : "other")
-        Analytics.shared.track("export_failed", ["kind": kind])
+        Analytics.shared.track("export_failed", ["kind": kind.rawValue])
         currentPipeline = nil
         currentAudioSession = nil
         queuedJobs = []
@@ -893,6 +937,7 @@ final class ExportManager {
         let backgroundInterrupted = expiredInBackground
             || (AppLifecycle.shared.isInBackground && !continuing)
         let finalMessage = backgroundInterrupted ? Self.backgroundLimitMessage : message
+        failureKind = backgroundInterrupted ? .other : kind
         state = .failed(finalMessage)
         statusText = finalMessage
         if AppLifecycle.shared.isInBackground {
@@ -919,12 +964,21 @@ final class ExportManager {
         }
     }
 
+    /// 書き出し中の状態の文(縦横同時は先頭に「(1/2 横 16:9)」が付く)
+    @MainActor
+    private func exportingStatusText(percent: Int) -> String {
+        if currentAudioSession != nil {
+            return String(localized: "音声を書き出し中… \(percent)%")
+        }
+        return jobLabel + String(localized: "書き出し中… \(percent)%")
+    }
+
     @MainActor
     private func applyProgress(_ value: Double) {
         guard isRunning, state == .exporting, !cancelRequested else { return }
         progress = value
         let percent = Int((value * 100).rounded(.down))
-        statusText = currentAudioSession != nil ? "音声を書き出し中… \(percent)%" : jobLabel + "書き出し中… \(percent)%"
+        statusText = exportingStatusText(percent: percent)
         if let handle = continuedHandle {
             // 縦横同時のときは 2 本分を通した進捗にする
             let overall = (Double(jobsCompleted) + value) / Double(max(1, jobsTotal))

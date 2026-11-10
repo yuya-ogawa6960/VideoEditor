@@ -21,7 +21,7 @@ struct EditorToolSearchEntry: Identifiable {
 }
 
 enum EditorToolSearchIndex {
-    /// ツールバーの項目を平らに並べる(グループは中身だけ、小見出しは除く)
+    /// ツールバーの項目を平らに並べる(グループは中身だけ、小見出しは除く。タップで開くメニューの項目も入れる)
     static func flatten(_ items: [EditorToolItem], isRoot: Bool, contextTitle: String,
                         selectsClipID: UUID? = nil) -> [EditorToolSearchEntry] {
         var result: [EditorToolSearchEntry] = []
@@ -38,6 +38,18 @@ enum EditorToolSearchIndex {
                     result.append(EditorToolSearchEntry(id: key, item: item, breadcrumb: crumb,
                                                         groupPath: path, isRoot: isRoot,
                                                         selectsClipID: selectsClipID))
+                    guard item.menuOnTap else { continue }
+                    // タップで開くメニューの項目も探せるようにする(「動画を選ぶ」は「追加」にも「オーバーレイ」にもあるので、場所に親の名前を入れる)
+                    let menuCrumb = crumb + " › " + item.title
+                    for menuEntry in item.menu {
+                        let menuItem = EditorToolItem(menuEntry.title, systemImage: menuEntry.systemImage,
+                                                      id: item.id + "/" + menuEntry.id,
+                                                      enabled: item.isEnabled, disabledReason: item.disabledReason,
+                                                      action: menuEntry.action)
+                        result.append(EditorToolSearchEntry(id: key + "/" + menuEntry.id, item: menuItem, breadcrumb: menuCrumb,
+                                                            groupPath: path, isRoot: isRoot,
+                                                            selectsClipID: selectsClipID))
+                    }
                 }
             }
         }
@@ -133,7 +145,8 @@ enum EditorToolSearchIndex {
         String(localized: "全体に適用"): [String(localized: "調整を全クリップに適用"), String(localized: "全クリップに適用"), String(localized: "まとめて適用"), String(localized: "一括適用"), String(localized: "全部に同じ色味"), "apply to all"],
         String(localized: "文字・スタイル"): [String(localized: "スタイルをコピー"), String(localized: "スタイルを貼り付け"), String(localized: "マイスタイル"), String(localized: "保存したスタイル"), String(localized: "テキストのスタイル"), String(localized: "すべてのテキストに適用"), "text style"],
         String(localized: "トリミングを解除"): [String(localized: "トリミング"), String(localized: "元の長さ"), String(localized: "リセット"), "reset"],
-        String(localized: "ファイルから追加"): [String(localized: "ファイル"), String(localized: "Google ドライブ"), "iCloud Drive", String(localized: "追加"), "files"],
+        String(localized: "ファイル"): [String(localized: "ファイルから追加"), String(localized: "Google ドライブ"), "iCloud Drive", String(localized: "追加"), "files"],
+        String(localized: "方眼紙の背景"): [String(localized: "方眼紙"), String(localized: "グリッド"), "grid"],
         String(localized: "逆再生"): [String(localized: "リバース"), String(localized: "巻き戻し"), "reverse"],
         String(localized: "マルチカメラ"): [String(localized: "複数カメラ"), String(localized: "カメラ切り替え"), "multicam"],
         String(localized: "複数選択"): [String(localized: "まとめて"), String(localized: "一括"), String(localized: "選択")],

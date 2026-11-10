@@ -92,7 +92,7 @@ struct ClipFXHint: View {
 }
 
 func clipFXSeconds(_ value: Double) -> String {
-    String(format: "%.1f 秒", value)
+    String(localized: "\(String(format: "%.1f", value)) 秒")
 }
 
 private func clipFXPercent(_ value: Double) -> String {

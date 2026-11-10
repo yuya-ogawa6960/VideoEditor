@@ -366,8 +366,8 @@ struct PreviewGestureOverlay: View {
         guard size.width > 0, size.height > 0 else { return nil }
 
         for clip in project.textClips.reversed() where clip.contains(timelineTime: time) {
-            let placed = Self.placedText(clip, at: time)
-            let rect = Self.estimatedRect(for: placed, in: size)
+            let placed = Self.placedText(resolvingEdge(clip), at: time)
+            let rect = Self.estimatedRect(for: placed, in: size, canvasSize: player?.renderSize)
             if Self.hit(point, rect: rect, rotation: placed.rotation) {
                 return .text(clip.id)
             }
@@ -390,6 +390,14 @@ struct PreviewGestureOverlay: View {
             }
         }
         return nil
+    }
+
+    /// 端に置いたテキストは、いまの比率・黒帯・文字の大きさで求めた位置に出ている
+    private func resolvingEdge(_ clip: TextClip) -> TextClip {
+        guard clip.edgeAnchor != nil, let canvas = player?.renderSize else { return clip }
+        var resolved = clip
+        resolved.center = TextRenderer.placedCenter(for: clip, canvasSize: canvas, documentary: project.documentary)
+        return resolved
     }
 
     /// キーフレームを反映したテキスト(位置・大きさ・角度)
@@ -825,11 +833,20 @@ struct PreviewGestureOverlay: View {
     // MARK: - 枠
 
     /// テキストの表示範囲のおおよその推定(描画はエンジン側なので近似)
-    static func estimatedRect(for clip: TextClip, in size: CGSize) -> CGRect {
+    static func estimatedRect(for clip: TextClip, in size: CGSize, canvasSize: CGSize? = nil) -> CGRect {
         // モザイクは実際の範囲(clip はキーフレーム反映済みなので、キーフレームを外して計算する)
         if let mosaic = clip.mosaic {
             let w: CGFloat = size.width * CGFloat(clip.widthRatio) * CGFloat(clip.scale)
             let h: CGFloat = size.height * CGFloat(mosaic.heightRatio) * CGFloat(clip.scale)
+            let c = clip.center.point(in: size)
+            return CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h)
+        }
+        // 端に置いたテキストと端のデザインは実際の大きさで枠を出す(幅いっぱいの推定だと、枠が画面の外へ出る)
+        if clip.edgeAnchor != nil || clip.template.isEdgeTitle, clip.keyframes.isEmpty,
+           let canvasSize, canvasSize.width > 0, canvasSize.height > 0,
+           let block = TextRenderer.blockSize(for: clip, canvasSize: canvasSize) {
+            let w = block.width * size.width / canvasSize.width * CGFloat(clip.scale)
+            let h = block.height * size.height / canvasSize.height * CGFloat(clip.scale)
             let c = clip.center.point(in: size)
             return CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h)
         }
@@ -911,7 +928,7 @@ struct PreviewGestureOverlay: View {
         if let hex = clip.style.backgroundColorHex, let bg = Color(hex: hex) {
             background = bg.opacity(clip.style.backgroundOpacity)
         }
-        return Text(clip.text)
+        return Text(TextRenderer.visibleText(of: clip))
             .font(font)
             .foregroundStyle(color)
             .multilineTextAlignment(.center)
@@ -944,8 +961,8 @@ struct PreviewGestureOverlay: View {
     private func textFrame(_ binding: Binding<TextClip>, size: CGSize) -> some View {
         let clip = binding.wrappedValue
         // キーフレームがあれば再生位置の配置(描画と同じ補間値)で枠を出す
-        let placed = Self.placedText(clip, at: frameTime(for: clip.keyframes))
-        let rect = Self.estimatedRect(for: placed, in: size)
+        let placed = Self.placedText(resolvingEdge(clip), at: frameTime(for: clip.keyframes))
+        let rect = Self.estimatedRect(for: placed, in: size, canvasSize: player?.renderSize)
         let frameSize = CGSize(width: max(rect.width, 28), height: max(rect.height, 28))
         return dashedFrame(width: rect.width, height: rect.height, badge: "arrow.up.and.down.and.arrow.left.and.right") {
             if let kind = placed.vectorSticker {
@@ -1671,7 +1688,7 @@ struct PreviewGestureOverlay: View {
 
     /// 開始値を clip の配置に合わせる(キーフレームがあれば、書く時刻の補間値)
     private func seedStart(text clip: TextClip, keyed: PreviewKeyedStart?) {
-        let placed = keyed?.value ?? Self.baseValue(clip)
+        let placed = keyed?.value ?? Self.baseValue(resolvingEdge(clip))
         session.startCenter = placed.center
         session.startScale = placed.scale
         session.startRotation = placed.rotation
@@ -1697,13 +1714,28 @@ struct PreviewGestureOverlay: View {
         session.lastWrite = now
 
         var clip = binding.wrappedValue
+        let rotation = rotationWithSnap(start: session.startRotation, delta: session.effectiveRotate)
+        // 指で動かす・回すと端への固定は終わり。いま見えている位置から続ける
+        // (キーフレームがある間は固定を使わず、開始値は seedStart が入れた再生位置の補間値のまま)
+        if session.keyed == nil, clip.edgeAnchor != nil, session.dragActive || rotation != clip.rotation {
+            let shown = resolvingEdge(clip).center
+            clip.center = shown
+            clip.edgeAnchor = nil
+            session.startCenter = shown
+        }
         let d = session.effectiveDrag
         let cx = session.startCenter.x + Double(d.width / max(size.width, 1))
         let cy = session.startCenter.y + Double(d.height / max(size.height, 1))
-        let center = snappedCenter(NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25)),
+        // ドラッグしていないときは位置を書かない(ピンチで端に揃え直した位置を、開始時の値で戻さない)
+        let center: NormalizedPoint
+        if session.dragActive {
+            center = snappedCenter(NormalizedPoint(x: min(max(cx, -0.25), 1.25), y: min(max(cy, -0.25), 1.25)),
                                    size: size, guardsSafeArea: !clip.isMosaic)
+        } else {
+            // モザイクは開始値から書く(内側へ寄せた値を次のティックの元にしない)
+            center = session.keyed?.value.center ?? (clip.isMosaic ? session.startCenter : clip.center)
+        }
         var scale = min(max(session.startScale * Double(session.effectiveMagnify), 0.2), 6)
-        let rotation = rotationWithSnap(start: session.startRotation, delta: session.effectiveRotate)
         if session.keyed != nil, clip.isMosaic {
             // キーフレームのあるモザイクの大きさは幅・高さの比率で持ち、キーの scale は変えない
             // (顔モザイクのキーは scale 1 のまま。ContentView の顔モザイクと同じ持ち方)

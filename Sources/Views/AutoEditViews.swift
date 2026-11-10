@@ -1194,7 +1194,7 @@ struct SlideshowSheetView: View {
                 HStack {
                     Text("1 枚あたり")
                     Spacer()
-                    Text(String(format: "%.1f 秒", perImageSeconds))
+                    Text("\(String(format: "%.1f", perImageSeconds)) 秒")
                         .font(.callout.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -1383,7 +1383,9 @@ struct SlideshowSheetView: View {
                 project.restore(result)
                 player.seek(to: 0)
             } else {
+                let durationBefore = project.layoutDuration
                 project.clips.append(contentsOf: result.clips)
+                project.extendChapterLabelsAfterAppend(previousDuration: durationBefore)
                 if project.audio.bgmURL == nil, result.audio.bgmURL != nil {
                     project.audio = result.audio
                 }
