@@ -1,0 +1,302 @@
+<title>効果音の聞き比べ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&display=swap">
+<style>
+/* Layout: one narrow column of sound rows, sticky top bar with the category tabs and the redo count */
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --ink: #1a2027;
+  --muted: #5d6874;
+  --line: #dde2e8;
+  --accent: #0b7285;
+  --accent-soft: #d8eef2;
+  --redo: #c92a2a;
+  --redo-soft: #fde4e4;
+  --font-head: "Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-body: "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161b; --surface: #1a2128; --ink: #e8edf2; --muted: #9aa6b2; --line: #2b343d;
+    --accent: #4fc3d4; --accent-soft: #163a41; --redo: #ff6b6b; --redo-soft: #43201f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161b; --surface: #1a2128; --ink: #e8edf2; --muted: #9aa6b2; --line: #2b343d;
+  --accent: #4fc3d4; --accent-soft: #163a41; --redo: #ff6b6b; --redo-soft: #43201f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap { max-width: 720px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.bar .wrap { display: grid; gap: 10px; padding-block: 12px 10px; }
+.title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+h1 { font-family: var(--font-head); font-weight: 700; font-size: 1.25rem; margin: 0; text-wrap: balance; }
+.count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.9rem; }
+.count b { color: var(--redo); }
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: none; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px;
+  padding: 6px 12px; font: inherit; font-size: 0.85rem; cursor: pointer; white-space: nowrap;
+}
+.tab[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.tab .n { opacity: 0.7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.tools { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 0.85rem; color: var(--muted); }
+.tools label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.status { font-size: 0.8rem; color: var(--muted); }
+main .wrap { padding-block: 14px 48px; display: grid; gap: 8px; }
+.hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 4px; max-width: 65ch; }
+.row {
+  display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px 8px 8px;
+}
+.row.redo { border-color: var(--redo); background: var(--redo-soft); }
+.play {
+  width: 48px; height: 48px; border-radius: 50%; border: none; background: var(--accent-soft); color: var(--accent);
+  display: grid; place-items: center; cursor: pointer;
+}
+.play svg { width: 22px; height: 22px; fill: currentColor; }
+.row.playing .play { background: var(--accent); color: var(--surface); }
+.info { min-width: 0; display: grid; gap: 2px; }
+.name { font-weight: 600; overflow-wrap: anywhere; }
+.meta { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; gap: 8px; flex-wrap: wrap; }
+.mark {
+  border: 1px solid var(--line); background: var(--bg); color: var(--muted); border-radius: 10px;
+  padding: 8px 10px; font: inherit; font-size: 0.85rem; cursor: pointer; white-space: nowrap; min-height: 44px;
+}
+.row.redo .mark { background: var(--redo); border-color: var(--redo); color: var(--surface); font-weight: 700; }
+.note { grid-column: 2 / -1; }
+.note input {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 0.85rem;
+  background: var(--surface); color: var(--ink);
+}
+.empty { color: var(--muted); text-align: center; padding: 32px 0; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) { .row { transition: background-color .15s, border-color .15s; } }
+</style>
+
+<header class="bar">
+  <div class="wrap">
+    <div class="title-row">
+      <h1>効果音の聞き比べ</h1>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="tabs" id="tabs" role="toolbar" aria-label="分類"></div>
+    <div class="tools">
+      <label><input type="checkbox" id="autonext"> 続けて聴く</label>
+      <label><input type="checkbox" id="onlyredo"> 作り直しの印だけ</label>
+      <label><input type="checkbox" id="onlynew"> 入れ替えた音だけ</label>
+      <span class="status" id="status">印を読み込み中…</span>
+    </div>
+  </div>
+</header>
+<main>
+  <div class="wrap" id="list">
+    <p class="hint">▶ で聴いて、ダサい音には「作り直し」を押してください。どう直したいか(もっと低く、短く など)を書くと、作り直しの指示に使います。</p>
+  </div>
+</main>
+<audio id="audio" preload="none"></audio>
+
+<script>
+const SOUNDS = /*DATA*/[];
+const CATEGORIES = /*CATS*/[];
+
+const marks = {};          // id -> {take, note}
+let db = null;
+let current = CATEGORIES.length ? CATEGORIES[0].key : "";
+let playingId = null;
+const audio = document.getElementById("audio");
+const listEl = document.getElementById("list");
+const hint = listEl.querySelector(".hint");
+
+const playIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const stopIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/></svg>';
+
+function isRedo(s) { const m = marks[s.id]; return !!m && m.take === s.take; }
+
+function filtered() {
+  return document.getElementById("onlyredo").checked || document.getElementById("onlynew").checked;
+}
+
+function visible() {
+  const onlyRedo = document.getElementById("onlyredo").checked;
+  const onlyNew = document.getElementById("onlynew").checked;
+  if (onlyRedo || onlyNew) return SOUNDS.filter(s => (!onlyRedo || isRedo(s)) && (!onlyNew || s.take > 1));
+  return SOUNDS.filter(s => s.cat === current);
+}
+
+function renderCount() {
+  const n = SOUNDS.filter(isRedo).length;
+  document.getElementById("count").innerHTML = `作り直し <b>${n}</b> / ${SOUNDS.length}`;
+}
+
+function renderTabs() {
+  const tabs = document.getElementById("tabs");
+  tabs.innerHTML = "";
+  for (const c of CATEGORIES) {
+    const items = SOUNDS.filter(s => s.cat === c.key);
+    const redo = items.filter(isRedo).length;
+    const b = document.createElement("button");
+    b.className = "tab";
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(c.key === current && !filtered()));
+    b.textContent = c.title;
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = redo ? `${items.length}・×${redo}` : String(items.length);
+    b.appendChild(n);
+    b.addEventListener("click", () => {
+      current = c.key;
+      document.getElementById("onlyredo").checked = false;
+      document.getElementById("onlynew").checked = false;
+      stop();
+      render();
+      try { localStorage.setItem("sfx-review-tab", current); } catch (e) {}
+    });
+    tabs.appendChild(b);
+  }
+}
+
+function rowFor(s) {
+  const row = document.createElement("div");
+  row.className = "row" + (isRedo(s) ? " redo" : "") + (playingId === s.id ? " playing" : "");
+  row.dataset.id = s.id;
+  const play = document.createElement("button");
+  play.className = "play";
+  play.type = "button";
+  play.innerHTML = playingId === s.id ? stopIcon : playIcon;
+  play.setAttribute("aria-label", (playingId === s.id ? "止める: " : "聴く: ") + s.name);
+  play.addEventListener("click", () => playingId === s.id ? stop() : playSound(s));
+  const info = document.createElement("div");
+  info.className = "info";
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = s.name;
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = `${s.seconds.toFixed(2)} 秒・` + (s.free ? "フリー素材" : (s.take > 1 ? `AI(${s.take} 回目)` : "AI")) + `・${s.id}`;
+  info.append(name, meta);
+  const mark = document.createElement("button");
+  mark.className = "mark";
+  mark.type = "button";
+  mark.textContent = isRedo(s) ? "作り直し" : "作り直す?";
+  mark.setAttribute("aria-pressed", String(isRedo(s)));
+  mark.addEventListener("click", () => toggleMark(s));
+  row.append(play, info, mark);
+  if (isRedo(s)) {
+    const note = document.createElement("div");
+    note.className = "note";
+    const input = document.createElement("input");
+    input.id = "note-" + s.id;
+    input.placeholder = "どう直したいか(なくても大丈夫)";
+    input.value = marks[s.id].note || "";
+    input.addEventListener("change", () => saveNote(s, input.value));
+    note.appendChild(input);
+    row.appendChild(note);
+  }
+  return row;
+}
+
+function render() {
+  renderCount();
+  renderTabs();
+  listEl.replaceChildren(hint);
+  const items = visible();
+  if (!items.length) {
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = filtered() ? "当てはまる音はありません" : "この分類の音はまだありません";
+    listEl.appendChild(p);
+    return;
+  }
+  for (const s of items) listEl.appendChild(rowFor(s));
+}
+
+function playSound(s) {
+  playingId = s.id;
+  audio.src = s.file + (s.rev ? "?v=" + s.rev : "");
+  audio.currentTime = 0;
+  audio.play().catch(() => { playingId = null; render(); });
+  render();
+  const row = listEl.querySelector(`[data-id="${s.id}"]`);
+  if (row && document.getElementById("autonext").checked) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function stop() {
+  audio.pause();
+  playingId = null;
+  render();
+}
+
+audio.addEventListener("ended", () => {
+  const items = visible();
+  const i = items.findIndex(s => s.id === playingId);
+  if (document.getElementById("autonext").checked && i >= 0 && i + 1 < items.length) {
+    setTimeout(() => playSound(items[i + 1]), 350);
+  } else {
+    playingId = null;
+    render();
+  }
+});
+
+function setStatus(text) { document.getElementById("status").textContent = text; }
+
+async function toggleMark(s) {
+  const wasRedo = isRedo(s);
+  if (wasRedo) delete marks[s.id]; else marks[s.id] = { take: s.take, note: "" };
+  render();
+  if (!db) { setStatus("印は保存されていません(この画面では保存できません)"); return; }
+  try {
+    const ref = db.collection("marks").doc(s.id);
+    if (wasRedo) await ref.delete(); else await ref.set({ redo: true, take: s.take, note: "" });
+    setStatus("保存しました");
+  } catch (e) {
+    setStatus("保存できませんでした。通信を確かめて、もう一度押してください");
+  }
+}
+
+async function saveNote(s, text) {
+  if (!marks[s.id]) return;
+  marks[s.id].note = text;
+  if (!db) return;
+  try {
+    await db.collection("marks").doc(s.id).set({ redo: true, take: s.take, note: text });
+    setStatus("メモを保存しました");
+  } catch (e) {
+    setStatus("メモを保存できませんでした");
+  }
+}
+
+document.getElementById("onlyredo").addEventListener("change", () => { stop(); });
+document.getElementById("onlynew").addEventListener("change", () => { stop(); });
+try {
+  const saved = localStorage.getItem("sfx-review-tab");
+  if (saved && CATEGORIES.some(c => c.key === saved)) current = saved;
+} catch (e) {}
+render();
+
+(async () => {
+  try {
+    db = await window.claude?.use?.("db");
+  } catch (e) { db = null; }
+  if (!db) { setStatus("印を保存できません(サインインしてから開いてください)"); return; }
+  db.collection("marks").onSnapshot(snap => {
+    for (const k of Object.keys(marks)) delete marks[k];
+    for (const d of snap.docs) {
+      const v = d.data() || {};
+      if (v.redo) marks[d.id] = { take: Number(v.take) || 1, note: String(v.note || "") };
+    }
+    setStatus("印は自動で保存されます");
+    const active = document.activeElement;
+    if (!(active && active.tagName === "INPUT" && active.id.startsWith("note-"))) render(); else renderCount();
+  }, () => setStatus("印を読み込めませんでした。開き直してください"));
+})();
+</script>

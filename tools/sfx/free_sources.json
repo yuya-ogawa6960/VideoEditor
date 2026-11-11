@@ -1,0 +1,424 @@
+{
+ "click": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "click_001.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "tick": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "tick_004.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "blip": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "select_003.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "confirm": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "confirmation_004.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "cancel": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "back_004.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "error": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "error_006.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "toggle": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "toggle_001.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "pop": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "pluck_001.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "bubble": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "drop_002.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "pop_up": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "open_003.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "text_appear": {
+  "pack": "ui-audio",
+  "title": "Kenney UI Audio",
+  "files": [
+   "rollover4.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/ui-audio"
+ },
+ "hatena": {
+  "pack": "interface-sounds",
+  "title": "Kenney Interface Sounds",
+  "files": [
+   "question_002.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/interface-sounds"
+ },
+ "punch": {
+  "pack": "impact-sounds",
+  "title": "Kenney Impact Sounds",
+  "files": [
+   "impactPunch_heavy_004.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/impact-sounds"
+ },
+ "wood_thud": {
+  "pack": "impact-sounds",
+  "title": "Kenney Impact Sounds",
+  "files": [
+   "impactWood_heavy_001.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/impact-sounds"
+ },
+ "body_fall": {
+  "pack": "impact-sounds",
+  "title": "Kenney Impact Sounds",
+  "files": [
+   "impactSoft_heavy_002.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/impact-sounds"
+ },
+ "metal_hit": {
+  "pack": "impact-sounds",
+  "title": "Kenney Impact Sounds",
+  "files": [
+   "impactMetal_heavy_000.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/impact-sounds"
+ },
+ "explosion": {
+  "pack": "sci-fi-sounds",
+  "title": "Kenney Sci-fi Sounds",
+  "files": [
+   "explosionCrunch_003.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/sci-fi-sounds"
+ },
+ "impact_big": {
+  "pack": "sci-fi-sounds",
+  "title": "Kenney Sci-fi Sounds",
+  "files": [
+   "lowFrequency_explosion_001.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/sci-fi-sounds"
+ },
+ "laser": {
+  "pack": "sci-fi-sounds",
+  "title": "Kenney Sci-fi Sounds",
+  "files": [
+   "laserSmall_001.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/sci-fi-sounds"
+ },
+ "sword_draw": {
+  "pack": "rpg-audio",
+  "title": "Kenney RPG Audio",
+  "files": [
+   "drawKnife2.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/rpg-audio"
+ },
+ "door_open": {
+  "pack": "rpg-audio",
+  "title": "Kenney RPG Audio",
+  "files": [
+   "doorOpen_1.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/rpg-audio"
+ },
+ "door_close": {
+  "pack": "rpg-audio",
+  "title": "Kenney RPG Audio",
+  "files": [
+   "doorClose_2.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/rpg-audio"
+ },
+ "creak": {
+  "pack": "rpg-audio",
+  "title": "Kenney RPG Audio",
+  "files": [
+   "creak1.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/rpg-audio"
+ },
+ "page_flip": {
+  "pack": "rpg-audio",
+  "title": "Kenney RPG Audio",
+  "files": [
+   "bookFlip3.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/rpg-audio"
+ },
+ "coins": {
+  "pack": "rpg-audio",
+  "title": "Kenney RPG Audio",
+  "files": [
+   "handleCoins.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/rpg-audio"
+ },
+ "footsteps_heel": {
+  "pack": "impact-sounds",
+  "title": "Kenney Impact Sounds",
+  "files": [
+   "footstep_concrete_000.ogg",
+   "footstep_concrete_001.ogg",
+   "footstep_concrete_002.ogg",
+   "footstep_concrete_003.ogg",
+   "footstep_concrete_004.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/impact-sounds"
+ },
+ "cloth_flap": {
+  "pack": "rpg-audio",
+  "title": "Kenney RPG Audio",
+  "files": [
+   "cloth2.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/rpg-audio"
+ },
+ "snow_steps": {
+  "pack": "impact-sounds",
+  "title": "Kenney Impact Sounds",
+  "files": [
+   "footstep_snow_000.ogg",
+   "footstep_snow_001.ogg",
+   "footstep_snow_002.ogg",
+   "footstep_snow_003.ogg",
+   "footstep_snow_004.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/impact-sounds"
+ },
+ "power_up": {
+  "pack": "digital-audio",
+  "title": "Kenney Digital Audio",
+  "files": [
+   "powerUp6.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/digital-audio"
+ },
+ "jump": {
+  "pack": "digital-audio",
+  "title": "Kenney Digital Audio",
+  "files": [
+   "phaseJump5.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/digital-audio"
+ },
+ "level_up": {
+  "pack": "digital-audio",
+  "title": "Kenney Digital Audio",
+  "files": [
+   "zapThreeToneUp.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/digital-audio"
+ },
+ "damage": {
+  "pack": "digital-audio",
+  "title": "Kenney Digital Audio",
+  "files": [
+   "lowDown.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/digital-audio"
+ },
+ "select": {
+  "pack": "digital-audio",
+  "title": "Kenney Digital Audio",
+  "files": [
+   "twoTone1.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/digital-audio"
+ },
+ "electric_zap": {
+  "pack": "digital-audio",
+  "title": "Kenney Digital Audio",
+  "files": [
+   "zap2.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/digital-audio"
+ },
+ "win_8bit": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_NES12.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "lose_8bit": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_NES11.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "item_get": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_NES14.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "fanfare_short": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_HIT15.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "orchestra_hit": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_HIT12.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "shocking_truth": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_HIT04.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "comical_walk": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_PIZZI05.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "tiptoe": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_PIZZI07.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "success_jingle": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_STEEL02.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "happy_ukulele": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_STEEL07.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "fail_jingle": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_SAX01.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ },
+ "sax_sting": {
+  "pack": "music-jingles",
+  "title": "Kenney Music Jingles",
+  "files": [
+   "jingles_SAX09.ogg"
+  ],
+  "license": "CC0 1.0",
+  "url": "https://kenney.nl/assets/music-jingles"
+ }
+}

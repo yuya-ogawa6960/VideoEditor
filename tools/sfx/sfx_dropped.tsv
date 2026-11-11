@@ -1,0 +1,99 @@
+# 2026-11-10 オーナー「要らなそうな音は作らないで」で一覧から外した音(戻すときは sfx_list.tsv に行を戻す)
+id	category	name_ja	seconds	engine	style	prompt
+whistle_woo	crowd	口笛ヒュー	1.5	stable	amb	crowd whistling and shouting woo
+party_cheer	crowd	盛り上がり	3.0	stable	amb	party crowd cheering with whistles
+fairy_dust	sparkle	妖精の粉	2.5	stable	sfx	fairy dust, soft tinkling chimes floating
+star_twinkle	sparkle	星の瞬き	2.0	stable	sfx	little stars twinkling, soft high chimes
+chime_soft	sparkle	チャイム	2.0	stable	sfx	soft wind chime tones
+angel	sparkle	天使	3.0	stable	music	heavenly choir aah with shimmer
+crystal	sparkle	クリスタル	1.5	stable	sfx	crystal glass ting
+soap_bubbles	sparkle	シャボン玉	2.0	stable	sfx	soap bubbles floating and popping softly
+kick	impact	キック	1.0	stable	sfx	martial arts kick impact with whoosh
+ice_crack	impact	氷が割れる	2.0	stable	sfx	ice cracking and shattering
+rock_crumble	impact	崩れる	3.0	stable	sfx	rocks crumbling and falling
+shuriken	impact	手裏剣	1.0	stable	sfx	throwing star spinning through air and sticking into wood
+footsteps_sneaker	daily	足音	3.0	stable	sfx	footsteps with sneakers walking indoors
+stairs	daily	階段	3.0	stable	sfx	footsteps going up wooden stairs
+keys	daily	鍵	1.5	stable	sfx	keys jingling
+zipper	daily	ファスナー	1.5	stable	sfx	bag zipper pulled open
+scissors	daily	ハサミ	1.5	stable	sfx	scissors cutting paper, two snips
+book_close	daily	本を閉じる	1.0	stable	sfx	closing a thick book, soft thump
+curtain	daily	カーテン	1.5	stable	sfx	curtain pulled open on a rail
+tap_water	daily	水道	3.0	stable	sfx	water running from a kitchen tap
+shower	daily	シャワー	3.0	stable	amb	shower running in a bathroom
+vacuum	daily	掃除機	3.0	stable	sfx	vacuum cleaner running
+plastic_bag	daily	ガサガサ	2.0	stable	sfx	plastic bag rustling
+pen_click	daily	ボールペン	1.0	stable	sfx	ballpoint pen click, twice
+plate_set	food	お皿	1.0	stable	sfx	ceramic plate set down on a table
+whisk	food	泡立て	2.5	stable	sfx	whisking in a metal bowl
+apple_bite	food	かじる	1.0	stable	sfx	biting into a fresh apple
+chewing	food	もぐもぐ	2.0	stable	sfx	chewing food, close mouth sounds
+car_door	town	車のドア	1.0	stable	sfx	car door closing
+engine_start	town	エンジン	3.0	stable	sfx	car engine starting and idling
+car_crash	town	衝突	2.5	stable	sfx	car crash, metal crunch and glass
+motorcycle	town	バイク	3.0	stable	sfx	motorcycle revving and driving away
+airplane	town	飛行機	4.0	stable	sfx	airplane flying overhead
+siren	town	サイレン	3.0	stable	sfx	emergency vehicle siren passing
+station	town	駅	6.0	stable	amb	train station ambience, footsteps and announcements far away, no words
+classroom	town	教室	5.0	stable	amb	classroom chatter of students before a lesson
+drizzle	nature	小雨	6.0	stable	amb	light drizzle on leaves
+wind_strong	nature	強風	5.0	stable	amb	strong howling wind
+waterfall	nature	滝	6.0	stable	amb	waterfall rushing
+gravel_steps	nature	砂利を歩く	3.0	stable	sfx	footsteps on gravel
+underwater	nature	水中	5.0	stable	amb	underwater ambience, muffled bubbles
+earthquake	nature	地鳴り	4.0	stable	sfx	deep earthquake rumble
+puppy	animal	クゥーン	2.0	stable	sfx	puppy whining softly
+owl	animal	フクロウ	2.5	stable	sfx	owl hooting at night
+cow	animal	モー	2.0	stable	sfx	cow mooing
+horse	animal	馬	2.0	stable	sfx	horse neighing
+sheep	animal	メェー	1.5	stable	sfx	sheep bleating
+bee	animal	ハチ	2.5	stable	sfx	bee buzzing around
+mosquito	animal	蚊	2.5	stable	sfx	mosquito buzzing near the ear
+lion	animal	ガオー	2.5	stable	sfx	lion roaring
+sparkler	season	手持ち花火	3.0	stable	sfx	handheld sparkler fizzing
+shrine_bell	season	神社の鈴	2.5	stable	sfx	shrine bell rope shaken, large bell rattling
+koto	season	琴	2.0	stable	music	single koto pluck, a short Japanese phrase
+shamisen	season	三味線	1.5	stable	music	single shamisen strum
+hyoshigi	season	拍子木	1.5	stable	sfx	Japanese wooden clappers struck twice
+coin_bright	game	コイン(きらびやか)	1.0	stable	sfx	bright modern game coin collect with sparkle
+laser_8bit	game	ピュン	1.0	stable	sfx	retro 8-bit laser shot
+explosion_8bit	game	8bit爆発	1.5	stable	sfx	retro 8-bit explosion noise
+cursor	game	カーソル	1.0	stable	sfx	retro menu cursor move blip
+combo	game	コンボ	1.0	stable	sfx	quick combo hit sound with a bright ping
+pause	game	ポーズ	1.0	stable	sfx	game pause sound, two short tones
+slot	game	スロット	3.0	stable	sfx	slot machine reels spinning then stopping
+dice	game	サイコロ	1.5	stable	sfx	dice rolling on a wooden table
+cards	game	トランプ	2.0	stable	sfx	shuffling a deck of playing cards
+ghost_moan	horror	うめき声	3.0	stable	sfx	ghostly moan echoing
+chains	horror	鎖	2.0	stable	sfx	heavy chains rattling
+clock_eerie	horror	時計の針	4.0	stable	sfx	slow clock ticking in an empty room with reverb
+eerie_wind	horror	不気味な風	5.0	stable	amb	eerie wind howling through an abandoned house
+static	horror	砂嵐	3.0	stable	sfx	television static noise
+bell_toll	horror	鐘(不吉)	4.0	stable	sfx	distant ominous bell tolling once
+ball_kick	sports	ボールを蹴る	1.0	stable	sfx	soccer ball kicked
+dribble	sports	ドリブル	2.0	stable	sfx	basketball dribbling in a gym
+dive	sports	飛び込み	2.0	stable	sfx	diving into a swimming pool
+bowling	sports	ストライク	2.5	stable	sfx	bowling ball rolling and striking pins
+running	sports	走る足音	3.0	stable	sfx	running footsteps on a track
+stage_clear	jingle	ステージクリア	4.0	stable	music	a 4-second upbeat chiptune stage clear jingle, ends on a bright chord
+game_over	jingle	ゲームオーバー	4.0	stable	music	a 4-second sad chiptune game over jingle, slow descending, ends softly
+news_intro	jingle	ニュース風	5.0	stable	music	a 5-second news show opener, driving synths and timpani, ends on a strong chord
+sneaky	jingle	こっそり作戦	5.0	stable	music	a 5-second sneaky spy-like groove, upright bass and muted brass, ends with a stop
+soft_chord	jingle	静かな和音	4.0	stable	music	a 4-second calm low sustained chord, soft pads and cello, gentle fade
+music_box_eerie	jingle	不気味なオルゴール	6.0	stable	music	a 6-second eerie slightly detuned music box phrase, creepy, ends hanging
+jazz_sting	jingle	ジャズ一発	3.0	stable	music	a 3-second jazz big band sting, swinging brass hit with drums, ends on a stab
+edm_drop	jingle	EDMドロップ	6.0	stable	music	a 6-second EDM build-up ending in a heavy drop, strong bass
+lofi_switch	jingle	ローファイ切替	4.0	stable	music	a 4-second lo-fi hip hop bumper, dusty drums, warm bass and electric piano, ends with a stop
+matsuri	jingle	お祭り	5.0	stable	music	a 5-second lively Japanese festival phrase, taiko, shinobue flute and bells, ends on a strike
+tension_build	jingle	緊張の高まり	6.0	stable	music	a 6-second tension build, pulsing strings and drums rising, cuts off at the peak
+wedding	jingle	結婚式	6.0	stable	music	a 6-second wedding jingle, church organ and bells, ends on a held chord
+countdown_music	jingle	カウントダウン(音楽)	6.0	stable	music	a 6-second countdown music, ticking and rising synth stabs on each beat, ends with a hit
+tada	jingle	タダー	2.0	stable	music	a 2-second ta-da reveal, short bright brass flourish
+elevator	jingle	待ち時間	8.0	stable	music	an 8-second relaxed waiting music loop, light bossa nova, loops cleanly
+xmas_sparkle	jingle	聖夜のきらめき	4.0	stable	music	a 4-second magical winter night shimmer, bells and soft choir, ends softly
+tape_stop	transition	テープ停止	1.5	stable	music	short funky drum loop that slows down and stops like a tape stop
+# 2026-11-11 似た音を外した(オーナー「似たやつはアプリに掲載しなくていい」)
+whoosh_double	transition	シュシュッ	1.2	stable	sfx	two quick whooshes in a row, fast double swish
+pon_pon	telop	ポンポン	1.2	stable	sfx	two cute soft pops in a row
+glitter_burst	sparkle	キラッと弾ける	1.5	stable	sfx	burst of glitter sparkles
+success_sparkle	sparkle	キラリン(成功)	1.5	stable	sfx	bright tinkly success sparkle

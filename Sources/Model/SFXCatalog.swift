@@ -47,12 +47,11 @@ struct SFXItem: Identifiable, Hashable {
 }
 
 enum SFXCatalog {
-    /// 287 種類(パネルに出る順)
+    /// 286 種類(パネルに出る順)
     static let all: [SFXItem] = [
         SFXItem(id: "whoosh_fast", category: .transition, nameKey: "シュッ", isAmbience: false),
         SFXItem(id: "whoosh_soft", category: .transition, nameKey: "フワッ", isAmbience: false),
         SFXItem(id: "whoosh_heavy", category: .transition, nameKey: "ブォン", isAmbience: false),
-        SFXItem(id: "whoosh_double", category: .transition, nameKey: "シュシュッ", isAmbience: false),
         SFXItem(id: "swoosh_up", category: .transition, nameKey: "シュワッ(上へ)", isAmbience: false),
         SFXItem(id: "swoosh_down", category: .transition, nameKey: "シュワッ(下へ)", isAmbience: false),
         SFXItem(id: "swipe", category: .transition, nameKey: "スワイプ", isAmbience: false),
@@ -82,7 +81,6 @@ enum SFXCatalog {
         SFXItem(id: "pop_small", category: .telop, nameKey: "プチッ", isAmbience: false),
         SFXItem(id: "pop_up", category: .telop, nameKey: "ピョコッ", isAmbience: false),
         SFXItem(id: "bubble", category: .telop, nameKey: "ポコッ", isAmbience: false),
-        SFXItem(id: "pon_pon", category: .telop, nameKey: "ポンポン", isAmbience: false),
         SFXItem(id: "click", category: .telop, nameKey: "カチッ", isAmbience: false),
         SFXItem(id: "tick", category: .telop, nameKey: "チッ", isAmbience: false),
         SFXItem(id: "blip", category: .telop, nameKey: "ピッ", isAmbience: false),
@@ -163,13 +161,11 @@ enum SFXCatalog {
         SFXItem(id: "sparkle_up", category: .sparkle, nameKey: "キラキラ↑", isAmbience: false),
         SFXItem(id: "sparkle_down", category: .sparkle, nameKey: "キラキラ↓", isAmbience: false),
         SFXItem(id: "magic_wand", category: .sparkle, nameKey: "魔法の杖", isAmbience: false),
-        SFXItem(id: "glitter_burst", category: .sparkle, nameKey: "キラッと弾ける", isAmbience: false),
         SFXItem(id: "bell_small", category: .sparkle, nameKey: "チリン", isAmbience: false),
         SFXItem(id: "heal", category: .sparkle, nameKey: "回復", isAmbience: false),
         SFXItem(id: "transform", category: .sparkle, nameKey: "変身", isAmbience: false),
         SFXItem(id: "shine_clean", category: .sparkle, nameKey: "ピカピカ", isAmbience: false),
         SFXItem(id: "reveal", category: .sparkle, nameKey: "お披露目", isAmbience: false),
-        SFXItem(id: "success_sparkle", category: .sparkle, nameKey: "キラリン(成功)", isAmbience: false),
         SFXItem(id: "impact_don", category: .impact, nameKey: "ドン", isAmbience: false),
         SFXItem(id: "impact_big", category: .impact, nameKey: "ドーン", isAmbience: false),
         SFXItem(id: "braam", category: .impact, nameKey: "ブォーン(予告編)", isAmbience: false),
@@ -336,5 +332,8 @@ enum SFXCatalog {
         SFXItem(id: "christmas", category: .jingle, nameKey: "クリスマス", isAmbience: false),
         SFXItem(id: "romance", category: .jingle, nameKey: "ときめき", isAmbience: false),
         SFXItem(id: "ending_hit", category: .jingle, nameKey: "締めのジャン", isAmbience: false),
+        SFXItem(id: "metal_hit", category: .impact, nameKey: "カーン(金属)", isAmbience: false),
+        SFXItem(id: "sword_draw", category: .impact, nameKey: "シャキーン", isAmbience: false),
+        SFXItem(id: "sax_sting", category: .jingle, nameKey: "サックス一発", isAmbience: false),
     ]
 }
