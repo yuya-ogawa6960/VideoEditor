@@ -1,6 +1,29 @@
 {
   "sourceLanguage": "ja",
   "strings": {
+    "iPhone Duo ではツールを右の列に": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put tools in the right column on iPhone Duo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas en la columna derecha en iPhone Duo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas na coluna direita no iPhone Duo"
+          }
+        }
+      }
+    },
     "Apple Intelligence が使えません": {
       "extractionState": "manual",
       "localizations": {

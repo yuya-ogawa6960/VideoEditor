@@ -34,8 +34,14 @@ struct AppSettingsView: View {
     @State private var asksOwnerCode = false
     @State private var ownerCode = ""
     @State private var ownerCodeResult: String?
-    /// iPhone Duo を開いたとき、編集画面のツールを右の列(時刻などが出る列)に縦に並べる(編集画面の「設定」からも切り替えられる)
+    /// iPhone Duo で、編集画面のツールを右の列(時刻などが出る列)に縦に並べる(編集画面の「設定」からも切り替えられる)。
+    /// 選んでいなければ、右の列がある画面では右に置く(ContentView.toolbarSideChosen)
     @AppStorage("editor.toolbarOnSide") private var toolbarOnSide = false
+
+    private var toolbarOnSideBinding: Binding<Bool> {
+        let current: Bool = ContentView.toolbarSideChosen ? toolbarOnSide : ContentView.trailingColumnAvailable()
+        return Binding(get: { current }, set: { toolbarOnSide = $0 })
+    }
 
     init() {}
 
@@ -69,7 +75,7 @@ struct AppSettingsView: View {
                 }
             }
             Section {
-                Toggle("Duo を開いたときはツールを右に", isOn: $toolbarOnSide)
+                Toggle("iPhone Duo ではツールを右の列に", isOn: toolbarOnSideBinding)
             }
             // 書き出した動画の整理(「ファイル」アプリに出る Documents/Exports)。開いて戻ったら合計を出し直す
             Section {

@@ -343,6 +343,12 @@ struct EditorToolbar: View {
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowContentWidth = $0 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { rowWidth = $0 }
+            // 列に入りきらない項目が、右に固定した「その他」「設定」の上にはみ出して重なっていた(1.12.107 まで。
+            // 写真のクリップの「削除」など)。左右だけ列の幅で切る(上下は王冠の印が出るので切らない)
+            .mask {
+                Rectangle()
+                    .padding(.vertical, -16)
+            }
             // 続きがあるときは右端に黒のグラデーションを重ねて「スクロールできる」と見せる(タップは通す)
             .overlay(alignment: .trailing) {
                 if rowContentWidth > rowWidth + 1 {
@@ -400,6 +406,11 @@ struct EditorToolbar: View {
                 proxy.size.height
             } action: { height in
                 verticalScrollHeight = height
+            }
+            // 入りきらない項目が、下に固定した「‹」「設定」の上にはみ出さないよう、上下だけ切る(左右は王冠の印が出るので切らない)
+            .mask {
+                Rectangle()
+                    .padding(.horizontal, -16)
             }
             .id(groupPath.joined(separator: "/"))
 

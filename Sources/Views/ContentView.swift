@@ -1349,7 +1349,11 @@ struct ContentView: View {
             // ツールを右の列へ: iPhone Duo を開いたとき、または閉じていても右端に時刻・電池が縦に並ぶ列(広いセーフエリア)がある画面
             // (パネルを開いている間は下にパネルが出るので、列は出さない)
             let sideColumn: Bool = geo.safeAreaInsets.trailing >= Self.sideColumnMinInset
-            let sideToolbar: Bool = (isLargeWindow || sideColumn) && toolbarOnSide && !panelOpen && !splitPortrait
+            // 自分で選んでいなければ、右の列がある画面(iPhone Duo)ではツールを右に置く。
+            // 右の列は時刻・電池のほかは空いているので、下のツールバーの分だけプレビューが大きくなる(前は下が既定で、プレビューが小さかった)
+            let storedSide: Bool = toolbarOnSide
+            let wantsSide: Bool = Self.toolbarSideChosen ? storedSide : sideColumn
+            let sideToolbar: Bool = (isLargeWindow || sideColumn) && wantsSide && !panelOpen && !splitPortrait
             // 右の列の幅: 時刻・電池などが出る右端のセーフエリアと同じ幅(狭いときは 72pt)
             let sideWidth: CGFloat = max(72, geo.safeAreaInsets.trailing)
             // 右の列はプレビューの横から画面の下まで縦いっぱいに出す。右上に縦に並ぶ時刻・電池・電波と重ならないよう、その下から始める。
@@ -1574,8 +1578,13 @@ struct ContentView: View {
     /// (iPhone Duo を開いた横持ちでは約 115pt、閉じたときは約 160pt まで出る)
     static let sideColumnStatusAllowance: CGFloat = 176
 
-    /// 右端のセーフエリアが広い(時刻・電池が縦に並ぶ列がある)か。「ツールを右に置く」を出す条件に使う
-    private static func trailingColumnAvailable() -> Bool {
+    /// ツールを右の列に置くか下に置くかを、利用者が自分で選んだか(選んでいなければ、右の列がある画面では右に置く)
+    static var toolbarSideChosen: Bool {
+        UserDefaults.standard.object(forKey: "editor.toolbarOnSide") != nil
+    }
+
+    /// 右端のセーフエリアが広い(時刻・電池が縦に並ぶ列がある)か。「ツールを右に置く」を出す条件と、右に置く既定に使う
+    static func trailingColumnAvailable() -> Bool {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first,
               let window = scene.keyWindow ?? scene.windows.first else { return false }
@@ -3039,12 +3048,13 @@ struct ContentView: View {
             }
         }))
         // iPhone Duo(開いたとき、または閉じていても右に時刻・電池の列がある画面): 下のツールを右の列に置く / 下に戻す
-        // (設定の「Duo を開いたときはツールを右に」と同じ)
+        // (設定の「iPhone Duo ではツールを右の列に」と同じ。選んでいなければ、右の列がある画面では右)
         if isLargeWindow || Self.trailingColumnAvailable() {
-            items.append(EditorToolItem(toolbarOnSide ? String(localized: "ツールを下に戻す") : String(localized: "ツールを右に置く"),
-                                        systemImage: toolbarOnSide ? "rectangle.bottomthird.inset.filled" : "sidebar.trailing",
+            let onSide: Bool = Self.toolbarSideChosen ? toolbarOnSide : Self.trailingColumnAvailable()
+            items.append(EditorToolItem(onSide ? String(localized: "ツールを下に戻す") : String(localized: "ツールを右に置く"),
+                                        systemImage: onSide ? "rectangle.bottomthird.inset.filled" : "sidebar.trailing",
                                         id: "toolbar-side") {
-                toolbarOnSide.toggle()
+                toolbarOnSide = !onSide
             })
         }
         items.append(EditorToolItem(String(localized: "このプロジェクトを空にする"), systemImage: "trash", destructive: true) {
