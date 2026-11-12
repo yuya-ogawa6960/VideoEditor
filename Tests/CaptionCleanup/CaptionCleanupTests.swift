@@ -56,6 +56,8 @@ struct CaptionCleanupTests {
         testReportedScenario()
         testSameStartPair()
         testSortIsStable()
+        testSoundAnnotations()
+        testOutroInMiddle()
         print("\(checks - failures)/\(checks) checks passed")
         if failures > 0 {
             exit(1)
@@ -263,6 +265,70 @@ struct CaptionCleanupTests {
             expect(cues.first.map { near($0.start, 312.0) } ?? false, "\(name): 本当の字幕の始まりは変わらない")
             expect(hasNoOverlap(cues), "\(name): 重なりが残らない: \(cues.map { ($0.start, $0.end) })")
         }
+    }
+
+    // MARK: 音の注釈(1.12.106 まで「音楽)」「楽)」「一同)」が字幕に残っていた)
+
+    static func tokens(_ texts: [String]) -> [TimedToken] {
+        texts.enumerated().map { index, text in
+            TimedToken(text: text, start: Double(index), end: Double(index) + 0.5)
+        }
+    }
+
+    static func texts(_ tokens: [TimedToken]) -> [String] { tokens.map { $0.text } }
+
+    static func testSoundAnnotations() {
+        // 開き括弧が単語 1 つで出て、中身が離れた単語に分かれている
+        expectEqual(texts(CaptionCleanup.removeSoundAnnotations(tokens(["今日は", "(", "音", "楽", ")", "行きます"]))),
+                    ["今日は", "行きます"], "分かれた (音楽) を消す")
+        // 1 つの単語の中の注釈
+        expectEqual(texts(CaptionCleanup.removeSoundAnnotations(tokens(["(笑)", "そうですね"]))),
+                    ["そうですね"], "(笑) を消す")
+        expectEqual(texts(CaptionCleanup.removeSoundAnnotations(tokens(["(音楽)次", "へ"]))),
+                    ["次", "へ"], "注釈のあとの文字は残す")
+        expectEqual(texts(CaptionCleanup.removeSoundAnnotations(tokens(["［音楽］", "（拍手）", "【歓声】", "はい"]))),
+                    ["はい"], "全角・角括弧の注釈も消す")
+        // 続く注釈と本文(報告された「一口の音)一同)正義」)
+        expectEqual(texts(CaptionCleanup.removeSoundAnnotations(tokens(["(", "一口の音", ")", "(", "一同", ")", "正義"]))),
+                    ["正義"], "続く注釈を全部消す")
+        // 開き括弧の無い閉じ括弧(前のピースで開いていた)
+        expectEqual(texts(CaptionCleanup.removeSoundAnnotations(tokens(["楽)", "こんにちは"]))),
+                    ["こんにちは"], "閉じ括弧だけ残った注釈を消す")
+        // 閉じないまま長く続くものは注釈ではない(開き括弧だけ消す)
+        expectEqual(texts(CaptionCleanup.removeSoundAnnotations(tokens(["(", "これは", "とても", "長い", "文章なので", "注釈ではない"]))),
+                    ["これは", "とても", "長い", "文章なので", "注釈ではない"], "閉じない括弧は開き括弧だけ消す")
+        // ♪ は消して、歌詞は残す
+        expectEqual(texts(CaptionCleanup.removeSoundAnnotations(tokens(["♪", "ラララ", "♪"]))),
+                    ["ラララ"], "♪ を消す")
+        // 括弧の無いトークンはそのまま(もともと句読点だけのトークンも残す)
+        let plain = tokens(["はい", "、", "そうです", "。"])
+        expectEqual(CaptionCleanup.removeSoundAnnotations(plain), plain, "括弧が無ければそのまま")
+        // 時刻・自信度はそのまま
+        var withConfidence = TimedToken(text: "(笑)はい", start: 3.0, end: 3.8)
+        withConfidence.confidence = 0.9
+        let kept = CaptionCleanup.removeSoundAnnotations([withConfidence])
+        expect(kept.count == 1 && kept[0].text == "はい" && near(kept[0].start, 3.0) && near(kept[0].end, 3.8)
+               && kept[0].confidence == 0.9, "残ったトークンの時刻と自信度は変えない")
+    }
+
+    // MARK: 動画の途中の締めの定型文
+
+    static func testOutroInMiddle() {
+        let input = [
+            cue(0.0, 2.0, "おはようございます"),
+            cue(351.4, 353.1, "ご視聴ありがとうございました"),   // 途中で 1.7 秒・重ならない → 捨てる
+            cue(354.7, 360.2, "カフェオガワはメルボルンにあります"),
+            cue(400.0, 403.0, "チャンネル登録お願いします"),     // 途中でも言うので残す
+            cue(640.0, 652.0, "それではまた"),
+            cue(652.5, 654.0, "ご視聴ありがとうございました"),   // 最後の 30 秒の中 → 残す
+        ]
+        let (result, removed) = CaptionCleanup.removeHallucinations(input)
+        expectEqual(removed, 1, "途中の「ご視聴ありがとうございました」だけ捨てる")
+        expectEqual(result.map { $0.text },
+                    ["おはようございます", "カフェオガワはメルボルンにあります", "チャンネル登録お願いします",
+                     "それではまた", "ご視聴ありがとうございました"], "残る字幕")
+        expect(CaptionIssueCheck.isOutroMistake("ご視聴ありがとうございました。"), "締めの定型文")
+        expect(!CaptionIssueCheck.isOutroMistake("チャンネル登録お願いします"), "チャンネル登録は締めの定型文ではない")
     }
 
     static func testSortIsStable() {

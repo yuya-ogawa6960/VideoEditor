@@ -21,6 +21,8 @@ struct RootView: View {
     @State private var openedPackageURL: URL?
     /// 「新しいプロジェクト」で作って開いたプロジェクト。何も入れずに閉じたら一覧から消す
     @State private var freshProjectID: UUID?
+    /// Apple Intelligence に対応している端末で使えなくなったときの、言語の注意(AppleIntelligenceCheck)
+    @State private var showAppleIntelligenceNotice = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -85,10 +87,23 @@ struct RootView: View {
         } message: {
             Text("使った機能・動作の重さ・異常終了の情報を、機種・OS・言語とともに匿名で送ります。")
         }
+        // 対応している端末で Apple Intelligence が使えなくなった(オフ、または iPhone と Siri の言語が違う)
+        .alert("Apple Intelligence が使えません", isPresented: $showAppleIntelligenceNotice) {
+            Button("OK") {
+                AppleIntelligenceCheck.markLanguageNoticeShown()
+            }
+            Button("今後表示しない") {
+                AppleIntelligenceCheck.suppressLanguageNotice()
+            }
+        } message: {
+            Text("この iPhone は Apple Intelligence に対応していますが、今は使えない状態です。次の言語の設定を確かめてください。\n\n・iPhone の言語と Siri の言語を同じにする(設定 →「一般」→「言語と地域」、設定 →「Siri」→「言語」)\n・どちらも Apple Intelligence が対応している言語(日本語・英語など)にする\n\n使えるようになるまで、キャプションの AI 仕上げなど、端末内の AI を使う機能は動きません。")
+        }
         // 広告(トラッキングの確認 → AdMob の開始 → 広告の読み込み)
         .task {
             if !UserDefaults.standard.bool(forKey: Analytics.askedKey) {
                 showAnalyticsPrompt = true
+            } else {
+                checkAppleIntelligence()
             }
             await AdsManager.shared.start()
         }
@@ -101,8 +116,20 @@ struct RootView: View {
             // アプリに戻ってきたら、共有で受け取った動画・写真がないか見る(一覧・編集画面がそれぞれ確認を出す)
             if phase == .active {
                 IncomingMediaCenter.shared.refresh()
+                // 統計の確認と重ならないように、そちらが出ていないときだけ
+                if !showAnalyticsPrompt { checkAppleIntelligence() }
             }
         }
+        // 統計の確認を閉じたあと(初回)にも見る
+        .onChange(of: showAnalyticsPrompt) { _, showing in
+            if !showing { checkAppleIntelligence() }
+        }
+    }
+
+    /// Apple Intelligence に対応している端末で使えなくなっていたら、言語の注意を知らせる(使えない間に 1 回だけ)
+    private func checkAppleIntelligence() {
+        guard !showAppleIntelligenceNotice, AppleIntelligenceCheck.shouldShowLanguageNotice() else { return }
+        showAppleIntelligenceNotice = true
     }
 
     /// クリップも、ほかの要素(キャプション・テキスト・BGM など)も入っていない。

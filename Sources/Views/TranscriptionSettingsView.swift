@@ -43,6 +43,9 @@ struct TranscriptionSettingsView: View {
     @State private var cachedTranscriptCount: Int = 0
     // 用語の登録
     @State private var termCount: Int = 0
+    /// 設定アプリから戻ったときに Apple Intelligence が使えるかを見直すきっかけ
+    @State private var availabilityCheck = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {}
 
@@ -63,6 +66,10 @@ struct TranscriptionSettingsView: View {
         }
         .navigationTitle("文字起こしとAI仕上げ")
         .navigationBarTitleDisplayMode(.inline)
+        // 設定アプリで Apple Intelligence をオンにして戻ってきたら、表示を見直す
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { availabilityCheck += 1 }
+        }
         .onAppear {
             // Whisper が入っていないビルドでは選べないので、前に選んでいたら Apple に戻す
             if settings.transcriptionEngine == .whisper, !WhisperTranscriber.isAvailable {
@@ -385,11 +392,13 @@ struct TranscriptionSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // 選んだものと実際に使うものが違うときだけ出す
+            // 選んだものと実際に使うものが違うときだけ出す(Apple Intelligence が使えないときは、その理由)
             if let note = polishResolvedNote {
                 Text(note)
                     .font(.footnote)
                     .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .id(availabilityCheck)
             }
         } header: {
             Text("AI 仕上げ")
@@ -409,8 +418,14 @@ struct TranscriptionSettingsView: View {
         case .cloud: expected = .cloud
         case .none: expected = SubtitlePolisher.ResolvedEngine.none
         }
+        _ = availabilityCheck
         if let expected, expected == resolved { return nil }
         if resolved == .none {
+            // 端末内(自動も)を使うつもりで使えないときは、使えない理由を出す
+            if settings.polishEngine == .onDevice || settings.polishEngine == .auto,
+               let reason = SubtitlePolisher.onDeviceUnavailableReason {
+                return reason
+            }
             return String(localized: "この端末では今は使われません")
         }
         let name = SubtitlePolisher.displayName(of: resolved)

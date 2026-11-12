@@ -643,11 +643,20 @@ final class WhisperTranscriber {
 
     // MARK: - WhisperKit 結果 → TimedToken
 
+    /// 話していない見込みがこれより高く、しかも自信が silentLogProbThreshold より低いセグメントは捨てる
+    /// (OpenAI の Whisper と同じ基準。WhisperKit は言い直しを止めるだけで、結果には残していた)
+    static let noSpeechThreshold: Float = 0.6
+    static let silentLogProbThreshold: Float = -1.0
+
     #if canImport(WhisperKit)
     private static func tokens(from results: [TranscriptionResult], offset: Double) -> [TimedToken] {
         var tokens: [TimedToken] = []
         for result in results {
             for segment in result.segments {
+                // 音楽や雑音だけの所で作った文(「ご視聴ありがとうございました」「私は、私は、…」など)
+                if segment.noSpeechProb > noSpeechThreshold && segment.avgLogprob < silentLogProbThreshold {
+                    continue
+                }
                 let segmentStart = offset + Double(segment.start)
                 let segmentEnd = offset + Double(segment.end)
                 let words: [WordTiming] = segment.words ?? []

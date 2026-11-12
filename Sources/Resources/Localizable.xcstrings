@@ -1,6 +1,190 @@
 {
   "sourceLanguage": "ja",
   "strings": {
+    "Apple Intelligence が使えません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence isn't available"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence no está disponible"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Apple Intelligence não está disponível"
+          }
+        }
+      }
+    },
+    "今後表示しない": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Show Again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No volver a mostrar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não mostrar novamente"
+          }
+        }
+      }
+    },
+    "この iPhone は Apple Intelligence に対応していますが、今は使えない状態です。次の言語の設定を確かめてください。\n\n・iPhone の言語と Siri の言語を同じにする(設定 →「一般」→「言語と地域」、設定 →「Siri」→「言語」)\n・どちらも Apple Intelligence が対応している言語(日本語・英語など)にする\n\n使えるようになるまで、キャプションの AI 仕上げなど、端末内の AI を使う機能は動きません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone supports Apple Intelligence, but it can't be used right now. Please check these language settings.\n\n• Make your iPhone's language and Siri's language the same (Settings > General > Language & Region, and Settings > Siri > Language)\n• Choose a language Apple Intelligence supports for both (such as English or Japanese)\n\nUntil it's available, features that use on-device AI, such as AI caption finishing, won't run."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este iPhone es compatible con Apple Intelligence, pero ahora no se puede usar. Revisa estos ajustes de idioma.\n\n• Usa el mismo idioma en el iPhone y en Siri (Ajustes > General > Idioma y región, y Ajustes > Siri > Idioma)\n• Elige para ambos un idioma compatible con Apple Intelligence (como inglés o japonés)\n\nHasta que esté disponible, las funciones que usan IA en el dispositivo, como el acabado de subtítulos con IA, no funcionarán."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este iPhone é compatível com o Apple Intelligence, mas ele não pode ser usado agora. Confira estes ajustes de idioma.\n\n• Use o mesmo idioma no iPhone e na Siri (Ajustes > Geral > Idioma e Região, e Ajustes > Siri > Idioma)\n• Escolha para os dois um idioma compatível com o Apple Intelligence (como inglês ou japonês)\n\nAté ele ficar disponível, os recursos que usam IA no aparelho, como o acabamento de legendas com IA, não vão funcionar."
+          }
+        }
+      }
+    },
+    "この端末は Apple Intelligence に対応していません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device doesn't support Apple Intelligence"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este dispositivo no es compatible con Apple Intelligence"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este aparelho não é compatível com o Apple Intelligence"
+          }
+        }
+      }
+    },
+    "Apple Intelligence がオンになっていません。設定アプリの上の検索で「Apple Intelligence」と入れて、オンにしてください。iPhone の言語と Siri の言語が違うときも使えません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence isn't turned on. Search for “Apple Intelligence” at the top of the Settings app and turn it on. It also can't be used when your iPhone's language and Siri's language differ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence no está activado. Busca «Apple Intelligence» en la parte superior de Ajustes y actívalo. Tampoco funciona si el idioma del iPhone y el de Siri son distintos"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Apple Intelligence não está ativado. Pesquise “Apple Intelligence” no topo do app Ajustes e ative. Ele também não funciona se o idioma do iPhone e o da Siri forem diferentes"
+          }
+        }
+      }
+    },
+    "Apple Intelligence を準備中です。Wi-Fi と電源につないでしばらく待つと使えるようになります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence is getting ready. Connect to Wi-Fi and power and wait a while, then it will be available"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence se está preparando. Conéctate a una red Wi-Fi y a la corriente y espera un rato; luego estará disponible"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Apple Intelligence está sendo preparado. Conecte ao Wi-Fi e à energia e aguarde um pouco; depois ele ficará disponível"
+          }
+        }
+      }
+    },
+    "Apple Intelligence が今は使えません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence isn't available right now"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence no está disponible en este momento"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Apple Intelligence não está disponível no momento"
+          }
+        }
+      }
+    },
+    "Apple Intelligence は iOS 26 以降で使えます": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence requires iOS 26 or later"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligence requiere iOS 26 o posterior"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Apple Intelligence requer iOS 26 ou posterior"
+          }
+        }
+      }
+    },
     "カーン(金属)": {
       "extractionState": "manual",
       "localizations": {

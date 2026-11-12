@@ -841,8 +841,10 @@ final class TranscriptionService {
             try checkCancelled()
 
             // 元素材時刻 → 出力タイムライン時刻 に変換してから文単位に区切る。
-            // Whisper が窓の継ぎ目で同じ単語を 2 度書き出したもの(時刻が重なる同じ単語)は先に捨てる
-            let timelineTokens = CaptionCleanup.removeDuplicateTokens(Self.mapToTimeline(sourceTokens ?? [], job: job))
+            // Whisper が窓の継ぎ目で同じ単語を 2 度書き出したもの(時刻が重なる同じ単語)と、
+            // 音の注釈「(音楽)」「(笑)」は先に捨てる
+            let timelineTokens = CaptionCleanup.removeSoundAnnotations(
+                CaptionCleanup.removeDuplicateTokens(Self.mapToTimeline(sourceTokens ?? [], job: job)))
             var segmenter = SubtitleSegmenter(language: jobLanguage, removeFillers: removeFillers)
             segmenter.hardEnd = job.clipTimelineEnd
             let segmented = CaptionIssueCheck.attachDoubtfulWords(segmenter.segment(timelineTokens), tokens: timelineTokens)
@@ -942,7 +944,8 @@ final class TranscriptionService {
             let clip = placement.clip
             // 今のトリミング範囲から外れたトークンは捨てる(残りは mapToTimeline が範囲内に収める)
             let inside = perClip[info.order].filter { $0.end >= clip.startTime && $0.start <= clip.endTime }
-            let timelineTokens = CaptionCleanup.removeDuplicateTokens(Self.mapToTimeline(inside, job: placement))
+            let timelineTokens = CaptionCleanup.removeSoundAnnotations(
+                CaptionCleanup.removeDuplicateTokens(Self.mapToTimeline(inside, job: placement)))
             var segmenter = SubtitleSegmenter(language: jobLanguage, removeFillers: removeFillers)
             segmenter.hardEnd = placement.clipTimelineEnd
             cues.append(contentsOf: segmenter.segment(timelineTokens))

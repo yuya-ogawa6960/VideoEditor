@@ -173,6 +173,27 @@ enum SubtitlePolisher {
         return false
     }
 
+    /// 端末内モデル(Apple Intelligence)が使えない理由(使えるときは nil)。
+    /// 前は「この端末では今は使われません」としか出さず、対応している端末(iPhone Duo など)でも、
+    /// オフになっているのか、準備中なのかがわからなかった
+    static var onDeviceUnavailableReason: String? {
+        switch AppleIntelligenceCheck.state {
+        case .available:
+            return nil
+        case .deviceNotEligible:
+            return String(localized: "この端末は Apple Intelligence に対応していません")
+        case .notEnabled:
+            return String(localized: "Apple Intelligence がオンになっていません。設定アプリの上の検索で「Apple Intelligence」と入れて、オンにしてください。iPhone の言語と Siri の言語が違うときも使えません")
+        case .modelNotReady:
+            return String(localized: "Apple Intelligence を準備中です。Wi-Fi と電源につないでしばらく待つと使えるようになります")
+        case .unavailable:
+            if #available(iOS 26.0, *) {
+                return String(localized: "Apple Intelligence が今は使えません")
+            }
+            return String(localized: "Apple Intelligence は iOS 26 以降で使えます")
+        }
+    }
+
     /// 文字起こしの後の自動の仕上げのエンジン
     static func resolveEngine(settings: AppSettings) -> ResolvedEngine {
         switch settings.polishEngine {

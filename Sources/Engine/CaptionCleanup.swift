@@ -9,6 +9,9 @@ import Foundation
 //   2. 音声のない所で「ご視聴ありがとうございました」などの定型文を作り出す(ごく短いか、本当の字幕と重なる)
 //   3. 同時に始まる 2 つの字幕があると、前の字幕を 0.2 秒に縮めるだけだったので、重なったまま残っていた
 //      (TranscriptionService.finalize と SubtitleSegmenter.adjustTiming)
+// 1.12.106 までは、Whisper が書き出す音の注釈「(音楽)」「(笑)」「(一同)」の開き括弧が日本語では単語 1 つとして出て、
+// SubtitleSegmenter が前の単語に付けていたので、「音楽)」「楽)」「一同)」のような字幕が残っていた(removeSoundAnnotations)。
+// 動画の途中の 1〜2 秒の「ご視聴ありがとうございました」も残っていた(removeHallucinations の締めの定型文)
 // ここでは、重なる同じ単語(removeDuplicateTokens)・続く同じ文(mergeDuplicates)・短い定型文(removeHallucinations)を
 // 取り除き、重なりは次の字幕を後ろへずらして解消する(resolveOverlaps)。
 // 本当の繰り返し(笑い声の「ハ」「ハ」「ハ」、長さ 0 で並ぶ「20」「20」、「すごい！」「すごい！」)は消さないよう、
@@ -35,6 +38,10 @@ enum CaptionCleanup {
     static let duplicateMinimumLength = 4
     /// これより短い定型文は誤認識として捨てる(秒)
     static let hallucinationMaxDuration: Double = 0.5
+    /// 締めの定型文(「ご視聴ありがとうございました」など)は、字幕の最後からこの秒数より前にあれば長くても捨てる
+    static let outroWindow: Double = 30
+    /// 音の注釈とみなす括弧の中身の最大の文字数(これを超えても閉じなければ注釈とみなさず、開き括弧だけを消す)
+    static let annotationMaxLength = 12
     /// 字幕どうしの最小の間(秒)
     static let minimumGap: Double = 0.05
     /// 字幕の最短表示(秒)
@@ -58,13 +65,14 @@ enum CaptionCleanup {
     }
 
     /// 音声のない所で Whisper などが作りがちな定型文(CaptionIssueCheck.commonMistakes)のうち、
-    /// ごく短いもの、またはほかの字幕と時間が重なるものを捨てる。
+    /// ごく短いもの、またはほかの字幕と時間が重なるもの、締めの定型文で最後の outroWindow 秒より前にあるものを捨てる。
     /// 長くて重ならないもの(本当に言ったかもしれない)は残し、これまでどおり要確認として見せる
     static func removeHallucinations(_ cues: [SubtitleCue]) -> (cues: [SubtitleCue], removed: Int) {
         let sorted = sortedByStart(cues)
         var result: [SubtitleCue] = []
         result.reserveCapacity(sorted.count)
         var removed = 0
+        let lastEnd = sorted.map { $0.end }.max() ?? 0
         for (index, cue) in sorted.enumerated() {
             guard CaptionIssueCheck.isCommonMistake(cue.text) else {
                 result.append(cue)
@@ -72,7 +80,9 @@ enum CaptionCleanup {
             }
             let overlapsPrevious = index > 0 && sorted[index - 1].end > cue.start + minimumGap
             let overlapsNext = index + 1 < sorted.count && sorted[index + 1].start < cue.end - minimumGap
-            if cue.duration < hallucinationMaxDuration || overlapsPrevious || overlapsNext {
+            // 動画の途中で「ご視聴ありがとうございました」とは言わない(音楽や雑音の所で Whisper が作る)
+            let outroInMiddle = CaptionIssueCheck.isOutroMistake(cue.text) && cue.end < lastEnd - outroWindow
+            if cue.duration < hallucinationMaxDuration || overlapsPrevious || overlapsNext || outroInMiddle {
                 removed += 1
             } else {
                 result.append(cue)
@@ -156,6 +166,98 @@ enum CaptionCleanup {
     }
 
     // MARK: - トークン
+
+    /// 音の注釈の開き括弧 → 閉じ括弧
+    private static let annotationBrackets: [Character: Set<Character>] = [
+        "(": [")", "）"], "（": ["）", ")"], "[": ["]", "］"], "［": ["］", "]"], "【": ["】"], "〔": ["〕"],
+    ]
+    private static let annotationClosers: Set<Character> = [")", "）", "]", "］", "】", "〕"]
+
+    /// Whisper が書き出す音の注釈「(音楽)」「(笑)」「(拍手)」「(一同)」「[音楽]」と「♪」を取り除く(時刻順のトークンを渡す)。
+    /// 日本語では開き括弧が単語 1 つとして出てくることがあり、括弧の中身が離れた単語に分かれていても(「(」「音」…「楽)」)、
+    /// 続くトークンの文字をつなげて閉じ括弧まで消す。
+    /// 中身が annotationMaxLength 文字を超えても閉じないときは注釈とみなさず、開き括弧だけを消す。
+    /// 開き括弧の無い閉じ括弧(前のピースで開いていたもの)は、そのトークンの頭から閉じ括弧までを消す。
+    /// 文字が消えて空になったトークンは捨てる(もともと句読点だけのトークンはそのまま残す)
+    static func removeSoundAnnotations(_ tokens: [TimedToken]) -> [TimedToken] {
+        guard tokens.contains(where: { token in
+            token.text.contains { annotationBrackets[$0] != nil || annotationClosers.contains($0) || $0 == "♪" }
+        }) else { return tokens }
+        var chars: [Character] = []
+        var owner: [Int] = []
+        for (index, token) in tokens.enumerated() {
+            for c in token.text {
+                chars.append(c)
+                owner.append(index)
+            }
+        }
+        var remove = [Bool](repeating: false, count: chars.count)
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "♪" {
+                remove[i] = true
+                i += 1
+                continue
+            }
+            if let closers = annotationBrackets[c] {
+                var found: Int? = nil
+                var j = i + 1
+                while j < chars.count, j - i - 1 <= annotationMaxLength {
+                    if closers.contains(chars[j]) {
+                        found = j
+                        break
+                    }
+                    // 中でまた開いたら、ここまでは注釈ではない
+                    if annotationBrackets[chars[j]] != nil { break }
+                    j += 1
+                }
+                if let found {
+                    for k in i...found { remove[k] = true }
+                    i = found + 1
+                } else {
+                    remove[i] = true
+                    i += 1
+                }
+                continue
+            }
+            if annotationClosers.contains(c) {
+                // 開き括弧の無い閉じ括弧: そのトークンの頭から消す(「楽)」「一同)」)
+                var k = i
+                while k >= 0, owner[k] == owner[i] {
+                    remove[k] = true
+                    k -= 1
+                }
+            }
+            i += 1
+        }
+        var result: [TimedToken] = []
+        result.reserveCapacity(tokens.count)
+        var cursor = 0
+        for token in tokens {
+            let count = token.text.count
+            var text = ""
+            var changed = false
+            for offset in 0..<count {
+                if remove[cursor + offset] {
+                    changed = true
+                } else {
+                    text.append(chars[cursor + offset])
+                }
+            }
+            cursor += count
+            guard changed else {
+                result.append(token)
+                continue
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            var kept = token
+            kept.text = trimmed
+            result.append(kept)
+        }
+        return result
+    }
 
     /// 同じ単語が時間で大きく重なって 2 回出ていたら、あとの方を捨てる(Whisper が同じ音声を 2 度書き出したもの)。
     /// 1 文字の単語・長さの無い単語は比べない(本当に続けて言ったものと見分けられない)。時刻順に並べて返す

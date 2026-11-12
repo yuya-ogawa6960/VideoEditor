@@ -41,12 +41,24 @@ enum CaptionIssueCheck {
     /// 要確認の印のほか、CaptionCleanup が文字起こしの直後に短いもの・重なるものを捨てるのにも使う
     static let commonMistakes: [String] = "ご視聴ありがとうございました|チャンネル登録|高評価|字幕作成|字幕制作|thanks for watching|thank you for watching|subtitles by|amara.org".components(separatedBy: "|")
 
+    /// 動画の締めにしか言わない定型文(途中に出たら誤認識。「チャンネル登録」「高評価」は途中でも言うので入れない)
+    static let outroMistakes: [String] = "ご視聴ありがとうございました|字幕作成|字幕制作|thanks for watching|thank you for watching|subtitles by|amara.org".components(separatedBy: "|")
+
     /// 文が定型文そのもの(前後に少し付いていてもよい)か
     static func isCommonMistake(_ text: String) -> Bool {
+        matches(text, commonMistakes)
+    }
+
+    /// 文が締めの定型文そのもの(前後に少し付いていてもよい)か
+    static func isOutroMistake(_ text: String) -> Bool {
+        matches(text, outroMistakes)
+    }
+
+    private static func matches(_ text: String, _ phrases: [String]) -> Bool {
         let visible = visibleCharacters(text.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !visible.isEmpty else { return false }
         let lowered = visible.lowercased()
-        return commonMistakes.contains { phrase in
+        return phrases.contains { phrase in
             let target = visibleCharacters(phrase).lowercased()
             return lowered.contains(target) && visible.count <= target.count + 6
         }
