@@ -42,33 +42,59 @@ Apple でサインインすると、自分の API キーがなくてもポイン
 (他社のアプリ名・商標は入れない。TikTok・YouTube・Premiere などはキーワードにも説明文にも書かない)
 
 ## 新機能(このバージョン)
-1.12.92(1.12.70 のあと、Osmo Pocket の実験機能は入れない):
+次の提出(1.12.109。App Store に出ている 1.12.99 のあとの変更をまとめたもの)。4 つの言語の欄に、それぞれ貼り付ける。
 
-- マルチカメラを作り直しました。全部のアングルを並べて同時に再生し、使いたい映像をタップするだけで切り替えられます。
-- 別のカメラの動画を、音で自動的に合わせます。長い収録や、機器どうしの時計のずれにも対応しました。
-- マルチカメラの切り替えを、タイムラインの V2・V3 のトラックとして表示します。カットごとにアングルを変えたり、カットを消したりできます。
-- カラープリセットを 16 種類増やしました(全 29 種類)。今までの色のプリセットも、はっきり効くようにしました。強さを動かすと、その場でプレビューに反映されます。
-- BGM を新しい 160 曲(ダンス 10 曲を含む)に作り直しました。試聴して、気に入った曲をダウンロードして使えます。
-- 効果音を約 180 種に増やしました。
-- 色の調整で、プレビューを長押しすると元の色と比べられます。
-- キャプションを一覧で直せるようになりました。
-- カメラで撮るときの台本の表示と画質を改善しました。
-- プロジェクト一覧を 16:9 の表示にしました。
-- 画面の向きが戻らない、タップが効かないことがある、などの不具合を直しました。
+日本語(ja):
+
+- トランジションで言葉が消えなくなりました。切り替わりの前後の映像を使うので、話の途中でつないでも声が途切れません。
+- AI のツールを、全体にも、選んだクリップだけにも使えるようになりました(おまかせ編集・無音カット・言いよどみカット・文字起こし編集・オートパンチイン・スピーチを強調・オートリフレーム・字幕を翻訳・吹き替え)。
+- プロジェクト一覧に「台本から作る」を追加しました。AI で台本を作って、ナレーションやキャプションにしたり、カメラで読みながら撮ったりできます。
+- 効果音を約 290 種類に作り直しました。16 のカテゴリから選べて、名前で探せます。
+- V1 と V2 の動画を音で合わせて、上下・左右に並べられるようになりました。V2 の中の映像は、顔を真ん中にしたり、顔を追いかけたりできます。
+- 画面の端に置くタイトル 18 種類、チャプターのラベル、【】で囲んだ文字の色分けなど、テキストのテンプレートを増やしました。方眼紙のスライド背景も追加しました。
+- 文字起こしで、「(音楽)」などの注釈や、音楽・雑音の所の誤認識を取り除くようにしました。軽いモデルで日本語を文字起こししたときは、精度の高いモデルで作り直す案内を出します。
+- iPhone Duo では、ツールを右の列に置いて、プレビューを大きく表示するようにしました。
+- Standard プランでは全画面の広告が出なくなりました(Pro は広告なし)。
+- 被写体フラッシュのプレビュー、ツールバーの表示、Apple Intelligence が使えないときの案内など、多くの点を直しました。
 
 英語(en):
 
-- Rebuilt Multi-Camera: play every angle side by side and tap the one you want to switch to.
-- Angles from other cameras now sync automatically by sound, including long recordings and clock drift between devices.
-- Multi-camera switches now appear on the timeline as V2/V3 tracks, where you can change the angle of a cut or delete it.
-- Added 16 color presets (29 in total) and made the existing color presets clearly visible. Changing the strength updates the preview right away.
-- Rebuilt the music library with 160 new tracks, including 10 dance tracks. Preview any track, then download the ones you like.
-- Added about 180 sound effects.
-- Press and hold the preview while adjusting color to compare with the original.
-- Edit captions in a list.
-- Improved the script display and picture quality when recording with the camera.
-- The project list now shows 16:9 thumbnails.
-- Fixed issues such as the screen not rotating back and taps sometimes not responding.
+- Transitions no longer cut off speech. They use footage from just before and after the cut, so words aren't lost even when you cut mid-sentence.
+- Use the AI tools on the whole project or on just the selected clip (Auto Edit, Silence Cut, Filler Cut, Transcript Edit, Auto Punch-In, Enhance Speech, Auto Reframe, Translate Captions and Dubbing).
+- New "Start from a Script" on the project list. Write a script with AI, then turn it into narration or captions, or read it on the teleprompter while recording.
+- Rebuilt the sound effects: about 290 sounds in 16 categories, with search.
+- Sync a V1 and a V2 video by sound and show them stacked or side by side. Keep a face centered in V2, or follow it.
+- More text templates: 18 edge titles, chapter labels, and color accents for text in 【】. Added a grid-paper slide background.
+- Transcription now removes notes like "(music)" and misrecognitions over music or noise. When the lightest model is used for Japanese, the app suggests redoing it with a more accurate model.
+- On iPhone Duo, the tools sit in the right column so the preview is larger.
+- No full-screen ads on the Standard plan (no ads on Pro).
+- Many fixes, including the subject flash preview, toolbar layout, and guidance when Apple Intelligence isn't available.
+
+スペイン語(es):
+
+- Las transiciones ya no cortan lo que se dice. Usan imágenes de justo antes y después del corte, así que no se pierden palabras aunque cortes a mitad de una frase.
+- Usa las herramientas de IA en todo el proyecto o solo en el clip seleccionado (edición automática, corte de silencios, corte de muletillas, edición por transcripción, zoom automático, realce de voz, reencuadre automático, traducción de subtítulos y doblaje).
+- Nuevo «Empezar con un guion» en la lista de proyectos. Escribe un guion con IA y conviértelo en narración o subtítulos, o léelo en el teleprompter mientras grabas.
+- Efectos de sonido renovados: unos 290 sonidos en 16 categorías, con búsqueda.
+- Sincroniza un video V1 y uno V2 por el sonido y muéstralos arriba y abajo o lado a lado. Mantén una cara centrada en V2 o síguela.
+- Más plantillas de texto: 18 títulos en los bordes, etiquetas de capítulo y color para el texto entre 【】. Nuevo fondo de diapositiva cuadriculado.
+- La transcripción ahora quita notas como «(música)» y errores de reconocimiento sobre música o ruido. Si se usa el modelo más ligero para japonés, la app sugiere rehacerla con un modelo más preciso.
+- En iPhone Duo, las herramientas se colocan en la columna derecha para que la vista previa sea más grande.
+- Sin anuncios a pantalla completa en el plan Standard (sin anuncios en Pro).
+- Muchas correcciones, como la vista previa del destello del sujeto, el diseño de la barra de herramientas y los avisos cuando Apple Intelligence no está disponible.
+
+ポルトガル語・ブラジル(pt-BR):
+
+- As transições não cortam mais a fala. Elas usam imagens de logo antes e depois do corte, então nenhuma palavra se perde, mesmo cortando no meio de uma frase.
+- Use as ferramentas de IA no projeto inteiro ou só no clipe selecionado (edição automática, corte de silêncios, corte de vícios de linguagem, edição pela transcrição, zoom automático, realce de fala, reenquadramento automático, tradução de legendas e dublagem).
+- Novo "Começar por um roteiro" na lista de projetos. Crie um roteiro com IA e transforme em narração ou legendas, ou leia no teleprompter enquanto grava.
+- Efeitos sonoros renovados: cerca de 290 sons em 16 categorias, com busca.
+- Sincronize um vídeo V1 e um V2 pelo som e mostre um acima do outro ou lado a lado. Mantenha um rosto centralizado no V2 ou siga-o.
+- Mais modelos de texto: 18 títulos nas bordas, rótulos de capítulo e cor para o texto entre 【】. Novo fundo de slide quadriculado.
+- A transcrição agora remove anotações como "(música)" e erros de reconhecimento sobre música ou ruído. Quando o modelo mais leve é usado para japonês, o app sugere refazer com um modelo mais preciso.
+- No iPhone Duo, as ferramentas ficam na coluna direita para a prévia ficar maior.
+- Sem anúncios em tela cheia no plano Standard (sem anúncios no Pro).
+- Muitas correções, como a prévia do destaque do sujeito, o layout da barra de ferramentas e os avisos quando o Apple Intelligence não está disponível.
 
 ## App Review への情報(App Review Information → メモ)
 - サインインは任意です。サインインしなくても、編集・書き出し・端末内 AI はすべて使えます。

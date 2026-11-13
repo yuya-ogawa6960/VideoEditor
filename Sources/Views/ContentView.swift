@@ -146,6 +146,8 @@ struct ContentView: View {
     /// 逆再生の作成・フリーズフレーム・音声抽出の進捗(nil なら実行中でない)
     @State private var mediaToolProgress: ClipFXProgress?
     @State private var mediaToolTask: Task<Void, Never>?
+    /// 作り直しに失敗したクリップ(この画面を開いている間は、何度も作り直そうとしない)
+    @State private var rebuildFailedClipIDs: Set<UUID> = []
     @State private var isKeyboardVisible = false
 
     /// 手書き(新規作成中)の下書き
@@ -389,6 +391,8 @@ struct ContentView: View {
             }
             if newValue == nil {
                 panelSnapshot = nil
+                // スリップなどでトリミングが変わったら、逆再生のファイルを作り直す
+                rebuildMissingMediaIfNeeded()
             } else if oldValue == nil && panelSnapshot == nil {
                 // 開く直前の状態を明示しなかった場合は、開いた時点の状態に戻す
                 panelSnapshot = project.snapshot()
@@ -1432,6 +1436,8 @@ struct ContentView: View {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         frozenTimelineHeight = nil
                     }
+                    // 逆再生のクリップのトリミングを広げたら、逆再生のファイルを作り直す
+                    rebuildMissingMediaIfNeeded()
                 }
             }
         }
@@ -3452,6 +3458,8 @@ struct ContentView: View {
         project.clips[index].endTime = project.clips[index].duration
         project.rippleTimelineItems(from: layout)
         showToast(String(localized: "元の長さに戻しました"), undo: true)
+        // 逆再生のクリップなら、広げた範囲の逆再生のファイルを作り直す
+        rebuildMissingMediaIfNeeded()
     }
 
     // MARK: 重ねた素材(オーバーレイ)
@@ -5188,7 +5196,7 @@ struct ContentView: View {
 
     // MARK: 逆再生 / フリーズ / 自動補正
 
-    /// 逆再生の切り替え。逆再生ファイルがまだなければ作ってから有効にする(解除してもファイルは残す)
+    /// 逆再生の切り替え。逆再生ファイルがまだない(または今のトリミング範囲を含まない)なら作ってから有効にする(解除してもファイルは残す)
     private func toggleReverse(_ clipID: UUID, confirmedLongSource: Bool = false) {
         guard let i = project.index(of: clipID) else { return }
         let clip = project.clips[i]
@@ -5197,34 +5205,45 @@ struct ContentView: View {
             project.clips[i].isReversed = false
             return
         }
-        if clip.reversedURL != nil {
+        if clip.reversedFileCoversTrim {
             history.record(project)
             project.clips[i].isReversed = true
             return
         }
-        // 逆再生のファイルは元の動画全体から作る(あとでトリミングを変えても使えるように)。長い動画では時間と容量がかかるので、
-        // 作る前に空き容量を確かめ、使っているのが一部だけなら確かめてから作る(前は数十分・数 GB かかっても何も言わずに始めていた)
-        let estimate: Int64 = Self.estimatedReverseBytes(for: clip)
+        buildReversedFile(clipID, rebuilding: false)
+    }
+
+    /// 逆再生ファイルを作るときに、使っている範囲の前後に足す長さ(秒。少しのトリミングの直しとトランジションの切り替わりに使う)
+    private static let reverseMargin: Double = 1.0
+
+    /// 逆再生ファイルを、使っている範囲(と前後 reverseMargin 秒)だけ作る。
+    /// 前は元の動画全体から作っていたので、長い 4K の動画では時間がかかり、数 GB の容量を使っていた。
+    /// rebuilding: ファイルが無い・トリミングを広げて範囲から出たので作り直す(元に戻す記録は増やさない)
+    private func buildReversedFile(_ clipID: UUID, rebuilding: Bool) {
+        guard let i = project.index(of: clipID) else { return }
+        let clip = project.clips[i]
+        let lower = max(0, clip.startTime - Self.reverseMargin)
+        let upper = min(max(clip.duration, clip.endTime), clip.endTime + Self.reverseMargin)
+        guard upper - lower > 0.05 else { return }
+        // 作る前に空き容量を確かめる(前は何も言わずに始めていた)
+        let estimate: Int64 = Self.estimatedReverseBytes(for: clip, seconds: upper - lower)
         let available: Int64 = StorageEstimator.availableBytes()
         if available > 0, estimate + StorageEstimator.safetyMarginBytes > available {
             alertMessage = String(localized: "空き容量が足りないため、逆再生の動画を作れません(約 \(StorageEstimator.formatBytes(estimate)) 必要・空き \(StorageEstimator.formatBytes(available)))。")
+            if rebuilding { rebuildFailedClipIDs.insert(clipID) }
             return
         }
-        if !confirmedLongSource, clip.duration > 120, clip.endTime - clip.startTime < clip.duration * 0.5 {
-            reverseConfirmMessage = String(localized: "逆再生は、トリミングした部分ではなく元の動画全体(\(MediaTimeText.mmss(clip.duration)))から作るため、時間がかかり、約 \(StorageEstimator.formatBytes(estimate)) の容量を使います。")
-            reverseConfirmClipID = clipID
-            return
-        }
+        let title = rebuilding ? String(localized: "逆再生の動画を作り直しています") : String(localized: "逆再生の動画を作成中")
         player.pause()
         mediaToolTask?.cancel()
         mediaToolTask = Task { @MainActor in
-            mediaToolProgress = ClipFXProgress(title: String(localized: "逆再生の動画を作成中"), fraction: 0)
+            mediaToolProgress = ClipFXProgress(title: title, fraction: 0)
             // 作成中は画面の自動ロックを止め、アプリを離れてもしばらく続ける(FlowSlowControls.swift の LongTaskKeepAlive)
-            let keepAlive = LongTaskKeepAlive.begin(title: String(localized: "逆再生の動画を作成中")) { mediaToolTask?.cancel() }
-            defer { keepAlive.finish(success: project.clips.first(where: { $0.id == clipID })?.reversedURL != nil) }
+            let keepAlive = LongTaskKeepAlive.begin(title: title) { mediaToolTask?.cancel() }
+            defer { keepAlive.finish(success: project.clips.first(where: { $0.id == clipID })?.reversedFileCoversTrim ?? false) }
+            var succeeded = false
             do {
-                // 元素材全体を逆再生にする(トリミング範囲を後で変えても使えるように)
-                let url = try await MediaTools.reversedCopy(of: clip.url, start: 0, end: clip.duration, progress: { value in
+                let url = try await MediaTools.reversedCopy(of: clip.url, start: lower, end: upper, progress: { value in
                     DispatchQueue.main.async {
                         if mediaToolProgress != nil {
                             mediaToolProgress?.fraction = value
@@ -5240,13 +5259,18 @@ struct ContentView: View {
                     try? FileManager.default.removeItem(at: url)
                     return
                 }
-                history.record(project)
+                // 作り直せるファイルなので iCloud バックアップに入れない(無くなっても、開いたときに作り直す)
+                StorageLocations.excludeFromBackup(url)
+                if !rebuilding { history.record(project) }
                 project.clips[j].reversedURL = url
+                project.clips[j].reversedRange = lower...upper
                 project.clips[j].isReversed = true
+                succeeded = true
             } catch is CancellationError {
                 mediaToolProgress = nil
             } catch {
                 mediaToolProgress = nil
+                if rebuilding { rebuildFailedClipIDs.insert(clipID) }
                 if !Task.isCancelled {
                     alertMessage = keepAlive.leftApp
                         ? String(localized: "アプリを離れたため止まりました。もう一度お試しください")
@@ -5254,15 +5278,82 @@ struct ContentView: View {
                 }
             }
             mediaToolTask = nil
+            // 続けて作り直すものがあれば作る
+            if succeeded { rebuildMissingMediaIfNeeded() }
         }
     }
 
-    /// 逆再生のファイルの大きさの見積もり(元の動画ファイルの約 3 倍。高いビットレートで書き直すため)
-    private static func estimatedReverseBytes(for clip: Clip) -> Int64 {
+    /// 逆再生・なめらかスローのファイルが無い・足りないクリップがあれば作り直す(1 つずつ。終わったら次を探す)。
+    /// どちらも iCloud バックアップに入れていないので、別の iPhone に移したあとはファイルが無い。
+    /// 逆再生は使っている範囲だけを作るので、トリミングを広げたときにも作り直す。
+    /// 開いたとき・タイムラインの操作が終わったとき・パネルを閉じたときに呼ぶ
+    private func rebuildMissingMediaIfNeeded() {
+        guard didRestore, mediaToolTask == nil, !isImporting, !isLoadingPhotoMedia, !timeline.isEditing else { return }
+        // 前の版で作ったファイルも、作り直せるので iCloud バックアップから外す(取り込んだ動画のコピーは外さない)
+        for clip in project.clips {
+            if let url = clip.reversedURL { StorageLocations.excludeFromBackup(url) }
+            if let url = clip.flowSlow.fileURL { StorageLocations.excludeFromBackup(url) }
+        }
+        if let clip = project.clips.first(where: { $0.needsReversedRebuild && !rebuildFailedClipIDs.contains($0.id) }) {
+            buildReversedFile(clip.id, rebuilding: true)
+            return
+        }
+        if let clip = project.clips.first(where: { $0.needsFlowSlowRebuild && !rebuildFailedClipIDs.contains($0.id) }) {
+            rebuildFlowSlow(clip.id)
+        }
+    }
+
+    /// なめらかスローのファイルを作り直す(前と同じ倍率で、いまのトリミング範囲から)
+    private func rebuildFlowSlow(_ clipID: UUID) {
+        guard let i = project.index(of: clipID) else { return }
+        let clip = project.clips[i]
+        let factor = max(2, clip.flowSlow.factor)
+        player.pause()
+        mediaToolTask?.cancel()
+        mediaToolTask = Task { @MainActor in
+            mediaToolProgress = ClipFXProgress(title: String(localized: "なめらかスローを作り直しています"), fraction: 0)
+            var succeeded = false
+            do {
+                let output = try await FlowSlowRenderer.makeCopy(of: clip.url, start: clip.startTime, end: clip.endTime,
+                                                                 factor: factor) { value in
+                    DispatchQueue.main.async {
+                        if mediaToolProgress != nil {
+                            mediaToolProgress?.fraction = value
+                        }
+                    }
+                }
+                mediaToolProgress = nil
+                guard !Task.isCancelled, let j = project.index(of: clipID) else {
+                    try? FileManager.default.removeItem(at: output.url)
+                    return
+                }
+                StorageLocations.excludeFromBackup(output.url)
+                var flow = project.clips[j].flowSlow
+                flow.enabled = true
+                flow.fileURL = output.url
+                flow.sourceStart = output.sourceStart
+                flow.sourceEnd = output.sourceEnd
+                flow.factor = output.factor
+                project.clips[j].flowSlow = flow
+                succeeded = true
+            } catch is CancellationError {
+                mediaToolProgress = nil
+            } catch {
+                mediaToolProgress = nil
+                rebuildFailedClipIDs.insert(clipID)
+            }
+            mediaToolTask = nil
+            if succeeded { rebuildMissingMediaIfNeeded() }
+        }
+    }
+
+    /// 逆再生のファイルの大きさの見積もり(元の動画ファイルの、作る範囲の分の約 3 倍。高いビットレートで書き直すため)
+    private static func estimatedReverseBytes(for clip: Clip, seconds: Double) -> Int64 {
         let size: Int64 = (try? clip.url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { Int64($0) } ?? 0
-        if size > 0 { return size * 3 }
+        let share = clip.duration > 0 ? min(1, max(0, seconds) / clip.duration) : 1
+        if size > 0 { return Int64(Double(size) * share * 3) }
         // 大きさが分からないときは 1 秒あたり約 8 MB で見積もる
-        return Int64(max(0, clip.duration) * 8_000_000)
+        return Int64(max(0, seconds) * 8_000_000)
     }
 
     /// 再生位置のコマを静止画クリップにして、クリップを分割した間に差し込む
@@ -6016,6 +6107,8 @@ struct ContentView: View {
         // 共有で受け取った動画・写真がないか見る(一覧の「新しいプロジェクトで編集」から開いたときは、ここで取り込む)
         IncomingMediaCenter.shared.refresh()
         checkIncomingMedia()
+        // 逆再生・なめらかスローのファイルが無ければ作り直す(iCloud バックアップに入れていない)
+        rebuildMissingMediaIfNeeded()
     }
 
     /// 保存済みの内容を開く(開いたときと「前回の状態に戻す」のあと)。
@@ -6750,6 +6843,14 @@ struct ContentView: View {
            let dropped = DroppedMediaHandoff.take(for: projectID) {
             importAppendsAtEnd = true
             startLocalImport(dropped, securityScoped: false, deleteSourcesAfter: true)
+            return
+        }
+        // 一覧の「台本から作る」で作ったプロジェクトは、読み込みが終わったら AI 台本を開く
+        if didRestore, !isLoadingPhotoMedia, !isImporting, !isPanelOrToolBusy, activeSheet == nil,
+           ScriptStartHandoff.take(for: projectID) {
+            player.pause()
+            activePanel = nil
+            activeSheet = .scriptWriter
             return
         }
         let center = IncomingMediaCenter.shared

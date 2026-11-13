@@ -1,6 +1,351 @@
 {
   "sourceLanguage": "ja",
   "strings": {
+    "このテンプレートは、キャプションの「えー」「あのー」も詰めます。言いよどみカットを使わずに適用することもできます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This template also trims fillers like \"um\" and \"uh\" from the captions. You can also apply it without Filler Cut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta plantilla también quita muletillas como «eh» y «este» de los subtítulos. También puedes aplicarla sin el corte de muletillas."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este modelo também corta vícios de linguagem como \"é…\" e \"tipo\" das legendas. Você também pode aplicá-lo sem o corte de vícios."
+          }
+        }
+      }
+    },
+    "なめらかスローを作り直しています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuilding smooth slow motion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rehaciendo la cámara lenta suave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refazendo a câmera lenta suave"
+          }
+        }
+      }
+    },
+    "言いよどみカットなしで適用": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply without Filler Cut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar sin corte de muletillas"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar sem corte de vícios"
+          }
+        }
+      }
+    },
+    "言いよどみカットは Standard の機能です": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filler Cut is a Standard feature"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El corte de muletillas es una función de Standard"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O corte de vícios é um recurso do Standard"
+          }
+        }
+      }
+    },
+    "言いよどみカットも使う": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Filler Cut too"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar también el corte de muletillas"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar também o corte de vícios"
+          }
+        }
+      }
+    },
+    "逆再生の動画を作り直しています": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebuilding the reversed video"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rehaciendo el video en reversa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refazendo o vídeo invertido"
+          }
+        }
+      }
+    },
+    "base で作ったので、聞き間違いが多いかもしれません": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These were made with base, so there may be many mishearings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se hicieron con base, así que puede haber muchos errores de escucha"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foram feitas com o base, então pode haver muitos erros de reconhecimento"
+          }
+        }
+      }
+    },
+    "base は日本語の聞き間違いが多くなります": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "base mishears Japanese more often"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "base comete más errores con el japonés"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O base erra mais em japonês"
+          }
+        }
+      }
+    },
+    "large-v3 turbo で作り直す": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redo with large-v3 turbo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rehacer con large-v3 turbo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refazer com o large-v3 turbo"
+          }
+        }
+      }
+    },
+    "large-v3 turbo で作り直すと精度が上がります。端末の中で動くので、ポイントは使いません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redoing them with large-v3 turbo improves accuracy. It runs on your device, so it doesn't use points."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rehacerlos con large-v3 turbo mejora la precisión. Funciona en el dispositivo, así que no usa puntos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refazer com o large-v3 turbo melhora a precisão. Ele roda no aparelho, então não usa pontos."
+          }
+        }
+      }
+    },
+    "large-v3 turbo にする": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to large-v3 turbo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar a large-v3 turbo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar para o large-v3 turbo"
+          }
+        }
+      }
+    },
+    "large-v3 turbo にすると精度が上がります。どのモデルも端末の中で動くので、ポイントは使いません(iPhone 15 Pro 以降がおすすめ)。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "large-v3 turbo is more accurate. Every model runs on your device, so none of them use points (iPhone 15 Pro or later recommended)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "large-v3 turbo es más preciso. Todos los modelos funcionan en el dispositivo, así que ninguno usa puntos (se recomienda iPhone 15 Pro o posterior)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O large-v3 turbo é mais preciso. Todos os modelos rodam no aparelho, então nenhum usa pontos (recomendado iPhone 15 Pro ou posterior)."
+          }
+        }
+      }
+    },
+    "切り替わりの前後の映像を使うので、つなぎ目の話は消えません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It uses footage from just before and after the cut, so speech at the cut isn't lost."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa imágenes de justo antes y después del corte, así que no se pierde lo que se dice en el corte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa imagens de logo antes e depois do corte, então a fala no corte não se perde."
+          }
+        }
+      }
+    },
+    "台本から作る": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start from a Script"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empezar con un guion"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Começar por um roteiro"
+          }
+        }
+      }
+    },
+    "日本語の動画では聞き間違いが多くなります。日本語には large-v3 turbo をおすすめします。どのモデルも端末の中で動くので、ポイントは使いません。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It mishears Japanese videos more often. For Japanese, large-v3 turbo is recommended. Every model runs on your device, so none of them use points."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comete más errores con videos en japonés. Para japonés se recomienda large-v3 turbo. Todos los modelos funcionan en el dispositivo, así que ninguno usa puntos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erra mais em vídeos em japonês. Para japonês, recomendamos o large-v3 turbo. Todos os modelos rodam no aparelho, então nenhum usa pontos."
+          }
+        }
+      }
+    },
     "iPhone Duo ではツールを右の列に": {
       "extractionState": "manual",
       "localizations": {

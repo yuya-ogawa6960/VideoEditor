@@ -246,6 +246,8 @@ struct SubtitleEditorView: View {
     @State private var captionDoneCount: Int?
     /// そのとき取り除いた、続く同じ文・音声のない所の定型文の数(0 なら出さない)
     @State private var captionDoneRemoved = 0
+    /// いちばん軽い Whisper(base)で日本語のキャプションを作ったあと、精度の高いモデルで作り直す案内を出す
+    @State private var suggestsBetterModel = false
 
     private var isTranslating: Bool {
         translationRequest != nil || aiTranslationTask != nil
@@ -688,6 +690,14 @@ struct SubtitleEditorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // base(いちばん軽いモデル)は日本語の聞き間違いが多い(「テンション上がる」→「店舎がある」など)。
+            // 作る前は注意と切り替えのボタン、作ったあとは作り直しの案内を出す
+            if suggestsBetterModel {
+                betterModelRedoRow
+            } else if usesLightestModelForJapanese {
+                lightestModelNote
+            }
+
             // 文字起こし中は、画面全体に作業カードを重ねる(body の overlay)。
             // 今あるキャプションを置き換えるか追加するかは、押したあとの確認で選ぶ
             autoCaptionButton(isFirstTime: isFirstTime)
@@ -724,6 +734,64 @@ struct SubtitleEditorView: View {
 
     /// 話している言語(訳を付けるかは除く)
     private var selectedLanguage: TranscriptionLanguage { captionChoice.spoken }
+
+    /// 端末内の Whisper のいちばん軽いモデル(base)で、日本語のキャプションを作ろうとしているか
+    private var usesLightestModelForJapanese: Bool {
+        let settings = AppSettings.shared
+        return settings.transcriptionEngine == .whisper && WhisperTranscriber.isAvailable
+            && settings.whisperModel == WhisperModelOption.lightestID && selectedLanguage == .japanese
+    }
+
+    /// 作る前の注意(base で日本語)
+    private var lightestModelNote: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("base は日本語の聞き間違いが多くなります", systemImage: "exclamationmark.triangle")
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+            Text("large-v3 turbo にすると精度が上がります。どのモデルも端末の中で動くので、ポイントは使いません(iPhone 15 Pro 以降がおすすめ)。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                AppSettings.shared.whisperModel = AppSettings.defaultWhisperModel
+            } label: {
+                Label("large-v3 turbo にする", systemImage: "arrow.up.circle")
+            }
+            .disabled(isTranscribing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// 作ったあとの案内(base で日本語のキャプションを作った)
+    private var betterModelRedoRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("base で作ったので、聞き間違いが多いかもしれません", systemImage: "exclamationmark.triangle")
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("large-v3 turbo で作り直すと精度が上がります。端末の中で動くので、ポイントは使いません。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button {
+                    suggestsBetterModel = false
+                    AppSettings.shared.whisperModel = AppSettings.defaultWhisperModel
+                    // 置き換えるかの確認と、モデルのダウンロードの確認は、いつもの「自動で作る」と同じ
+                    requestTranscription()
+                } label: {
+                    Label("large-v3 turbo で作り直す", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isTranscribing)
+                Spacer()
+                Button("閉じる") { suggestsBetterModel = false }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
 
     /// 選択中のクリップ(まだプロジェクトにあれば)
     private var focusClip: Clip? {
@@ -936,6 +1004,9 @@ struct SubtitleEditorView: View {
     private func startTranscription(replace: Bool, confirmedDownload: Bool = false) {
         guard transcriptionTask == nil else { return }
         if needsWhisperDownloadConfirmation(replace: replace, confirmedDownload: confirmedDownload) { return }
+        // base で日本語を作るときは、できたあとに精度の高いモデルで作り直す案内を出す
+        let usedLightestModel = usesLightestModelForJapanese
+        suggestsBetterModel = false
         // 「選んだクリップだけ」のときは、そのクリップに言語を覚えておく(全体で作り直すときもその言語になる)
         let onlyClipID: UUID? = (captionScope == .clip) ? focusClip?.id : nil
         if let onlyClipID, let index = project.index(of: onlyClipID) {
@@ -1013,6 +1084,7 @@ struct SubtitleEditorView: View {
                 } else {
                     translateUntranslatedCaptions(among: placed)
                     showCaptionDone(count: placed.count)
+                    if usedLightestModel { suggestsBetterModel = true }
                 }
             } catch is CancellationError {
                 transcriptionTask = nil

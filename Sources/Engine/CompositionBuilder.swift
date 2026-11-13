@@ -133,6 +133,18 @@ enum CompositionBuilder {
         return d
     }
 
+    /// 並べるときに前後のクリップが重なる長さ(秒)。話を消さないつなぎ方(keepsContent)は重ねないので 0
+    static func layoutOverlap(from clip: Clip, to next: Clip) -> Double {
+        clip.transition.keepsContent ? 0 : transitionOverlap(from: clip, to: next)
+    }
+
+    /// 話を消さないつなぎ方で、切り替わりの前後それぞれに足す映像の長さ(出力の秒。見た目の長さの半分)。前の方式なら 0
+    static func contentHandle(from clip: Clip, to next: Clip) -> Double {
+        guard clip.transition.keepsContent else { return 0 }
+        let half = transitionOverlap(from: clip, to: next) / 2
+        return half >= 0.025 ? half : 0
+    }
+
     /// 各クリップの出力タイムライン上の開始・終了(重なり反映後)。clips と同じ順・同じ数
     static func timelineLayout(for snapshot: ProjectSnapshot) -> [ClipPlacement] {
         var result: [ClipPlacement] = []
@@ -146,7 +158,7 @@ enum CompositionBuilder {
             result.append(ClipPlacement(clipID: clip.id, start: start, end: end))
             var next = end
             if i + 1 < clips.count {
-                next = end - transitionOverlap(from: clip, to: clips[i + 1])
+                next = end - layoutOverlap(from: clip, to: clips[i + 1])
             }
             t = max(start, next)
         }
@@ -226,17 +238,26 @@ enum CompositionBuilder {
             let track = mainTracks[clipIndex % 2]
             let overlapIn = clipIndex > 0 ? max(0, layout[clipIndex - 1].end - placement.start) : 0
             let overlapOut = clipIndex + 1 < layout.count ? max(0, placement.end - layout[clipIndex + 1].start) : 0
-            if clipIndex > 0 && overlapIn <= 0.001 {
+            // 話を消さないつなぎ方: 切り替わりの前後に足す映像の長さ(出力の秒)
+            let handleIn: Double = clipIndex > 0 ? contentHandle(from: snapshot.clips[clipIndex - 1], to: clip) : 0
+            let handleOut: Double = clipIndex + 1 < snapshot.clips.count
+                ? contentHandle(from: clip, to: snapshot.clips[clipIndex + 1]) : 0
+            let handleInTime = compositionTime(handleIn, method: .roundHalfAwayFromZero)
+            let handleOutTime = compositionTime(handleOut, method: .roundHalfAwayFromZero)
+            if clipIndex > 0 && overlapIn <= 0.001 && handleIn <= 0.001 {
                 hardCutBoundaries.append(placement.start)
             }
 
-            // --- 静止画クリップ(映像ソース無し。黒のダミーで長さを確保)
+            // --- 静止画クリップ(映像ソース無し。黒のダミーで長さを確保)。
+            //     話を消さないつなぎ方の前後は、同じ写真をそのまま見せる(ダミーをその分長くする)
             if let still = clip.stillImageURL {
                 if !placeholderLoaded {
                     placeholderLoaded = true
                     placeholder = await loadPlaceholderSource()
                 }
-                let placeholderID = insertPlaceholder(placeholder, into: track, at: outStart, duration: outDuration)
+                let stillAt = outStart >= handleInTime ? outStart - handleInTime : outStart
+                let placeholderID = insertPlaceholder(placeholder, into: track, at: stillAt,
+                                                      duration: outEnd + handleOutTime - stillAt)
                 layers[clipIndex] = VideoCompositorClipLayer(clipID: clip.id,
                                                              trackID: nil,
                                                              placeholderTrackID: placeholderID,
@@ -282,12 +303,13 @@ enum CompositionBuilder {
             }
             let (trackRange, mainTransform) = loaded
 
-            // ソース範囲(秒)。逆再生ファイルのタイムラインは反転済み
+            // ソース範囲(秒)。逆再生ファイルのタイムラインは反転済み(ファイルの 0 秒 = 逆にした範囲の終わり)
             var srcStartSec = clip.startTime
             var srcEndSec = clip.endTime
             if reversedActive {
-                srcStartSec = clip.duration - clip.endTime
-                srcEndSec = clip.duration - clip.startTime
+                let coverEnd = clip.reversedCoverage.upperBound
+                srcStartSec = coverEnd - clip.endTime
+                srcEndSec = coverEnd - clip.startTime
             }
             let trackStartSec = max(0, trackRange.start.seconds)
             let trackEndSec = trackRange.end.seconds
@@ -314,6 +336,7 @@ enum CompositionBuilder {
             //     ファイルの 0 秒 = 元素材の offset 秒なので、同じ範囲をずらして割り当て直す(ClipKeyframeModels.swift)
             var videoSource = sourceVideo
             var videoPlan = plan
+            var videoTrackRange = trackRange
             var usesFlowFile = false
             if !reversedActive, let flow = clip.activeFlowSlow {
                 let flowAsset = AVURLAsset(url: flow.url)
@@ -330,9 +353,18 @@ enum CompositionBuilder {
                     if !flowPlan.isEmpty {
                         videoSource = flowTrack
                         videoPlan = flowPlan
+                        videoTrackRange = flowRange
                         usesFlowFile = true
                     }
                 }
+            }
+
+            // --- 話を消さないつなぎ方: クリップの頭の前に、切り替わりの映像を足す(クリップの外側の映像。無ければ最初のコマを止める)
+            if handleIn > 0.001, let first = videoPlan.first, outStart >= handleInTime {
+                _ = insertHandle(into: track, source: videoSource, trackRange: videoTrackRange,
+                                 sourceEdge: first.sourceRange.start.seconds, before: true,
+                                 handle: handleIn, speed: first.speed,
+                                 outDuration: handleInTime, at: outStart - handleInTime)
             }
 
             // --- メイン映像(等速区間ごとに挿入して長さを合わせる)
@@ -363,6 +395,13 @@ enum CompositionBuilder {
             if trackEnd(track) < outEnd {
                 compositionPad(track, to: outEnd)
             }
+            // --- 話を消さないつなぎ方: クリップの終わりの後ろに、切り替わりの映像を足す(無ければ最後のコマを止める)
+            if handleOut > 0.001, let last = videoPlan.last {
+                _ = insertHandle(into: track, source: videoSource, trackRange: videoTrackRange,
+                                 sourceEdge: last.sourceRange.end.seconds, before: false,
+                                 handle: handleOut, speed: last.speed,
+                                 outDuration: handleOutTime, at: outEnd)
+            }
 
             // --- クリップ音声(マルチカムでもメインの音声。音量・ゲイン・J/L カット・速度・エフェクトを反映)
             if !clip.isMuted && clip.hasAudio {
@@ -384,10 +423,13 @@ enum CompositionBuilder {
                         let gain = clip.audio.gain.isFinite ? max(0, clip.audio.gain) : 1
                         let clipVolume = clip.audio.volume.isFinite ? max(0, clip.audio.volume) : 1
                         let volume = min(snapshot.audio.originalVolume * gain * clipVolume, maxClipVolume)
-                        // クリップ自身のフェード(出力の長さの半分まで)。トランジションの重なりで既にフェードしていれば長い方を使う
+                        // クリップ自身のフェード(出力の長さの半分まで)。トランジションの重なりで既にフェードしていれば長い方を使う。
+                        // 話を消さないつなぎ方では音を重ねず、切り替わりの位置でごく短いフェードで入れ替える(プツッという音を出さない)
                         let halfOut = outDuration.seconds / 2
-                        let clipFadeIn = max(overlapIn, min(max(0, clip.audioFadeIn), halfOut))
-                        let clipFadeOut = max(overlapOut, min(max(0, clip.audioFadeOut), halfOut))
+                        let switchFadeIn = handleIn > 0.001 ? min(Self.contentSwitchFade, halfOut) : 0
+                        let switchFadeOut = handleOut > 0.001 ? min(Self.contentSwitchFade, halfOut) : 0
+                        let clipFadeIn = max(overlapIn, switchFadeIn, min(max(0, clip.audioFadeIn), halfOut))
+                        let clipFadeOut = max(overlapOut, switchFadeOut, min(max(0, clip.audioFadeOut), halfOut))
                         if clip.speedCurve.enabled || reversedActive {
                             insertSegmentedAudio(plan,
                                                  sourceAudio: sourceAudio,
@@ -551,7 +593,7 @@ enum CompositionBuilder {
                 stabilization: clip.stabilization,
                 enhance: clip.enhance,
                 parallax: DepthParallax(),
-                reversedSourceDuration: reversedActive ? clip.duration : nil,
+                reversedSourceDuration: reversedActive ? clip.reversedCoverage.upperBound : nil,
                 subjectFlash: clip.subjectFlash,
                 retouch: ClipRetouch())  // レタッチは外した(前に付けた値も描かない)
             layers[clipIndex]?.backgroundRemoval = clip.backgroundRemoval
@@ -565,13 +607,18 @@ enum CompositionBuilder {
         // 重なりの間に「ふわっと」が黒へ溶けて、トランジションの途中で一度暗くなっていた。
         // ただし静止画のズームイン / ズームアウトは、クリップ全体のゆっくりしたズーム(Ken Burns。VideoCompositor.stillZoom)で
         // イン / アウトの動きとしては描かない(VideoCompositor が外す)ので残す。前はスライドショーの 2 枚目以降が止まった写真になっていた
-        for i in layers.indices where i < layout.count {
+        for i in layers.indices where i < layout.count && i < snapshot.clips.count {
             let isStill = layers[i]?.stillImageURL != nil
-            if i > 0, layout[i - 1].end - layout[i].start > 0.001,
+            // 話を消さないつなぎ方は重ならないが、切り替わりの前後で 2 つのクリップを混ぜるので同じように外す
+            let transitionIn = i > 0 && (layout[i - 1].end - layout[i].start > 0.001
+                || contentHandle(from: snapshot.clips[i - 1], to: snapshot.clips[i]) > 0.001)
+            let transitionOut = i + 1 < layout.count && (layout[i].end - layout[i + 1].start > 0.001
+                || contentHandle(from: snapshot.clips[i], to: snapshot.clips[i + 1]) > 0.001)
+            if transitionIn,
                let type = layers[i]?.animation.inType, !(isStill && (type == .zoomIn || type == .zoomOut)) {
                 layers[i]?.animation.inType = .none
             }
-            if i + 1 < layout.count, layout[i].end - layout[i + 1].start > 0.001,
+            if transitionOut,
                let type = layers[i]?.animation.outType, !(isStill && (type == .zoomIn || type == .zoomOut)) {
                 layers[i]?.animation.outType = .none
             }
@@ -583,23 +630,37 @@ enum CompositionBuilder {
         for i in 0..<layout.count {
             guard let layer = layers[i] else { continue }
             let placement = layout[i]
-            var nextOverlap = 0.0
+            // 次のクリップへの切り替わりの見た目の区間。
+            // 前の方式: 2 つのクリップが重なる区間。話を消さないつなぎ方: 切れ目を中心に前後 contentHandle ずつ
+            var transitionStart = placement.end
+            var transitionEndSec = placement.end
             var nextLayer: VideoCompositorClipLayer? = nil
-            if i + 1 < layout.count, let candidate = layers[i + 1] {
-                nextOverlap = max(0, placement.end - layout[i + 1].start)
-                nextLayer = candidate
+            if i + 1 < layout.count, i + 1 < snapshot.clips.count, let candidate = layers[i + 1] {
+                let handle = contentHandle(from: snapshot.clips[i], to: snapshot.clips[i + 1])
+                if handle > 0.001 {
+                    transitionStart = placement.end - handle
+                    transitionEndSec = placement.end + handle
+                    nextLayer = candidate
+                } else {
+                    let overlap = max(0, placement.end - layout[i + 1].start)
+                    if overlap > 0.001 {
+                        transitionStart = layout[i + 1].start
+                        transitionEndSec = placement.end
+                        nextLayer = candidate
+                    }
+                }
             }
-            let soloEnd = compositionTime(placement.end - nextOverlap, method: .roundHalfAwayFromZero)
+            let soloEnd = compositionTime(transitionStart, method: .roundHalfAwayFromZero)
             if soloEnd > cursor {
                 specs.append(InstructionSpec(range: CMTimeRange(start: cursor, end: soloEnd), layers: [layer], transition: nil))
                 cursor = soloEnd
             }
-            if nextOverlap > 0.001, let nextLayer {
-                let transitionEnd = compositionTime(placement.end, method: .roundHalfAwayFromZero)
+            if let nextLayer {
+                let transitionEnd = compositionTime(transitionEndSec, method: .roundHalfAwayFromZero)
                 if transitionEnd > cursor {
                     let transition = VideoCompositorTransition(type: snapshot.clips[i].transition.type,
-                                                               start: layout[i + 1].start,
-                                                               duration: nextOverlap)
+                                                               start: transitionStart,
+                                                               duration: transitionEndSec - transitionStart)
                     specs.append(InstructionSpec(range: CMTimeRange(start: cursor, end: transitionEnd),
                                                  layers: [layer, nextLayer],
                                                  transition: transition))
@@ -1043,6 +1104,58 @@ enum CompositionBuilder {
 
     /// 黒のダミー映像を track の at から duration だけ入れる(フレームは描画に使わない)。
     /// 入れられたらそのトラック ID、入れられなければ空区間で長さだけ確保して nil
+    /// 話を消さないつなぎ方で、音を入れ替えるときのごく短いフェード(秒)
+    static let contentSwitchFade: Double = 0.04
+
+    /// 話を消さないつなぎ方の切り替わりの映像を足す。クリップの外側に映像があればそれを(速度に合わせて)、
+    /// 無ければ端のコマ(1/30 秒)を止めて outDuration の長さにする。
+    /// before: クリップの頭の前(sourceEdge より前の映像を at から outStart まで)。false: 終わりの後ろ(sourceEdge より後ろ)
+    @discardableResult
+    private static func insertHandle(into track: AVMutableCompositionTrack,
+                                     source: AVAssetTrack,
+                                     trackRange: CMTimeRange,
+                                     sourceEdge: Double,
+                                     before: Bool,
+                                     handle: Double,
+                                     speed: Double,
+                                     outDuration: CMTime,
+                                     at: CMTime) -> Bool {
+        guard outDuration > .zero, handle > 0, trackEnd(track) <= at else { return false }
+        let trackStart = max(0, trackRange.start.seconds)
+        let trackEndSec = trackRange.end.seconds
+        let need = handle * max(speed, 0.01)
+        let srcStart: Double
+        var srcDuration: Double
+        if before, sourceEdge - need >= trackStart - 0.0005 {
+            srcStart = max(trackStart, sourceEdge - need)
+            srcDuration = need
+        } else if !before, trackEndSec.isFinite, sourceEdge + need <= trackEndSec + 0.0005 {
+            srcStart = sourceEdge
+            srcDuration = need
+        } else {
+            // 外側に映像が無い(素材をいっぱいまで使っている): 端のコマを止めて伸ばす
+            let frame = 1.0 / 30.0
+            srcStart = before ? max(trackStart, sourceEdge) : max(trackStart, sourceEdge - frame)
+            srcDuration = frame
+        }
+        if trackEndSec.isFinite {
+            srcDuration = min(srcDuration, trackEndSec - srcStart)
+        }
+        guard srcDuration > 0.0005 else { return false }
+        let srcRange = CMTimeRange(start: CMTime(seconds: srcStart, preferredTimescale: 60000),
+                                   duration: CMTime(seconds: srcDuration, preferredTimescale: 60000))
+        compositionPad(track, to: at)
+        do {
+            try track.insertTimeRange(srcRange, of: source, at: at)
+        } catch {
+            return false
+        }
+        if srcRange.duration != outDuration {
+            track.scaleTimeRange(CMTimeRange(start: at, duration: srcRange.duration), toDuration: outDuration)
+        }
+        return true
+    }
+
     private static func insertPlaceholder(_ source: CompositionAngleSource?,
                                           into track: AVMutableCompositionTrack,
                                           at: CMTime,

@@ -1075,6 +1075,8 @@ struct EditorAutoEditTemplatePanel: View {
     /// 前の結果に重ねず最初の状態から作り直す(重ねると素材が前のテンプレの範囲だけになり、タイトルも重なっていた)
     @State private var templateBase: ProjectSnapshot?
     @State private var lastTemplateResult: ProjectSnapshot?
+    /// 言いよどみカットを使えないプランで、言いよどみを詰めるテンプレートを選んだ(使うか聞く)
+    @State private var fillerChoice: AutoEditor.Template?
 
     private var confirmIsPresented: Binding<Bool> {
         Binding<Bool>(
@@ -1110,13 +1112,41 @@ struct EditorAutoEditTemplatePanel: View {
             }
         }
         .padding(.top, 6)
+        .confirmationDialog(String(localized: "言いよどみカットは Standard の機能です"),
+                            isPresented: Binding(get: { fillerChoice != nil }, set: { if !$0 { fillerChoice = nil } }),
+                            titleVisibility: .visible) {
+            Button(String(localized: "言いよどみカットも使う")) {
+                if let template = fillerChoice {
+                    fillerChoice = nil
+                    // 無料プランは試用のポイント(払う前に確認が出る)。払えたら適用する
+                    PlanTrial.offer(.fillerCut) {
+                        apply(template, cutsFillers: true, trial: true)
+                    }
+                }
+            }
+            Button(String(localized: "言いよどみカットなしで適用")) {
+                if let template = fillerChoice {
+                    fillerChoice = nil
+                    apply(template, cutsFillers: false, trial: false)
+                }
+            }
+            Button("キャンセル", role: .cancel) { fillerChoice = nil }
+        } message: {
+            Text("このテンプレートは、キャプションの「えー」「あのー」も詰めます。言いよどみカットを使わずに適用することもできます。")
+        }
         .confirmationDialog("「\(pending?.name ?? "")」を適用しますか?",
                             isPresented: confirmIsPresented,
                             titleVisibility: .visible) {
             Button("適用する") {
                 if let template = pending {
                     pending = nil
-                    apply(template)
+                    // 言いよどみを詰めるテンプレートは、言いよどみカットを使えるプランか試用のポイントが要る
+                    // (前はテンプレートからなら無料で使えていた)
+                    if usesFillerCut(template), !PlanStore.shared.allows(.fillerCut) {
+                        fillerChoice = template
+                    } else {
+                        apply(template, cutsFillers: true, trial: false)
+                    }
                 }
             }
             Button("キャンセル", role: .cancel) {
@@ -1156,7 +1186,15 @@ struct EditorAutoEditTemplatePanel: View {
         .background(BrandStyle.surface, in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
     }
 
-    private func apply(_ template: AutoEditor.Template) {
+    /// このテンプレートが言いよどみを詰めるか(キャプションがあるときだけ詰める)
+    private func usesFillerCut(_ template: AutoEditor.Template) -> Bool {
+        guard !project.subtitles.isEmpty else { return false }
+        let cleanupCuts = template.settings.preferSpeech && template.settings.cutNonSpeech
+        return template.finish == .tempoTalk || cleanupCuts
+    }
+
+    /// trial: 言いよどみカットの試用のポイントを払った(言いよどみを 1 つも詰めなかったら返す)
+    private func apply(_ template: AutoEditor.Template, cutsFillers: Bool, trial: Bool) {
         errorText = nil
         message = nil
         player.pause()
@@ -1181,9 +1219,17 @@ struct EditorAutoEditTemplatePanel: View {
         let name = template.name
         let finish = template.finish
         // 話の整理(TalkCleanup.swift)は、話を優先するテンプレだけにかける(風景中心のテンプレを刻まないように)
-        let cleanup = chosenSettings.preferSpeech ? TalkCleanupOptions(settings: chosenSettings) : TalkCleanupOptions(cutNonSpeech: false, cutRetakes: false, cutLookups: false)
+        let cleanup: TalkCleanupOptions = {
+            var options = chosenSettings.preferSpeech ? TalkCleanupOptions(settings: chosenSettings) : TalkCleanupOptions(cutNonSpeech: false, cutRetakes: false, cutLookups: false)
+            // 言いよどみは、言いよどみカットを使えるプランか試用のポイントがあるときだけ詰める
+            options.cutFillers = cutsFillers
+            return options
+        }()
+        let usedTrial = trial
         let buildShare: Double = (finish == nil && !cleanup.isEnabled) ? 1 : 0.7
         analysis.run(title: String(localized: "テンプレートを適用中")) { report in
+            // 詰めた言いよどみの数(試用のポイントを確定するか返すかに使う)
+            var fillerCount = 0
             let result = try await AutoEditor.build(snapshot: snapshot,
                                                     settings: chosenSettings,
                                                     highlights: nil,
@@ -1197,9 +1243,10 @@ struct EditorAutoEditTemplatePanel: View {
                 // リール風の仕上げ(無音カット・寄り引き・フラッシュ・キャプションの見た目など)。
                 // 途中で止めたら、適用前に戻す(履歴は上で 1 回だけ記録済み)
                 do {
-                    _ = try await ReelFinisher.apply(finish, to: project) { fraction in
+                    let summary = try await ReelFinisher.apply(finish, to: project, cutsFillers: cutsFillers) { fraction in
                         report(0.7 + (cleanup.isEnabled ? 0.2 : 0.3) * fraction)
                     }
+                    fillerCount += summary.fillerCuts
                 } catch {
                     project.restore(before)
                     throw error
@@ -1220,6 +1267,7 @@ struct EditorAutoEditTemplatePanel: View {
                         return
                     }
                     if !plan.isEmpty {
+                        fillerCount += plan.cuts.filter { $0.reason == .thinking }.count
                         TalkCleanup.apply(plan, to: project)
                         cleanupNote = plan.summaryText
                     }
@@ -1240,8 +1288,17 @@ struct EditorAutoEditTemplatePanel: View {
                 message = (message ?? "") + "\n" + cleanupNote
             }
             lastTemplateResult = project.snapshot()
+            // 言いよどみカットの試用: 詰めたら確定、1 つも無ければポイントを返す
+            if usedTrial {
+                if fillerCount > 0 {
+                    PlanTrial.commit(.fillerCut)
+                } else {
+                    PlanTrial.refund(.fillerCut)
+                }
+            }
             onApplied()
         } onError: { error in
+            if usedTrial { PlanTrial.refund(.fillerCut) }
             errorText = String(localized: "もう一度「適用」を押してください。続くときは別のテンプレートをお試しください。\n\n詳細: ") + error.localizedDescription
         }
     }

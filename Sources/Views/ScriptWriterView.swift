@@ -15,6 +15,22 @@ import Observation
 /// (前はメモリ上にアプリ全体で 1 つだけだったので、アプリが終了すると消え、別のプロジェクトを開くと前の台本が出ていた)。
 /// テレプロンプターの「AI 台本を使う」のために、最後に残した台本の文章は UserDefaults にも残す
 /// (プロジェクト一覧から開くカメラでも使えるように)
+/// 一覧の「台本から作る」で作ったプロジェクト。開いた編集画面が、読み込みが終わったら AI 台本を開く(一度だけ)
+enum ScriptStartHandoff {
+    private static var pendingProjectID: UUID?
+
+    static func set(for projectID: UUID) {
+        pendingProjectID = projectID
+    }
+
+    /// このプロジェクトで AI 台本を開くか(一度だけ true)
+    static func take(for projectID: UUID) -> Bool {
+        guard pendingProjectID == projectID else { return false }
+        pendingProjectID = nil
+        return true
+    }
+}
+
 enum ScriptWriterDraft {
     struct Draft {
         var topic = ""
@@ -42,6 +58,11 @@ enum ScriptWriterDraft {
 
     private static func fileURL(projectID: UUID) -> URL {
         ProjectStore.projectDirectory(projectID: projectID).appendingPathComponent(fileName)
+    }
+
+    /// このプロジェクトに台本の下書きがあるか(一覧の「台本から作る」で作ったプロジェクトを、空とみなして消さないため)
+    static func exists(projectID: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: fileURL(projectID: projectID).path)
     }
 
     static func load(projectID: UUID) -> Draft {

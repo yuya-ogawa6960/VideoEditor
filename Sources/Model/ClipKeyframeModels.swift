@@ -143,9 +143,19 @@ struct StoredFlowSlow: Codable {
 
     var value: FlowSlowMotion {
         var f = FlowSlowMotion()
-        guard let file, let url = ProjectStore.resolveMedia(file) else { return f }
         let start = sourceStart ?? 0
         let end = sourceEnd ?? 0
+        guard let file, let url = ProjectStore.resolveMedia(file) else {
+            // ファイルが無い(iCloud バックアップに入れていないので、別の iPhone に移したときなど)。
+            // 使う設定と倍率は残し、編集画面を開いたときに作り直す(ContentView.rebuildMissingMediaIfNeeded)
+            if enabled == true {
+                f.enabled = true
+                f.factor = min(max(factor ?? 2, 1), 16)
+                let slowest = slowestSpeed ?? 0.5
+                f.slowestSpeed = slowest.isFinite ? min(max(slowest, 0.01), 10) : 0.5
+            }
+            return f
+        }
         guard start.isFinite, end.isFinite, end > start else { return f }
         f.enabled = enabled ?? false
         f.fileURL = url

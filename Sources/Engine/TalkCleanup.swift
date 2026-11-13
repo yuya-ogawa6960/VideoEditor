@@ -22,6 +22,8 @@ struct TalkCleanupOptions: Equatable {
     var cutNonSpeech = true
     var cutRetakes = true
     var cutLookups = false
+    /// 言いよどみ(「えー」「あのー」)も切る。テンプレートでは、言いよどみカットを使えるプランか試用のポイントがあるときだけ
+    var cutFillers = true
 
     init(cutNonSpeech: Bool = true, cutRetakes: Bool = true, cutLookups: Bool = false) {
         self.cutNonSpeech = cutNonSpeech
@@ -244,7 +246,7 @@ enum TalkCleanup {
         }
 
         // 3. 言いよどみ(字幕があるときだけ。cutFillers と同じ 0.03 秒の余白)
-        if options.cutNonSpeech, !cues.isEmpty {
+        if options.cutNonSpeech, options.cutFillers, !cues.isEmpty {
             for span in FillerDetector.spans(in: cues) {
                 result.cuts.append(.init(start: max(0, span.start - 0.03), end: span.end + 0.03, reason: .thinking))
             }

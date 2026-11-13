@@ -285,7 +285,7 @@ enum AutoEditor {
             pieces[i].timelineStart = placedCursor
             let placedEnd = placedCursor + newClips[i].outputDuration
             placedCursor = i + 1 < newClips.count
-                ? max(placedCursor, placedEnd - CompositionBuilder.transitionOverlap(from: newClips[i], to: newClips[i + 1]))
+                ? max(placedCursor, placedEnd - CompositionBuilder.layoutOverlap(from: newClips[i], to: newClips[i + 1]))
                 : placedEnd
         }
 
@@ -793,7 +793,9 @@ enum AutoEditor {
         var cursor = 0.0
         for i in 0..<(pieces.count - 1) {
             let out = pieces[i].outputDuration
-            let overlap: Double = (i < transitions.count && transitions[i].isActive) ? transitions[i].duration : 0
+            // 話を消さないつなぎ方(keepsContent)は重ならないので、切れ目はクリップの終わり
+            let overlap: Double = (i < transitions.count && transitions[i].isActive && !transitions[i].keepsContent)
+                ? transitions[i].duration : 0
             let cutTime = cursor + out - overlap / 2
             let tolerance = min(0.5, out * 0.25)
 
@@ -961,7 +963,7 @@ enum AutoEditor {
                 starts.append(cursor)
                 let end = cursor + clip.outputDuration
                 cursor = i + 1 < originals.count
-                    ? max(cursor, end - CompositionBuilder.transitionOverlap(from: clip, to: originals[i + 1]))
+                    ? max(cursor, end - CompositionBuilder.layoutOverlap(from: clip, to: originals[i + 1]))
                     : end
             }
             originalStarts = starts

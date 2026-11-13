@@ -253,6 +253,14 @@ struct TranscriptionSettingsView: View {
             WhisperModelDetailView(option: WhisperModelOption.option(for: settings.whisperModel),
                                    isDownloaded: downloadedModels.contains(settings.whisperModel))
 
+            // base は日本語の聞き間違いが多い(どのモデルも端末の中で動くので、ポイントは使わない)
+            if settings.whisperModel == WhisperModelOption.lightestID {
+                Text("日本語の動画では聞き間違いが多くなります。日本語には large-v3 turbo をおすすめします。どのモデルも端末の中で動くので、ポイントは使いません。")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if let progress = downloadProgress {
                 VStack(alignment: .leading, spacing: 6) {
                     ProgressView(value: min(max(progress, 0), 1))

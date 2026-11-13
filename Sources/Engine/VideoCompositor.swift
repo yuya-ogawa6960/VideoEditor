@@ -249,7 +249,8 @@ struct VideoCompositorClipLayer {
     var enhance: ClipEnhancements = ClipEnhancements()
     /// 静止画クリップの 3D ズーム
     var parallax: DepthParallax = DepthParallax()
-    /// 逆再生のとき元素材の全長(逆再生済みファイル上の秒 → 元素材上の秒 の変換に使う)。通常は nil
+    /// 逆再生のとき、逆再生ファイルの 0 秒にあたる元素材上の秒(逆にした範囲の終わり。前の版のファイルは元素材の全長)。
+    /// 逆再生済みファイル上の秒 → 元素材上の秒 の変換に使う。通常は nil
     var reversedSourceDuration: Double? = nil
     /// 人物・被写体だけパッと光らせる
     var subjectFlash: SubjectFlash = SubjectFlash()

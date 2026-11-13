@@ -50,8 +50,9 @@ enum StorageLocations {
         let bgmTracks = applicationSupport.appendingPathComponent("BGMTracks", isDirectory: true)
         try? FileManager.default.createDirectory(at: bgmTracks, withIntermediateDirectories: true)
         excludeFromBackup(bgmTracks)
-        // 取り込んだ動画のコピー・逆再生・なめらかスローなど(Media)はバックアップに残す。
-        // コピーは「写真アプリで消しても編集を続けられる」ためのもので、逆再生などは消えても作り直す処理がまだ無いため
+        // 取り込んだ動画のコピー(Media)はバックアップに残す(「写真アプリで消しても編集を続けられる」ためのもの)。
+        // 同じ Media にある逆再生・なめらかスローのファイルは、編集画面がファイルごとにバックアップから外す
+        // (無くなっても作り直す。ContentView.rebuildMissingMediaIfNeeded)
     }
 
     /// from を to へ移す。to がもうあれば(前回の途中で止まったなど)、中身を 1 つずつ足す。
@@ -86,7 +87,8 @@ enum StorageLocations {
         return allMoved
     }
 
-    private static func excludeFromBackup(_ url: URL) {
+    /// iCloud バックアップに入れない(作り直せる・ダウンロードし直せるファイル)
+    static func excludeFromBackup(_ url: URL) {
         var target = url
         var values = URLResourceValues()
         values.isExcludedFromBackup = true

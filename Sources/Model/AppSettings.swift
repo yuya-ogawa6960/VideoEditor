@@ -203,6 +203,9 @@ struct WhisperModelOption: Identifiable, Hashable {
     static func option(for id: String) -> WhisperModelOption? {
         all.first { $0.id == id }
     }
+
+    /// いちばん軽いモデル(日本語は聞き間違いが多い。キャプションの画面で精度の高いモデルを案内する)
+    static let lightestID = "openai_whisper-base"
 }
 
 // MARK: - Keychain

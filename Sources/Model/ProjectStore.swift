@@ -1122,14 +1122,18 @@ struct StoredPoint: Codable {
 struct StoredTransition: Codable {
     var type: String
     var duration: Double
+    /// 話を消さないつなぎ方(1.12.109 から。無ければ前の方式 = 重ねる)
+    var keepsContent: Bool?
 
     init(_ t: ClipTransition) {
         type = t.type.rawValue
         duration = t.duration
+        keepsContent = t.keepsContent
     }
 
     var value: ClipTransition {
-        ClipTransition(type: TransitionType(rawValue: type) ?? .none, duration: duration)
+        ClipTransition(type: TransitionType(rawValue: type) ?? .none, duration: duration,
+                       keepsContent: keepsContent ?? false)
     }
 }
 
@@ -1825,6 +1829,9 @@ private struct StoredClip: Codable {
     var speedCurve: StoredSpeedCurve?
     var isReversed: Bool?
     var reversedFile: String?
+    /// 逆再生ファイルが逆にした元素材の範囲(秒。無ければ元素材全体)
+    var reversedStart: Double?
+    var reversedEnd: Double?
     var stillImageFile: String?
     // 第4弾(すべて省略可能)
     var mask: StoredMask?
@@ -1881,6 +1888,8 @@ private struct StoredClip: Codable {
         speedCurve = StoredSpeedCurve(c.speedCurve)
         isReversed = c.isReversed
         reversedFile = c.reversedURL?.lastPathComponent
+        reversedStart = c.reversedRange?.lowerBound
+        reversedEnd = c.reversedRange?.upperBound
         stillImageFile = c.stillImageURL?.lastPathComponent
         mask = StoredMask(c.mask)
         reframe = StoredReframe(c.reframe)
@@ -1969,13 +1978,17 @@ private struct StoredClip: Codable {
         clip.animation = animation?.value ?? ClipAnimation()
         clip.geometry = geometry?.value ?? ClipGeometry()
         clip.speedCurve = speedCurve?.value ?? SpeedCurve()
+        if let start = reversedStart, let end = reversedEnd, start.isFinite, end.isFinite, end > start {
+            clip.reversedRange = start...end
+        }
         if let reversedFile, let reversedURL = ProjectStore.resolveMedia(reversedFile) {
             clip.reversedURL = reversedURL
             clip.isReversed = isReversed ?? false
         } else {
-            // 逆再生ファイルが消えていれば通常再生に戻す
+            // 逆再生ファイルが無い(iCloud バックアップに入れていないので、別の iPhone に移したときなど)。
+            // 逆再生の指定は残し、編集画面を開いたときに作り直す(作り終わるまでは通常再生で映る)
             clip.reversedURL = nil
-            clip.isReversed = false
+            clip.isReversed = reversedFile != nil && (isReversed ?? false)
         }
         clip.stillImageURL = stillURL
         clip.mask = mask?.value ?? MaskSettings()

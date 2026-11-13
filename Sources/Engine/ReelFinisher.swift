@@ -26,11 +26,12 @@ enum ReelFinisher {
         var flashes = 0
     }
 
-    static func apply(_ finish: ReelFinish, to project: EditorProject,
+    /// cutsFillers: 言いよどみも詰める(言いよどみカットを使えるプランか、試用のポイントを払ったときだけ)
+    static func apply(_ finish: ReelFinish, to project: EditorProject, cutsFillers: Bool = true,
                       progress: ((Double) -> Void)?) async throws -> Summary {
         switch finish {
         case .tempoTalk:
-            return try await applyTempoTalk(to: project, progress: progress)
+            return try await applyTempoTalk(to: project, cutsFillers: cutsFillers, progress: progress)
         case .kurashi:
             applyKurashi(to: project)
             progress?(1)
@@ -63,7 +64,7 @@ enum ReelFinisher {
     /// フラッシュどうしの最低間隔(秒)
     private static let flashSpacing = 8.0
 
-    private static func applyTempoTalk(to project: EditorProject,
+    private static func applyTempoTalk(to project: EditorProject, cutsFillers: Bool,
                                        progress: ((Double) -> Void)?) async throws -> Summary {
         var summary = Summary()
 
@@ -103,8 +104,8 @@ enum ReelFinisher {
         }
         progress?(0.55)
 
-        // 2. 言いよどみ(キャプションがあるときだけ)
-        if !project.subtitles.isEmpty {
+        // 2. 言いよどみ(キャプションがあるときだけ。言いよどみカットを使えるときだけ)
+        if cutsFillers, !project.subtitles.isEmpty {
             let spans = FillerDetector.spans(in: project.subtitles)
             if !spans.isEmpty {
                 summary.fillerCuts = spans.count

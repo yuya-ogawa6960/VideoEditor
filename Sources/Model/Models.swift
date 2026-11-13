@@ -272,6 +272,9 @@ struct Clip: Identifiable, Equatable {
     /// 逆再生(reversedURL に逆再生済みファイルがあるときだけ有効)
     var isReversed: Bool
     var reversedURL: URL?
+    /// 逆再生ファイルが元素材のどこからどこまでを逆にしたものか(秒。1.12.109 から使っている範囲と前後 1 秒だけ作る)。
+    /// nil は前の版で元素材全体から作ったファイル
+    var reversedRange: ClosedRange<Double>?
     /// 静止画クリップ(写真・フリーズフレーム)。設定時は url は無視され、この画像を表示する。hasAudio は false
     var stillImageURL: URL?
     /// マスク(Phase4Models.swift)
@@ -323,6 +326,7 @@ struct Clip: Identifiable, Equatable {
         self.speedCurve = SpeedCurve()
         self.isReversed = false
         self.reversedURL = nil
+        self.reversedRange = nil
         self.stillImageURL = nil
         self.mask = MaskSettings()
         self.reframe = ReframeTrack()
@@ -360,6 +364,7 @@ struct Clip: Identifiable, Equatable {
         copy.speedCurve = speedCurve
         copy.isReversed = isReversed
         copy.reversedURL = reversedURL
+        copy.reversedRange = reversedRange
         copy.stillImageURL = stillImageURL
         copy.mask = mask
         copy.reframe = reframe
@@ -446,6 +451,7 @@ struct Clip: Identifiable, Equatable {
             && lhs.speedCurve == rhs.speedCurve
             && lhs.isReversed == rhs.isReversed
             && lhs.reversedURL == rhs.reversedURL
+            && lhs.reversedRange == rhs.reversedRange
             && lhs.stillImageURL == rhs.stillImageURL
             && lhs.mask == rhs.mask
             && lhs.reframe == rhs.reframe

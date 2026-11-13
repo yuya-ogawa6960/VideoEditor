@@ -131,6 +131,8 @@ struct EditorTransitionPanel: View {
                     var value = newValue
                     // 上限の短い種類に変えたら、長さもその上限まで縮める
                     value.duration = min(value.duration, value.type.maxDuration)
+                    // パネルで変えたものは話を消さないつなぎ方にする(前のプロジェクトのトランジションも、変えたらこちら)
+                    value.keepsContent = true
                     clip.transition = value
                     project.rippleTimelineItems(from: layout)
                 })
@@ -167,6 +169,13 @@ struct EditorTransitionPanel: View {
                     .foregroundStyle(.secondary)
             }
 
+            if !isLast, !isNone, clip.transition.keepsContent {
+                Text("切り替わりの前後の映像を使うので、つなぎ目の話は消えません。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 EditorChip(title: String(localized: "リセット"), isSelected: false) {
                     transition.wrappedValue = ClipTransition()
@@ -189,7 +198,8 @@ struct EditorTransitionPanel: View {
                             isPresented: $showApplyAllConfirm,
                             titleVisibility: .visible) {
             Button("全クリップに適用") {
-                let value = clip.transition
+                var value = clip.transition
+                value.keepsContent = true
                 let layout = project.captureClipLayout()
                 for i in project.clips.indices {
                     project.clips[i].transition = value

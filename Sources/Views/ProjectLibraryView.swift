@@ -138,6 +138,8 @@ struct RootView: View {
     private static func isUntouched(_ projectID: UUID) -> Bool {
         if let meta = ProjectLibrary.shared.project(id: projectID), meta.clipCount > 0 { return false }
         guard ProjectStore.photoReferences(projectID: projectID).isEmpty else { return false }
+        // 「台本から作る」で台本だけ書いたプロジェクトも残す(台本の下書きはプロジェクトのフォルダにある)
+        guard !ScriptWriterDraft.exists(projectID: projectID) else { return false }
         let s: ProjectSnapshot
         switch ProjectStore.open(projectID: projectID) {
         case .notFound:
@@ -266,7 +268,10 @@ struct ProjectLibraryView: View {
                         emptyHint
                     } else {
                         newProjectButton
-                        cameraProjectButton
+                        HStack(spacing: 10) {
+                            cameraProjectButton
+                            scriptProjectButton
+                        }
 
                         HStack(alignment: .firstTextBaseline) {
                             Text("最近のプロジェクト")
@@ -603,10 +608,30 @@ struct ProjectLibraryView: View {
         .accessibilityLabel("カメラで撮る")
     }
 
+    /// 「台本から作る」: 新しいプロジェクト(比率・動画の置き場所は最後に選んだもの)を作り、開いたら AI 台本を出す。
+    /// 台本を書いたら、ナレーション・キャプションとして入れるか、カメラのテレプロンプターで読みながら撮れる
+    private var scriptProjectButton: some View {
+        Button {
+            guard !isPackageBusy else { return }
+            createProject(mediaMode: NewProjectMediaMode.last, aspect: NewProjectAspect.last, startsWithScript: true)
+        } label: {
+            Label("台本から作る", systemImage: "text.badge.star")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(BrandStyle.surface, in: RoundedRectangle(cornerRadius: BrandStyle.Radius.card, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("台本から作る")
+    }
+
     /// importingIncomingMedia: 共有で受け取った動画・写真を編集するために作る(開いた編集画面が聞かずに取り込む)。
-    /// aspect: 「新しいプロジェクト」で選んだ比率(縦はぼかし背景で収める)。このときだけ、空のまま閉じたら消す
+    /// aspect: 「新しいプロジェクト」で選んだ比率(縦はぼかし背景で収める)。このときだけ、空のまま閉じたら消す。
+    /// startsWithScript: 開いたら AI 台本を出す(一覧の「台本から作る」)
     private func createProject(mediaMode: ProjectMediaMode, importingIncomingMedia: Bool = false,
-                               droppedMedia: [URL]? = nil, aspect: CanvasAspect? = nil) {
+                               droppedMedia: [URL]? = nil, aspect: CanvasAspect? = nil,
+                               startsWithScript: Bool = false) {
         Analytics.shared.track("project_create", ["media": String(describing: mediaMode)])
         let meta = library.create(mediaMode: mediaMode)
         if let aspect {
@@ -622,6 +647,9 @@ struct ProjectLibraryView: View {
         }
         if let droppedMedia {
             DroppedMediaHandoff.set(droppedMedia, for: meta.id)
+        }
+        if startsWithScript {
+            ScriptStartHandoff.set(for: meta.id)
         }
         let isFresh: Bool = aspect != nil && !importingIncomingMedia && droppedMedia == nil
         onOpen(meta, isFresh)
@@ -689,7 +717,10 @@ struct ProjectLibraryView: View {
                 .foregroundStyle(.white)
             newProjectButton
                 .padding(.top, 8)
-            cameraProjectButton
+            HStack(spacing: 10) {
+                cameraProjectButton
+                scriptProjectButton
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)

@@ -83,8 +83,14 @@ extension TransitionType {
 
 struct ClipTransition: Equatable {
     var type: TransitionType = .none
-    /// 0.2 ... type.maxDuration 秒(最大 8 秒)。前後のクリップがこの長さだけ重なる(出力の合計は短くなる)
+    /// 0.2 ... type.maxDuration 秒(最大 8 秒)。切り替わりの見た目の長さ
     var duration: Double = 0.5
+    /// 話を消さないつなぎ方(1.12.109 から)。前後のクリップは重ならずに並び(出力の合計は変わらない)、
+    /// 切り替わりの前後 duration / 2 ずつは、クリップの外側の映像(無ければ端のコマを止めたもの)で見せる。
+    /// 音は切り替わりの位置で入れ替える(重ねない)ので、つなぎ目の言葉が消えない。
+    /// false は前の方式(前後のクリップが duration だけ重なり、その分の映像と音が重なって短くなる)。
+    /// 前に保存したプロジェクトのトランジションは false のまま読む(字幕などの位置がずれないように)
+    var keepsContent: Bool = true
     var isActive: Bool { type != .none && duration > 0.05 }
 }
 
