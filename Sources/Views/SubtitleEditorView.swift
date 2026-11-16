@@ -7,7 +7,7 @@ import UIKit
 // MARK: - ヘルパー
 
 /// 秒 → "m:ss.s"
-fileprivate func subtitleTimeString(_ seconds: Double) -> String {
+func subtitleTimeString(_ seconds: Double) -> String {
     let s = max(0, seconds.isFinite ? seconds : 0)
     let tenths = Int((s * 10).rounded())
     let minutes = tenths / 600
@@ -192,6 +192,8 @@ struct SubtitleEditorView: View {
     @AppStorage("captionEditor.lastCaptionLanguage") private var lastCaptionLanguage: String = ""
 
     @State private var editingCueID: UUID?
+    /// 一覧の「分ける」で分けるキャプション(CaptionSplitSheet)
+    @State private var splitRequest: CaptionSplitRequest?
     /// 字幕 1 件の編集を開いたときの文(閉じたときに、ほかの字幕の同じ言葉も直すか聞くため)
     @State private var editStartText: String?
     @State private var termReplacement: CaptionTermReplacement?
@@ -349,6 +351,14 @@ struct SubtitleEditorView: View {
             }
             .navigationDestination(item: $editingCueID) { cueID in
                 SubtitleCueEditView(project: project, player: player, cueID: cueID)
+            }
+            // 一覧の「分ける」: 分けたい所をタップして選ぶ
+            .sheet(item: $splitRequest) { request in
+                if let cue = project.subtitles.first(where: { $0.id == request.id }) {
+                    CaptionSplitSheet(cue: cue, playheadTime: player.currentTime) { offset, time in
+                        applySplit(cueID: request.id, offset: offset, time: time)
+                    }
+                }
             }
             // アラートの「文字起こしとAI仕上げ」(AccountService.swift の CloudAIGateway.recovery が .apiKey のとき)
             .navigationDestination(isPresented: $showsAISettings) {
@@ -1995,6 +2005,40 @@ struct SubtitleEditorView: View {
         project.subtitles.remove(at: i + 1)
     }
 
+    /// 一覧の「分ける」で選んだ所で 2 件に分ける(前半は同じ id、後半は直後に入れる)
+    private func applySplit(cueID: UUID, offset: Int, time: Double?) {
+        guard let i = project.subtitles.firstIndex(where: { $0.id == cueID }),
+              let parts = CaptionSplit.split(project.subtitles[i], at: offset, time: time) else { return }
+        project.subtitles[i] = parts.head
+        project.subtitles.insert(parts.tail, at: i + 1)
+        project.sortSubtitles()
+        EditorHaptics.success()
+    }
+
+    /// 行の下の「分ける」「次とつなげる」(前は「時刻や分割を直す」の画面と、横へのスワイプに隠れていて見つけにくかった)
+    private func cueActions(_ cue: SubtitleCue) -> some View {
+        let isLast = project.subtitles.last?.id == cue.id
+        return HStack(spacing: 18) {
+            Spacer(minLength: 0)
+            Button {
+                splitRequest = CaptionSplitRequest(id: cue.id)
+            } label: {
+                Label("分ける", systemImage: "scissors")
+            }
+            .disabled(cue.duration < CaptionSplit.minimumLength * 2 || cue.text.count < 2)
+            if !isLast {
+                Button {
+                    EditorHaptics.tap()
+                    mergeWithNext(cueID: cue.id)
+                } label: {
+                    Label("次とつなげる", systemImage: "arrow.down.to.line")
+                }
+            }
+        }
+        .font(.caption.weight(.semibold))
+        .buttonStyle(.borderless)
+    }
+
     /// 2 つの文をつなぐ(英数字の境目だけ空白を入れる)
     private static func joined(_ lhs: String, _ rhs: String) -> String {
         let a = lhs.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2077,6 +2121,7 @@ struct SubtitleEditorView: View {
                     .foregroundStyle(Color.secondary)
                     .textFieldStyle(.plain)
             }
+            cueActions(cue)
         }
         .padding(.vertical, 2)
         .listRowBackground(issue != nil
@@ -2101,6 +2146,7 @@ struct SubtitleEditorView: View {
 
     /// いつもの行: タップで再生位置へ、鉛筆で 1 件の編集画面
     private func tapCueRow(_ cue: SubtitleCue, isCurrent: Bool, issue: CaptionIssue?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 8) {
             if issue != nil {
                 Image(systemName: "exclamationmark.circle.fill")
@@ -2142,6 +2188,8 @@ struct SubtitleEditorView: View {
                     .font(.title3)
             }
             .buttonStyle(.borderless)
+        }
+        cueActions(cue)
         }
         .padding(.vertical, 2)
         .listRowBackground(issue != nil
@@ -2198,6 +2246,8 @@ struct SubtitleCueEditView: View {
     @State private var textSelection: TextSelection?
     /// 直前の文字カーソル(ボタンを押すとフォーカスが外れて選択が消えることがあるため取っておく)
     @State private var lastSelection: TextSelection?
+    /// 「分ける」(言葉をタップして分ける所を選ぶ。CaptionSplitSheet)
+    @State private var showsSplit = false
 
     private let minimumLength: Double = 0.2
 
@@ -2222,16 +2272,15 @@ struct SubtitleCueEditView: View {
                     .onChange(of: textSelection) { _, selection in
                         if let selection { lastSelection = selection }
                     }
+                // 分ける: 言葉をタップして分ける所を選ぶ(前は文字カーソルの位置で切っていて、分かりにくかった)
                 Button {
-                    splitCue(cue)
+                    showsSplit = true
                 } label: {
-                    Label("ここで分割", systemImage: "scissors")
+                    Label("2 つに分ける", systemImage: "scissors")
                 }
                 .disabled(cue.wrappedValue.duration < minimumLength * 2 || cue.wrappedValue.text.count < 2)
             } header: {
                 Text("テキスト")
-            } footer: {
-                Text("分割は文字カーソルの位置で切ります。カーソルが無ければ再生位置です。")
             }
 
             Section {
@@ -2248,47 +2297,21 @@ struct SubtitleCueEditView: View {
                 Text("翻訳")
             }
 
+            // タイミング: 帯のつまみをドラッグで直す(前は +/- と「再生位置にする」で、分かりづらく操作しづらかった)
             Section {
-                Stepper("開始 " + subtitleTimeString(cue.wrappedValue.start),
-                        onIncrement: { setStart(cue, cue.wrappedValue.start + 0.1) },
-                        onDecrement: { setStart(cue, cue.wrappedValue.start - 0.1) })
-                HStack {
-                    Button("再生位置にする") {
-                        setStart(cue, player.currentTime)
-                    }
-                    .buttonStyle(.borderless)
-                    Spacer()
-                    Button("ここを再生") {
-                        player.seek(to: cue.wrappedValue.start)
-                        player.play()
-                    }
-                    .buttonStyle(.borderless)
-                }
-
-                Stepper("終了 " + subtitleTimeString(cue.wrappedValue.end),
-                        onIncrement: { setEnd(cue, cue.wrappedValue.end + 0.1) },
-                        onDecrement: { setEnd(cue, cue.wrappedValue.end - 0.1) })
-                HStack {
-                    Button("再生位置にする") {
-                        setEnd(cue, player.currentTime)
-                    }
-                    .buttonStyle(.borderless)
-                    Spacer()
-                    Button("ここを再生") {
-                        // 終わりの少し前から流して、切れ目を耳で確かめる
-                        player.seek(to: max(cue.wrappedValue.start, cue.wrappedValue.end - 1))
-                        player.play()
-                    }
-                    .buttonStyle(.borderless)
-                }
-
-                Text("長さ \(String(format: "%.1f", cue.wrappedValue.duration)) 秒")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                let neighbours = neighbourBounds(of: cue.wrappedValue)
+                CaptionTimingBar(cue: cue.wrappedValue,
+                                 previousEnd: neighbours.previousEnd,
+                                 nextStart: neighbours.nextStart,
+                                 totalDuration: player.duration,
+                                 playheadTime: player.currentTime,
+                                 onChange: { start, end in setRange(cue, start: start, end: end) },
+                                 onPlay: {
+                                     player.seek(to: cue.wrappedValue.start)
+                                     player.play()
+                                 })
             } header: {
                 Text("タイミング")
-            } footer: {
-                Text("現在の再生位置: \(subtitleTimeString(player.currentTime))")
             }
 
             Section {
@@ -2298,6 +2321,16 @@ struct SubtitleCueEditView: View {
                 } label: {
                     Label("このキャプションを削除", systemImage: "trash")
                 }
+            }
+        }
+        .sheet(isPresented: $showsSplit) {
+            CaptionSplitSheet(cue: cue.wrappedValue, playheadTime: player.currentTime) { offset, time in
+                guard let i = project.subtitles.firstIndex(where: { $0.id == cueID }),
+                      let parts = CaptionSplit.split(project.subtitles[i], at: offset, time: time) else { return }
+                project.subtitles[i] = parts.head
+                project.subtitles.insert(parts.tail, at: i + 1)
+                project.sortSubtitles()
+                EditorHaptics.success()
             }
         }
         .onChange(of: cue.wrappedValue.text) { _, _ in
@@ -2383,6 +2416,27 @@ struct SubtitleCueEditView: View {
             }
         }
         return best
+    }
+
+    /// 前後のキャプションの終わり・始まり(重ならないようにするため)
+    private func neighbourBounds(of c: SubtitleCue) -> (previousEnd: Double?, nextStart: Double?) {
+        let others = project.subtitles.filter { $0.id != c.id }
+        let previousEnd = others.filter { $0.start < c.start }.map { $0.end }.max()
+        let nextStart = others.filter { $0.start >= c.start }.map { $0.start }.min()
+        return (previousEnd, nextStart)
+    }
+
+    /// 始まりと終わりをまとめて変える(単語の時刻も合わせる)
+    private func setRange(_ cue: Binding<SubtitleCue>, start: Double, end: Double) {
+        var c = cue.wrappedValue
+        let oldStart = c.start
+        let oldEnd = c.end
+        c.start = max(0, start)
+        c.end = max(c.start + minimumLength, end)
+        c.words = SubtitleWordTiming.rescaled(c.words, oldStart: oldStart, oldEnd: oldEnd,
+                                              newStart: c.start, newEnd: c.end)
+        cue.wrappedValue = c
+        project.sortSubtitles()
     }
 
     private func setStart(_ cue: Binding<SubtitleCue>, _ value: Double) {
