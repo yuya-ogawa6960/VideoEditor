@@ -1670,14 +1670,71 @@ struct TimelineTextBar: View {
     let height: CGFloat
     let isSelected: Bool
 
+    /// 2 段(上に種類、下に中身)で見せられる高さか
+    private var showsTwoRows: Bool { height >= 26 }
+
+    /// 上の段: 種類の名前とアイコン、動き・キーフレームの印
+    private func kindRow(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: systemImage)
+                .font(.system(size: 8, weight: .bold))
+            Text(title)
+                .font(.system(size: 9, weight: .bold))
+                .lineLimit(1)
+            badges
+        }
+        .opacity(0.85)
+    }
+
+    /// 動き(イン / アウト)とキーフレームの印
+    @ViewBuilder
+    private var badges: some View {
+        if textClip.animIn != TextAnimationType.none || textClip.animOut != TextAnimationType.none {
+            Image(systemName: "sparkles")
+                .font(.system(size: 8, weight: .bold))
+                .opacity(0.9)
+        }
+        if !textClip.keyframes.isEmpty {
+            Image(systemName: "diamond.fill")
+                .font(.system(size: 7, weight: .bold))
+                .opacity(0.9)
+        }
+    }
+
     var body: some View {
         let isSticker = textClip.isSticker
         let label = textClip.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 改行のある文は 1 行につなげて見せる
+        let oneLine = label.split(whereSeparator: \.isNewline).joined(separator: " ")
         let hasKeyframes = !textClip.keyframes.isEmpty
+        let isTwoRowKind = textClip.mosaic == nil && (textClip.vectorSticker != nil || !isSticker)
 
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(TimelineMetrics.textColor)
+            if showsTwoRows, isTwoRowKind {
+                // 2 段: 上に種類(テキスト / ステッカー)、下に中身
+                VStack(alignment: .leading, spacing: 1) {
+                    if let kind = textClip.vectorSticker {
+                        kindRow(String(localized: "ステッカー"), systemImage: kind.category.systemImage)
+                        Text(kind.hasText && !label.isEmpty ? oneLine : kind.displayName)
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                    } else {
+                        kindRow(String(localized: "テキスト"), systemImage: "textformat")
+                        if !oneLine.isEmpty {
+                            Text(oneLine)
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                .foregroundStyle(Color.white)
+                .shadow(color: Color.black.opacity(0.35), radius: 1)
+                .padding(.horizontal, 5)
+                .frame(maxWidth: max(0, visibleWidth - labelX), alignment: .leading)
+                .offset(x: labelX)
+            } else {
             HStack(spacing: 4) {
                 if let kind = textClip.vectorSticker {
                     // 動くステッカー: カテゴリのアイコン + 名前(文字を入れられる種類はその文字)
@@ -1726,6 +1783,7 @@ struct TimelineTextBar: View {
             .padding(.horizontal, 5)
             .frame(maxWidth: max(0, visibleWidth - labelX), alignment: .leading)
             .offset(x: labelX)
+            }
         }
         .frame(width: visibleWidth, height: height, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
