@@ -1,6 +1,144 @@
 {
   "sourceLanguage": "ja",
   "strings": {
+    "帯の左右のつまみで始まりと終わり、帯の真ん中で全体を前後に動かせます。動かしている間は、その位置の映像と音が出ます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag the handles on either side to change the start and end, or drag the middle to move the whole caption. The preview follows while you drag."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra los tiradores de los lados para cambiar el inicio y el final, o arrastra el centro para mover todo el subtítulo. La vista previa sigue el arrastre."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste as alças dos lados para mudar o início e o fim, ou arraste o meio para mover a legenda inteira. A prévia acompanha enquanto você arrasta."
+          }
+        }
+      }
+    },
+    "2 つ目の頭にしたい言葉をタップすると、そこで分かれます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the word that should start the second part. The caption splits there."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca la palabra con la que debe empezar la segunda parte. El subtítulo se divide ahí."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque na palavra que deve começar a segunda parte. A legenda é dividida ali."
+          }
+        }
+      }
+    },
+    "再生位置で分ける": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split at Playhead"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir en el cursor de reproducción"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir no cursor de reprodução"
+          }
+        }
+      }
+    },
+    "言葉ごとに選ぶ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose by Word"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir por palabra"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher por palavra"
+          }
+        }
+      }
+    },
+    "1 文字ずつ選ぶ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose by Character"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir por carácter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher por caractere"
+          }
+        }
+      }
+    },
+    "間違えたら、一覧の右上の「元に戻す」で戻せます。": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you split in the wrong place, tap Undo at the top right of the list."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si divides en el lugar equivocado, toca Deshacer arriba a la derecha de la lista."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se dividir no lugar errado, toque em Desfazer no canto superior direito da lista."
+          }
+        }
+      }
+    },
     "2 つに分ける": {
       "extractionState": "manual",
       "localizations": {

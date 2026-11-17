@@ -194,6 +194,9 @@ struct SubtitleEditorView: View {
     @State private var editingCueID: UUID?
     /// 一覧の「分ける」で分けるキャプション(CaptionSplitSheet)
     @State private var splitRequest: CaptionSplitRequest?
+    /// この画面の「元に戻す」用。一覧で 分ける / つなげる / 削除 / 問題なし をする前のキャプション(新しいものが最後)。
+    /// 編集画面の「元に戻す」は字幕の画面を開く前まで全部戻してしまうので、1 手ずつ戻せるようにここで持つ
+    @State private var cueUndoStack: [[SubtitleCue]] = []
     /// 字幕 1 件の編集を開いたときの文(閉じたときに、ほかの字幕の同じ言葉も直すか聞くため)
     @State private var editStartText: String?
     @State private var termReplacement: CaptionTermReplacement?
@@ -272,6 +275,15 @@ struct SubtitleEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { requestClose() }
+                }
+                // 一覧での 分ける / つなげる / 削除 / 問題なし を 1 手ずつ戻す
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        undoCueChange()
+                    } label: {
+                        Label("元に戻す", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(cueUndoStack.isEmpty || isTranscribing || isTranslating)
                 }
             }
             // 文字起こし・翻訳の途中はスワイプで閉じられないようにする(閉じると止まるため)
@@ -1886,6 +1898,7 @@ struct SubtitleEditorView: View {
                         cueRow(cue, isCurrent: cue.id == highlightedID, issue: issues[cue.id])
                     }
                     .onDelete { offsets in
+                        recordCueUndo()
                         project.subtitles.remove(atOffsets: offsets)
                     }
                 }
@@ -1983,6 +1996,7 @@ struct SubtitleEditorView: View {
     private func mergeWithNext(cueID: UUID) {
         guard let i = project.subtitles.firstIndex(where: { $0.id == cueID }),
               i + 1 < project.subtitles.count else { return }
+        recordCueUndo()
         let a = project.subtitles[i]
         let b = project.subtitles[i + 1]
         var merged = a
@@ -2009,17 +2023,58 @@ struct SubtitleEditorView: View {
     private func applySplit(cueID: UUID, offset: Int, time: Double?) {
         guard let i = project.subtitles.firstIndex(where: { $0.id == cueID }),
               let parts = CaptionSplit.split(project.subtitles[i], at: offset, time: time) else { return }
+        recordCueUndo()
         project.subtitles[i] = parts.head
         project.subtitles.insert(parts.tail, at: i + 1)
         project.sortSubtitles()
         EditorHaptics.success()
     }
 
-    /// 行の下の「分ける」「次とつなげる」(前は「時刻や分割を直す」の画面と、横へのスワイプに隠れていて見つけにくかった)
-    private func cueActions(_ cue: SubtitleCue) -> some View {
+    /// 一覧の操作の前のキャプションを取っておく(ナビゲーションバーの「元に戻す」で戻す)
+    private func recordCueUndo() {
+        cueUndoStack.append(project.subtitles)
+        if cueUndoStack.count > 30 { cueUndoStack.removeFirst(cueUndoStack.count - 30) }
+    }
+
+    private func undoCueChange() {
+        guard let previous = cueUndoStack.popLast() else { return }
+        project.subtitles = previous
+        EditorHaptics.tap()
+    }
+
+    private func deleteCue(_ id: UUID) {
+        recordCueUndo()
+        project.subtitles.removeAll { $0.id == id }
+    }
+
+    /// 要確認の赤い印を消す
+    private func dismissIssue(_ id: UUID) {
+        guard let index = project.subtitles.firstIndex(where: { $0.id == id }) else { return }
+        recordCueUndo()
+        project.subtitles[index].issueDismissed = true
+    }
+
+    /// 行の下の「削除」「問題なし」「分ける」「次とつなげる」(前は「時刻や分割を直す」の画面と、横へのスワイプに隠れていて見つけにくかった。
+    /// 削除と問題なしもスワイプだけだったので並べる。間違えたらナビゲーションバーの「元に戻す」)
+    private func cueActions(_ cue: SubtitleCue, issue: CaptionIssue?) -> some View {
         let isLast = project.subtitles.last?.id == cue.id
-        return HStack(spacing: 18) {
+        return HStack(spacing: 16) {
+            Button(role: .destructive) {
+                EditorHaptics.tap()
+                deleteCue(cue.id)
+            } label: {
+                Label("削除", systemImage: "trash")
+            }
             Spacer(minLength: 0)
+            if issue != nil {
+                Button {
+                    EditorHaptics.tap()
+                    dismissIssue(cue.id)
+                } label: {
+                    Label("問題なし", systemImage: "checkmark.circle")
+                }
+                .tint(.green)
+            }
             Button {
                 splitRequest = CaptionSplitRequest(id: cue.id)
             } label: {
@@ -2035,8 +2090,9 @@ struct SubtitleEditorView: View {
                 }
             }
         }
-        .font(.caption.weight(.semibold))
+        .font(.footnote.weight(.semibold))
         .buttonStyle(.borderless)
+        .padding(.vertical, 4)
     }
 
     /// 2 つの文をつなぐ(英数字の境目だけ空白を入れる)
@@ -2085,9 +2141,7 @@ struct SubtitleEditorView: View {
                 Spacer(minLength: 4)
                 if issue != nil {
                     Button {
-                        if let index = project.subtitles.firstIndex(where: { $0.id == cue.id }) {
-                            project.subtitles[index].issueDismissed = true
-                        }
+                        dismissIssue(cue.id)
                     } label: {
                         Label("問題なし", systemImage: "checkmark.circle")
                             .labelStyle(.iconOnly)
@@ -2121,7 +2175,7 @@ struct SubtitleEditorView: View {
                     .foregroundStyle(Color.secondary)
                     .textFieldStyle(.plain)
             }
-            cueActions(cue)
+            cueActions(cue, issue: issue)
         }
         .padding(.vertical, 2)
         .listRowBackground(issue != nil
@@ -2129,7 +2183,7 @@ struct SubtitleEditorView: View {
                            : (isCurrent ? Color.accentColor.opacity(0.15) : Color(uiColor: .secondarySystemGroupedBackground)))
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                project.subtitles.removeAll { $0.id == cue.id }
+                deleteCue(cue.id)
             } label: {
                 Label("削除", systemImage: "trash")
             }
@@ -2189,7 +2243,7 @@ struct SubtitleEditorView: View {
             }
             .buttonStyle(.borderless)
         }
-        cueActions(cue)
+        cueActions(cue, issue: issue)
         }
         .padding(.vertical, 2)
         .listRowBackground(issue != nil
@@ -2199,9 +2253,7 @@ struct SubtitleEditorView: View {
         .swipeActions(edge: .leading) {
             if issue != nil {
                 Button {
-                    if let index = project.subtitles.firstIndex(where: { $0.id == cue.id }) {
-                        project.subtitles[index].issueDismissed = true
-                    }
+                    dismissIssue(cue.id)
                 } label: {
                     Label("問題なし", systemImage: "checkmark")
                 }
@@ -2211,7 +2263,7 @@ struct SubtitleEditorView: View {
         // 独自のスワイプを付けると onDelete の削除が出なくなることがあるので、削除も並べておく
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                project.subtitles.removeAll { $0.id == cue.id }
+                deleteCue(cue.id)
             } label: {
                 Label("削除", systemImage: "trash")
             }
@@ -2309,6 +2361,15 @@ struct SubtitleCueEditView: View {
                                  onPlay: {
                                      player.seek(to: cue.wrappedValue.start)
                                      player.play()
+                                 },
+                                 onScrub: { time, done in
+                                     // つまみを動かしている間、その位置の映像と音を出す(動かす → 再生で確かめる、の往復を無くす)
+                                     if done {
+                                         player.endScrub(at: time)
+                                     } else {
+                                         if player.isPlaying { player.pause() }
+                                         player.scrub(to: time)
+                                     }
                                  })
             } header: {
                 Text("タイミング")
