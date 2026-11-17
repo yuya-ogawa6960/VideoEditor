@@ -278,9 +278,15 @@ enum SubtitlePolisher {
         let apiKey = settings.cloudCredential
         let texts: [String] = cues.map { $0.text }
         let network = CloudRequestState(pauseReporter: nil)
+        // 文の途中で分かれた字幕は、印を付けて 1 つの文として訳させる(「最近」「iPhoneの」を 1 件ずつ訳すと、つながらない訳になる)
+        let continuing = continuingIndices(cues, language: language)
+        let mark = toEnglish ? continuesMarkEnglish : continuesMarkJapanese
 
         let replies = await runBatches(count: cues.count, engine: engine) { indices in
-            let prompt = SubtitlePolisher.itemsPrompt(header: header, items: indices.map { ($0, texts[$0]) })
+            // 1 回に送る分の最後の行は、次の行が見えないので印を付けない
+            let inBatch = continuing.intersection(indices.dropLast())
+            let prompt = SubtitlePolisher.itemsPrompt(header: header, items: indices.map { ($0, texts[$0]) },
+                                                      continuing: inBatch, mark: mark)
             return await SubtitlePolisher.generate(engine: engine, instructions: instructions, prompt: prompt,
                                                    apiKey: apiKey, network: network)
         }
@@ -289,7 +295,11 @@ enum SubtitlePolisher {
         var result = cues
         var count = 0
         for (index, text) in replies where index >= 0 && index < result.count {
-            let cleaned = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            // 印を書いてしまった訳からは外す
+            let cleaned = text.replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: continuesMarkEnglish, with: "")
+                .replacingOccurrences(of: continuesMarkJapanese, with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { continue }
             result[index].translatedText = cleaned
             count += 1
@@ -346,7 +356,7 @@ enum SubtitlePolisher {
             return """
             あなたは動画字幕の校正者です。音声認識で作られた日本語の字幕を、意味を変えずに読みやすく整えます。
             ルール:
-            - 明らかな誤認識は文脈から自然な表記に直す(固有名詞・数字は確信があるときだけ)
+            - 音声認識の聞き間違いは、文脈から元の言葉に直す。音が抜けた言葉・似た音に化けた言葉を見落とさない。例:「こばは」→「こんばんは」、「ちゃと」→「ちゃんと」、「ありがとございます」→「ありがとうございます」、「おねがしします」→「お願いします」。あいさつやよく使う言葉は、意味の通らない形になっていたら必ず直す。固有名詞・数字は確信があるときだけ直す
             - 句読点(、。)を自然に補う。「あのー」「えーと」などのフィラーや言い直しは削る
             - 相づち・感動詞(「うん」「うんうん」「ふーん」「へえ」「ほう」「ああ」「はい」だけの返事など)は削る
             - ローマ字で書かれた相づち・感動詞(hun, hmm, hm, mm, uh, um, ah, oh, eh, huh, un, nn など)は誤認識なので削る
@@ -361,7 +371,7 @@ enum SubtitlePolisher {
             return """
             You are a subtitle editor. Clean up English subtitles produced by speech recognition without changing their meaning.
             Rules:
-            - Fix obvious misrecognitions from context (be careful with names and numbers).
+            - Fix speech-recognition mistakes from context: words with dropped or swapped sounds (for example "thank yo" -> "thank you", "probly" -> "probably"). Always fix greetings and common words that came out as non-words. Change names and numbers only when you are sure.
             - Add natural punctuation and capitalization. Remove fillers (um, uh, you know) and false starts.
             - Do not add, summarize, or paraphrase content. Keep the speaker's wording.
             - Keep the same number of subtitles and the same numbering (never merge subtitles).
@@ -384,28 +394,57 @@ enum SubtitlePolisher {
         if toEnglish {
             return """
             You translate video subtitles from \(source == .japanese ? "Japanese" : "English") into natural, concise English suitable for on-screen captions.
-            - Translate each subtitle on its own; keep the same numbering and the same number of items.
+            - Keep the same numbering and the same number of items.
+            - A line that ends with "\(continuesMarkEnglish)" stops in the middle of a sentence and continues in the next number. Translate the whole sentence first, then divide the translation across those numbers in natural English order, so that reading them in sequence gives one correct sentence. Every part must be non-empty, nothing is repeated, and the mark itself is not written.
+            - Translate every other subtitle on its own.
             - Keep names and numbers. Do not add explanations.
             - Output JSON only, in the form: {"items":[{"i":number,"t":"translation"}, ...]}
             """
         }
         return """
         あなたは動画字幕の翻訳者です。\(source == .english ? "英語" : "日本語")の字幕を、画面に表示する字幕として自然で簡潔な日本語に翻訳します。
-        - 字幕ごとに翻訳し、番号と件数は入力と同じにする
+        - 番号と件数は入力と同じにする
+        - 終わりに「\(continuesMarkJapanese)」が付いた行は文の途中で、次の番号に文が続く。まず文全体を訳し、その訳を同じ番号の数に、日本語として自然な順で分ける(順に読むと 1 つの正しい文になるように)。どの番号も空にしない。同じ言葉を繰り返さない。印そのものは書かない
+        - それ以外の字幕は、字幕ごとに翻訳する
         - 固有名詞・数字はそのまま。説明は加えない
         - 出力は JSON オブジェクトのみ。形式: {"items":[{"i":番号,"t":"訳文"}, ...]}
         """
     }
 
-    private static func itemsPrompt(header: String, items: [(Int, String)]) -> String {
+    /// 翻訳の入力で、文が次の字幕に続く行の終わりに付ける印
+    static let continuesMarkEnglish = "(continues)"
+    static let continuesMarkJapanese = "(続く)"
+
+    /// continuing: 文が次の番号に続く行(終わりに mark を付ける。翻訳だけ)
+    private static func itemsPrompt(header: String, items: [(Int, String)],
+                                    continuing: Set<Int> = [], mark: String = "") -> String {
         var lines: [String] = [header, ""]
         for (index, text) in items {
             let flat = text.replacingOccurrences(of: "\r", with: " ")
                 .replacingOccurrences(of: "\n", with: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            lines.append("\(index): \(flat)")
+            lines.append(continuing.contains(index) ? "\(index): \(flat) \(mark)" : "\(index): \(flat)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// 文の途中で終わり、次の字幕に文が続く字幕の番号(翻訳で、分かれた文をまとめて訳させるため)。
+    /// 日本語は助詞で終わる字幕(endsMidSentence)。加えて、字幕に句読点が付いている(3 割以上が文末の記号で終わる)ときは、
+    /// 文末の記号で終わらない字幕も途中と見なす。句読点の無い字幕(仕上げをしていない)では、助詞だけで決める。
+    /// 最後の字幕と、次の字幕まで 8 秒より長くあく字幕は続かない
+    static func continuingIndices(_ cues: [SubtitleCue], language: TranscriptionLanguage) -> Set<Int> {
+        guard cues.count >= 2 else { return [] }
+        let ended = cues.map { SubtitleSegmenter.endsWithSentencePunctuation($0.text) }
+        let punctuated = Double(ended.filter { $0 }.count) >= Double(cues.count) * 0.3
+        var result: Set<Int> = []
+        for index in 0..<(cues.count - 1) {
+            let text = cues[index].text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty, cues[index + 1].start - cues[index].end <= 8 else { continue }
+            let byParticle = language == .japanese && endsMidSentence(text)
+            let byPunctuation = punctuated && !ended[index]
+            if byParticle || byPunctuation { result.insert(index) }
+        }
+        return result
     }
 
     // MARK: - バッチ実行
@@ -758,7 +797,45 @@ enum SubtitlePolisher {
             }
             if continues, let last = result.last { continuing.insert(last.id) }
         }
+        // AI が「次に続く」と答えなくても、助詞で終わる字幕は文の途中と見なす(AI は「東京は。」と句点を付けるだけで、
+        // 続くとは答えないことがあった。1.12.113)
+        if language == .japanese {
+            for cue in result where endsMidSentence(cue.text) {
+                continuing.insert(cue.id)
+            }
+        }
         return joinContinued(result, continuing: continuing, language: language)
+    }
+
+    /// 文がここで終わらない助詞(この字で終わる字幕は、次の字幕に文が続く)
+    private static let midSentenceParticles: Set<Character> = ["は", "が", "を", "に", "へ", "も", "や", "と"]
+    /// 助詞の字で終わるが、文の終わりにもなる言い方(あいさつ・言いさし)。ここで終わる字幕はそのままにする
+    private static let sentenceFinalEndings: [String] = [
+        "こんにちは", "こんばんは", "では", "または",
+        "かも", "とも", "のに", "ように", "ために", "くせに", "わりに", "ことに",
+        "ですが", "ますが", "だが", "たが", "んだが", "けれども", "けども",
+        "だと", "かと", "すると", "なんと", "ちゃんと", "きっと", "もっと", "ずっと", "やっと", "ちょっと", "ほっと",
+        "とは", "には", "かは",
+    ]
+
+    /// 日本語の字幕が文の途中で終わっているか(終わりの句読点を除いて、助詞で終わる)。
+    /// 「の」は「〜なの。」「行くの?」のように文の終わりにもなるので、前がひらがなでないとき(「iPhoneの」「私の」)だけ。
+    /// ? ! で終わる字幕は、そこで文が終わっている
+    static func endsMidSentence(_ text: String) -> Bool {
+        var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let last = body.last, "？?！!…".contains(last) { return false }
+        while let last = body.last, "。.．、,，".contains(last) || last.isWhitespace {
+            body.removeLast()
+        }
+        guard body.count >= 2, let last = body.last else { return false }
+        if sentenceFinalEndings.contains(where: { body.hasSuffix($0) }) { return false }
+        if midSentenceParticles.contains(last) { return true }
+        if last == "の" {
+            let before = body[body.index(before: body.index(before: body.endIndex))]
+            let isHiragana = before.unicodeScalars.allSatisfy { (0x3040...0x309F).contains($0.value) }
+            return !isHiragana
+        }
+        return false
     }
 
     // MARK: - 文の途中で分かれた字幕
@@ -808,7 +885,7 @@ enum SubtitlePolisher {
     /// 終わりの句点(。と .)を外す。? ! … は意味があるので残す
     static func droppingSentencePeriod(_ text: String) -> String {
         var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        while let last = trimmed.last, last == "。" || last == "." || last == "．" {
+        while let last = trimmed.last, last == "。" || last == "." || last == "．" || last == "、" {
             trimmed.removeLast()
         }
         return trimmed.isEmpty ? text : trimmed
