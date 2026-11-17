@@ -247,7 +247,7 @@ enum SubtitlePolisher {
         let texts: [String] = cues.map { $0.text }
         let network = CloudRequestState(pauseReporter: pauseReporter)
 
-        let replies = await runBatches(count: cues.count, engine: engine) { indices in
+        let replies = await runBatches(count: cues.count, engine: engine, readsContinuation: true) { indices in
             let prompt = SubtitlePolisher.itemsPrompt(header: header, items: indices.map { ($0, texts[$0]) })
             return await SubtitlePolisher.generate(engine: engine, instructions: instructions, prompt: prompt,
                                                    apiKey: apiKey, network: network)
@@ -352,9 +352,10 @@ enum SubtitlePolisher {
             - ローマ字で書かれた相づち・感動詞(hun, hmm, hm, mm, uh, um, ah, oh, eh, huh, un, nn など)は誤認識なので削る
             - 内容は絶対に追加しない。要約・意訳・敬語への言い換えもしない。話し言葉の語尾はそのまま残す
             - 字幕の数と番号は入力と同じにする(複数の字幕を 1 つにまとめない)
+            - 話す間があいて、1 つの文が複数の字幕に分かれていることがある。字幕が文の途中で終わり、次の番号の字幕に同じ文が続くときは、その字幕に "c":true を付け、終わりに「。」を付けない(次の字幕の言葉は入れない)。文がそこで終わる字幕と、最後の番号の字幕には付けない
             - 1 つの字幕は日本語で約 26 文字以内にする。長すぎるときだけ、文節の切れ目(読点・助詞の後など、単語の途中ではない位置)に改行(\\n)を 1 つ入れて 2 つに分ける
             - フィラーや相づちだけで意味の無い字幕は空文字列 "" にする
-            - 出力は JSON オブジェクトのみ。形式: {"items":[{"i":番号,"t":"字幕"}, ...]}
+            - 出力は JSON オブジェクトのみ。形式: {"items":[{"i":番号,"t":"字幕"}, {"i":番号,"t":"字幕","c":true}, ...]}
             """
         case .english:
             return """
@@ -364,9 +365,10 @@ enum SubtitlePolisher {
             - Add natural punctuation and capitalization. Remove fillers (um, uh, you know) and false starts.
             - Do not add, summarize, or paraphrase content. Keep the speaker's wording.
             - Keep the same number of subtitles and the same numbering (never merge subtitles).
+            - A pause can split one sentence across subtitles. If a subtitle stops in the middle of a sentence and the next numbered subtitle continues the same sentence, add "c":true to it and do not end it with a period (never copy words from the next subtitle). Do not add it to a subtitle that ends a sentence, or to the last subtitle.
             - Only if a subtitle is too long, insert exactly one line break (\\n) at a sentence boundary to split it in two.
             - If a subtitle is only filler with no meaning, return an empty string "".
-            - Output JSON only, in the form: {"items":[{"i":number,"t":"subtitle"}, ...]}
+            - Output JSON only, in the form: {"items":[{"i":number,"t":"subtitle"}, {"i":number,"t":"subtitle","c":true}, ...]}
             """
         }
     }
@@ -411,7 +413,8 @@ enum SubtitlePolisher {
     /// count 件をエンジンごとのバッチサイズで処理し、index → 応答テキストを集める。
     /// 読めなかったバッチは半分に割って送り直す(process)。クラウドは最大 cloudMaxConcurrentBatches 本を同時に処理する。
     /// 結果はバッチ順にまとめる
-    private static func runBatches(count: Int, engine: ResolvedEngine,
+    /// readsContinuation: 応答の "c":true(文が次の字幕に続く)を読み、応答テキストの終わりに continuationMarker を付ける(校正だけ)
+    private static func runBatches(count: Int, engine: ResolvedEngine, readsContinuation: Bool = false,
                                    generate: @escaping @Sendable ([Int]) async -> String?) async -> [Int: String] {
         let size = max(1, batchSize(for: engine))
         let maxConcurrent = maxConcurrentBatches(for: engine)
@@ -425,7 +428,8 @@ enum SubtitlePolisher {
             // 1 本ずつ(端末内モデルは同時に 1 セッションだけ)
             for indices in batches {
                 if Task.isCancelled { return [:] }
-                let got = await SubtitlePolisher.process(indices: indices, depth: 0, engine: engine, generate: generate)
+                let got = await SubtitlePolisher.process(indices: indices, depth: 0, engine: engine,
+                                                         readsContinuation: readsContinuation, generate: generate)
                 perBatch.append(got)
             }
         } else {
@@ -441,6 +445,7 @@ enum SubtitlePolisher {
                         let indices = batches[batchIndex]
                         group.addTask {
                             let got = await SubtitlePolisher.process(indices: indices, depth: 0, engine: engine,
+                                                                     readsContinuation: readsContinuation,
                                                                      generate: generate)
                             return (batchIndex, got)
                         }
@@ -466,19 +471,21 @@ enum SubtitlePolisher {
     /// 応答が届いたのに読めなかったときは半分に割って送り直す(maxSplitDepth まで)。
     /// 応答が無かった(通信・サーバーのエラー・ポイント不足・ログインの期限切れ)ときは、割って送り直しても同じ結果で
     /// ポイントだけ減りかねないので、クラウドは諦める。端末内モデルはコンテキスト超過で失敗(nil)することがあるので割る
-    private static func process(indices: [Int], depth: Int, engine: ResolvedEngine,
+    private static func process(indices: [Int], depth: Int, engine: ResolvedEngine, readsContinuation: Bool = false,
                                 generate: ([Int]) async -> String?) async -> [Int: String] {
         if Task.isCancelled || indices.isEmpty { return [:] }
         let raw = await generate(indices)
-        if let raw, let parsed = parseItems(raw) {
+        if let raw, let parsed = parseItems(raw, readsContinuation: readsContinuation) {
             let valid = parsed.filter { indices.contains($0.key) }
             if !valid.isEmpty { return valid }
         }
         if raw == nil, engine != .onDevice { return [:] }
         guard indices.count > 4, depth < maxSplitDepth(for: engine) else { return [:] }
         let mid = indices.count / 2
-        let left = await process(indices: Array(indices[0..<mid]), depth: depth + 1, engine: engine, generate: generate)
-        let right = await process(indices: Array(indices[mid...]), depth: depth + 1, engine: engine, generate: generate)
+        let left = await process(indices: Array(indices[0..<mid]), depth: depth + 1, engine: engine,
+                                 readsContinuation: readsContinuation, generate: generate)
+        let right = await process(indices: Array(indices[mid...]), depth: depth + 1, engine: engine,
+                                  readsContinuation: readsContinuation, generate: generate)
         return left.merging(right) { _, new in new }
     }
 
@@ -634,7 +641,11 @@ enum SubtitlePolisher {
     // MARK: - 応答の解析
 
     /// {"items":[{"i":0,"t":"..."}]} / [{"i":..}] / {"0":"..."} のいずれも受け付ける
-    static func parseItems(_ raw: String) -> [Int: String]? {
+    /// 応答テキストの終わりに付ける印(文が次の字幕に続く。apply が読んで外す)。字幕の文には出てこない制御文字
+    static let continuationMarker = "\u{1F}c"
+
+    /// readsContinuation のときは、"c":true の付いた項目のテキストの終わりに continuationMarker を付ける
+    static func parseItems(_ raw: String, readsContinuation: Bool = false) -> [Int: String]? {
         guard let object = extractJSON(raw) else { return nil }
         var array: [Any]? = object as? [Any]
         if array == nil, let dict = object as? [String: Any] {
@@ -665,7 +676,8 @@ enum SubtitlePolisher {
             let text = (item["t"] as? String) ?? (item["text"] as? String) ?? (item["subtitle"] as? String)
                 ?? (item["translation"] as? String)
             guard let index, let text else { continue }
-            result[index] = text
+            let continues = readsContinuation && ((item["c"] as? Bool) == true || (item["c"] as? String)?.lowercased() == "true")
+            result[index] = continues ? text + continuationMarker : text
         }
         return result.isEmpty ? nil : result
     }
@@ -708,11 +720,15 @@ enum SubtitlePolisher {
     private static func apply(_ replies: [Int: String], to cues: [SubtitleCue], language: TranscriptionLanguage) -> [SubtitleCue] {
         var result: [SubtitleCue] = []
         result.reserveCapacity(cues.count)
+        // AI が「文が次の字幕に続く」と答えた字幕の id(直しを使った字幕だけ。分けたときは最後の 1 件)
+        var continuing: Set<UUID> = []
         for (index, cue) in cues.enumerated() {
-            guard let reply = replies[index] else {
+            guard var reply = replies[index] else {
                 result.append(cue)
                 continue
             }
+            let continues = reply.hasSuffix(continuationMarker)
+            if continues { reply.removeLast(continuationMarker.count) }
             let original = cue.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let stripped = stripLeadingIndex(reply.replacingOccurrences(of: "\r", with: ""), index: index)
             let pieces = stripped.components(separatedBy: "\n")
@@ -740,8 +756,77 @@ enum SubtitlePolisher {
             } else {
                 result.append(contentsOf: split(cue, into: Array(pieces.prefix(3)), language: language))
             }
+            if continues, let last = result.last { continuing.insert(last.id) }
         }
+        return joinContinued(result, continuing: continuing, language: language)
+    }
+
+    // MARK: - 文の途中で分かれた字幕
+
+    /// つなぐのは、間がこれ以下のときだけ(秒)。これより長い間をまたぐと、字幕が話すよりずっと前から出てしまう
+    static let continuedJoinMaxGap: Double = 2.0
+    /// つないだ字幕の長さの上限(秒。SubtitleSegmenter の 1 件の上限と同じ)
+    static let continuedJoinMaxDuration: Double = 6.0
+
+    /// つないだ字幕の文字数の上限(SubtitleSegmenter の 1 件の上限と同じ)
+    static func continuedJoinMaxLength(_ language: TranscriptionLanguage) -> Int {
+        language == .japanese ? 26 : 42
+    }
+
+    /// 話す間があいて 1 つの文が複数の字幕に分かれたもの(continuing = AI が「次に続く」と答えた字幕)を整える。
+    /// 間が短く、つないでも 1 件の上限に収まるなら次の字幕とつなぐ。そうでなければ字幕は分けたまま、終わりの句点だけ外す
+    /// (「東京は。」「お昼から。」「雨です。」のように、文の途中に「。」が付いていた)。
+    /// つなぐかどうかの判断だけを AI に任せ、文と時刻はここで作る(AI に字幕をまとめさせると番号がずれるため)
+    static func joinContinued(_ cues: [SubtitleCue], continuing: Set<UUID>, language: TranscriptionLanguage) -> [SubtitleCue] {
+        guard !continuing.isEmpty else { return cues }
+        var result: [SubtitleCue] = []
+        result.reserveCapacity(cues.count)
+        // result の最後の字幕が「次に続く」か
+        var lastContinues = false
+        for cue in cues {
+            if lastContinues, let previous = result.last {
+                let head = droppingSentencePeriod(previous.text)
+                let separator = language == .japanese ? "" : " "
+                let joinedText = head + separator + cue.text
+                let gap = cue.start - previous.end
+                if gap <= continuedJoinMaxGap, cue.start >= previous.start,
+                   max(previous.end, cue.end) - previous.start <= continuedJoinMaxDuration,
+                   joinedText.count <= continuedJoinMaxLength(language) {
+                    result[result.count - 1] = joined(previous, cue, text: joinedText, language: language)
+                    lastContinues = continuing.contains(cue.id)
+                    continue
+                }
+                result[result.count - 1] = retexted(previous, newText: head, language: language)
+            }
+            result.append(cue)
+            lastContinues = continuing.contains(cue.id)
+        }
+        // 最後の字幕が「次に続く」のまま(次が無い)なら、句点はそのまま
         return result
+    }
+
+    /// 終わりの句点(。と .)を外す。? ! … は意味があるので残す
+    static func droppingSentencePeriod(_ text: String) -> String {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while let last = trimmed.last, last == "。" || last == "." || last == "．" {
+            trimmed.removeLast()
+        }
+        return trimmed.isEmpty ? text : trimmed
+    }
+
+    /// 2 つの字幕を 1 件にする(id と始まりは前の字幕、終わりは後ろの字幕)
+    private static func joined(_ a: SubtitleCue, _ b: SubtitleCue, text: String, language: TranscriptionLanguage) -> SubtitleCue {
+        var merged = a
+        merged.end = max(a.end, b.end)
+        merged.text = text
+        let words = a.words + b.words
+        merged.words = words.isEmpty ? [] : rescaleWords(words, newText: text, start: merged.start, end: merged.end, language: language)
+        merged.doubtfulWords = a.doubtfulWords + b.doubtfulWords
+        merged.issueDismissed = a.issueDismissed && b.issueDismissed
+        let fillers = (a.removedFillers?.words ?? []) + (b.removedFillers?.words ?? [])
+        merged.removedFillers = fillers.isEmpty ? nil
+            : RemovedSubtitleFillers(words: fillers, cueStart: merged.start, cueEnd: merged.end)
+        return merged
     }
 
     /// 「12: 本文」のように番号が混入していたら外す
@@ -761,6 +846,8 @@ enum SubtitlePolisher {
     /// - 元の文より大きく長い(内容の追加や、隣の字幕を取り込んだ)/ 大きく短い
     /// - 元の文と似ていない(文字の 2 つ組の重なりで比べる)
     /// - 元の文より、前後の字幕の文のほうに似ている(番号がずれている)
+    /// - 元の文に無かった前後の字幕の文が、まるごと入っている(「お昼から」が「お昼から。雨です。」になり、
+    ///   次の字幕「雨です。」と同じ言葉が 2 回出ていた。短い字幕では長さと似ている度合いの確認を通ってしまう。1.12.112 まで)
     static func isPlausible(original: String, candidate: String, previous: String = "", next: String = "") -> Bool {
         let a = normalizedForComparison(original).count
         let b = normalizedForComparison(candidate).count
@@ -773,7 +860,20 @@ enum SubtitlePolisher {
         for neighbor in [previous, next] where normalizedForComparison(neighbor).count >= 2 {
             if similarity(neighbor, candidate) > own + 0.05 { return false }
         }
+        if absorbsNeighbor(original: original, candidate: candidate, previous: previous, next: next) { return false }
         return true
+    }
+
+    /// 直した文が、隣の字幕の文をまるごと取り込んでいるか(元の文には無かったもの)。
+    /// 次の字幕の文は終わりに、前の字幕の文は頭に付く。2 文字以下の隣の文は、たまたま含まれることがあるので見ない
+    static func absorbsNeighbor(original: String, candidate: String, previous: String, next: String) -> Bool {
+        let own = String(normalizedForComparison(original))
+        let fixed = String(normalizedForComparison(candidate))
+        let after = String(normalizedForComparison(next))
+        if after.count >= 3, fixed.count > after.count, fixed.hasSuffix(after), !own.contains(after) { return true }
+        let before = String(normalizedForComparison(previous))
+        if before.count >= 3, fixed.count > before.count, fixed.hasPrefix(before), !own.contains(before) { return true }
+        return false
     }
 
     /// 比べるための形(小文字にして、空白・句読点・記号を除く)
